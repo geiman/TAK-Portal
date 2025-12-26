@@ -17,7 +17,7 @@ Commands:
   start    Build (if needed) and start the stack in the background
   stop     Stop the stack and keep data volume
   restart  Restart containers (rebuild if needed)
-  update   git pull (if repo) + rebuild & restart containers
+  update   git pull + rebuild & restart containers
   logs     Follow logs from the container
   status   Show container status
   remove   Completely remove containers, volumes, network, and images
@@ -73,15 +73,39 @@ case "$CMD" in
     $COMPOSE_CMD up -d --build
     ;;
 
-  update)
-    echo "Updating..."
+    update)
+    echo "Updating repository and containers..."
+
     if [[ -d .git ]]; then
+      echo "Fetching latest code..."
       git pull --rebase --autostash || git pull
     else
-      echo "No git repo — skipping pull."
+      echo "No .git directory found; skipping git pull."
     fi
+
+    echo "Rebuilding and recreating containers..."
     $COMPOSE_CMD up -d --build
+
+    echo
+    echo "Waiting 20 seconds for the app to start..."
+    sleep 20
+
+    echo
+    echo "Check logs to verify everything looks healthy:"
+    echo
+    echo "  ./$(basename "${BASH_SOURCE[0]}") logs"
+    echo
+    read -p "Does everything look good? Type 'yes' to remove old images: " confirm
+
+    if [[ "$confirm" == "yes" ]]; then
+      echo "Removing unused Docker images..."
+      docker image prune -f
+      echo "Old images cleaned up."
+    else
+      echo "Skipping cleanup — old images retained."
+    fi
     ;;
+
 
   logs)
     echo "Following logs (Ctrl+C to exit)..."
