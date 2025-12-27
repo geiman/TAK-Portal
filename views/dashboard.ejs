@@ -71,24 +71,30 @@
     </div>
   </div>
 
-  <div class="card" style="margin-top:14px;">
-    <h2>Bookmarks</h2>
-    <div class="row" style="flex-wrap:wrap; gap:10px;">
-      <a class="btn" href="https://tak.hcsheriff.gov:8443/Marti"target="_blank">TAK Server</a>
-      <a class="btn" href="https://cloudtak.hcsheriff.gov"target="_blank">CloudTAK</a>
-      <a class="btn" href="http://172.22.112.36:9200/if/admin/#/administration/overview"target="_blank">Authentik</a>
-      <a class="btn" href="http://172.22.112.36:1880/"target="_blank">Node-Red</a>
-      <a class="btn" href="http://172.22.112.36:9100/#!/auth"target="_blank">Portainer</a>
-      <a class="btn" href="http://172.22.112.36:3001/dashboard"target="_blank">Uptime Kuma</a>
+  <% if (bookmarks && bookmarks.length > 0) { %>
+    <div class="card" style="margin-top:14px;">
+      <h2>Bookmarks</h2>
+      <div class="row" style="flex-wrap:wrap; gap:10px;">
+        <% bookmarks.forEach(function(bm) { %>
+          <a
+            class="btn"
+            href="<%= bm.url %>"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <%= bm.title %>
+          </a>
+        <% }); %>
+      </div>
     </div>
-  </div>
+  <% } %>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
   <script>
     // ---- Left chart: Users by Agency ----
-    const usersByAgency = <%- JSON.stringify((charts && charts.usersByAgency) || {}) %>;
-    const unknownAgency = <%- JSON.stringify((charts && charts.unknownAgency) || 0) %>;
+    const usersByAgency = JSON.parse('<%- JSON.stringify((charts && charts.usersByAgency) || {}) %>');
+    const unknownAgency = Number('<%- JSON.stringify((charts && charts.unknownAgency) || 0) %>');
 
     const agencyLabels = Object.keys(usersByAgency);
     const agencyData = Object.values(usersByAgency);
@@ -113,8 +119,8 @@
     });
 
     // ---- Right chart: Users by Agency Type ----
-    const usersByType = <%- JSON.stringify((charts && charts.usersByType) || {}) %>;
-    const unknownType = <%- JSON.stringify((charts && charts.unknownType) || 0) %>;
+    const usersByType = JSON.parse('<%- JSON.stringify((charts && charts.usersByType) || {}) %>');
+    const unknownType = Number('<%- JSON.stringify((charts && charts.unknownType) || 0) %>');
 
     const typeLabels = Object.keys(usersByType);
     const typeData = Object.values(usersByType);
@@ -141,56 +147,54 @@
 </main>
 
 <style>
-.grid3{
-  display:grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-}
-.grid2{
-  display:grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-}
-@media (max-width: 1100px){
-  .grid3{ grid-template-columns: 1fr; }
-  .grid2{ grid-template-columns: 1fr; }
-}
-.stat{ padding: 18px; }
-.statLabel{
-  font-size: 25px;
-  color: var(--muted);
-  margin-bottom: 10px;
-}
-.statValue{
-  font-size: 70px;
-  font-weight: 800;
-  line-height: 1;
-}
-.statHint{
-  margin-top: 10px;
-  color: var(--muted);
-  font-size: 12px;
-}
+  .grid3{
+    display:grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+  }
+  .grid2{
+    display:grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+  @media (max-width: 1100px){
+    .grid3{ grid-template-columns: 1fr; }
+    .grid2{ grid-template-columns: 1fr; }
+  }
+  .stat{ padding: 18px; }
+  .statLabel{
+    font-size: 25px;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+  .statValue{
+    font-size: 70px;
+    font-weight: 800;
+    line-height: 1;
+  }
+  .statHint{
+    margin-top: 10px;
+    color: var(--muted);
+    font-size: 12px;
+  }
 
-/* Makes both charts smaller + centered */
-.chartWrap{
-  max-width: 320px;
-  margin: 0 auto;
-}
+  /* Makes both charts smaller + centered */
+  .chartWrap{
+    max-width: 320px;
+    margin: 0 auto;
+  }
 
-.maBanner{
-  padding: 12px 14px;
-  border-radius: 12px;
-  font-weight: 800;
-  color: #ffffff;
-  margin-bottom: 10px;
-}
-.maBannerIncident{
-  background: #992525;
-}
-.maBannerEvent{
-  background: #995725;
-}
+  .maBanner{
+    padding: 12px 14px;
+    border-radius: 12px;
+    font-weight: 800;
+    color: #ffffff;
+    margin-bottom: 10px;
+  }
+  .maBannerIncident{
+    background: #992525;
+  }
+  .maBannerEvent{
+    background: #995725;
+  }
 </style>
-
-</div></body></html>

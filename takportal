@@ -9,18 +9,19 @@ SERVICE_NAME="tak-portal"
 
 usage() {
   cat <<EOF
-Usage: $0 {setup|config|start|stop|restart|update|logs|status|remove}
+Usage: $0 {setup|config|bookmarks|start|stop|restart|update|logs|status|remove}
 
 Commands:
-  setup    Create/edit .env and make sure script is ready
-  config   Alias for 'setup'
-  start    Build (if needed) and start the stack in the background
-  stop     Stop the stack and keep data volume
-  restart  Restart containers (rebuild if needed)
-  update   git pull + rebuild & restart containers
-  logs     Follow logs from the container
-  status   Show container status
-  remove   Completely remove containers, volumes, network, and images
+  setup      Create/edit .env and make sure script is ready
+  config     Alias for 'setup'
+  bookmarks  Create/edit bookmarks.env for dashboard quick links
+  start      Build (if needed) and start the stack in the background
+  stop       Stop the stack and keep data volume
+  restart    Restart containers (rebuild if needed)
+  update     git pull + rebuild & restart containers, then optionally prune old images
+  logs       Follow logs from the container
+  status     Show container status
+  remove     Completely remove containers, volumes, network, and images
 EOF
 }
 
@@ -41,6 +42,24 @@ ensure_env() {
   fi
 }
 
+ensure_bookmarks_env() {
+  if [[ -f bookmarks.env ]]; then
+    echo "bookmarks.env already exists — opening in nano..."
+    nano bookmarks.env
+  else
+    if [[ -f bookmarks.env.example ]]; then
+      echo "Creating bookmarks.env from bookmarks.env.example..."
+      cp bookmarks.env.example bookmarks.env
+      echo "Opening bookmarks.env in nano..."
+      nano bookmarks.env
+    else
+      echo "ERROR: Neither bookmarks.env nor bookmarks.env.example found."
+      echo "Create bookmarks.env.example or bookmarks.env first."
+      exit 1
+    fi
+  fi
+}
+
 CMD="${1:-}"
 
 case "$CMD" in
@@ -52,13 +71,18 @@ case "$CMD" in
     echo "  ./$(basename "${BASH_SOURCE[0]}") start"
     ;;
 
+  bookmarks)
+    echo "Configuring dashboard bookmarks..."
+    ensure_bookmarks_env
+    ;;
+
   start)
     if [[ ! -f .env ]]; then
       echo "ERROR: .env missing. Run:"
       echo "  ./$(basename "${BASH_SOURCE[0]}") setup"
       exit 1
     fi
-    echo "Starting TAK User Management Portal..."
+    echo "Starting TAK Portal..."
     $COMPOSE_CMD up -d --build
     ;;
 
@@ -73,7 +97,7 @@ case "$CMD" in
     $COMPOSE_CMD up -d --build
     ;;
 
-    update)
+  update)
     echo "Updating repository and containers..."
 
     if [[ -d .git ]]; then
@@ -106,7 +130,6 @@ case "$CMD" in
     fi
     ;;
 
-
   logs)
     echo "Following logs (Ctrl+C to exit)..."
     $COMPOSE_CMD logs -f "$SERVICE_NAME"
@@ -124,11 +147,6 @@ case "$CMD" in
       exit 0
     fi
 
-    # This removes:
-    # - containers
-    # - networks created by compose
-    # - volumes declared in compose
-    # - images built by compose
     echo "Removing EVERYTHING created by docker compose..."
     $COMPOSE_CMD down -v --rmi local
 

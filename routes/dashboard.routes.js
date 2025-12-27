@@ -3,6 +3,7 @@ const router = require("express").Router();
 const usersService = require("../services/users.service");
 const agenciesStore = require("../services/agencies.service");
 const mutualAidService = require("../services/mutualAid.service");
+const bookmarksService = require("../services/bookmarks.service"); // ⬅️ new
 
 router.get("/", async (req, res) => {
   try {
@@ -65,6 +66,8 @@ router.get("/", async (req, res) => {
       // Non-fatal; banners are optional.
     }
 
+    const bookmarks = bookmarksService.loadBookmarks(); // ⬅️ new
+
     res.render("dashboard", {
       stats: {
         totalUsers: users.length,
@@ -80,9 +83,12 @@ router.get("/", async (req, res) => {
         unknownAgency,
         usersByType,
         unknownType
-      }
+      },
+      bookmarks // ⬅️ new
     });
   } catch (err) {
+    const bookmarks = bookmarksService.loadBookmarks(); // ⬅️ optional but nice
+
     res.status(500).render("dashboard", {
       stats: { totalUsers: 0, totalGroups: 0, totalAgencies: 0 },
       mutualAid: { activeIncidents: 0, activeEvents: 0 },
@@ -92,6 +98,7 @@ router.get("/", async (req, res) => {
         usersByType: {},
         unknownType: 0
       },
+      bookmarks, // ⬅️ new
       error: err?.response?.data || err?.message || "Failed to load dashboard"
     });
   }
