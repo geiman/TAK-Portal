@@ -2,7 +2,6 @@ require("dotenv").config();
 const express = require("express");
 const path = require("path");
 
-// Initialize mutual aid expiration scheduler (best-effort)
 const mutualAidSvc = require("./services/mutualAid.service");
 
 const app = express();

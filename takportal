@@ -12,7 +12,7 @@ usage() {
 Usage: $0 {setup|config|bookmarks|start|stop|restart|update|logs|status|remove}
 
 Commands:
-  setup      Create/edit .env and make sure script is ready
+  setup      Create/edit .env and make sure script is ready (also ensures bookmarks.env exists)
   config     Alias for 'setup'
   bookmarks  Create/edit bookmarks.env for dashboard quick links
   start      Build (if needed) and start the stack in the background
@@ -66,9 +66,17 @@ case "$CMD" in
   setup|config)
     echo "Running setup/config..."
     ensure_env
+
+    # Ensure bookmarks.env exists on initial setup, but don't open nano here.
+    if [[ ! -f bookmarks.env ]] && [[ -f bookmarks.env.example ]]; then
+      echo "Creating default bookmarks.env from bookmarks.env.example..."
+      cp bookmarks.env.example bookmarks.env
+    fi
+
     echo
     echo "Setup complete. You can now run:"
     echo "  ./$(basename "${BASH_SOURCE[0]}") start"
+    echo "Optional: ./$(basename "${BASH_SOURCE[0]}") bookmarks   # to edit dashboard bookmarks"
     ;;
 
   bookmarks)
