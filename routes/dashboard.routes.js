@@ -18,6 +18,11 @@ function buildCharts(users, agencies) {
     }))
     .filter(a => a.name && a.suffix);
 
+  const suffixToAgency = new Map();
+  for (const a of agenciesNorm) {
+    suffixToAgency.set(a.suffix, a);
+  }
+
   const usersByAgency = {};
   for (const a of agenciesNorm) {
     usersByAgency[a.name] = 0;
@@ -28,23 +33,46 @@ function buildCharts(users, agencies) {
   const usersByType = {};
   let unknownType = 0;
 
+  const knownSuffixes = Array.from(suffixToAgency.keys());
+
   for (const u of users || []) {
-    const uname = String(u.username || "").toLowerCase();
-    const match = agenciesNorm.find(a => uname.endsWith(a.suffix));
+    if (!u) continue;
 
-    if (match) {
-      usersByAgency[match.name] += 1;
+    const attrs = u.attributes || {};
+    let agencySuffix = String(attrs.agency || "").trim().toLowerCase();
 
-      const t = match.type || "Unknown";
-      usersByType[t] = (usersByType[t] || 0) + 1;
-    } else {
+    // Fallback to username suffix if needed
+    if (!agencySuffix && u.username) {
+      const uname = String(u.username).toLowerCase();
+      for (const sfx of knownSuffixes) {
+        if (uname.endsWith(sfx)) {
+          agencySuffix = sfx;
+          break;
+        }
+      }
+    }
+
+    const agency = agencySuffix ? suffixToAgency.get(agencySuffix) : null;
+    if (!agency) {
       unknownAgency += 1;
       unknownType += 1;
+      continue;
     }
+
+    const agencyName = agency.name || agencySuffix.toUpperCase();
+    const agencyType = agency.type || "Unknown";
+
+    if (!Object.prototype.hasOwnProperty.call(usersByAgency, agencyName)) {
+      usersByAgency[agencyName] = 0;
+    }
+    usersByAgency[agencyName] += 1;
+
+    usersByType[agencyType] = (usersByType[agencyType] || 0) + 1;
   }
 
   return { usersByAgency, unknownAgency, usersByType, unknownType };
 }
+
 
 router.get("/", async (req, res) => {
   const now = Date.now();
