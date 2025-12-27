@@ -397,3 +397,19 @@ input, select {
         padding-top: 64px;
     }
 }
+
+.settings-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+  
+  .settings-label {
+    font-weight: 600;
+  }
+  
+  .settings-help {
+    font-size: 0.8rem;
+    opacity: 0.8;
+  }
+  
