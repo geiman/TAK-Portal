@@ -56,33 +56,6 @@ function validatePassword(password) {
   return null;
 }
 
-/**
- * IMPORTANT: prevents "[object Object]" when Axios errors bubble up.
- * Converts AxiosError (and other thrown objects) into a useful string.
- */
-function formatAxiosError(err) {
-  const resp = err?.response;
-  const status = resp?.status;
-  const data = resp?.data;
-
-  if (data != null) {
-    if (typeof data === "string") return data;
-    try {
-      return JSON.stringify(data);
-    } catch {
-      // fall through
-    }
-  }
-
-  if (err?.message) return String(err.message);
-  if (status) return `HTTP ${status}`;
-  try {
-    return JSON.stringify(err);
-  } catch {
-    return "Unknown error";
-  }
-}
-
 async function resolveGroupNames(groupIds) {
   const ids = Array.isArray(groupIds)
     ? groupIds.map(x => String(x).trim()).filter(Boolean)
@@ -421,8 +394,26 @@ async function createUser(
 //   template (name must exist for the agency)
 // Any validation failure (except existing users) = ALL rows fail and NO users are created.
 // Existing users are *skipped* but reported back.
-async function importUsersFromCsvBuffer(buffer) {
+async function importUsersFromCsvBuffer(buffer, opts = {}) {
   if (!buffer) throw new Error("No file uploaded");
+
+  const onProgress = typeof opts.onProgress === "function" ? opts.onProgress : null;
+
+  // Throttle progress callbacks to avoid taxing the system.
+  let _lastProgressAt = 0;
+  function reportProgress(payload) {
+    if (!onProgress) return;
+    const now = Date.now();
+    // report at most 4x/sec, but always report final updates.
+    const force = payload?.force === true;
+    if (!force && now - _lastProgressAt < 250) return;
+    _lastProgressAt = now;
+    try {
+      onProgress(payload);
+    } catch (_) {
+      // never allow progress reporting to break imports
+    }
+  }
 
   const rawText = buffer.toString("utf8");
   if (!rawText.trim()) throw new Error("CSV file is empty");
@@ -434,6 +425,8 @@ async function importUsersFromCsvBuffer(buffer) {
 
   if (lines.length < 2)
     throw new Error("CSV must include header + at least one data row");
+
+  reportProgress({ phase: "parsing", total: Math.max(0, lines.length - 1), processed: 0, created: 0, skipped: 0, force: true });
 
   // ----------- Columns -----------
   const header = lines[0].split(",").map(h => h.trim().toLowerCase());
@@ -459,33 +452,18 @@ async function importUsersFromCsvBuffer(buffer) {
   }
 
   const agencies = agenciesStore.load();
-
-  // Preload all templates once and cache per-agency lookups to avoid
-  // repeatedly hitting the templates store for every CSV row.
-  const allTemplates = templatesStore.load();
-  const templatesByAgency = new Map();
-  function getTemplatesForAgencyCached(agencySuffix) {
-    const key = String(agencySuffix || "").trim().toLowerCase();
-    if (!templatesByAgency.has(key)) {
-      const filtered = allTemplates.filter(t => {
-        const tSfx = String(t.agencySuffix || "").trim().toLowerCase();
-        return tSfx === key;
-      });
-      const mapped = filtered.map(t => ({
-        name: String(t.name || "").trim(),
-        agencySuffix: String(t.agencySuffix || "").trim().toLowerCase(),
-        groups: Array.isArray(t.groups)
-          ? t.groups.map(g => String(g).trim()).filter(Boolean)
-          : [],
-        isDefault: !!t.isDefault,
-      }));
-      templatesByAgency.set(key, mapped);
-    }
-    return templatesByAgency.get(key) || [];
-  }
-
   const rows = [];
   const errors = [];
+
+  // Inform UI that we're validating (no network calls yet)
+  reportProgress({
+    phase: "validating",
+    total: Math.max(0, lines.length - 1),
+    processed: 0,
+    created: 0,
+    skipped: 0,
+    force: true,
+  });
 
   for (let i = 1; i < lines.length; i++) {
     const parts = lines[i].split(",");
@@ -538,7 +516,7 @@ async function importUsersFromCsvBuffer(buffer) {
 
     // Template must exist for the resolved agency
     if (templateName && agencySuffix) {
-      const dyn = getTemplatesForAgencyCached(agencySuffix);
+      const dyn = getTemplatesForAgency(agencySuffix);
       const found = dyn.find(
         t =>
           String(t.name || "").trim().toLowerCase() ===
@@ -562,6 +540,15 @@ async function importUsersFromCsvBuffer(buffer) {
       password,
       templateName,
     });
+
+    // Light progress during validation/parsing
+    reportProgress({
+      phase: "validating",
+      total: Math.max(0, lines.length - 1),
+      processed: Math.max(0, i),
+      created: 0,
+      skipped: 0,
+    });
   }
 
   if (errors.length) {
@@ -570,6 +557,9 @@ async function importUsersFromCsvBuffer(buffer) {
       errors.map(e => `Row ${e.line}: ${e.message}`).join("; ");
     throw new Error(msg);
   }
+
+  reportProgress({ phase: "creating", total: rows.length, processed: 0, created: 0, skipped: 0, force: true });
+
 
   async function runWithConcurrencyLimit(items, limit, worker) {
     let index = 0;
@@ -592,6 +582,7 @@ async function importUsersFromCsvBuffer(buffer) {
 
   const created = [];
   const skipped = [];
+  let processed = 0;
 
   // Preload Authentik groups once for all rows to avoid repeated API calls
   const allGroups = await getAllGroups();
@@ -599,29 +590,39 @@ async function importUsersFromCsvBuffer(buffer) {
   const defaultLimit = 5;
   const envVal = Number(process.env.USER_IMPORT_CONCURRENCY || "");
   const importConcurrency =
-    Number.isFinite(envVal) && envVal > 0 && envVal <= 20 ? envVal : defaultLimit;
+    Number.isFinite(envVal) && envVal > 0 && envVal <= 25 ? envVal : defaultLimit;
 
   // Use a modest concurrency to balance speed vs load on Authentik
   await runWithConcurrencyLimit(rows, importConcurrency, async row => {
-    const dyn = getTemplatesForAgencyCached(row.agencySuffix);
-    const idx = dyn.findIndex(
-      t =>
-        String(t.name || "").trim().toLowerCase() ===
-        String(row.templateName || "").trim().toLowerCase()
-    );
-    if (idx < 0) {
-      // Should not happen due to earlier validation, but keep defensive.
-      throw new Error(
-        `Template "${row.templateName}" not found during creation`
-      );
-    }
-
-    const username = `${row.badge}${row.agencySuffix}`;
-
-    // Dynamic templates are offset by +1 (0 = Manual Group Selection)
-    const templateIndex = 1 + idx;
-
     try {
+      const dyn = getTemplatesForAgency(row.agencySuffix);
+      const idx = dyn.findIndex(
+        t =>
+          String(t.name || "").trim().toLowerCase() ===
+          String(row.templateName || "").trim().toLowerCase()
+      );
+      if (idx < 0) {
+        // Should not happen due to earlier validation, but keep defensive.
+        throw new Error(
+          `Template "${row.templateName}" not found during creation`
+        );
+      }
+
+      const username = `${row.badge}${row.agencySuffix}`;
+
+      // Option B behavior: if user already exists, skip but record it.
+      if (await userExists(username)) {
+        skipped.push({
+          line: row.lineNum,
+          username,
+          reason: "Username already exists",
+        });
+        return;
+      }
+
+      // Dynamic templates are offset by +1 (0 = Manual Group Selection)
+      const templateIndex = 1 + idx;
+
       const result = await createUser(
         {
           badge: row.badge,
@@ -640,54 +641,29 @@ async function importUsersFromCsvBuffer(buffer) {
       const createdUsername =
         (result && result.user && result.user.username) || username;
       created.push({ username: createdUsername });
-    } catch (err) {
-      // If Authentik reports that the username already exists, treat it as a
-      // skipped row (same semantics as the explicit pre-check), but avoid an
-      // extra GET /core/users/ per user.
-      const resp = err && err.response;
-      const data = resp && resp.data;
-      let msg = "";
-
-      if (data && typeof data === "object") {
-        if (Array.isArray(data.username) && data.username.length) {
-          msg = String(data.username[0]);
-        } else if (typeof data.username === "string") {
-          msg = data.username;
-        } else if (Array.isArray(data.non_field_errors) && data.non_field_errors.length) {
-          msg = String(data.non_field_errors[0]);
-        } else {
-          try {
-            msg = JSON.stringify(data);
-          } catch {
-            msg = "";
-          }
-        }
-      } else if (typeof data === "string") {
-        msg = data;
-      } else if (err && err.message) {
-        msg = err.message;
-      }
-
-      const lower = String(msg || "").toLowerCase();
-      if (lower.includes("already") && lower.includes("exist") && lower.includes("username")) {
-        skipped.push({
-          line: row.lineNum,
-          username,
-          reason: "Username already exists",
-        });
-        return;
-      }
-
-      // Anything else is a real error: throw a STRING message (not an object),
-      // so the API/UI doesn't show "[object Object]".
-      const details = formatAxiosError(err);
-      throw new Error(`Row ${row.lineNum} (${username}): ${details}`);
+    } finally {
+      processed += 1;
+      reportProgress({
+        phase: "creating",
+        total: rows.length,
+        processed,
+        created: created.length,
+        skipped: skipped.length,
+      });
     }
+  });
+
+  reportProgress({
+    phase: "done",
+    total: rows.length,
+    processed: rows.length,
+    created: created.length,
+    skipped: skipped.length,
+    force: true,
   });
 
   return { count: created.length, created, skipped };
 }
-
 // Search users
 // - If no q provided -> returns all users (already filtered by folder)
 async function findUsers({ q }) {

@@ -3,10 +3,27 @@ const multer = require("multer");
 const upload = multer({ storage: multer.memoryStorage() });
 const users = require("../services/users.service");
 
+// -------------------- CSV import progress (in-memory) --------------------
+// Lightweight job store for progress reporting.
+// Polling this does NOT tax the system (just reads memory).
+const importJobs = new Map();
+
+function newJobId() {
+  // Simple unique ID: time + random
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 // Small helper to keep error responses consistent and safe
 function toErrorPayload(err) {
   const data = err?.response?.data;
-  if (data) return typeof data === "string" ? data : data;
+  if (data) {
+    if (typeof data === "string") return data;
+    try {
+      return JSON.stringify(data);
+    } catch (_) {
+      return "Unknown error";
+    }
+  }
   return err?.message || "Unknown error";
 }
 
@@ -43,11 +60,126 @@ router.post("/import-csv", upload.single("file"), async (req, res) => {
       return res.status(400).json({ error: "No CSV file uploaded" });
     }
 
+    const startedAt = Date.now();
     const result = await users.importUsersFromCsvBuffer(req.file.buffer);
-    res.json({ success: true, ...result });
+    const durationMs = Date.now() - startedAt;
+    res.json({
+      success: true,
+      ...result,
+      durationMs,
+      durationSeconds: Math.round((durationMs / 1000) * 10) / 10,
+    });
   } catch (err) {
     res.status(400).json({ error: toErrorPayload(err) });
   }
+});
+
+// NEW: start an async CSV import job (progress via polling)
+router.post("/import-csv/start", upload.single("file"), async (req, res) => {
+  try {
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({ error: "No CSV file uploaded" });
+    }
+
+    const jobId = newJobId();
+    const startedAt = Date.now();
+
+    // Initialize job state
+    importJobs.set(jobId, {
+      jobId,
+      status: "running", // running | done | failed
+      phase: "queued",   // queued | parsing | validating | creating | done
+      total: 0,
+      processed: 0,
+      created: 0,
+      skipped: 0,
+      startedAt,
+      finishedAt: null,
+      durationMs: null,
+      durationSeconds: null,
+      error: null,
+      result: null,
+    });
+
+    // Kick off the import without blocking the HTTP response
+    (async () => {
+      try {
+        const result = await users.importUsersFromCsvBuffer(req.file.buffer, {
+          onProgress: (p) => {
+            const job = importJobs.get(jobId);
+            if (!job || job.status !== "running") return;
+            job.phase = String(p?.phase || job.phase);
+            if (Number.isFinite(Number(p?.total))) job.total = Number(p.total);
+            if (Number.isFinite(Number(p?.processed))) job.processed = Number(p.processed);
+            if (Number.isFinite(Number(p?.created))) job.created = Number(p.created);
+            if (Number.isFinite(Number(p?.skipped))) job.skipped = Number(p.skipped);
+          }
+        });
+
+        const finishedAt = Date.now();
+        const durationMs = finishedAt - startedAt;
+        const job = importJobs.get(jobId);
+        if (job) {
+          job.status = "done";
+          job.phase = "done";
+          job.finishedAt = finishedAt;
+          job.durationMs = durationMs;
+          job.durationSeconds = Math.round((durationMs / 1000) * 10) / 10;
+          job.result = result;
+          job.total = job.total || Number(result?.created?.length || 0) + Number(result?.skipped?.length || 0);
+          job.processed = job.total;
+          job.created = Number(result?.created?.length || 0);
+          job.skipped = Number(result?.skipped?.length || 0);
+        }
+      } catch (e) {
+        const finishedAt = Date.now();
+        const durationMs = finishedAt - startedAt;
+        const job = importJobs.get(jobId);
+        if (job) {
+          job.status = "failed";
+          job.phase = "failed";
+          job.finishedAt = finishedAt;
+          job.durationMs = durationMs;
+          job.durationSeconds = Math.round((durationMs / 1000) * 10) / 10;
+          job.error = toErrorPayload(e);
+        }
+      }
+    })();
+
+    // Auto-clean this job after 1 hour to avoid unbounded memory usage
+    setTimeout(() => {
+      importJobs.delete(jobId);
+    }, 60 * 60 * 1000).unref?.();
+
+    res.json({ success: true, jobId });
+  } catch (err) {
+    res.status(400).json({ error: toErrorPayload(err) });
+  }
+});
+
+// NEW: poll an import job's progress
+router.get("/import-csv/status/:jobId", (req, res) => {
+  const jobId = String(req.params.jobId || "");
+  const job = importJobs.get(jobId);
+  if (!job) return res.status(404).json({ error: "Import job not found" });
+
+  // Return a safe subset
+  res.json({
+    success: true,
+    jobId: job.jobId,
+    status: job.status,
+    phase: job.phase,
+    total: job.total,
+    processed: job.processed,
+    created: job.created,
+    skipped: job.skipped,
+    startedAt: job.startedAt,
+    finishedAt: job.finishedAt,
+    durationMs: job.durationMs,
+    durationSeconds: job.durationSeconds,
+    error: job.error,
+    result: job.result,
+  });
 });
 
 router.get("/search", async (req, res) => {

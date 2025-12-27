@@ -372,57 +372,129 @@ if (csvBtn && csvFileInput) {
       return;
     }
 
-    // Option 1: simple "in progress" message + disable button
-    setMsg("Importing CSV… please wait...", true);
+    // Progress-reporting import (polling) - lightweight and safe
+    setMsg("Importing CSV… 0%", true);
     csvBtn.disabled = true;
+
+    const startedAt = Date.now();
+    let pollTimer = null;
 
     try {
       const formData = new FormData();
       formData.append("file", file);
 
-      const res = await fetch("/api/users/import-csv", {
+      // Start async job
+      const startRes = await fetch("/api/users/import-csv/start", {
         method: "POST",
         body: formData
       });
 
-      const out = await res.json();
-      if (!res.ok || !out.success) {
-        setMsg(out.error || "CSV import failed", false);
+      const startOut = await startRes.json();
+      if (!startRes.ok || !startOut.success) {
+        setMsg(startOut.error || "CSV import failed to start", false);
         return;
       }
 
-      const count = Number(out.count || 0);
-      const skippedArr = Array.isArray(out.skipped) ? out.skipped : [];
-      const skippedCount = skippedArr.length;
-
-      let message = "";
-
-      if (count && skippedCount) {
-        message = `Imported ${count} user${count === 1 ? "" : "s"} from CSV. Skipped ${skippedCount} existing user${skippedCount === 1 ? "" : "s"}.`;
-      } else if (count && !skippedCount) {
-        message = `Imported ${count} user${count === 1 ? "" : "s"} from CSV.`;
-      } else if (!count && skippedCount) {
-        message = `No new users imported. Skipped ${skippedCount} existing user${skippedCount === 1 ? "" : "s"}.`;
-      } else {
-        message = "No users imported from CSV.";
+      const jobId = startOut.jobId;
+      if (!jobId) {
+        setMsg("CSV import failed to start (missing job id)", false);
+        return;
       }
 
-      if (skippedCount) {
-        const usernames = skippedArr.map(s => s.username).join(", ");
-        message += ` (Skipped usernames: ${usernames})`;
-      }
+      // Poll status ~1x/sec (low impact)
+      const poll = async () => {
+        const res = await fetch(`/api/users/import-csv/status/${jobId}`);
+        const out = await res.json();
+        if (!res.ok || !out.success) {
+          throw new Error(out.error || "Failed to read import status");
+        }
 
-      setMsg(message, count > 0);
+        const total = Number(out.total || 0);
+        const processed = Number(out.processed || 0);
+        const created = Number(out.created || 0);
+        const skipped = Number(out.skipped || 0);
+        const phase = String(out.phase || "");
 
-      if (skippedArr.length) {
-        console.warn("Skipped users during CSV import:", skippedArr);
-      }
+        const elapsedMs = Date.now() - startedAt;
+        const elapsedSec = Math.round((elapsedMs / 1000) * 10) / 10;
+
+        let pct = 0;
+        if (total > 0) pct = Math.min(100, Math.round((processed / total) * 100));
+
+        // Live progress message
+        if (out.status === "running") {
+          const label = phase === "validating" ? "Validating" : phase === "creating" ? "Creating" : "Working";
+          setMsg(`${label}… ${pct}% (${processed}/${total || "?"}) • Created ${created} • Skipped ${skipped} • ${elapsedSec}s`, true);
+          return;
+        }
+
+        // Done or failed
+        if (out.status === "failed") {
+          const doneSec = out.durationSeconds != null ? out.durationSeconds : elapsedSec;
+          setMsg((out.error || "CSV import failed") + ` (after ${doneSec}s)`, false);
+          if (pollTimer) clearInterval(pollTimer);
+          pollTimer = null;
+          csvBtn.disabled = false;
+          return;
+        }
+
+        // done
+        const result = out.result || {};
+        const count = Number(result.count || 0);
+        const skippedArr = Array.isArray(result.skipped) ? result.skipped : [];
+        const skippedCount = skippedArr.length;
+
+        let message = "";
+        if (count && skippedCount) {
+          message = `Imported ${count} user${count === 1 ? "" : "s"} from CSV. Skipped ${skippedCount} existing user${skippedCount === 1 ? "" : "s"}.`;
+        } else if (count && !skippedCount) {
+          message = `Imported ${count} user${count === 1 ? "" : "s"} from CSV.`;
+        } else if (!count && skippedCount) {
+          message = `No new users imported. Skipped ${skippedCount} existing user${skippedCount === 1 ? "" : "s"}.`;
+        } else {
+          message = "No users imported from CSV.";
+        }
+
+        const doneSec = out.durationSeconds != null ? out.durationSeconds : elapsedSec;
+        message += ` Completed in ${doneSec}s.`;
+
+        if (skippedCount) {
+          const usernames = skippedArr.map(s => s.username).join(", ");
+          message += ` (Skipped usernames: ${usernames})`;
+        }
+
+        setMsg(message, count > 0);
+        if (skippedArr.length) {
+          console.warn("Skipped users during CSV import:", skippedArr);
+        }
+
+        if (pollTimer) clearInterval(pollTimer);
+        pollTimer = null;
+        csvBtn.disabled = false;
+      };
+
+      // Run immediately, then every second
+      await poll();
+      pollTimer = setInterval(() => {
+        poll().catch(err => {
+          console.error(err);
+          setMsg(err.message || "CSV import failed", false);
+          if (pollTimer) clearInterval(pollTimer);
+          pollTimer = null;
+          csvBtn.disabled = false;
+        });
+      }, 1000);
     } catch (err) {
       console.error(err);
-      setMsg("CSV import failed", false);
-    } finally {
-      csvFileInput.value = "";
+      setMsg(err.message || "CSV import failed", false);
+      if (pollTimer) clearInterval(pollTimer);
+      pollTimer = null;
       csvBtn.disabled = false;
+    } finally {
+      // Re-enable button after completion/failure. Poll loop clears itself.
+      csvFileInput.value = "";
+      // If the job is still running, keep button disabled until it finishes.
+      // (We re-enable in the poll's completion paths.)
     }
   };
 }
