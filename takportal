@@ -14,7 +14,7 @@ Usage: $0 {setup|config|bookmarks|start|stop|restart|update|logs|status|remove}
 Commands:
   setup      Create/edit .env and make sure script is ready (also ensures bookmarks.env exists)
   config     Alias for 'setup'
-  bookmarks  Create/edit bookmarks.env for dashboard quick links
+  bookmarks  Create/edit bookmarks.env for dashboard quick links, then restart
   start      Build (if needed) and start the stack in the background
   stop       Stop the stack and keep data volume
   restart    Restart containers (rebuild if needed)
@@ -82,6 +82,16 @@ case "$CMD" in
   bookmarks)
     echo "Configuring dashboard bookmarks..."
     ensure_bookmarks_env
+
+    echo
+    echo "Restarting TAK Portal to apply bookmark changes..."
+    if [[ -f .env ]]; then
+      $COMPOSE_CMD down
+      $COMPOSE_CMD up -d --build
+      echo "Restart complete."
+    else
+      echo ".env not found; skipping restart. Run ./$(basename "${BASH_SOURCE[0]}") setup first."
+    fi
     ;;
 
   start)
