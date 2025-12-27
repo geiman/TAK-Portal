@@ -87,61 +87,91 @@
     </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
   <script>
-    // ---- Left chart: Users by Agency ----
-    const usersByAgency = JSON.parse('<%- JSON.stringify((charts && charts.usersByAgency) || {}) %>');
-    const unknownAgency = Number('<%- JSON.stringify((charts && charts.unknownAgency) || 0) %>');
+  (function() {
+    function initCharts() {
 
-    const agencyLabels = Object.keys(usersByAgency);
-    const agencyData = Object.values(usersByAgency);
-
-    if (unknownAgency > 0) {
-      agencyLabels.push("Unknown");
-      agencyData.push(unknownAgency);
+          // ---- Left chart: Users by Agency ----
+          const usersByAgency = JSON.parse('<%- JSON.stringify((charts && charts.usersByAgency) || {}) %>');
+          const unknownAgency = Number('<%- JSON.stringify((charts && charts.unknownAgency) || 0) %>');
+      
+          const agencyLabels = Object.keys(usersByAgency);
+          const agencyData = Object.values(usersByAgency);
+      
+          if (unknownAgency > 0) {
+            agencyLabels.push("Unknown");
+            agencyData.push(unknownAgency);
+          }
+      
+          const agencyCtx = document.getElementById("agencyChart");
+      
+          new Chart(agencyCtx, {
+            type: "pie",
+            data: {
+              labels: agencyLabels,
+              datasets: [{ data: agencyData }]
+            },
+            options: {
+              responsive: true,
+              plugins: { legend: { position: "bottom" } }
+            }
+          });
+      
+          // ---- Right chart: Users by Agency Type ----
+          const usersByType = JSON.parse('<%- JSON.stringify((charts && charts.usersByType) || {}) %>');
+          const unknownType = Number('<%- JSON.stringify((charts && charts.unknownType) || 0) %>');
+      
+          const typeLabels = Object.keys(usersByType);
+          const typeData = Object.values(usersByType);
+      
+          if (unknownType > 0) {
+            typeLabels.push("Unknown");
+            typeData.push(unknownType);
+          }
+      
+          const typeCtx = document.getElementById("typeChart");
+      
+          new Chart(typeCtx, {
+            type: "pie",
+            data: {
+              labels: typeLabels,
+              datasets: [{ data: typeData }]
+            },
+            options: {
+              responsive: true,
+              plugins: { legend: { position: "bottom" } }
+            }
+          });
+        
     }
 
-    const agencyCtx = document.getElementById("agencyChart");
-
-    new Chart(agencyCtx, {
-      type: "pie",
-      data: {
-        labels: agencyLabels,
-        datasets: [{ data: agencyData }]
-      },
-      options: {
-        responsive: true,
-        plugins: { legend: { position: "bottom" } }
+    function loadChartJsAndInit() {
+      if (window.Chart) {
+        initCharts();
+        return;
       }
-    });
 
-    // ---- Right chart: Users by Agency Type ----
-    const usersByType = JSON.parse('<%- JSON.stringify((charts && charts.usersByType) || {}) %>');
-    const unknownType = Number('<%- JSON.stringify((charts && charts.unknownType) || 0) %>');
-
-    const typeLabels = Object.keys(usersByType);
-    const typeData = Object.values(usersByType);
-
-    if (unknownType > 0) {
-      typeLabels.push("Unknown");
-      typeData.push(unknownType);
+      // Try local chart.js first (place Chart.js bundle in /public/chart.js)
+      var localScript = document.createElement("script");
+      localScript.src = "/chart.js";
+      localScript.onload = initCharts;
+      localScript.onerror = function() {
+        // Fallback to CDN
+        var cdnScript = document.createElement("script");
+        cdnScript.src = "https://cdn.jsdelivr.net/npm/chart.js";
+        cdnScript.onload = initCharts;
+        document.head.appendChild(cdnScript);
+      };
+      document.head.appendChild(localScript);
     }
 
-    const typeCtx = document.getElementById("typeChart");
-
-    new Chart(typeCtx, {
-      type: "pie",
-      data: {
-        labels: typeLabels,
-        datasets: [{ data: typeData }]
-      },
-      options: {
-        responsive: true,
-        plugins: { legend: { position: "bottom" } }
-      }
-    });
-  </script>
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", loadChartJsAndInit);
+    } else {
+      loadChartJsAndInit();
+    }
+  })();
+</script>
 </main>
 
 <style>
