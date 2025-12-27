@@ -3,6 +3,7 @@ const express = require("express");
 const path = require("path");
 
 const { getString } = require("./services/env");
+const pkg = require("./package.json");
 const mutualAidSvc = require("./services/mutualAid.service");
 
 const app = express();
