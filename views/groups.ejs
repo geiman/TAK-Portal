@@ -10,6 +10,7 @@
     <div class="row">
       <select id="createType">
         <option value="agency" selected>Agency-Specific Group</option>
+        <option value="county">County-Specific Group</option>
         <option value="generic">Global Group</option>
       </select>
 
@@ -17,9 +18,13 @@
         <option value="">Select Agency Prefix</option>
       </select>
 
+      <select id="countySelect" style="display:none; width:260px;">
+        <option value="">Select County</option>
+      </select>
+
       <input id="groupName" placeholder="Group name" style="min-width: 360px;" />
 
-      <!-- NEW: Behavior dropdown -->
+      <!-- Behavior dropdown -->
       <select id="behaviorSelect" style="min-width: 160px;">
         <option value="both" selected>BOTH - Send and Recieve Location (default)</option>
         <option value="read">READ - Recieve Location Only</option>
@@ -30,8 +35,6 @@
     </div>
     <div id="createMsg" class="msg"></div>
   </div>
-
-  
 
   <div class="card">
     <div class="row" style="justify-content: space-between; align-items:center;">
@@ -148,9 +151,10 @@ const membersHint = document.getElementById("membersHint");
 
 const createType = document.getElementById("createType");
 const agencyPrefixSelect = document.getElementById("agencyPrefixSelect");
+const countySelect = document.getElementById("countySelect");
 const groupName = document.getElementById("groupName");
 
-// NEW:
+// Behavior dropdown
 const behaviorSelect = document.getElementById("behaviorSelect");
 
 const createBtn = document.getElementById("createBtn");
@@ -191,8 +195,6 @@ let groupsCache = [];
 let agenciesCache = [];
 
 // Action-lock prefixes (case-insensitive, comma-separated)
-// Groups whose name starts with one of these prefixes will have ALL action buttons hidden.
-// NOTE: This value comes from the server environment (.env).
 const GROUPS_ACTIONS_HIDDEN_PREFIXES_RAW = "<%= (process.env.GROUPS_ACTIONS_HIDDEN_PREFIXES) %>";
 const GROUPS_ACTIONS_HIDDEN_PREFIXES = GROUPS_ACTIONS_HIDDEN_PREFIXES_RAW
   .split(",")
@@ -234,12 +236,13 @@ async function loadAgencies(){
   if(!res.ok){
     agenciesCache = [];
     agencyPrefixSelect.innerHTML = `<option value="">No agencies loaded</option>`;
+    countySelect.innerHTML = `<option value="">No counties loaded</option>`;
     return;
   }
 
   agenciesCache = Array.isArray(out) ? out : [];
 
-  // --- top dropdown (groupPrefix) ---
+  // --- Agency prefix dropdown (groupPrefix) ---
   const prefixList = agenciesCache
     .filter(a => String(a.groupPrefix || "").trim())
     .slice()
@@ -252,6 +255,18 @@ async function loadAgencies(){
       const label = `${a.name} (${prefix})`;
       return `<option value="${esc(prefix)}">${esc(label)}</option>`;
     }).join("");
+
+  // --- County dropdown (unique counties from agencies) ---
+  const countySet = new Set(
+    agenciesCache
+      .map(a => String(a.county || "").trim())
+      .filter(c => c)
+  );
+  const countyList = Array.from(countySet).sort((a, b) => a.localeCompare(b));
+
+  countySelect.innerHTML =
+    `<option value="">Select County</option>` +
+    countyList.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
 
   renderAgencyList();
 }
@@ -288,9 +303,14 @@ function renderAgencyList(){
   }).join("") || `<div style="padding:10px; color: var(--muted);">No agencies found.</div>`;
 }
 
+// Show/hide agency / county selects based on type
 createType.onchange = () => {
-  const isAgency = createType.value === "agency";
+  const v = createType.value;
+  const isAgency = v === "agency";
+  const isCounty = v === "county";
+
   agencyPrefixSelect.style.display = isAgency ? "block" : "none";
+  countySelect.style.display = isCounty ? "block" : "none";
 };
 
 function renderGroups(){
@@ -326,7 +346,6 @@ function renderGroups(){
   `;
   }).join("");
 
-  // refresh the source-group list (for the mass-assign modal)
   renderSourceGroupList();
 }
 
@@ -361,12 +380,18 @@ createBtn.onclick = async () => {
 
   let name = baseName + behaviorSuffix;
 
-  // Apply agency prefix (if selected)
-  if (createType.value === "agency") {
+  const type = createType.value;
+
+  if (type === "agency") {
     const prefix = String(agencyPrefixSelect.value || "").trim().toUpperCase();
     if (!prefix) return setMsg(createMsg, "Select an agency prefix.", false);
     name = `${prefix}-${name}`;
+  } else if (type === "county") {
+    const county = String(countySelect.value || "").trim();
+    if (!county) return setMsg(createMsg, "Select a county.", false);
+    name = `${county}-${name}`;
   }
+  // type === "generic" just uses the base name + behavior suffix
 
   if (!confirm(`Create group "${name}"?`)) return;
 
@@ -387,6 +412,8 @@ createBtn.onclick = async () => {
   behaviorSelect.value = "both";
   await loadGroups();
 };
+
+// ---- existing code below unchanged ----
 
 // Rename (Edit Name)
 window.editGroupName = async (groupId) => {
@@ -687,8 +714,6 @@ membersOverlay.addEventListener("click", (e) => {
 });
 membersFilter.oninput = renderMembersList;
 
-// FIXED: openMassAssign and openMassUnassign are now two separate, top-level functions
-
 window.openMassAssign = async (groupId) => {
   const g = (groupsCache || []).find(x => String(x.pk) === String(groupId));
   if (g && groupActionsLocked(g.name)) {
@@ -699,7 +724,6 @@ window.openMassAssign = async (groupId) => {
   activeMassGroupName = String(g?.name || "");
   setMassAction("assign");
 
-  // reset selections
   agencySearch.value = "";
   userSearch.value = "";
   usersSearchCache = [];
@@ -710,7 +734,6 @@ window.openMassAssign = async (groupId) => {
   sourceGroupSearch.value = "";
   renderSourceGroupList();
 
-  // default to agency mode
   setMassMode("agency");
   updateMassPanes();
   showMassModal(true);
@@ -726,7 +749,6 @@ window.openMassUnassign = async (groupId) => {
   activeMassGroupName = String(g?.name || "");
   setMassAction("unassign");
 
-  // reset selections
   agencySearch.value = "";
   userSearch.value = "";
   usersSearchCache = [];
@@ -737,7 +759,6 @@ window.openMassUnassign = async (groupId) => {
   sourceGroupSearch.value = "";
   renderSourceGroupList();
 
-  // default to agency mode
   setMassMode("agency");
   updateMassPanes();
   showMassModal(true);
@@ -817,7 +838,6 @@ userSearch.oninput = () => {
 };
 
 userSelectAll.onclick = () => {
-  // Add all shown users to the persistent selection set
   usersSearchCache.forEach(u => {
     const id = String(u.pk || "").trim();
     if (id) selectedUserIds.add(id);
@@ -855,7 +875,6 @@ function renderSourceGroupList(){
 
 sourceGroupSearch.oninput = renderSourceGroupList;
 groupSelectAll.onclick = () => {
-  // add all currently shown groups
   sourceGroupList.querySelectorAll("input.srcGroupChk").forEach(c => {
     const id = String(c.value || "").trim();
     if (id) selectedSourceGroupIds.add(id);
