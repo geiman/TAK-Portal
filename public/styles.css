@@ -56,6 +56,7 @@ body {
     margin-top: 6px;
     opacity: .6;
     font-size: 11px;
+    text-align: center;
   }
   
 
@@ -80,6 +81,7 @@ body {
     margin-top: auto; /* pushes this section to the bottom of sidebar */
     padding-top: 1rem;
     border-top: 1px solid rgba(255, 255, 255, 0.15); /* subtle separator */
+    text-align: center;
 }
 
 .sidebar a {
