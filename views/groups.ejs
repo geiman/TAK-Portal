@@ -389,7 +389,7 @@ createBtn.onclick = async () => {
   } else if (type === "county") {
     const county = String(countySelect.value || "").trim();
     if (!county) return setMsg(createMsg, "Select a county.", false);
-    name = `${county}-${name}`;
+    name = `${county.toUpperCase()}-${name}`;
   }
   // type === "generic" just uses the base name + behavior suffix
 
