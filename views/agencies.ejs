@@ -24,11 +24,13 @@
                oninput="this.value = this.value.toLowerCase()" />
       </label>
 
-      <!-- 4) County dropdown (Hamilton only for now, prefilled) -->
+      <!-- 4) County text input (normalized + last-used) -->
       <label>County
-        <select name="county" required>
-          <option value="Hamilton" selected>Hamilton County</option>
-        </select>
+        <input
+          name="county"
+          placeholder="(ex. Hamilton County)"
+          required
+        />
       </label>
 
       <!-- 5) Type dropdown -->
@@ -85,7 +87,6 @@ const agencyTable = document.getElementById("agencyTable");
 
 let agencies = [];
 let sortState = { key: "name", dir: 1 }; // default: Agency asc
-
 
 function setMsg(text, ok=true){
   msg.textContent = text || "";
@@ -185,9 +186,71 @@ window.delAgency = async (id) => {
   loadAgenciesWithCounts();
 };
 
+// === County normalization helpers ===
+function toTitleCaseWords(str) {
+  return String(str || "")
+    .toLowerCase()
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+// Examples this handles:
+// "grundy"          -> "Grundy County"
+// "grundy county"   -> "Grundy County"
+// "GRUNDY COUNTY"   -> "Grundy County"
+// "  grundy   "     -> "Grundy County"
+function normalizeCountyName(raw) {
+  let v = String(raw || "").trim().replace(/\s+/g, " ");
+  if (!v) return "";
+
+  const lower = v.toLowerCase();
+  if (lower.endsWith(" county")) {
+    const base = v.slice(0, lower.lastIndexOf(" county"));
+    const baseTitle = toTitleCaseWords(base);
+    return baseTitle + " County";
+  } else {
+    const baseTitle = toTitleCaseWords(v);
+    return baseTitle + " County";
+  }
+}
+
+// === Remember last-used county between form submissions ===
+const COUNTY_KEY = "lastCountyUsed";
+
+function loadLastCounty() {
+  try {
+    const stored = localStorage.getItem(COUNTY_KEY);
+    if (stored) {
+      addForm.elements.county.value = stored;
+    }
+  } catch (e) {
+    // localStorage might be unavailable in some environments; fail silently
+  }
+}
+
+function saveLastCounty(county) {
+  try {
+    localStorage.setItem(COUNTY_KEY, county);
+  } catch (e) {
+    // ignore storage errors
+  }
+}
+
 addForm.onsubmit = async (e) => {
   e.preventDefault();
   setMsg("");
+
+  // Normalize county before sending to backend
+  const countyInput = addForm.elements.county;
+  countyInput.value = normalizeCountyName(countyInput.value);
+
+  // Save last-used county AFTER normalization
+  if (countyInput.value) {
+    saveLastCounty(countyInput.value);
+  }
 
   const body = Object.fromEntries(new FormData(addForm));
 
@@ -204,7 +267,9 @@ addForm.onsubmit = async (e) => {
   }
 
   addForm.reset();
-  addForm.elements.county.value = "Hamilton";
+
+  // Restore last-used county
+  loadLastCounty();
 
   setMsg("Agency added", true);
   loadAgenciesWithCounts();
@@ -233,6 +298,8 @@ agencyTable.querySelectorAll("thead th[data-sort]").forEach(th => {
   });
 });
 
+// Initialize last county + data on page load
+loadLastCounty();
 loadAgenciesWithCounts();
 </script>
 
