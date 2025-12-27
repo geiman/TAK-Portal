@@ -92,8 +92,8 @@
     function initCharts() {
 
           // ---- Left chart: Users by Agency ----
-          const usersByAgency = JSON.parse('<%- JSON.stringify((charts && charts.usersByAgency) || {}) %>');
-          const unknownAgency = Number('<%- JSON.stringify((charts && charts.unknownAgency) || 0) %>');
+          const usersByAgency = <%- JSON.stringify((charts && charts.usersByAgency) || {}) %>;
+          const unknownAgency = <%- JSON.stringify((charts && charts.unknownAgency) || 0) %>;
       
           const agencyLabels = Object.keys(usersByAgency);
           const agencyData = Object.values(usersByAgency);
@@ -118,8 +118,8 @@
           });
       
           // ---- Right chart: Users by Agency Type ----
-          const usersByType = JSON.parse('<%- JSON.stringify((charts && charts.usersByType) || {}) %>');
-          const unknownType = Number('<%- JSON.stringify((charts && charts.unknownType) || 0) %>');
+          const usersByType = <%- JSON.stringify((charts && charts.usersByType) || {}) %>;
+          const unknownType = <%- JSON.stringify((charts && charts.unknownType) || 0) %>;
       
           const typeLabels = Object.keys(usersByType);
           const typeData = Object.values(usersByType);
