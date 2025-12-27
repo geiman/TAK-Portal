@@ -1,5 +1,5 @@
 {
-  // Authentik / Portal
+
   "AUTHENTIK_URL": "http://your-authentik-url:9000",
   "AUTHENTIK_TOKEN": "your-real-token-here",
   "USERS_HIDDEN_PREFIXES": "ak-,adm_,nodered-",
@@ -7,7 +7,7 @@
   "USERS_ACTIONS_HIDDEN_PREFIXES": "incident-,event-",
   "GROUPS_ACTIONS_HIDDEN_PREFIXES": "",
 
-  // TAK Server
+
   "TAK_URL": "https://your-tak-server:8443/Marti",
   "TAK_API_P12_PATH": "./certs/webadmin.p12",
   "TAK_API_P12_PASSPHRASE": "atakatak",
@@ -16,7 +16,7 @@
   "TAK_DEBUG": "false",
   "TAK_BYPASS_ENABLED": "false",
 
-  // Email
+
   "EMAIL_ENABLED": "false",
   "EMAIL_PROVIDER": "smtp",
   "SMTP_HOST": "smtp.email.com",
@@ -29,7 +29,7 @@
   "EMAIL_SEND_COPY_TO": "",
   "EMAIL_FAIL_HARD": "false",
 
-  // Dashboard Bookmarks
+
   "BOOKMARK1_TITLE": "TAK Portal GitHub",
   "BOOKMARK1_URL": "https://github.com/AdventureSeeker423/TAK-Portal",
   "BOOKMARK2_TITLE": "Authentik",
