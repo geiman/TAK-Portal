@@ -4,11 +4,6 @@
 <main class="main">
   <h1>Settings</h1>
 
-  <p>
-    All configurable options (formerly in <code>.env</code> and <code>bookmarks.env</code>)
-    are now stored in <code>data/settings.json</code>. You can edit them here.
-  </p>
-
   <form method="post" action="/settings" autocomplete="off">
     <% 
       // Helper to render a single field
@@ -254,12 +249,4 @@
       <button type="submit" class="btn-primary">Save Settings</button>
     </div>
   </form>
-
-  <div class="card" style="margin-top: 1.5rem;">
-    <h2>Notes</h2>
-    <ul>
-      <li><code>WEB_UI_PORT</code> stays in <code>.env</code> and is <strong>not</strong> editable here.</li>
-      <li>You can add new keys directly in <code>data/settings.json</code>; unrecognized keys will appear in the "Other Settings" section.</li>
-    </ul>
-  </div>
 </main>

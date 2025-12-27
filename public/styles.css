@@ -35,12 +35,33 @@ body {
     padding: 18px;
     background: var(--panel);
     border-right: 1px solid var(--line);
+
+    /* Make sidebar a flex column so we can push settings link to bottom */
+    display: flex;
+    flex-direction: column;
 }
 
 .brand {
     font-weight: 800;
     letter-spacing: .5px;
     margin-bottom: 18px;
+}
+
+.sidebar-nav {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.nav-top {
+    display: flex;
+    flex-direction: column;
+}
+
+.nav-bottom {
+    margin-top: auto; /* pushes this section to the bottom of sidebar */
+    padding-top: 1rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.15); /* subtle separator */
 }
 
 .sidebar a {
@@ -52,9 +73,9 @@ body {
     border-radius: 10px;
 }
 
-    .sidebar a:hover {
-        background: rgba(255,255,255,.06);
-    }
+.sidebar a:hover {
+    background: rgba(255,255,255,.06);
+}
 
 /* ======================
    MAIN CONTENT
@@ -140,10 +161,10 @@ input, select {
     outline: none;
 }
 
-    input:focus,
-    select:focus {
-        border-color: rgba(43,108,255,.8);
-    }
+input:focus,
+select:focus {
+    border-color: rgba(43,108,255,.8);
+}
 
 .btn {
     background: var(--btn);
@@ -155,17 +176,17 @@ input, select {
     font-weight: 600;
 }
 
-    .btn:hover {
-        filter: brightness(1.05);
-    }
+.btn:hover {
+    filter: brightness(1.05);
+}
 
-    .btn.danger {
-        background: var(--danger);
-    }
+.btn.danger {
+    background: var(--danger);
+}
 
-    .btn.success {
-        background: var(--success);
-    }
+.btn.success {
+    background: var(--success);
+}
 
 /* Special button color for Mutual Aid QR */
 .btn.qr {
@@ -176,13 +197,13 @@ input, select {
    SEGMENTED CONTROL
    ====================== */
 
-.segmented{
+.segmented {
     display:flex;
     gap:8px;
     flex-wrap:wrap;
 }
 
-.segBtn{
+.segBtn {
     padding: 8px 12px;
     border-radius: 10px;
     border: 1px solid var(--line);
@@ -192,18 +213,18 @@ input, select {
     font-weight: 600;
 }
 
-.segBtn:hover{
+.segBtn:hover {
     filter: brightness(1.03);
 }
 
-.segBtn.active{
+.segBtn.active {
     background: var(--primary);
     border-color: var(--primary);
     color: #fff;
 }
 
 /* Ensure good contrast in modal segmented controls */
-.modal .segBtn{
+.modal .segBtn {
     color: var(--text);
 }
 
@@ -216,24 +237,24 @@ input, select {
     border-collapse: collapse;
 }
 
-    .table th,
-    .table td {
-        border-top: 1px solid var(--line);
-        padding: 10px;
-        text-align: left;
-    }
+.table th,
+.table td {
+    border-top: 1px solid var(--line);
+    padding: 10px;
+    text-align: left;
+}
 
-    .table thead th {
-        border-top: none;
-        color: var(--muted);
-        font-size: 12px;
-    }
+.table thead th {
+    border-top: none;
+    color: var(--muted);
+    font-size: 12px;
+}
 
 /* ======================
    CHECKLIST BOX (reused)
    ====================== */
 
-.groupsBox{
+.groupsBox {
     margin-top: 10px;
     border: 1px solid var(--line);
     background: #0b1430;
@@ -243,7 +264,7 @@ input, select {
     overflow: auto;
 }
 
-.groupItem{
+.groupItem {
     display: flex;
     flex-direction: row;
     align-items: center;
@@ -254,18 +275,18 @@ input, select {
     user-select: none;
 }
 
-.groupItem:hover{
+.groupItem:hover {
     background: rgba(255,255,255,.06);
 }
 
-.groupItem input{
+.groupItem input {
     margin: 0;
     width: 16px;
     height: 16px;
     flex: 0 0 auto;
 }
 
-.groupItem span{
+.groupItem span {
     display: inline-block;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -279,13 +300,13 @@ input, select {
     margin-left: 10px;
 }
 
-    .msg.ok {
-        color: #5bff8a;
-    }
+.msg.ok {
+    color: #5bff8a;
+}
 
-    .msg.bad {
-        color: #ff7a7a;
-    }
+.msg.bad {
+    color: #ff7a7a;
+}
 
 /* ======================
    MODALS
@@ -331,7 +352,7 @@ input, select {
 }
 
 /* =========================================================
-   MOBILE SIDEBAR TOGGLE (FINAL + BULLETPROOF)
+   MOBILE SIDEBAR TOGGLE
    ========================================================= */
 
 .sidebarToggle {
@@ -373,7 +394,8 @@ input, select {
     }
 
     .sidebar {
-        display: block !important;
+        display: flex !important;      /* keep flex so nav-bottom stays at bottom */
+        flex-direction: column;
         position: fixed;
         top: 0;
         left: 0;
@@ -398,18 +420,21 @@ input, select {
     }
 }
 
+/* ======================
+   SETTINGS PAGE HELPERS
+   ====================== */
+
 .settings-field {
     display: flex;
     flex-direction: column;
     gap: 0.15rem;
-  }
-  
-  .settings-label {
+}
+
+.settings-label {
     font-weight: 600;
-  }
-  
-  .settings-help {
+}
+
+.settings-help {
     font-size: 0.8rem;
     opacity: 0.8;
-  }
-  
+}
