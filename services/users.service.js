@@ -56,6 +56,33 @@ function validatePassword(password) {
   return null;
 }
 
+/**
+ * IMPORTANT: prevents "[object Object]" when Axios errors bubble up.
+ * Converts AxiosError (and other thrown objects) into a useful string.
+ */
+function formatAxiosError(err) {
+  const resp = err?.response;
+  const status = resp?.status;
+  const data = resp?.data;
+
+  if (data != null) {
+    if (typeof data === "string") return data;
+    try {
+      return JSON.stringify(data);
+    } catch {
+      // fall through
+    }
+  }
+
+  if (err?.message) return String(err.message);
+  if (status) return `HTTP ${status}`;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return "Unknown error";
+  }
+}
+
 async function resolveGroupNames(groupIds) {
   const ids = Array.isArray(groupIds)
     ? groupIds.map(x => String(x).trim()).filter(Boolean)
@@ -544,7 +571,6 @@ async function importUsersFromCsvBuffer(buffer) {
     throw new Error(msg);
   }
 
-
   async function runWithConcurrencyLimit(items, limit, worker) {
     let index = 0;
     const workers = [];
@@ -652,16 +678,16 @@ async function importUsersFromCsvBuffer(buffer) {
         return;
       }
 
-      // Anything else is a real error for this row: rethrow so the import
-      // fails loudly instead of silently skipping.
-      throw err;
+      // Anything else is a real error: throw a STRING message (not an object),
+      // so the API/UI doesn't show "[object Object]".
+      const details = formatAxiosError(err);
+      throw new Error(`Row ${row.lineNum} (${username}): ${details}`);
     }
-
-
   });
 
   return { count: created.length, created, skipped };
 }
+
 // Search users
 // - If no q provided -> returns all users (already filtered by folder)
 async function findUsers({ q }) {
