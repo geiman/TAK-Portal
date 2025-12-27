@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 COMPOSE_CMD="docker compose"
-SERVICE_NAME="tak-user-management"
+SERVICE_NAME="tak-portal"
 
 usage() {
   cat <<EOF

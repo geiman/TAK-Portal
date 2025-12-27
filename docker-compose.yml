@@ -1,7 +1,7 @@
 services:
   tak-user-management:
     build: .
-    container_name: tak-user-management
+    container_name: tak-portal
     restart: unless-stopped
 
     # Load environment from your .env file in the repo root
@@ -14,8 +14,8 @@ services:
 
     # Persist the /data folder where mutual-aid.json and other data live
     volumes:
-      - tak_user_mgmt_data:/usr/src/app/data
+      - tak_portal_data:/usr/src/app/data
 
 volumes:
-  tak_user_mgmt_data:
+  tak_portal_data:
     # Named volume so data survives container rebuilds & 'docker compose down'
