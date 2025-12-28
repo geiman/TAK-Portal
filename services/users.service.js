@@ -670,6 +670,8 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
 // Search users
 // - If no q provided -> returns all users (already filtered by folder)
 async function findUsers({ q, forceRefresh = false } = {}) {
+  // Legacy helper kept for backwards compatibility:
+  // fetches all users (honoring folder/prefix filters), then filters in-memory.
   let users = await getAllUsers({ forceRefresh });
   if (!q || !String(q).trim()) {
     return users;
@@ -687,6 +689,71 @@ async function findUsers({ q, forceRefresh = false } = {}) {
     );
   });
 }
+
+async function searchUsersPaged({ q, page = 1, pageSize = 50 } = {}) {
+  const params = {
+    page,
+    page_size: pageSize,
+    ordering: "username",
+  };
+
+  if (q && String(q).trim()) {
+    // Authentik supports "search" across username/email/etc.
+    params.search = String(q).trim();
+  }
+
+  const res = await api.get("/core/users/", { params });
+  const data = res?.data || {};
+  const raw = Array.isArray(data.results) ? data.results : [];
+
+  // Apply the same prefix/path filters that getAllUsersRaw uses so that
+  // paged search stays in sync with full-list queries.
+  let users = raw.slice();
+
+  const HIDDEN_PREFIXES = String(process.env.USERS_HIDDEN_PREFIXES || "")
+    .split(",")
+    .map(p => String(p || "").trim().toLowerCase())
+    .filter(Boolean);
+
+  if (HIDDEN_PREFIXES.length) {
+    users = users.filter(u => {
+      const username = String(u?.username || "").trim().toLowerCase();
+      return !HIDDEN_PREFIXES.some(p => username.startsWith(p));
+    });
+  }
+
+  const folderRaw = String(getString("AUTHENTIK_USER_PATH", "")).trim();
+  if (folderRaw) {
+    const target = normalizePath(folderRaw);
+    users = users.filter(u => {
+      const up = normalizePath(u.path);
+      return up === target || up.startsWith(target + "/");
+    });
+  }
+
+  const pagination = data.pagination || {};
+  const total =
+    typeof pagination.total === "number"
+      ? pagination.total
+      : typeof data.count === "number"
+      ? data.count
+      : users.length;
+
+  const currentPage =
+    typeof pagination.current === "number"
+      ? pagination.current
+      : Number(params.page) || 1;
+
+  return {
+    users,
+    total,
+    page: currentPage,
+    pageSize,
+    hasNext: Boolean(pagination.next ?? data.next),
+    hasPrev: Boolean(pagination.previous ?? data.previous),
+  };
+}
+
 
 async function resetPassword(userId, password) {
   await assertUserNotActionLocked(userId);
@@ -834,15 +901,49 @@ function invalidateGroupsCache() {
   // no-op – kept so existing callers still work
 }
 
+let USERS_CACHE = null;
+let USERS_CACHE_TS = 0;
+// TTL in seconds; defaults to 30s. Use 0 to disable caching and always hit Authentik.
+const USERS_CACHE_TTL_MS = (getInt("USERS_CACHE_TTL_SECONDS", 30) || 0) * 1000;
+
+function invalidateUsersCache() {
+  USERS_CACHE = null;
+  USERS_CACHE_TS = 0;
+}
+
+function invalidateGroupsCache() {
+  // Currently uncached, but keep function for symmetry / future use.
+}
+
 async function getAllUsers(options = {}) {
-  // ignore options / forceRefresh; always reload
-  return await getAllUsersRaw();
+  const { forceRefresh = false } = options || {};
+
+  // If caching is disabled via env, always hit Authentik directly.
+  if (USERS_CACHE_TTL_MS <= 0) {
+    return await getAllUsersRaw();
+  }
+
+  const now = Date.now();
+  const cacheValid =
+    USERS_CACHE &&
+    USERS_CACHE_TS &&
+    now - USERS_CACHE_TS < USERS_CACHE_TTL_MS;
+
+  if (!forceRefresh && cacheValid) {
+    return USERS_CACHE;
+  }
+
+  const users = await getAllUsersRaw();
+  USERS_CACHE = users;
+  USERS_CACHE_TS = now;
+  return users;
 }
 
 async function getAllGroups(options = {}) {
   // ignore options / forceRefresh; always reload
   return await getAllGroupsRaw();
 }
+
 
 
 
@@ -861,6 +962,7 @@ module.exports = {
   createUser,
   importUsersFromCsvBuffer,
   findUsers,
+  searchUsersPaged,
   resetPassword,
   updateEmail,
   updateName,

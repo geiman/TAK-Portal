@@ -184,10 +184,12 @@ router.get("/import-csv/status/:jobId", (req, res) => {
 
 router.get("/search", async (req, res) => {
   try {
-    const q = req.query.q;
-    const forceRefresh = req.query.forceRefresh === "true";
-    const results = await users.findUsers({ q, forceRefresh });
-    res.json(results);
+    const q = req.query.q || "";
+    const page = parseInt(req.query.page, 10) || 1;
+    const pageSize = parseInt(req.query.pageSize, 10) || 50;
+
+    const result = await users.searchUsersPaged({ q, page, pageSize });
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: toErrorPayload(err) });
   }

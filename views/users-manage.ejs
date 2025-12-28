@@ -166,30 +166,30 @@ const pageInfoBottom = document.getElementById("pageInfoBottom");
 const modalOverlay = document.getElementById("modalOverlay");
 const closeBtn = document.getElementById("closeBtn");
 const userTitle = document.getElementById("userTitle");
-
-// Name fields
-const firstNameInput = document.getElementById("firstNameInput");
-const lastNameInput = document.getElementById("lastNameInput");
-const saveNameBtn = document.getElementById("saveNameBtn");
-const nameMsg = document.getElementById("nameMsg");
-
-// Other fields
+const usernameSpan = document.getElementById("usernameSpan");
 const emailInput = document.getElementById("emailInput");
 const saveEmailBtn = document.getElementById("saveEmailBtn");
 const pw1 = document.getElementById("pw1");
 const pw2 = document.getElementById("pw2");
 const resetPwBtn = document.getElementById("resetPwBtn");
-
+const toggleBtn = document.getElementById("toggleBtn");
+const deleteBtn = document.getElementById("deleteBtn");
 const groupChips = document.getElementById("groupChips");
 const groupFilter = document.getElementById("groupFilter");
 const groupsBox = document.getElementById("groupsBox");
+const saveGroupsBtn = document.getElementById("saveGroupsBtn");
+
+// Name edit
+const firstNameInput = document.getElementById("firstNameInput");
+const lastNameInput = document.getElementById("lastNameInput");
+const saveNameBtn = document.getElementById("saveNameBtn");
+const nameMsg = document.getElementById("nameMsg");
+
+// Template apply controls
 const selectAllBtn = document.getElementById("selectAllBtn");
 const clearAllBtn = document.getElementById("clearAllBtn");
 const templateApplySelect = document.getElementById("templateApplySelect");
 const applyTemplateBtn = document.getElementById("applyTemplateBtn");
-
-const toggleBtn = document.getElementById("toggleBtn");
-const deleteBtn = document.getElementById("deleteBtn");
 
 // Action-lock prefixes (case-insensitive, comma-separated)
 // Users whose username starts with one of these prefixes will have ALL action buttons hidden.
@@ -200,19 +200,11 @@ const USERS_ACTIONS_HIDDEN_PREFIXES = USERS_ACTIONS_HIDDEN_PREFIXES_RAW
   .map(p => String(p || "").trim().toLowerCase())
   .filter(Boolean);
 
-function userActionsLocked(username){
+function userActionsLocked(username) {
   const u = String(username || "").trim().toLowerCase();
   if (!u) return false;
-  return USERS_ACTIONS_HIDDEN_PREFIXES.some(p => u.startsWith(p));
+  return USERS_ACTIONS_HIDDEN_PREFIXES.some(prefix => u.startsWith(prefix));
 }
-
-let selectedUser = null;
-let groupsCache = [];          // [{pk,name,...}]
-let groupIndex = new Map();    // pk(string) -> name
-
-// This set represents the desired membership state.
-// Checked => included in Set => user is a member.
-let pickedGroupIds = new Set(); // pk strings
 
 // ------- Sorting state -------
 let sortState = {
@@ -220,14 +212,16 @@ let sortState = {
   dir: "asc"     // "asc" | "desc"
 };
 
-// ------- Users cache for LIVE filter -------
-let allUsers = [];  // master list from loadAllUsers()
+// ------- Users state (server-side pagination) -------
+// allUsers now holds only the current page of users; all searching/filtering is done on the server.
+let allUsers = [];
 let filterTimer = null;
 
-// ------- Pagination state -------
-const PAGE_SIZE = 25;
+const PAGE_SIZE = 25;      // must match backend default unless pageSize is passed explicitly
 let currentPage = 1;       // 1-based
-let currentUsers = [];     // current filtered + sorted list (all pages)
+let totalUsers = 0;        // total number of matches across all pages
+let currentPageUsers = []; // users for the currently loaded page
+let currentSearch = "";    // current search string
 
 function setMsgEl(el, text, ok=true){
   el.textContent = text || "";
@@ -255,45 +249,26 @@ function splitName(full){
 
   // Stored format: "Last, First"
   if (t.includes(",")) {
-    const [lastPart, firstPart] = t.split(",", 2);
-    return {
-      first: String(firstPart || "").trim(),
-      last: String(lastPart || "").trim()
-    };
+    const [last, first] = t.split(",").map(x => String(x || "").trim());
+    return { first, last };
   }
 
-  // Fallback: "First Last"
+  // Fallback: assume "First Last"
   const parts = t.split(/\s+/);
   if (parts.length === 1) return { first: parts[0], last: "" };
-  return { first: parts.slice(0, -1).join(" "), last: parts[parts.length - 1] };
+  const last = parts.pop();
+  const first = parts.join(" ");
+  return { first, last };
 }
 
-// Always store backend as "Last, First"
-function buildBackendName(first, last){
-  const f = String(first || "").trim();
-  const l = String(last || "").trim();
-
-  if (l && f) return `${l}, ${f}`;
-  if (l) return l;
-  return f; // first only
+// For sorting names by LAST name then FIRST
+function lastNameForSort(full){
+  const { first, last } = splitName(full);
+  return `${last} ${first}`.trim();
 }
 
-// --- Sort helpers ---
-function lastNameForSort(name){
-  const t = String(name || "").trim();
-  if (!t) return "";
-
-  // Prefer stored format "Last, First"
-  if (t.includes(",")) return t.split(",", 1)[0].trim();
-
-  // Fallback: last token
-  const parts = t.split(/\s+/);
-  return parts.length ? parts[parts.length - 1] : "";
-}
-
-function normalizeSortValue(v){
-  const s = String(v ?? "").trim();
-  return s.toLowerCase();
+function normalizeSortValue(v) {
+  return String(v || "").trim().toLowerCase();
 }
 
 function getSortValue(user, key){
@@ -332,134 +307,22 @@ function stableSortedCopy(arr, key, dir){
 }
 
 function updateSortIndicators(){
-  const ths = Array.from(thead.querySelectorAll("th.sortable"));
+  const ths = Array.from(
+    thead ? thead.querySelectorAll("th.sortable") : []
+  );
+
   ths.forEach(th => {
     const key = th.dataset.key;
-    const ind = th.querySelector(".sortIndicator");
-    th.classList.remove("sortedAsc", "sortedDesc");
+    const indicator = th.querySelector(".sortIndicator");
+    if (!indicator) return;
 
-    if (!ind) return;
-
-    if (key === sortState.key){
-      if (sortState.dir === "asc"){
-        ind.textContent = "▲";
-        th.classList.add("sortedAsc");
-      } else {
-        ind.textContent = "▼";
-        th.classList.add("sortedDesc");
-      }
+    if (key === sortState.key) {
+      indicator.textContent = sortState.dir === "asc" ? "▲" : "▼";
     } else {
-      ind.textContent = "";
+      indicator.textContent = "";
     }
   });
 }
-
-// Render only the current page slice
-function renderCurrentPage() {
-  const total = currentUsers.length;
-  const totalPages = total ? Math.max(1, Math.ceil(total / PAGE_SIZE)) : 0;
-
-  if (!total) {
-    renderResults([]);
-    updatePaginationControls(0, 0);
-    return;
-  }
-
-  if (currentPage > totalPages) currentPage = totalPages;
-  if (currentPage < 1) currentPage = 1;
-
-  const start = (currentPage - 1) * PAGE_SIZE;
-  const pageItems = currentUsers.slice(start, start + PAGE_SIZE);
-
-  renderResults(pageItems);
-  updatePaginationControls(total, totalPages);
-}
-
-function updatePaginationControls(total, totalPages) {
-  const haveTop = !!paginationTop;
-  const haveBottom = !!paginationBottom;
-
-  if (!haveTop && !haveBottom) return;
-
-  if (!total) {
-    if (haveTop) paginationTop.style.display = "none";
-    if (haveBottom) paginationBottom.style.display = "none";
-    return;
-  }
-
-  if (haveTop) paginationTop.style.display = "flex";
-  if (haveBottom) paginationBottom.style.display = "flex";
-
-  const shown = Math.min(PAGE_SIZE, total - (currentPage - 1) * PAGE_SIZE);
-  const infoText = `Page ${currentPage} of ${totalPages} — showing ${shown} of ${total} users`;
-
-  if (pageInfoTop) pageInfoTop.textContent = infoText;
-  if (pageInfoBottom) pageInfoBottom.textContent = infoText;
-
-  const disablePrev = currentPage <= 1;
-  const disableNext = currentPage >= totalPages;
-
-  [prevPageBtnTop, prevPageBtnBottom].forEach(btn => {
-    if (btn) btn.disabled = disablePrev;
-  });
-  [nextPageBtnTop, nextPageBtnBottom].forEach(btn => {
-    if (btn) btn.disabled = disableNext;
-  });
-}
-
-// Pagination button handlers
-[prevPageBtnTop, prevPageBtnBottom].forEach(btn => {
-  if (!btn) return;
-  btn.addEventListener("click", () => {
-    if (currentPage > 1) {
-      currentPage--;
-      renderCurrentPage();
-    }
-  });
-});
-
-[nextPageBtnTop, nextPageBtnBottom].forEach(btn => {
-  if (!btn) return;
-  btn.addEventListener("click", () => {
-    const totalPages = currentUsers.length
-      ? Math.max(1, Math.ceil(currentUsers.length / PAGE_SIZE))
-      : 0;
-    if (currentPage < totalPages) {
-      currentPage++;
-      renderCurrentPage();
-    }
-  });
-});
-
-function applySortAndRender(users){
-  const list = Array.isArray(users) ? users.slice() : [];
-  const sorted = stableSortedCopy(list, sortState.key, sortState.dir);
-
-  // Keep full filtered+sorted list
-  window.__lastUsers = sorted;
-  currentUsers = sorted;
-
-  renderCurrentPage();
-  updateSortIndicators();
-}
-
-// Click-to-sort on any column header
-thead.addEventListener("click", (e) => {
-  const th = e.target && e.target.closest ? e.target.closest("th.sortable") : null;
-  if (!th) return;
-
-  const key = th.dataset.key;
-  if (!key) return;
-
-  if (sortState.key === key) {
-    sortState.dir = (sortState.dir === "asc") ? "desc" : "asc";
-  } else {
-    sortState.key = key;
-    sortState.dir = "asc";
-  }
-
-  applySortAndRender(window.__lastUsers || []);
-});
 
 function renderResults(users){
   tbody.innerHTML = users.map(u=>{
@@ -538,116 +401,110 @@ async function loadTemplatesForAgency(agencySuffix){
 
     const all = Array.isArray(meta.templates) ? meta.templates : [];
     const rest = all.slice(1); // skip Manual item at [0]
+    const manual = all[0];
 
-    agencyTemplatesCache = rest;
-
-    if (!rest.length) {
-      templateApplySelect.innerHTML = '<option value="">No templates for this agency</option>';
-      return;
+    const options = [];
+    if (manual) {
+      options.push(`<option value="${escapeHtml(manual.key)}">${escapeHtml(manual.label)}</option>`);
     }
+    rest.forEach(t => {
+      options.push(`<option value="${escapeHtml(t.key)}">${escapeHtml(t.label)}</option>`);
+    });
 
-    templateApplySelect.innerHTML = rest
-      .map((t,i)=>`<option value="${i}">${escapeHtml(t.name || '')}</option>`)
-      .join('');
-
+    templateApplySelect.innerHTML = options.join("");
+    agencyTemplatesCache = all;
     applyTemplateBtn.disabled = false;
   } catch (err) {
-    console.error(err);
-    setMsgEl(actionMsg, err.message || 'Failed to load templates', false);
     templateApplySelect.innerHTML = '<option value="">Failed to load templates</option>';
+    console.error(err);
   }
 }
 
-// Apply chosen template: overwrite pickedGroupIds using template groups + default groups
-applyTemplateBtn.onclick = () => {
-  if (!selectedUser) return;
-  if (!agencyTemplatesCache.length) return;
+// Groups list
+let groupIndex = new Map();
+let pickedGroupIds = new Set();
 
-  const idx = Number(templateApplySelect.value);
-  if (!Number.isInteger(idx) || idx < 0 || idx >= agencyTemplatesCache.length) return;
+async function loadGroups(){
+  const res = await fetch("/api/users/meta");
+  const meta = await res.json();
 
-  const tmpl = agencyTemplatesCache[idx];
-  const templateGroups = Array.isArray(tmpl.groups) ? tmpl.groups : [];
-
-  // Build map from group name (lowercase) -> pk string
-  const byNameLower = new Map(
-    (groupsCache || []).map(g => [String(g.name || '').trim().toLowerCase(), String(g.pk)])
-  );
-
-  const allNames = templateGroups
-    .map(n => String(n || '').trim())
-    .filter(Boolean);
-
-  const ids = allNames
-    .map(n => byNameLower.get(n.toLowerCase()))
-    .filter(Boolean);
-
-  if (!ids.length) {
-    setMsgEl(actionMsg, 'No matching groups found for this template.', false);
-    return;
+  if(!res.ok){
+    throw new Error(meta.error || "Failed to load groups");
   }
 
-  pickedGroupIds = new Set(ids);
-  renderGroupsBox();   // refresh checkboxes
-  saveGroupsNow();     // persist overwrite immediately
-};
+  const groups = Array.isArray(meta.groups) ? meta.groups : [];
+  groupIndex = new Map(groups.map(g => [String(g.pk), g.name || ("Group " + g.pk)]));
 
-// -------- Groups picker (templates-style) ----------
+  renderGroupsBox();
+}
+
 function renderGroupsBox(){
-  const needle = String(groupFilter.value || "").trim().toLowerCase();
-  const sorted = groupsCache.slice().sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
+  const allGroupsArray = Array.from(groupIndex.entries()).map(([id,name]) => ({id,name}));
 
-  const filtered = needle
-    ? sorted.filter(g => String(g.name || "").toLowerCase().includes(needle))
-    : sorted;
+  const filterText = groupFilter.value.trim().toLowerCase();
+  const filteredGroups = filterText
+    ? allGroupsArray.filter(g => String(g.name || "").toLowerCase().includes(filterText))
+    : allGroupsArray;
 
-  // Render unchecked inputs, then re-apply checked state from pickedGroupIds
-  groupsBox.innerHTML = filtered.map(g => {
-    const id = String(g.pk);
-    const name = String(g.name || "");
+  groupsBox.innerHTML = filteredGroups.map(g => {
+    const id = String(g.id);
+    const checked = pickedGroupIds.has(id) ? "checked" : "";
     return `
-      <label class="groupItem">
-        <input type="checkbox" value="${escapeHtml(id)}" />
-        <span>${escapeHtml(name)}</span>
+      <label class="groupRow">
+        <input type="checkbox" value="${escapeHtml(id)}" ${checked}/>
+        <span>${escapeHtml(g.name)}</span>
       </label>
     `;
   }).join("");
 
-  Array.from(groupsBox.querySelectorAll('input[type="checkbox"]')).forEach(cb => {
-    cb.checked = pickedGroupIds.has(String(cb.value));
+  Array.from(groupsBox.querySelectorAll("input[type=checkbox]")).forEach(cb => {
+    cb.addEventListener("change", () => {
+      const id = String(cb.value);
+      if(cb.checked) pickedGroupIds.add(id);
+      else pickedGroupIds.delete(id);
+    });
   });
 }
 
-groupFilter.oninput = renderGroupsBox;
+groupFilter.addEventListener("input", ()=>renderGroupsBox());
 
-// --- Simple rule: checked => added; unchecked => removed.
-// We persist by overwriting the user's groups to match pickedGroupIds.
-let saveGroupsTimer = null;
-let savingGroups = false;
+selectAllBtn?.addEventListener("click", () => {
+  pickedGroupIds = new Set(Array.from(groupIndex.keys()));
+  renderGroupsBox();
+});
 
-function scheduleSaveGroups(){
-  clearTimeout(saveGroupsTimer);
-  saveGroupsTimer = setTimeout(saveGroupsNow, 250);
-}
+clearAllBtn?.addEventListener("click", () => {
+  pickedGroupIds = new Set();
+  renderGroupsBox();
+});
 
-async function saveGroupsNow(){
+saveGroupsBtn.onclick = async () => {
   if(!selectedUser) return;
-  if(savingGroups) return;
-
-  savingGroups = true;
-  setMsgEl(actionMsg, "Saving group changes...", true);
+  setMsgEl(actionMsg, "Saving groups...", true);
 
   const selected = Array.from(pickedGroupIds);
+  let payload = { groupIds: selected };
 
-  const res = await fetch(`/api/users/${selectedUser.pk}/groups`,{
-    method:"PUT",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({ groupIds: selected })
-  });
+  // If an agency template is selected AND we have cached templates,
+  // we pass that along so the backend can apply its group logic.
+  const selectedTemplateKey = templateApplySelect?.value || "";
+  if (selectedTemplateKey && Array.isArray(agencyTemplatesCache) && agencyTemplatesCache.length) {
+    payload.templateKey = selectedTemplateKey;
+  }
+
+  let res;
+  try {
+    res = await fetch(`/api/users/${selectedUser.pk}/groups`, {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body:JSON.stringify(payload)
+    });
+  } catch (err) {
+    setMsgEl(actionMsg, "Network error while updating groups", false);
+    return;
+  }
 
   const out = await res.json();
-  savingGroups = false;
-
   if(!res.ok){
     setMsgEl(actionMsg, out.error || "Update groups failed", false);
 
@@ -661,76 +518,30 @@ async function saveGroupsNow(){
   selectedUser.groups = Array.isArray(out.groups) ? out.groups : selected;
   pickedGroupIds = new Set((selectedUser.groups || []).map(x => String(x)));
 
+  // Update chips + table row
+  renderGroupChips(selectedUser);
+
+  // Patch current page
+  const patch = (u) => String(u.pk) === String(selectedUser.pk)
+    ? { ...u, groups: selectedUser.groups }
+    : u;
+  allUsers = (allUsers || []).map(patch);
+  const updatedVisible = (window.__lastUsers || []).map(patch);
+
+  applySortAndRender(updatedVisible);
   setMsgEl(actionMsg, "Groups updated.", true);
-  renderGroupChips(selectedUser);
-  renderGroupsBox();
-}
-
-groupsBox.addEventListener("change", (e) => {
-  const cb = e.target;
-  if (!cb || cb.tagName !== "INPUT" || cb.type !== "checkbox") return;
-
-  const id = String(cb.value);
-  if (cb.checked) pickedGroupIds.add(id);
-  else pickedGroupIds.delete(id);
-
-  // optimistic chips update
-  selectedUser.groups = Array.from(pickedGroupIds);
-  renderGroupChips(selectedUser);
-
-  scheduleSaveGroups();
-});
-
-selectAllBtn.onclick = () => {
-  Array.from(groupsBox.querySelectorAll('input[type="checkbox"]')).forEach(cb => {
-    cb.checked = true;
-    pickedGroupIds.add(String(cb.value));
-  });
-
-  if (selectedUser) {
-    selectedUser.groups = Array.from(pickedGroupIds);
-    renderGroupChips(selectedUser);
-  }
-  scheduleSaveGroups();
 };
 
-clearAllBtn.onclick = () => {
-  Array.from(groupsBox.querySelectorAll('input[type="checkbox"]')).forEach(cb => cb.checked = false);
-  pickedGroupIds.clear();
+// Selected user in the modal
+let selectedUser = null;
 
-  if (selectedUser) {
-    selectedUser.groups = [];
-    renderGroupChips(selectedUser);
-  }
-  scheduleSaveGroups();
-};
-
-async function loadGroups(){
-  const res = await fetch("/api/users/groups");
-  const out = await res.json();
-  if(!res.ok) throw new Error(out.error || "Failed to load groups");
-
-  groupsCache = Array.isArray(out) ? out : [];
-  groupIndex = new Map(groupsCache.map(g => [String(g.pk), String(g.name)]));
-}
-
-// ---------- Edit user ----------
 window.editUser = async (userPk) => {
   const u = (window.__lastUsers || []).find(x => String(x.pk) === String(userPk));
   if(!u) return;
 
-  if (userActionsLocked(u.username)) {
-    setMsgEl(msg, `Actions are locked for user ${u.username}.`, false);
-    return;
-  }
-
   selectedUser = { ...u };
-
-  // Load templates list for this user's agency
-  const agencySuffix = selectedUser?.attributes?.agency || "";
-  await loadTemplatesForAgency(agencySuffix);
-
-  userTitle.textContent = `${selectedUser.username} — ${selectedUser.name || ""}`;
+  userTitle.textContent = `User ${selectedUser.username}`;
+  usernameSpan.textContent = `${selectedUser.username} — ${selectedUser.name || ""}`;
   emailInput.value = selectedUser.email || "";
 
   const { first, last } = splitName(selectedUser.name || "");
@@ -746,6 +557,8 @@ window.editUser = async (userPk) => {
 
   toggleBtn.textContent = selectedUser.is_active ? "Disable User" : "Enable User";
 
+  await loadTemplatesForAgency(selectedUser?.attributes?.agency || "");
+
   openModal();
 };
 
@@ -759,14 +572,9 @@ window.toggleUserFromTable = async (userPk) => {
   }
 
   const action = u.is_active ? "DISABLE" : "ENABLE";
-  if(!confirm(`Are you sure you want to ${action} ${u.username}?`)) return;
+  if(!confirm(`${action} ${u.username}?`)) return;
 
-  const res = await fetch(`/api/users/${u.pk}/active`,{
-    method:"PUT",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({ is_active: !u.is_active })
-  });
-
+  const res = await fetch(`/api/users/${u.pk}/toggle`, { method:"POST" });
   const out = await res.json();
   if(!res.ok) return setMsgEl(msg, out.error || "Toggle failed", false);
 
@@ -828,17 +636,9 @@ function matchesUser(u, needleLower){
 }
 
 function applyFilterSortRender(){
-  const needle = String(q.value || "").trim().toLowerCase();
-
-  const base = Array.isArray(allUsers) ? allUsers : [];
-  const filtered = needle ? base.filter(u => matchesUser(u, needle)) : base.slice();
-
-  // Reset to first page when filter/search changes
+  currentSearch = String(q.value || "").trim();
   currentPage = 1;
-  applySortAndRender(filtered);
-
-  if (needle) setMsgEl(msg, `Showing ${filtered.length} of ${base.length}.`, true);
-  else setMsgEl(msg, `Loaded ${base.length} user(s).`, true);
+  loadAllUsers();
 }
 
 function scheduleFilter(){
@@ -846,7 +646,7 @@ function scheduleFilter(){
   filterTimer = setTimeout(applyFilterSortRender, 120);
 }
 
-// Live filtering as you type
+// Live filtering as you type (now server-side, but still debounced)
 q.addEventListener("input", scheduleFilter);
 
 // Optional: Esc clears search + shows all
@@ -857,60 +657,136 @@ q.addEventListener("keydown", (e) => {
   }
 });
 
-// ---------- Load users ----------
-async function loadAllUsers(){
-  setMsgEl(msg, "Loading users...", true);
+function renderCurrentPage() {
+  // Always sort the current page before rendering so header clicks
+  // re-order what is visible without needing another API call.
+  const sorted = stableSortedCopy(currentPageUsers.slice(), sortState.key, sortState.dir);
 
-  const res = await fetch("/api/users/search");
-  const out = await res.json();
+  // Keep last rendered set handy for callers that patch rows then re-render.
+  window.__lastUsers = sorted;
+  renderResults(sorted);
+  updatePaginationControls();
+}
 
-  if(!res.ok){
-    setMsgEl(msg, out.error || "Failed to load users", false);
+function updatePaginationControls() {
+  const haveTop = !!paginationTop;
+  const haveBottom = !!paginationBottom;
+
+  if (!haveTop && !haveBottom) return;
+
+  const total = totalUsers || 0;
+  if (!total) {
+    if (haveTop) paginationTop.style.display = "none";
+    if (haveBottom) paginationBottom.style.display = "none";
     return;
   }
 
-  // store master list for live filtering
-  allUsers = Array.isArray(out) ? out : [];
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  // render all (sorted, paginated)
-  applyFilterSortRender();
+  if (haveTop) paginationTop.style.display = "flex";
+  if (haveBottom) paginationBottom.style.display = "flex";
+
+  const shown = currentPageUsers.length;
+  const infoText = `Page ${currentPage} of ${totalPages} — showing ${shown} of ${total} users`;
+
+  if (pageInfoTop) pageInfoTop.textContent = infoText;
+  if (pageInfoBottom) pageInfoBottom.textContent = infoText;
+
+  const disablePrev = currentPage <= 1;
+  const disableNext = currentPage >= totalPages;
+
+  [prevPageBtnTop, prevPageBtnBottom].forEach(btn => {
+    if (btn) btn.disabled = disablePrev;
+  });
+  [nextPageBtnTop, nextPageBtnBottom].forEach(btn => {
+    if (btn) btn.disabled = disableNext;
+  });
 }
 
-// Replace "search submit hits API" with "submit just filters"
-searchForm.onsubmit = (e) => {
-  e.preventDefault();
-  applyFilterSortRender();
-};
+// Pagination button handlers
+[prevPageBtnTop, prevPageBtnBottom].forEach(btn => {
+  if (!btn) return;
+  btn.addEventListener("click", () => {
+    if (currentPage > 1) {
+      currentPage--;
+      loadAllUsers();
+    }
+  });
+});
+
+[nextPageBtnTop, nextPageBtnBottom].forEach(btn => {
+  if (!btn) return;
+  btn.addEventListener("click", () => {
+    const totalPages = totalUsers
+      ? Math.max(1, Math.ceil(totalUsers / PAGE_SIZE))
+      : 0;
+    if (currentPage < totalPages) {
+      currentPage++;
+      loadAllUsers();
+    }
+  });
+});
+
+function applySortAndRender(users){
+  const base = Array.isArray(users) ? users.slice() : currentPageUsers.slice();
+  const sorted = stableSortedCopy(base, sortState.key, sortState.dir);
+
+  // Keep full page-level list in sync for callers that patch rows.
+  window.__lastUsers = sorted;
+  currentPageUsers = sorted;
+  allUsers = sorted;
+
+  renderCurrentPage();
+  updateSortIndicators();
+}
+
+// Click-to-sort on any column header
+thead.addEventListener("click", (e) => {
+  const th = e.target && e.target.closest ? e.target.closest("th.sortable") : null;
+  if (!th) return;
+
+  const key = th.dataset.key;
+  if (!key) return;
+
+  if (sortState.key === key) {
+    sortState.dir = (sortState.dir === "asc") ? "desc" : "asc";
+  } else {
+    sortState.key = key;
+    sortState.dir = "asc";
+  }
+
+  applySortAndRender(window.__lastUsers || currentPageUsers || []);
+});
 
 // ---------- Update name ----------
 saveNameBtn.onclick = async () => {
   if(!selectedUser) return;
+  setMsgEl(nameMsg, "");
+  setMsgEl(actionMsg, "");
 
   const first = String(firstNameInput.value || "").trim();
   const last = String(lastNameInput.value || "").trim();
-
-  if(!first && !last){
-    setMsgEl(nameMsg, "Enter a first and/or last name.", false);
-    return;
+  if (!first && !last) {
+    return setMsgEl(nameMsg, "Enter a name or cancel.", false);
   }
 
-  const backendName = buildBackendName(first, last);
-
-  const res = await fetch(`/api/users/${selectedUser.pk}/name`,{
-    method:"PUT",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({ name: backendName })
+  // We'll continue to store as "Last, First"
+  const newName = last ? `${last}, ${first}` : first;
+  const res = await fetch(`/api/users/${selectedUser.pk}/name`, {
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify({ name: newName })
   });
-
   const out = await res.json();
-  if(!res.ok) return setMsgEl(nameMsg, out.error || "Update name failed", false);
+  if(!res.ok) {
+    return setMsgEl(nameMsg, out.error || "Update failed", false);
+  }
 
-  selectedUser.name = backendName;
-  userTitle.textContent = `${selectedUser.username} — ${selectedUser.name || ""}`;
-  setMsgEl(nameMsg, "Name updated.", true);
+  selectedUser.name = newName;
+  usernameSpan.textContent = `${selectedUser.username} — ${selectedUser.name || ""}`;
 
-  // update both caches
-  const patch = (u) => String(u.pk) === String(selectedUser.pk) ? {...u, name: selectedUser.name} : u;
+  // Patch current page caches
+  const patch = (u) => String(u.pk) === String(selectedUser.pk) ? { ...u, name: selectedUser.name} : u;
   allUsers = (allUsers || []).map(patch);
   const updatedVisible = (window.__lastUsers || []).map(patch);
 
@@ -922,20 +798,20 @@ saveEmailBtn.onclick = async () => {
   if(!selectedUser) return;
   setMsgEl(actionMsg,"");
 
+  const email = String(emailInput.value || "").trim();
+  if(!email) return setMsgEl(actionMsg,"Email is required.", false);
+
   const res = await fetch(`/api/users/${selectedUser.pk}/email`,{
-    method:"PUT",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({ email: emailInput.value.trim() })
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body:JSON.stringify({ email })
   });
-
   const out = await res.json();
-  if(!res.ok) return setMsgEl(actionMsg, out.error || "Update email failed", false);
+  if(!res.ok) return setMsgEl(actionMsg, out.error || "Update failed", false);
 
-  selectedUser.email = emailInput.value.trim();
-  setMsgEl(actionMsg, "Email updated.", true);
+  selectedUser.email = email;
 
-  // update both caches
-  const patch = (u) => String(u.pk) === String(selectedUser.pk) ? {...u, email: selectedUser.email} : u;
+  const patch = (u) => String(u.pk) === String(selectedUser.pk) ? { ...u, email: selectedUser.email} : u;
   allUsers = (allUsers || []).map(patch);
   const updatedVisible = (window.__lastUsers || []).map(patch);
 
@@ -947,42 +823,41 @@ resetPwBtn.onclick = async () => {
   if(!selectedUser) return;
   setMsgEl(actionMsg,"");
 
-  if(pw1.value !== pw2.value) return setMsgEl(actionMsg,"Passwords do not match.", false);
+  if(pw1.value !== pw2.value) return setMsgEl(actionMsg,"Passwords must match.", false);
+  const pw = String(pw1.value || "");
+  if (!pw) return setMsgEl(actionMsg,"Password cannot be empty.", false);
 
   const res = await fetch(`/api/users/${selectedUser.pk}/reset-password`,{
     method:"POST",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({ password: pw1.value })
+    headers:{ "Content-Type":"application/json" },
+    body:JSON.stringify({ password: pw })
   });
-
   const out = await res.json();
-  if(!res.ok) return setMsgEl(actionMsg, out.error || "Reset password failed", false);
+  if(!res.ok) return setMsgEl(actionMsg, out.error || "Reset failed", false);
 
   pw1.value = ""; pw2.value = "";
   setMsgEl(actionMsg, "Password reset.", true);
 };
 
-// ---------- Toggle ----------
+// ---------- Toggle from modal ----------
 toggleBtn.onclick = async () => {
   if(!selectedUser) return;
 
+  if (userActionsLocked(selectedUser.username)) {
+    setMsgEl(actionMsg, `Actions are locked for user ${selectedUser.username}.`, false);
+    return;
+  }
+
   const action = selectedUser.is_active ? "DISABLE" : "ENABLE";
-  if(!confirm(`Are you sure you want to ${action} ${selectedUser.username}?`)) return;
+  if(!confirm(`${action} ${selectedUser.username}?`)) return;
 
-  const res = await fetch(`/api/users/${selectedUser.pk}/active`,{
-    method:"PUT",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({ is_active: !selectedUser.is_active })
-  });
-
+  const res = await fetch(`/api/users/${selectedUser.pk}/toggle`, { method:"POST" });
   const out = await res.json();
   if(!res.ok) return setMsgEl(actionMsg, out.error || "Toggle failed", false);
 
   selectedUser.is_active = !selectedUser.is_active;
   toggleBtn.textContent = selectedUser.is_active ? "Disable User" : "Enable User";
-  setMsgEl(actionMsg, `User is now ${selectedUser.is_active ? "ENABLED" : "DISABLED"}.`, true);
 
-  // update both caches
   const patch = (u) => String(u.pk) === String(selectedUser.pk) ? {...u, is_active: selectedUser.is_active} : u;
   allUsers = (allUsers || []).map(patch);
   const updatedVisible = (window.__lastUsers || []).map(patch);
@@ -993,6 +868,11 @@ toggleBtn.onclick = async () => {
 // ---------- Delete ----------
 deleteBtn.onclick = async () => {
   if(!selectedUser) return;
+
+  if (userActionsLocked(selectedUser.username)) {
+    setMsgEl(actionMsg, `Actions are locked for user ${selectedUser.username}.`, false);
+    return;
+  }
 
   if(!confirm(`DELETE ${selectedUser.username}? This cannot be undone.`)) return;
 
@@ -1007,7 +887,57 @@ deleteBtn.onclick = async () => {
   allUsers = (allUsers || []).filter(u => String(u.pk) !== String(selectedUser.pk));
   selectedUser = null;
 
-  // after delete, re-apply filter (respects current q.value)
+  // after delete, re-apply current page (reload from server)
+  applyFilterSortRender();
+};
+
+async function loadAllUsers(){
+  setMsgEl(msg, "Loading users...", true);
+
+  const params = new URLSearchParams({
+    page: String(currentPage),
+    pageSize: String(PAGE_SIZE),
+  });
+
+  const qVal = String(currentSearch || "").trim();
+  if (qVal) {
+    params.set("q", qVal);
+  }
+
+  const res = await fetch(`/api/users/search?${params.toString()}`);
+  const out = await res.json();
+
+  if (!res.ok) {
+    setMsgEl(msg, out.error || "Failed to load users", false);
+    return;
+  }
+
+  const users = Array.isArray(out.users) ? out.users : [];
+  currentPage = Number(out.page || currentPage || 1);
+  totalUsers = Number(out.total || users.length);
+  currentPageUsers = users.slice();
+  allUsers = users.slice(); // keep page-level cache in sync for callers that patch it
+
+  renderCurrentPage();
+
+  if (totalUsers) {
+    if (qVal) {
+      setMsgEl(
+        msg,
+        `Showing ${users.length} of ${totalUsers} user(s) for "${qVal}".`,
+        true
+      );
+    } else {
+      setMsgEl(msg, `Showing ${users.length} of ${totalUsers} user(s).`, true);
+    }
+  } else {
+    setMsgEl(msg, "No users found.", true);
+  }
+}
+
+// Replace "search submit hits API" with "submit just filters"
+searchForm.onsubmit = (e) => {
+  e.preventDefault();
   applyFilterSortRender();
 };
 
@@ -1015,12 +945,13 @@ deleteBtn.onclick = async () => {
   try {
     await loadGroups();
     updateSortIndicators(); // show initial default sort indicator
-    await loadAllUsers();   // fetch once, then live filter + paginate locally
+    await loadAllUsers();   // fetch first page, then paginate/search via API
   } catch (err) {
     setMsgEl(msg, err.message || "Failed to load page", false);
   }
 })();
 </script>
+
 
 <style>
 .modalOverlay{
