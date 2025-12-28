@@ -48,6 +48,9 @@
     <% } %>
   </label>
 <% } %>
+      </label>
+    <% } %>
+
     <% 
       const knownKeys = new Set([
         "AUTHENTIK_URL",
@@ -210,6 +213,7 @@
     ); %>
   </div>
 </div>
+
     <!-- Email -->
     <div class="card">
       <h2>Email</h2>
@@ -291,8 +295,7 @@
         </small>
       <% } else { %>
         <small class="settings-help">
-          Upload a logo to show in the header, at the top of the sidebar,
-          and centered on generated QR codes.
+          Upload a logo to show at the top of the sidebar and centered on generated QR codes.
         </small>
       <% } %>
     </label>
@@ -321,6 +324,7 @@
     </label>
   </div>
 </div>
+
     <!-- Bookmarks -->
     <div class="card">
       <h2>Dashboard Bookmarks</h2>

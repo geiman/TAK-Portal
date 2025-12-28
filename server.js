@@ -14,7 +14,6 @@ const app = express();
 
 // Expose version to all EJS views (e.g. sidebar)
 app.locals.APP_VERSION = pkg.version || "dev";
-
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -82,6 +81,7 @@ app.use((req, res, next) => {
   }
   next();
 });
+
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
 
@@ -110,7 +110,6 @@ app.get("/settings", (req, res) => {
   res.render("settings", { settings, keys });
 });
 
-
 app.post(
   "/settings",
   upload.fields([
@@ -122,14 +121,14 @@ app.post(
     const rawBody = req.body || {};
     const bodySettings = {};
 
-    // 1) If there's a nested "settings" object (non-multipart case), copy it
+    // Nested "settings" object (for non-multipart cases)
     if (rawBody.settings && typeof rawBody.settings === "object") {
       Object.keys(rawBody.settings).forEach((key) => {
         bodySettings[key] = rawBody.settings[key];
       });
     }
 
-    // 2) Also support flat fields like "settings[BRAND_THEME]"
+    // Flat fields like "settings[BRAND_THEME]" created by multer
     Object.keys(rawBody).forEach((key) => {
       const match = key.match(/^settings\[(.+)\]$/);
       if (match) {
@@ -139,7 +138,7 @@ app.post(
 
     const patch = {};
 
-    // Copy over simple settings from the form
+    // Copy simple settings (including booleans and BRAND_THEME)
     Object.keys(bodySettings).forEach((key) => {
       patch[key] = bodySettings[key];
     });
@@ -150,7 +149,6 @@ app.post(
     const p12Files = files.TAK_API_P12_UPLOAD || [];
     if (p12Files.length > 0) {
       const f = p12Files[0];
-      // Store path relative to project root so tak.service can resolve it
       const relPath = path.relative(process.cwd(), f.path);
       patch.TAK_API_P12_PATH = relPath.replace(/\\/g, "/");
     }
@@ -165,14 +163,12 @@ app.post(
     const logoFiles = files.BRAND_LOGO_UPLOAD || [];
     if (logoFiles.length > 0) {
       const f = logoFiles[0];
-      // Use a web path for templates; underlying fs path is under public/
       const webPath = "/branding/" + path.basename(f.path);
       patch.BRAND_LOGO_URL = webPath.replace(/\\/g, "/");
     }
 
     settingsSvc.updateSettings(patch);
 
-    // After saving, redirect back to the settings page
     res.redirect("/settings");
   }
 );
@@ -199,6 +195,10 @@ app.get("/settings/export-data", (req, res) => {
   archive.pipe(res);
   archive.directory(dataDir, "data");
   archive.finalize();
+});
+
+  // After saving, redirect back to the settings page
+  res.redirect("/settings");
 });
 
 const port = process.env.WEB_UI_PORT || 3000;

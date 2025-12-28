@@ -51,33 +51,7 @@ body.theme-green {
     --btn: #16a34a;
 }
 
-/* Brand + header logo */
-.topbar {
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    padding: 8px 18px;
-    background: var(--panel);
-    border-bottom: 1px solid var(--line);
-}
-
-.topbar-inner {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.topbar-logo {
-    max-height: 32px;
-    width: auto;
-}
-
-.topbar-title {
-    font-weight: 700;
-    font-size: 15px;
-    color: var(--text);
-}
-
+/* Brand logo in sidebar */
 .brand {
     display: flex;
     align-items: center;
