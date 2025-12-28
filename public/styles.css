@@ -13,8 +13,8 @@
 /* Theme variants */
 body.theme-dark-blue {
     --bg: #0b1220;
-    --panel: #111a2e;
-    --card: #0b1430;
+    --panel: #0b1430;
+    --card: #0f1930;
     --text: #e8eefc;
     --muted: #a8b3cf;
     --line: #1f2a44;
