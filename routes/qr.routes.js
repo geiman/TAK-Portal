@@ -101,27 +101,29 @@ async function addUsernameLabel(pngBuffer, username) {
   try {
     const qrImage = await Jimp.read(pngBuffer);
 
-    // Load a black sans-serif font (looks bold enough for labels)
+    // Bold-looking font
     const font = await Jimp.loadFont(Jimp.FONT_SANS_32_BLACK);
 
-    const text = String(username || "").trim() || "user";
-    const textBlockHeight = 70; // space reserved under QR for label
+    // FORCE ALL CAPS
+    const text = (String(username || "").trim() || "USER").toUpperCase();
+
+    const textBlockHeight = 80; // a little extra space for bigger text
 
     // New canvas: same width, extra height for text
     const combined = new Jimp(
       qrImage.getWidth(),
       qrImage.getHeight() + textBlockHeight,
-      0xffffffff // solid white background
+      0xffffffff // white background
     );
 
     // Paste the QR code at the top
     combined.composite(qrImage, 0, 0);
 
-    // Print centered text near the bottom
+    // Center text under QR
     combined.print(
       font,
       0,
-      qrImage.getHeight() + 10, // 10px padding from QR bottom
+      qrImage.getHeight() + 10,
       {
         text,
         alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER,
@@ -131,12 +133,13 @@ async function addUsernameLabel(pngBuffer, username) {
       textBlockHeight
     );
 
-    return await combined.getBufferAsync(Jimp.MIME_PNG);
+    return combined.getBufferAsync(Jimp.MIME_PNG);
   } catch (err) {
     console.error("Failed to add username label to QR:", err);
     return pngBuffer;
   }
 }
+
 
 /**
  * Generate QR for on-page display (medium resolution)
