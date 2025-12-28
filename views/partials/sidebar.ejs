@@ -1,10 +1,35 @@
-<div class="brand <%= brandLogoUrl ? 'has-logo' : 'no-logo' %>">
-  <% if (brandLogoUrl) { %>
-    <img src="<%= brandLogoUrl %>" alt="Portal logo" class="brand-logo" />
-  <% } %>
+<aside class="sidebar" id="sidebar">
+	<div class="brand <%= brandLogoUrl ? 'has-logo' : 'no-logo' %>">
+	<% if (brandLogoUrl) { %>
+		<img src="<%= brandLogoUrl %>" alt="Portal logo" class="brand-logo" />
+	<% } %>
 
-  <span class="brand-title">TAK Portal</span>
-</div>
+	<span class="brand-title">TAK Portal</span>
+	</div>
+  
+	<nav class="sidebar-nav">
+	  <div class="nav-top">
+		<a href="/">Dashboard</a>
+		<a href="/users/create">Create Users</a>
+		<a href="/users/manage">Manage Users</a>
+		<a href="/groups">Manage Groups</a>
+		<a href="/agencies">Manage Agencies</a>
+		<a href="/templates">Agency Templates</a>
+		<a href="/mutual-aid">Mutual Aid</a>
+		<a href="/qr-generator">QR Code Generator</a>
+	  </div>
+  
+	  <div class="nav-bottom">
+		<a href="/settings">Server Settings</a>
+	  
+		<small class="version-text">
+		  Version <%= APP_VERSION %>
+		</small>
+	  </div>	  
+	</nav>
+  </aside>
+  
+
   
 	<nav class="sidebar-nav">
 	  <div class="nav-top">
