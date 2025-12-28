@@ -51,23 +51,28 @@ body.theme-green {
     --btn: #1a8a58;
 }
 
-/* Brand logo in sidebar */
+
+/* Logo Handling */
 .brand {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 14px 14px 18px 14px;
     border-bottom: 1px solid var(--line);
+}
+
+/* When there IS a logo */
+.brand.has-logo {
+    padding: 14px 14px 18px 14px;
+}
+
+/* When there is NO logo — flatter, cleaner */
+.brand.no-logo {
+    padding: 10px 14px;
 }
 
 .brand-logo {
     max-height: 36px;
     width: auto;
-}
-
-.brand-title {
-    font-weight: 700;
-    font-size: 16px;
 }
 
 

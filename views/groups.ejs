@@ -249,7 +249,7 @@ async function loadAgencies(){
     .sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
 
   agencyPrefixSelect.innerHTML =
-    `<option value="">Select Agency Prefix</option>` +
+    `<option value="">Select Agency</option>` +
     prefixList.map(a => {
       const prefix = String(a.groupPrefix || "").trim().toUpperCase();
       const label = `${a.name} (${prefix})`;
