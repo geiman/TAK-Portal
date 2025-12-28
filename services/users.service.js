@@ -194,7 +194,7 @@ async function getAllGroupsRaw() {
 // - optionally filter by AUTHENTIK_USER_PATH if set
 async function getAllUsersRaw() {
   let users = [];
-  const pageSize = 200; // per-page size; total is unlimited
+  const pageSize = getInt("AUTHENTIK_USER_PAGE_SIZE", 500) || 500; // per-page size; total is unlimited
   let page = 1;
   let hasNext = true;
 
@@ -216,17 +216,14 @@ async function getAllUsersRaw() {
   }
 
   // --- prefix filter ---
-    const hiddenPrefixes = getHiddenUserPrefixes();
-  const lockPrefixes = getUserActionLockPrefixes();
-  const allPrefixes = Array.from(new Set([...hiddenPrefixes, ...lockPrefixes]));
+  const hiddenPrefixes = getHiddenUserPrefixes();
 
-  if (allPrefixes.length) {
+  if (hiddenPrefixes.length) {
     users = users.filter(u => {
       const username = String(u?.username || "").trim().toLowerCase();
-      return !allPrefixes.some(p => username.startsWith(p));
+      return !hiddenPrefixes.some(p => username.startsWith(p));
     });
   }
-
 
   // --- path filter ---
   const folderRaw = String(getString("AUTHENTIK_USER_PATH", "")).trim();
@@ -718,17 +715,14 @@ async function searchUsersPaged({ q, page = 1, pageSize = 50 } = {}) {
   // paged search stays in sync with full-list queries.
   let users = raw.slice();
 
-    const hiddenPrefixes = getHiddenUserPrefixes();
-  const lockPrefixes = getUserActionLockPrefixes();
-  const allPrefixes = Array.from(new Set([...hiddenPrefixes, ...lockPrefixes]));
+  const hiddenPrefixes = getHiddenUserPrefixes();
 
-  if (allPrefixes.length) {
+  if (hiddenPrefixes.length) {
     users = users.filter(u => {
       const username = String(u?.username || "").trim().toLowerCase();
-      return !allPrefixes.some(p => username.startsWith(p));
+      return !hiddenPrefixes.some(p => username.startsWith(p));
     });
   }
-
 
   const folderRaw = String(getString("AUTHENTIK_USER_PATH", "")).trim();
   if (folderRaw) {
