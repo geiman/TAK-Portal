@@ -2,6 +2,7 @@ const router = require("express").Router();
 const multer = require("multer");
 const upload = multer({ storage: multer.memoryStorage() });
 const users = require("../services/users.service");
+const groupsSvc = require("../services/groups.service");
 
 // -------------------- CSV import progress (in-memory) --------------------
 // Lightweight job store for progress reporting.
@@ -27,20 +28,31 @@ function toErrorPayload(err) {
   return err?.message || "Unknown error";
 }
 
-router.get("/meta", (req, res) => {
-  const agencySuffix = req.query.agencySuffix || "";
-  const dynamic = users.getTemplatesForAgency(agencySuffix);
+router.get("/meta", async (req, res) => {
+  try {
+    const agencySuffix = req.query.agencySuffix || "";
+    const dynamic = users.getTemplatesForAgency(agencySuffix);
+    const groups = await groupsSvc.getAllGroups({});
 
-  res.json({
-    templates: [{ name: "Manual Group Selection", groups: [] }, ...dynamic]
-  });
+    res.json({
+      groups,
+      templates: [{ name: "Manual Group Selection", groups: [] }, ...dynamic],
+    });
+  } catch (err) {
+    res.status(500).json({ error: toErrorPayload(err) });
+  }
+});
+
 });
 
 router.get("/groups", async (req, res) => {
   try {
-    res.json(await users.getAllGroups());
+    res.json(await groupsSvc.getAllGroups({}));
   } catch (err) {
     res.status(500).json({ error: toErrorPayload(err) });
+  }
+});
+
   }
 });
 

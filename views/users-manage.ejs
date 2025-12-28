@@ -693,8 +693,8 @@ function updatePaginationControls() {
   if (pageInfoTop) pageInfoTop.textContent = infoText;
   if (pageInfoBottom) pageInfoBottom.textContent = infoText;
 
-  const disablePrev = currentPage <= 1;
-  const disableNext = currentPage >= totalPages;
+  const disablePrev = !hasPrevPage && currentPage <= 1;
+  const disableNext = !hasNextPage;
 
   [prevPageBtnTop, prevPageBtnBottom].forEach(btn => {
     if (btn) btn.disabled = disablePrev;
@@ -718,10 +718,7 @@ function updatePaginationControls() {
 [nextPageBtnTop, nextPageBtnBottom].forEach(btn => {
   if (!btn) return;
   btn.addEventListener("click", () => {
-    const totalPages = totalUsers
-      ? Math.max(1, Math.ceil(totalUsers / PAGE_SIZE))
-      : 0;
-    if (currentPage < totalPages) {
+    if (hasNextPage) {
       currentPage++;
       loadAllUsers();
     }
@@ -916,6 +913,8 @@ async function loadAllUsers(){
   const users = Array.isArray(out.users) ? out.users : [];
   currentPage = Number(out.page || currentPage || 1);
   totalUsers = Number(out.total || users.length);
+  hasNextPage = !!out.hasNext;
+  hasPrevPage = !!out.hasPrev;
   currentPageUsers = users.slice();
   allUsers = users.slice(); // keep page-level cache in sync for callers that patch it
 

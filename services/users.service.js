@@ -4,6 +4,14 @@ const agenciesStore = require("./agencies.service");
 const templatesStore = require("./templates.service");
 const tak = require("./tak.service");
 
+
+function getHiddenUserPrefixes() {
+  return String(getString("USERS_HIDDEN_PREFIXES", ""))
+    .split(",")
+    .map(p => String(p || "").trim().toLowerCase())
+    .filter(Boolean);
+}
+
 // ---------------- Action-lock helpers ----------------
 // If a username starts with any prefix in USERS_ACTIONS_HIDDEN_PREFIXES,
 // the UI hides action buttons AND the API will reject mutating operations.
@@ -208,17 +216,17 @@ async function getAllUsersRaw() {
   }
 
   // --- prefix filter ---
-  const HIDDEN_PREFIXES = String(process.env.USERS_HIDDEN_PREFIXES || "")
-    .split(",")
-    .map(p => String(p || "").trim().toLowerCase())
-    .filter(Boolean);
+    const hiddenPrefixes = getHiddenUserPrefixes();
+  const lockPrefixes = getUserActionLockPrefixes();
+  const allPrefixes = Array.from(new Set([...hiddenPrefixes, ...lockPrefixes]));
 
-  if (HIDDEN_PREFIXES.length) {
+  if (allPrefixes.length) {
     users = users.filter(u => {
       const username = String(u?.username || "").trim().toLowerCase();
-      return !HIDDEN_PREFIXES.some(p => username.startsWith(p));
+      return !allPrefixes.some(p => username.startsWith(p));
     });
   }
+
 
   // --- path filter ---
   const folderRaw = String(getString("AUTHENTIK_USER_PATH", "")).trim();
@@ -710,17 +718,17 @@ async function searchUsersPaged({ q, page = 1, pageSize = 50 } = {}) {
   // paged search stays in sync with full-list queries.
   let users = raw.slice();
 
-  const HIDDEN_PREFIXES = String(process.env.USERS_HIDDEN_PREFIXES || "")
-    .split(",")
-    .map(p => String(p || "").trim().toLowerCase())
-    .filter(Boolean);
+    const hiddenPrefixes = getHiddenUserPrefixes();
+  const lockPrefixes = getUserActionLockPrefixes();
+  const allPrefixes = Array.from(new Set([...hiddenPrefixes, ...lockPrefixes]));
 
-  if (HIDDEN_PREFIXES.length) {
+  if (allPrefixes.length) {
     users = users.filter(u => {
       const username = String(u?.username || "").trim().toLowerCase();
-      return !HIDDEN_PREFIXES.some(p => username.startsWith(p));
+      return !allPrefixes.some(p => username.startsWith(p));
     });
   }
+
 
   const folderRaw = String(getString("AUTHENTIK_USER_PATH", "")).trim();
   if (folderRaw) {
@@ -732,12 +740,25 @@ async function searchUsersPaged({ q, page = 1, pageSize = 50 } = {}) {
   }
 
   const pagination = data.pagination || {};
-  const total =
-    typeof pagination.total === "number"
-      ? pagination.total
-      : typeof data.count === "number"
-      ? data.count
-      : users.length;
+    let total = 0;
+
+  if (pagination && pagination.total != null) {
+    const t = Number(pagination.total);
+    if (!Number.isNaN(t) && t >= 0) {
+      total = t;
+    }
+  }
+
+  if (!total && data && data.count != null) {
+    const c = Number(data.count);
+    if (!Number.isNaN(c) && c >= 0) {
+      total = c;
+    }
+  }
+
+  if (!total) {
+    total = users.length;
+  }
 
   const currentPage =
     typeof pagination.current === "number"
