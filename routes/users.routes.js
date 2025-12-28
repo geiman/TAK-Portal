@@ -43,8 +43,6 @@ router.get("/meta", async (req, res) => {
   }
 });
 
-
-
 router.get("/groups", async (req, res) => {
   try {
     res.json(await groupsSvc.getAllGroups({}));
@@ -52,7 +50,6 @@ router.get("/groups", async (req, res) => {
     res.status(500).json({ error: toErrorPayload(err) });
   }
 });
-
 
 router.post("/", async (req, res) => {
   try {

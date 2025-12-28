@@ -740,15 +740,17 @@ async function searchUsersPaged({ q, page = 1, pageSize = 50 } = {}) {
   }
 
   const pagination = data.pagination || {};
-    let total = 0;
+  let total = 0;
 
-  if (pagination && pagination.total != null) {
-    const t = Number(pagination.total);
+  // Prefer Authentik's pagination.count if available (total items)
+  if (pagination && pagination.count != null) {
+    const t = Number(pagination.count);
     if (!Number.isNaN(t) && t >= 0) {
       total = t;
     }
   }
 
+  // Fallback to top-level count if that is how this version exposes it
   if (!total && data && data.count != null) {
     const c = Number(data.count);
     if (!Number.isNaN(c) && c >= 0) {
@@ -756,6 +758,7 @@ async function searchUsersPaged({ q, page = 1, pageSize = 50 } = {}) {
     }
   }
 
+  // As a last resort, fall back to the current page length
   if (!total) {
     total = users.length;
   }
