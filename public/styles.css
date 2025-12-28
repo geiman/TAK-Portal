@@ -32,12 +32,12 @@ body.theme-dark {
 }
 
 body.theme-light {
-    --bg: #c9c9c9;
+    --bg: #f7f7f8;
     --panel: #ffffff;
     --card: #fdfdfd;
     --text: #111827;
-    --muted: #9ca3af;
-    --line: #b7b7b8;
+    --muted: #72767e;
+    --line: #737373;
     --btn: #0a84ff;
 
 }
