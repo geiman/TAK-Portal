@@ -102,7 +102,7 @@ async function addUsernameLabel(pngBuffer, username) {
     const qrImage = await Jimp.read(pngBuffer);
 
     // Bold-looking font
-    const font = await Jimp.loadFont(Jimp.FONT_SANS_32_BLACK);
+    const font = await Jimp.loadFont(Jimp.FONT_SANS_64_BLACK);
 
     // FORCE ALL CAPS
     const text = (String(username || "").trim() || "USER").toUpperCase();
