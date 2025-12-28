@@ -39,10 +39,11 @@
   <div class="card">
     <div class="row" style="justify-content: space-between; align-items:center;">
       <h2 style="margin:0;">Existing Groups</h2>
-      <button class="btn" id="reloadBtn" type="button">Reload</button>
     </div>
 
     <input id="filter" placeholder="Filter groups..." style="margin: 10px 0; min-width: 360px;" />
+
+    <div id="listMsg" class="msg"></div>
 
     <table class="table">
       <thead>
@@ -53,8 +54,6 @@
       </thead>
       <tbody id="tbody"></tbody>
     </table>
-
-    <div id="listMsg" class="msg"></div>
   </div>
 </main>
 
@@ -950,7 +949,7 @@ massApplyBtn.onclick = async () => {
   }
 };
 
-reloadBtn.onclick = loadGroups;
+if (reloadBtn) reloadBtn.onclick = loadGroups;
 
 (async () => {
   createType.onchange();
