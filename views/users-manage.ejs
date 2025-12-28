@@ -229,12 +229,13 @@ function setMsgEl(el, text, ok=true){
 }
 
 function escapeHtml(s){
-  return String(s ?? "")
-    .replaceAll("&","&amp;")
-    .replaceAll("<","&lt;")
-    .replaceAll(">","&gt;")
-    .replaceAll('"',"&quot;")
-    .replaceAll("'","&#39;");
+  s = (s === null || s === undefined) ? "" : String(s);
+  return s
+    .replace(/&/g,"&amp;")
+    .replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;")
+    .replace(/'/g,"&#39;");
 }
 
 /**
@@ -468,12 +469,12 @@ function renderGroupsBox(){
 
 groupFilter.addEventListener("input", ()=>renderGroupsBox());
 
-selectAllBtn?.addEventListener("click", () => {
+if (selectAllBtn) selectAllBtn.addEventListener("click", function() {
   pickedGroupIds = new Set(Array.from(groupIndex.keys()));
   renderGroupsBox();
 });
 
-clearAllBtn?.addEventListener("click", () => {
+if (clearAllBtn) clearAllBtn.addEventListener("click", function() {
   pickedGroupIds = new Set();
   renderGroupsBox();
 });
@@ -487,7 +488,7 @@ saveGroupsBtn.onclick = async () => {
 
   // If an agency template is selected AND we have cached templates,
   // we pass that along so the backend can apply its group logic.
-  const selectedTemplateKey = templateApplySelect?.value || "";
+  const selectedTemplateKey = templateApplySelect && templateApplySelect.value || "";
   if (selectedTemplateKey && Array.isArray(agencyTemplatesCache) && agencyTemplatesCache.length) {
     payload.templateKey = selectedTemplateKey;
   }
@@ -557,7 +558,7 @@ window.editUser = async (userPk) => {
 
   toggleBtn.textContent = selectedUser.is_active ? "Disable User" : "Enable User";
 
-  await loadTemplatesForAgency(selectedUser?.attributes?.agency || "");
+  await loadTemplatesForAgency((selectedUser && selectedUser.attributes && selectedUser.attributes.agency) || "");
 
   openModal();
 };

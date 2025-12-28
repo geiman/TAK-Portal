@@ -341,7 +341,7 @@ select:focus {
 .groupsBox {
     margin-top: 10px;
     border: 1px solid var(--line);
-    background: #0b1430;
+    background: var(--panel);
     border-radius: 12px;
     padding: 10px;
     max-height: 360px;

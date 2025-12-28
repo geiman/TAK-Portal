@@ -1,10 +1,8 @@
-const { getString, getInt, getBool } = require("./env");
+const { getString, getInt } = require("./env");
 const api = require("./authentik");
 const agenciesStore = require("./agencies.service");
 const templatesStore = require("./templates.service");
 const tak = require("./tak.service");
-const emailSvc = require("./email.service");
-const { renderTemplate, htmlToText } = require("./emailTemplates.service");
 
 // ---------------- Action-lock helpers ----------------
 // If a username starts with any prefix in USERS_ACTIONS_HIDDEN_PREFIXES,
@@ -31,6 +29,10 @@ async function assertUserNotActionLocked(userId, { ignoreLocks } = {}) {
   }
   return user;
 }
+
+const emailSvc = require("./email.service");
+const { renderTemplate, htmlToText } = require("./emailTemplates.service");
+const { getBool } = require("./env");
 
 // Helpers
 function normalizePath(p) {
@@ -62,9 +64,7 @@ async function resolveGroupNames(groupIds) {
   if (!ids.length) return [];
 
   const all = await getAllGroups();
-  const byPk = new Map(
-    all.map(g => [String(g.pk), String(g.name || "").trim()])
-  );
+  const byPk = new Map(all.map(g => [String(g.pk), String(g.name || "").trim()]));
   return ids
     .map(id => byPk.get(String(id)) || String(id))
     .filter(Boolean)
@@ -126,9 +126,7 @@ async function emailGroupsUpdated({ user, beforeIds, afterIds }) {
 
   const subject = "Groups updated";
   const displayName = String(user?.name || "").trim() || "there";
-  const beforeGroupsCsv = beforeNames.length
-    ? beforeNames.join(", ")
-    : "(none)";
+  const beforeGroupsCsv = beforeNames.length ? beforeNames.join(", ") : "(none)";
   const afterGroupsCsv = afterNames.length ? afterNames.join(", ") : "(none)";
   const html = renderTemplate("groups_updated.html", {
     displayName,
@@ -161,7 +159,7 @@ function getTemplatesForAgency(agencySuffix) {
   }));
 }
 
-// ---------------- Authentik API helpers (groups) ----------------
+// Authentik API helpers (groups)
 async function getAllGroupsRaw() {
   let groups = [];
   let url = "/core/groups/";
@@ -169,10 +167,7 @@ async function getAllGroupsRaw() {
     const res = await api.get(url);
     groups = groups.concat(res.data.results);
     url = res.data.next
-      ? res.data.next.replace(
-          `${getString("AUTHENTIK_URL", "")}/api/v3`,
-          ""
-        )
+      ? res.data.next.replace(`${getString("AUTHENTIK_URL", "")}/api/v3`, "")
       : null;
   }
 
@@ -196,10 +191,7 @@ async function getAllUsersRaw() {
   let hasNext = true;
 
   while (hasNext) {
-    const url = `${getString(
-      "AUTHENTIK_URL",
-      ""
-    )}/api/v3/core/users/?page=${page}&page_size=${pageSize}`;
+    const url = `${getString("AUTHENTIK_URL", "")}/api/v3/core/users/?page=${page}&page_size=${pageSize}`;
     const res = await api.get(url);
     const data = res?.data || {};
     const results = Array.isArray(data.results) ? data.results : [];
@@ -275,7 +267,7 @@ async function createUser(
   if (!agency) throw new Error("Invalid agency");
 
   const username = `${badge}${agency.suffix}`;
-  if (!skipExistenceCheck && (await userExists(username))) {
+  if (!skipExistenceCheck && await userExists(username)) {
     throw new Error("Username already exists");
   }
 
@@ -290,10 +282,9 @@ async function createUser(
   const name = `${last}, ${first}`;
 
   // Fetch all groups once (or reuse caller-provided cache)
-  const allGroupsLocal =
-    Array.isArray(allGroups) && allGroups.length
-      ? allGroups
-      : await getAllGroups();
+  const allGroupsLocal = Array.isArray(allGroups) && allGroups.length
+    ? allGroups
+    : await getAllGroups();
 
   // Build fast lookup maps
   const byPk = new Map(allGroupsLocal.map(g => [String(g.pk), g]));
@@ -347,7 +338,9 @@ async function createUser(
   }
 
   // Merge + dedupe by PK (selected groups only)
-  const finalGroups = [...new Map(selectedGroups.map(g => [g.pk, g])).values()];
+  const finalGroups = [
+    ...new Map(selectedGroups.map(g => [g.pk, g])).values(),
+  ];
 
   // Build payload
   const payload = {
@@ -406,8 +399,7 @@ async function createUser(
 async function importUsersFromCsvBuffer(buffer, opts = {}) {
   if (!buffer) throw new Error("No file uploaded");
 
-  const onProgress =
-    typeof opts.onProgress === "function" ? opts.onProgress : null;
+  const onProgress = typeof opts.onProgress === "function" ? opts.onProgress : null;
 
   // Throttle progress callbacks to avoid taxing the system.
   let _lastProgressAt = 0;
@@ -436,14 +428,7 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
   if (lines.length < 2)
     throw new Error("CSV must include header + at least one data row");
 
-  reportProgress({
-    phase: "parsing",
-    total: Math.max(0, lines.length - 1),
-    processed: 0,
-    created: 0,
-    skipped: 0,
-    force: true,
-  });
+  reportProgress({ phase: "parsing", total: Math.max(0, lines.length - 1), processed: 0, created: 0, skipped: 0, force: true });
 
   // ----------- Columns -----------
   const header = lines[0].split(",").map(h => h.trim().toLowerCase());
@@ -496,13 +481,10 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
 
     if (!badge) errors.push({ line: lineNum, message: "Missing badge" });
     if (!agencyRaw) errors.push({ line: lineNum, message: "Missing agency" });
-    if (!firstName)
-      errors.push({ line: lineNum, message: "Missing first name" });
-    if (!lastName)
-      errors.push({ line: lineNum, message: "Missing last name" });
+    if (!firstName) errors.push({ line: lineNum, message: "Missing first name" });
+    if (!lastName) errors.push({ line: lineNum, message: "Missing last name" });
     if (!email) errors.push({ line: lineNum, message: "Missing email" });
-    if (!templateName)
-      errors.push({ line: lineNum, message: "Missing template" });
+    if (!templateName) errors.push({ line: lineNum, message: "Missing template" });
 
     // Badge must be numerics only (same rule as UI)
     const badgeErr = validateBadgeNumber(badge);
@@ -524,18 +506,11 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
     if (agencyRaw) {
       const lower = agencyRaw.toLowerCase();
       agency =
-        agencies.find(
-          a => String(a.suffix || "").toLowerCase() === lower
-        ) ||
-        agencies.find(
-          a => String(a.groupPrefix || "").toLowerCase() === lower
-        );
+        agencies.find(a => String(a.suffix || "").toLowerCase() === lower) ||
+        agencies.find(a => String(a.groupPrefix || "").toLowerCase() === lower);
 
       if (!agency) {
-        errors.push({
-          line: lineNum,
-          message: `Unknown agency "${agencyRaw}"`,
-        });
+        errors.push({ line: lineNum, message: `Unknown agency "${agencyRaw}"` });
       } else {
         agencySuffix = String(agency.suffix || "").trim();
       }
@@ -585,14 +560,8 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
     throw new Error(msg);
   }
 
-  reportProgress({
-    phase: "creating",
-    total: rows.length,
-    processed: 0,
-    created: 0,
-    skipped: 0,
-    force: true,
-  });
+  reportProgress({ phase: "creating", total: rows.length, processed: 0, created: 0, skipped: 0, force: true });
+
 
   async function runWithConcurrencyLimit(items, limit, worker) {
     let index = 0;
@@ -610,7 +579,7 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
       );
     }
 
-  await Promise.all(workers);
+    await Promise.all(workers);
   }
 
   const created = [];
@@ -623,74 +592,68 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
   const defaultLimit = 5;
   const envVal = getInt("USER_IMPORT_CONCURRENCY", defaultLimit);
   const importConcurrency =
-    Number.isFinite(envVal) && envVal > 0 && envVal <= 25
-      ? envVal
-      : defaultLimit;
+    Number.isFinite(envVal) && envVal > 0 && envVal <= 25 ? envVal : defaultLimit;
 
   // Use a modest concurrency to balance speed vs load on Authentik
-  await runWithConcurrencyLimit(
-    rows,
-    importConcurrency,
-    async row => {
-      try {
-        const dyn = getTemplatesForAgency(row.agencySuffix);
-        const idx = dyn.findIndex(
-          t =>
-            String(t.name || "").trim().toLowerCase() ===
-            String(row.templateName || "").trim().toLowerCase()
+  await runWithConcurrencyLimit(rows, importConcurrency, async row => {
+    try {
+      const dyn = getTemplatesForAgency(row.agencySuffix);
+      const idx = dyn.findIndex(
+        t =>
+          String(t.name || "").trim().toLowerCase() ===
+          String(row.templateName || "").trim().toLowerCase()
+      );
+      if (idx < 0) {
+        // Should not happen due to earlier validation, but keep defensive.
+        throw new Error(
+          `Template "${row.templateName}" not found during creation`
         );
-        if (idx < 0) {
-          // Should not happen due to earlier validation, but keep defensive.
-          throw new Error(
-            `Template "${row.templateName}" not found during creation`
-          );
-        }
-
-        const username = `${row.badge}${row.agencySuffix}`;
-
-        // Option B behavior: if user already exists, skip but record it.
-        if (await userExists(username)) {
-          skipped.push({
-            line: row.lineNum,
-            username,
-            reason: "Username already exists",
-          });
-          return;
-        }
-
-        // Dynamic templates are offset by +1 (0 = Manual Group Selection)
-        const templateIndex = 1 + idx;
-
-        const result = await createUser(
-          {
-            badge: row.badge,
-            agencySuffix: row.agencySuffix,
-            email: row.email,
-            firstName: row.firstName,
-            lastName: row.lastName,
-            password: row.password || undefined,
-            templateIndex,
-            manualGroupIds: [],
-            allGroups,
-          },
-          { skipExistenceCheck: true }
-        );
-
-        const createdUsername =
-          (result && result.user && result.user.username) || username;
-        created.push({ username: createdUsername });
-      } finally {
-        processed += 1;
-        reportProgress({
-          phase: "creating",
-          total: rows.length,
-          processed,
-          created: created.length,
-          skipped: skipped.length,
-        });
       }
+
+      const username = `${row.badge}${row.agencySuffix}`;
+
+      // Option B behavior: if user already exists, skip but record it.
+      if (await userExists(username)) {
+        skipped.push({
+          line: row.lineNum,
+          username,
+          reason: "Username already exists",
+        });
+        return;
+      }
+
+      // Dynamic templates are offset by +1 (0 = Manual Group Selection)
+      const templateIndex = 1 + idx;
+
+      const result = await createUser(
+        {
+          badge: row.badge,
+          agencySuffix: row.agencySuffix,
+          email: row.email,
+          firstName: row.firstName,
+          lastName: row.lastName,
+          password: row.password || undefined,
+          templateIndex,
+          manualGroupIds: [],
+          allGroups,
+        },
+        { skipExistenceCheck: true }
+      );
+
+      const createdUsername =
+        (result && result.user && result.user.username) || username;
+      created.push({ username: createdUsername });
+    } finally {
+      processed += 1;
+      reportProgress({
+        phase: "creating",
+        total: rows.length,
+        processed,
+        created: created.length,
+        skipped: skipped.length,
+      });
     }
-  );
+  });
 
   reportProgress({
     phase: "done",
@@ -704,7 +667,6 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
   invalidateUsersCache();
   return { count: created.length, created, skipped };
 }
-
 // Search users
 // - If no q provided -> returns all users (already filtered by folder)
 async function findUsers({ q, forceRefresh = false } = {}) {
@@ -791,6 +753,7 @@ async function searchUsersPaged({ q, page = 1, pageSize = 50 } = {}) {
     hasPrev: Boolean(pagination.previous ?? data.previous),
   };
 }
+
 
 async function resetPassword(userId, password) {
   await assertUserNotActionLocked(userId);
@@ -926,13 +889,22 @@ async function removeUserGroups(userId, groupIds) {
   return remaining;
 }
 
-// ---------------- Authentik read helpers (with lightweight caching for users) ----------------
+
+// ---------------- Authentik read helpers (no caching) ----------------
+// For now we always hit Authentik directly so each page load sees fresh data.
+
+function invalidateUsersCache() {
+  // no-op – kept so existing callers still work
+}
+
+function invalidateGroupsCache() {
+  // no-op – kept so existing callers still work
+}
 
 let USERS_CACHE = null;
 let USERS_CACHE_TS = 0;
 // TTL in seconds; defaults to 30s. Use 0 to disable caching and always hit Authentik.
-const USERS_CACHE_TTL_MS =
-  (getInt("USERS_CACHE_TTL_SECONDS", 30) || 0) * 1000;
+const USERS_CACHE_TTL_MS = (getInt("USERS_CACHE_TTL_SECONDS", 30) || 0) * 1000;
 
 function invalidateUsersCache() {
   USERS_CACHE = null;
@@ -971,6 +943,9 @@ async function getAllGroups(options = {}) {
   // ignore options / forceRefresh; always reload
   return await getAllGroupsRaw();
 }
+
+
+
 
 module.exports = {
   // meta/template support
