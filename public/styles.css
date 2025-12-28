@@ -32,23 +32,23 @@ body.theme-slate {
 }
 
 body.theme-maroon {
-    --bg: #0f0a0a;
-    --panel: #1a1212;
-    --card: #1f1616;
-    --text: #f5e6e6;
-    --muted: #a38e8e;
-    --line: #332525;
-    --btn: #b31b1b;
+    --bg: #0d090b;
+    --panel: #160f12;
+    --card: #1c1215;
+    --text: #fce8eb;
+    --muted: #a3898f;
+    --line: #36242a;
+    --btn: #dc143c;
 }
 
 body.theme-green {
-    --bg: #02120a;
-    --panel: #042017;
-    --card: #05291d;
-    --text: #dcfce7;
-    --muted: #6ee7b7;
-    --line: #064e3b;
-    --btn: #0d5929;
+    --bg: #080a09;
+    --panel: #0e1411;
+    --card: #131b17;
+    --text: #e6f2ee;
+    --muted: #8a9c94;
+    --line: #222e28;
+    --btn: #1a8a58;
 }
 
 /* Brand logo in sidebar */
