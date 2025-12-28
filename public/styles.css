@@ -22,13 +22,13 @@ body.theme-dark-blue {
 }
 
 body.theme-slate {
-    --bg: #05070a;
-    --panel: #0b111d;
-    --card: #111827;
-    --text: #f9fafb;
-    --muted: #94a3b8;
-    --line: #1e293b; 
-    --btn: #3b82f6; 
+    --bg: #000000;
+    --panel: #121212;
+    --card: #1c1c1e;
+    --text: #ffffff;
+    --muted: #8e8e93;
+    --line: #38383a;
+    --btn: #0a84ff;
 }
 
 body.theme-maroon {
@@ -93,7 +93,7 @@ body {
 
 .sidebar {
     width: 240px;
-    padding: 10px;
+    padding: 18px;
     background: var(--panel);
     border-right: 1px solid var(--line);
 

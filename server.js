@@ -125,12 +125,17 @@ app.post(
   ]),
   (req, res) => {
     const rawBody = req.body || {};
+
+    // Grab the current full settings object
+    const currentSettings = settingsSvc.getSettings() || {};
+    // Start from existing settings so we don't lose anything (like BRAND_LOGO_URL)
+    const merged = { ...currentSettings };
+
+    // --- collect settings[*] fields from the form ---
+
     const bodySettings = {};
 
-    // Grab current settings so we can preserve existing values if needed
-    const currentSettings = settingsSvc.getSettings() || {};
-
-    // Nested "settings" object (for non-multipart cases)
+    // Nested "settings" object (non-multipart or other cases)
     if (rawBody.settings && typeof rawBody.settings === "object") {
       Object.keys(rawBody.settings).forEach((key) => {
         bodySettings[key] = rawBody.settings[key];
@@ -145,46 +150,40 @@ app.post(
       }
     });
 
-    const patch = {};
-
-    // Copy simple settings (including booleans and BRAND_THEME)
+    // Apply simple settings onto merged
     Object.keys(bodySettings).forEach((key) => {
-      patch[key] = bodySettings[key];
+      merged[key] = bodySettings[key];
     });
 
-    // Handle uploaded files and update path settings
+    // --- handle uploaded files (certs + logo) ---
+
     const files = req.files || {};
 
     const p12Files = files.TAK_API_P12_UPLOAD || [];
     if (p12Files.length > 0) {
       const f = p12Files[0];
       const relPath = path.relative(process.cwd(), f.path);
-      patch.TAK_API_P12_PATH = relPath.replace(/\\/g, "/");
+      merged.TAK_API_P12_PATH = relPath.replace(/\\/g, "/");
     }
 
     const caFiles = files.TAK_CA_UPLOAD || [];
     if (caFiles.length > 0) {
       const f = caFiles[0];
       const relPath = path.relative(process.cwd(), f.path);
-      patch.TAK_CA_PATH = relPath.replace(/\\/g, "/");
+      merged.TAK_CA_PATH = relPath.replace(/\\/g, "/");
     }
 
     const logoFiles = files.BRAND_LOGO_UPLOAD || [];
     if (logoFiles.length > 0) {
       const f = logoFiles[0];
       const webPath = "/branding/" + path.basename(f.path);
-      patch.BRAND_LOGO_URL = webPath.replace(/\\/g, "/");
-    } else {
-      // ❗ No new logo uploaded – keep the existing one if present
-      if (
-        typeof currentSettings.BRAND_LOGO_URL === "string" &&
-        currentSettings.BRAND_LOGO_URL.trim()
-      ) {
-        patch.BRAND_LOGO_URL = currentSettings.BRAND_LOGO_URL;
-      }
+      merged.BRAND_LOGO_URL = webPath.replace(/\\/g, "/");
     }
+    // IMPORTANT: if no logo file uploaded, we do NOT touch merged.BRAND_LOGO_URL
+    // so it stays whatever it was before.
 
-    settingsSvc.updateSettings(patch);
+    // Save the FULL merged settings object
+    settingsSvc.saveSettings(merged);
 
     res.redirect("/settings");
   }
