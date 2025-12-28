@@ -43,7 +43,7 @@ router.get("/meta", async (req, res) => {
   }
 });
 
-});
+
 
 router.get("/groups", async (req, res) => {
   try {
@@ -53,8 +53,6 @@ router.get("/groups", async (req, res) => {
   }
 });
 
-  }
-});
 
 router.post("/", async (req, res) => {
   try {
