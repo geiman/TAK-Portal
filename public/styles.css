@@ -235,7 +235,7 @@ label {
 
 input,
 select {
-    background: var(--card);  
+    background: var(--panel);  
     border: 1px solid var(--line);
     color: var(--text);
     padding: 10px;
