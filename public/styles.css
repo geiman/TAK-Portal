@@ -22,23 +22,23 @@ body.theme-dark-blue {
 }
 
 body.theme-slate {
-    --bg: #272727;
-    --panel: #111827;
-    --card: #282828;
+    --bg: #05070a;
+    --panel: #0b111d;
+    --card: #111827;
     --text: #f9fafb;
-    --muted: #9ca3af;
-    --line: #1f2933;
-    --btn: #4b5563;
+    --muted: #94a3b8;
+    --line: #1e293b; 
+    --btn: #3b82f6; 
 }
 
 body.theme-maroon {
-    --bg: #120508;
-    --panel: #220712;
-    --card: #330815;
-    --text: #fde7ec;
-    --muted: #fca5a5;
-    --line: #4b0f1f;
-    --btn: #b91c1c;
+    --bg: #0f0a0a;
+    --panel: #1a1212;
+    --card: #1f1616;
+    --text: #f5e6e6;
+    --muted: #a38e8e;
+    --line: #332525;
+    --btn: #b31b1b;
 }
 
 body.theme-green {
