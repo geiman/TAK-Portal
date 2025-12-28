@@ -537,8 +537,23 @@ if (saveGroupsBtn) saveGroupsBtn.onclick = async () => {
 let selectedUser = null;
 
 window.editUser = async (userPk) => {
-  const u = (window.__lastUsers || []).find(x => String(x.pk) === String(userPk));
-  if(!u) return;
+  // Try several sources in case __lastUsers is empty or out of sync.
+  const pkStr = String(userPk);
+  const sourceLists = [
+    window.__lastUsers || [],
+    currentPageUsers || [],
+    allUsers || [],
+  ].filter(Array.isArray);
+
+  let u = null;
+  for (const list of sourceLists) {
+    u = list.find(x => String(x.pk) === pkStr);
+    if (u) break;
+  }
+  if (!u) {
+    console.warn("editUser: user not found for pk", userPk, { sourceLengths: sourceLists.map(l => l.length) });
+    return;
+  }
 
   selectedUser = { ...u };
   userTitle.textContent = `User ${selectedUser.username}`;
@@ -558,7 +573,11 @@ window.editUser = async (userPk) => {
 
   toggleBtn.textContent = selectedUser.is_active ? "Disable User" : "Enable User";
 
-  await loadTemplatesForAgency((selectedUser && selectedUser.attributes && selectedUser.attributes.agency) || "");
+  await loadTemplatesForAgency(
+    (selectedUser &&
+      selectedUser.attributes &&
+      selectedUser.attributes.agency) || ""
+  );
 
   openModal();
 };
@@ -969,14 +988,14 @@ searchForm.onsubmit = (e) => {
   max-height: 92vh;
   overflow: auto;
   border: 1px solid var(--line);
-  background: var(--panel);
+  background: #0b1430;
   border-radius: 16px;
   box-shadow: 0 12px 40px rgba(0,0,0,.45);
 }
 .modalHeader{
   position: sticky;
   top: 0;
-  background: var(--panel);
+  background: #0b1430;
   border-bottom: 1px solid var(--line);
   padding: 14px 14px;
   display: flex;
@@ -1032,7 +1051,7 @@ th.sortedDesc .sortIndicator{
 .groupsBox{
   margin-top: 10px;
   border: 1px solid var(--line);
-  background: var(--panel);
+  background: #0b1430;
   border-radius: 12px;
   padding: 10px;
   max-height: 320px;
