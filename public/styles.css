@@ -22,9 +22,9 @@ body.theme-dark-blue {
 }
 
 body.theme-slate {
-    --bg: #050708;
+    --bg: #272727;
     --panel: #111827;
-    --card: #020617;
+    --card: #282828;
     --text: #f9fafb;
     --muted: #9ca3af;
     --line: #1f2933;
@@ -48,7 +48,7 @@ body.theme-green {
     --text: #dcfce7;
     --muted: #6ee7b7;
     --line: #064e3b;
-    --btn: #16a34a;
+    --btn: #0d5929;
 }
 
 /* Brand logo in sidebar */
