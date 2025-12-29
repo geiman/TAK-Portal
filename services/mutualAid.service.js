@@ -122,7 +122,7 @@ function randomPassword(length = 18) {
   const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
   const lower = "abcdefghijkmnopqrstuvwxyz";
   const digits = "23456789";
-  const symbols = "!@#$%&*_-+=?";
+  const symbols = "!@#$%&*-+=?";
   const all = upper + lower + digits + symbols;
 
   const pick = (charset) => charset[crypto.randomInt(0, charset.length)];
