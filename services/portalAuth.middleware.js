@@ -14,6 +14,8 @@ const { getBool, getString } = require("./env");
  *         if any are configured.
  */
 
+const PUBLIC_PATHS = new Set([]);
+
 function parseGroupList(raw) {
   if (!raw) return [];
   return String(raw)
