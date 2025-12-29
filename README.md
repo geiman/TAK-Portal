@@ -44,7 +44,7 @@ cd TAK-Portal
 ./takportal config
 ```
 
-Start TAK Portal
+Start TAK Portal - This will install any dependencies and start the Docker container
 
 ```
 ./takportal start
