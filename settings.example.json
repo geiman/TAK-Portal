@@ -9,6 +9,7 @@
 
   "PORTAL_AUTH_ENABLED": "false",         
   "PORTAL_AUTH_REQUIRED_GROUP": "",
+  "AUTHENTIK_PUBLIC_URL": "",
 
   "TAK_URL": "https://your-tak-server:8443/Marti",
   "TAK_API_P12_PATH": "./certs/webadmin.p12",

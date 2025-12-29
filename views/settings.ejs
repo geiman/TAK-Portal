@@ -69,6 +69,7 @@
 
         "PORTAL_AUTH_ENABLED",
         "PORTAL_AUTH_REQUIRED_GROUP",
+        "AUTHENTIK_PUBLIC_URL",
 
         "EMAIL_ENABLED",
         "EMAIL_PROVIDER",
@@ -112,7 +113,7 @@
       <div class="grid2">
         <% renderField(
           "AUTHENTIK_URL",
-          "Authentik URL",
+          "Authentik Internal URL",
           "Base URL of your Authentik instance (e.g. http://authentik:9000)"
         ); %>
         <% renderField(
@@ -232,6 +233,11 @@
           "PORTAL_AUTH_REQUIRED_GROUP",
           "Required Authentik group(s)",
           "Optional. Comma-separated list; user must belong to at least one of these groups."
+        ); %>
+            <% renderField(
+          "AUTHENTIK_PUBLIC_URL",
+          "Authentik Public URL",
+          "URL users see in the browser (e.g. https://auth.dvshome.us). Used for logout redirects."
         ); %>
       </div>
     </div>

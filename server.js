@@ -6,6 +6,7 @@ const multer = require("multer");
 const settingsSvc = require("./services/settings.service");
 
 const { getString } = require("./services/env");
+const { URL } = require("url");
 const pkg = require("./package.json");
 const mutualAidSvc = require("./services/mutualAid.service");
 const portalAuth = require("./services/portalAuth.middleware");
@@ -99,9 +100,31 @@ app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
 
 app.get("/logout", (req, res) => {
-  const redirectAfter = encodeURIComponent("/");
-  // This path is served by the Authentik outpost via Caddy
-  res.redirect(`/outpost.goauthentik.io/sign_out?rd=${redirectAfter}`);
+  // Where to send the user back after logout (the portal itself)
+  const portalUrl = `${req.protocol}://${req.get("host")}/`;
+
+  // Prefer AUTHENTIK_PUBLIC_URL; fall back to AUTHENTIK_URL
+  const base = getString("AUTHENTIK_PUBLIC_URL", "") || getString("AUTHENTIK_URL", "");
+
+  if (!base) {
+    console.error("Logout requested but no AUTHENTIK_PUBLIC_URL or AUTHENTIK_URL is configured");
+    return res.status(500).send("Logout is not configured. Ask the administrator to set Authentik URL.");
+  }
+
+  let logoutUrl;
+  try {
+    const u = new URL(base);
+    // Use Authentik's default invalidation (logout) flow
+    // This is relative to whatever host you configured.
+    u.pathname = "/flows/-/default/invalidation/";
+    u.searchParams.set("next", portalUrl);
+    logoutUrl = u.toString();
+  } catch (err) {
+    console.error("Invalid Authentik URL in settings:", base, err);
+    return res.status(500).send("Logout is misconfigured. Check Authentik URL in settings.");
+  }
+
+  res.redirect(logoutUrl);
 });
 
 // API Routes
