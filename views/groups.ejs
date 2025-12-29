@@ -273,6 +273,15 @@ async function loadAgencies(){
 }
 
 function agencyItems(){
+  return agenciesCache
+    .filter(a => String(a.suffix || "").trim())
+    .slice()
+    .sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")))
+    .map(a => {
+      const sfx = String(a.suffix || "").trim().toLowerCase();
+      return { name: String(a.name || ""), suffix: sfx };
+    });
+}
 
 function isGroupEditable(name){
   <% if (isGlobalAdmin) { %>
@@ -288,15 +297,6 @@ function isGroupEditable(name){
   return agenciesCache.some(a =>
     String(a.groupPrefix || "").trim().toUpperCase() === prefix
   );
-}
-  return agenciesCache
-    .filter(a => String(a.suffix || "").trim())
-    .slice()
-    .sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")))
-    .map(a => {
-      const sfx = String(a.suffix || "").trim().toLowerCase();
-      return { name: String(a.name || ""), suffix: sfx };
-    });
 }
 
 function renderAgencyList(){

@@ -235,7 +235,7 @@ router.get("/search", async (req, res) => {
     // Safety cap to avoid unbounded loops in pathological cases
     const MAX_API_PAGES = 100;
 
-    while (hasNext && apiPage <= MAX_API_PAGES && filteredTotal < targetEnd) {
+    while (hasNext && apiPage <= MAX_API_PAGES) {
       const batch = await users.searchUsersPaged({ q, page: apiPage, pageSize: apiPageSize });
       const items = Array.isArray(batch.users) ? batch.users : [];
 
@@ -248,16 +248,29 @@ router.get("/search", async (req, res) => {
         accessSvc.isUsernameInAllowedAgencies(authUser, u.username)
       );
 
+      // Count them all, even beyond the current page window, so that total
+      // reflects *all* accessible users.
       filteredTotal += filteredPage.length;
-      collected = collected.concat(filteredPage);
+
+      // Only collect what we need for the requested page window.
+      if (filteredTotal > targetStart && collected.length < targetEnd) {
+        // Determine slice of this filteredPage that belongs in [targetStart, targetEnd)
+        const alreadyBefore = Math.max(0, targetStart - (filteredTotal - filteredPage.length));
+        const upTo = Math.min(
+          filteredPage.length,
+          targetEnd - (filteredTotal - filteredPage.length)
+        );
+        if (upTo > alreadyBefore) {
+          collected = collected.concat(filteredPage.slice(alreadyBefore, upTo));
+        }
+      }
 
       hasNext = !!batch.hasNext;
       apiPage += 1;
     }
 
-    // We may have fetched more than we need for this page; slice down.
-    const pageItems = collected.slice(targetStart, targetEnd);
     const totalPages = filteredTotal ? Math.ceil(filteredTotal / pageSize) : 0;
+    const pageItems = collected.slice(0, pageSize);
 
     res.json({
       users: pageItems,
@@ -271,7 +284,6 @@ router.get("/search", async (req, res) => {
     res.status(500).json({ error: toErrorPayload(err) });
   }
 });
-
 router.post("/:userId/reset-password", async (req, res) => {
   try {
     await users.resetPassword(req.params.userId, req.body?.password);
