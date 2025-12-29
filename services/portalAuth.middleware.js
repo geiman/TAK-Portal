@@ -8,19 +8,21 @@ const { getBool, getString } = require("./env");
  *   - middleware is a no-op.
  *
  * When "true":
- *   - require X-Authentik-Username header (Caddy + Authentik forward_auth).
- *   - if PORTAL_AUTH_REQUIRED_GROUP is set, require user to be in at least one of those groups.
- *
- * PORTAL_AUTH_REQUIRED_GROUP can be a comma-separated list of groups.
- * Authentik sends X-Authentik-Groups as a '|' separated list, e.g. "group1|group2|group3".
+ *   - require X-Authentik-Username header (from Caddy + Authentik)
+ *   - optionally require membership in PORTAL_AUTH_REQUIRED_GROUP (comma-separated list)
  */
 function portalAuthMiddleware(req, res, next) {
   const authEnabled = getBool("PORTAL_AUTH_ENABLED", false);
+
+  // Always allow logout route to pass through so users who are blocked can sign out
+  if (req.path === "/logout") {
+    return next();
+  }
+
   if (!authEnabled) {
     return next();
   }
 
-  // Node lower-cases header names, so we use lowercase keys here.
   const username = req.headers["x-authentik-username"];
   const groupsHeader = req.headers["x-authentik-groups"] || "";
 
@@ -32,7 +34,6 @@ function portalAuthMiddleware(req, res, next) {
       );
   }
 
-  // Authentik groups come in as a pipe-separated string
   const userGroups = groupsHeader
     .split("|")
     .map((g) => String(g || "").trim())
@@ -50,13 +51,13 @@ function portalAuthMiddleware(req, res, next) {
     );
 
     if (!hasAnyRequired) {
-      return res
-        .status(403)
-        .send("Access denied. You are not in an allowed Authentik group.");
+      // Render a friendly access denied page with a Logout button
+      return res.status(403).render("access-denied", {
+        username,
+      });
     }
   }
 
-  // Make Authentik user info available downstream if needed (optional)
   req.authentikUser = {
     username,
     groups: userGroups,

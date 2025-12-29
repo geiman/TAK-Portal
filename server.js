@@ -98,6 +98,12 @@ app.use(portalAuth);
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
 
+app.get("/logout", (req, res) => {
+  const redirectAfter = encodeURIComponent("/");
+  // This path is served by the Authentik outpost via Caddy
+  res.redirect(`/outpost.goauthentik.io/sign_out?rd=${redirectAfter}`);
+});
+
 // API Routes
 app.use("/api/agencies", require("./routes/agencies.routes"));
 app.use("/api/users", require("./routes/users.routes"));

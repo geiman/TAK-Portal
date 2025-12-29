@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Access denied</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="page">
+  <main class="container">
+    <div class="card">
+      <h1>Access denied</h1>
+
+      <% if (username) { %>
+        <p>
+          You are logged in as <strong><%= username %></strong>, but you are not a member
+          of the required Authentik group to access this portal.  If you believe this is incorrect,
+          please contact your TAK-Portal Administrator.
+        </p>
+      <% } else { %>
+        <p>You are not authorized to access this portal.</p>
+      <% } %>
+
+      <p>
+        If you have another account that should have access, you can log out and sign in again.
+      </p>
+
+      <div style="margin-top: 1.5rem; display:flex; gap: 0.75rem; flex-wrap: wrap;">
+        <a href="/logout" class="btn btn-danger">Log out</a>
+        <a href="/" class="btn">Back to home</a>
+      </div>
+    </div>
+  </main>
+</body>
+</html>
