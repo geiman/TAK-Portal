@@ -1,8 +1,7 @@
 <h1 align='center'>TAK Portal</h1>
 
 <p align="center">
-A lightweight, modern user-management portal designed to integrate seamlessly with
-<strong>Authentik</strong> and <strong>TAK Server</strong> for streamlined certificate and account control. Built for administrators and agencies who need reliability, simplicity, and security.
+TAK Portal is a lightweight, modern user-management portal designed to integrate seamlessly with <strong>Authentik</strong> and <strong>TAK Server</strong> for streamlined certificate and account control. Built specifically for agencies who need reliability, simplicity, and security.
 
 
 
@@ -19,12 +18,14 @@ A lightweight, modern user-management portal designed to integrate seamlessly wi
 ## Prerequisites
 
 > [!NOTE]  
-> TAK Portal relies on your existing local:
+> TAK Portal relies on your *EXISTING* local:
 >
 > - Authentik Server — used for identity and user management  
 > - TAK Server — used for certificate revocation  
 >
 > TAK Portal will run without TAK Server connected, but certificates will ***not*** be revoked when users are disabled or deleted.
+
+*MORE INSTRUCTIONS NEED TO GO HERE FOR AUTHENTIK SETUP*
 
 ---
 
