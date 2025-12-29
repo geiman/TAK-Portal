@@ -34,9 +34,9 @@
             id="passwordInput"
             name="password"
             type="password"
-            placeholder="Min 12 characters, with upper, lower, number, and symbol"
+            placeholder="Min 12 chars: upper, lower, number, and symbol"
             minlength="12"
-            pattern="^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[!@#$%^&*()_+\-\=\[\]{};':\"\\|,.<>\/?]).{12,}$"
+            pattern="^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[^A-Za-z0-9]).{12,}$"
           />
           <button
             type="button"
@@ -139,7 +139,7 @@ function esc(s) {
 // Allow blank. If filled, must have: 12+ chars, upper, lower, digit, symbol.
 function isValidPassword(pwd) {
   if (!pwd) return true;
-  const re = /^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};'\:\"\\|,.<>\/?]).{12,}$/;
+  const re = /^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[^A-Za-z0-9]).{12,}$/;
   return re.test(pwd);
 }
 
