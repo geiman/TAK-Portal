@@ -84,7 +84,19 @@ function safeMailTo(user) {
   return to || null;
 }
 
-async function emailUserCreated({ user, groups }) {
+/**
+ * User-created email.
+ *
+ * hasPassword === true  -> use "user_created_password_set.html"
+ * hasPassword === false -> use "user_created_no_password.html"
+ *
+ * Both templates receive:
+ *  - displayName
+ *  - username
+ *  - groupsCsv
+ *  - hasPassword (boolean)
+ */
+async function emailUserCreated({ user, groups, hasPassword }) {
   const to = safeMailTo(user);
   if (!to) return;
 
@@ -98,10 +110,16 @@ async function emailUserCreated({ user, groups }) {
   const subject = "Account created";
   const displayName = String(user?.name || "").trim() || "there";
   const groupsCsv = groupNames.length ? groupNames.join(", ") : "(none)";
-  const html = renderTemplate("user_created.html", {
+
+  const templateKey = hasPassword
+    ? "user_created_password_set.html"
+    : "user_created_no_password.html";
+
+  const html = renderTemplate(templateKey, {
     displayName,
     username: String(user?.username || ""),
     groupsCsv,
+    hasPassword: !!hasPassword,
   });
   const text = htmlToText(html);
 
@@ -409,6 +427,9 @@ async function createUser(
   const folderRaw = String(getString("AUTHENTIK_USER_PATH", "")).trim();
   if (folderRaw) payload.path = normalizePath(folderRaw);
 
+  // Track whether a password is being set at creation time
+  const hasPassword = !!password;
+
   // Optional password
   if (password) payload.password = password;
 
@@ -425,7 +446,7 @@ async function createUser(
 
   // Email notification (never includes the password)
   try {
-    await emailUserCreated({ user, groups: finalGroups });
+    await emailUserCreated({ user, groups: finalGroups, hasPassword });
   } catch (e) {
     // Don't fail user creation if email fails
     console.error("[EMAIL] user creation notice failed:", e?.message || e);
@@ -644,7 +665,7 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
       );
     }
 
-  await Promise.all(workers);
+    await Promise.all(workers);
   }
 
   const created = [];
@@ -697,7 +718,7 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
           email: row.email,
           firstName: row.firstName,
           lastName: row.lastName,
-          password: row.password || undefined,
+          password: row.password || undefined, // <- per-row password / no-password
           templateIndex,
           manualGroupIds: [],
           allGroups,
