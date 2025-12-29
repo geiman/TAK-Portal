@@ -8,6 +8,7 @@ const settingsSvc = require("./services/settings.service");
 const { getString } = require("./services/env");
 const pkg = require("./package.json");
 const mutualAidSvc = require("./services/mutualAid.service");
+const portalAuth = require("./services/portalAuth.middleware");
 
 const app = express();
 
@@ -72,6 +73,7 @@ const uploadStorage = multer.diskStorage({
 const upload = multer({ storage: uploadStorage });
 
 // Expose settings + theme/logo to all views
+// Expose settings + theme/logo to all views
 app.use((req, res, next) => {
   try {
     const settings = settingsSvc.getSettings();
@@ -89,6 +91,9 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// >>> NEW: enforce optional Authentik/group access control <<<
+app.use(portalAuth);
 
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));

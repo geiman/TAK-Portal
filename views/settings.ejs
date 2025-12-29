@@ -13,7 +13,8 @@
         "TAK_BYPASS_ENABLED",
         "EMAIL_ENABLED",
         "SMTP_SECURE",
-        "EMAIL_FAIL_HARD"
+        "EMAIL_FAIL_HARD",
+        "PORTAL_AUTH_ENABLED"
       ]);
 
       function renderField(key, label, helpText) { 
@@ -65,6 +66,9 @@
         "TAK_REVOKE_ON_DISABLE",
         "TAK_DEBUG",
         "TAK_BYPASS_ENABLED",
+
+        "PORTAL_AUTH_ENABLED",
+        "PORTAL_AUTH_REQUIRED_GROUP",
 
         "EMAIL_ENABLED",
         "EMAIL_PROVIDER",
@@ -214,6 +218,24 @@
         ); %>
       </div>
     </div>
+
+    <!-- Portal Access Control -->
+    <div class="card">
+      <h2>Portal Access Control</h2>
+      <div class="grid2">
+        <% renderField(
+          "PORTAL_AUTH_ENABLED",
+          "Require Authentik login",
+          "When true, this portal only works behind an Authentik forward_auth / Caddy setup."
+        ); %>
+        <% renderField(
+          "PORTAL_AUTH_REQUIRED_GROUP",
+          "Required Authentik group(s)",
+          "Optional. Comma-separated list; user must belong to at least one of these groups."
+        ); %>
+      </div>
+    </div>
+
 
     <!-- Email -->
     <div class="card">
