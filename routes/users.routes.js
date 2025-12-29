@@ -229,23 +229,16 @@ router.get("/search", async (req, res) => {
       return res.json(result);
     }
 
-    // Agency admins: we want pages that are "full" from the perspective of
-    // their filtered view, without having to scan the entire Authentik result
-    // set on every request. We trade a perfectly exact "total" for much better
-    // responsiveness.
-    const targetStart = (page - 1) * pageSize;
-    const targetEnd = page * pageSize;
-
-    let collected = [];
-    let filteredTotal = 0;
+    // Agency admins: build a fully filtered result set so that
+    // pagination totals reflect only users they are allowed to see.
+    const apiPageSize = 50;
     let apiPage = 1;
-    const apiPageSize = 50; // reasonable fetch size against Authentik
     let hasNext = true;
-
-    // Safety cap to avoid unbounded loops in pathological cases
     const MAX_API_PAGES = 100;
 
-    while (hasNext && apiPage <= MAX_API_PAGES && filteredTotal < targetEnd) {
+    let allFiltered = [];
+
+    while (hasNext && apiPage <= MAX_API_PAGES) {
       const batch = await users.searchUsersPaged({ q, page: apiPage, pageSize: apiPageSize });
       const items = Array.isArray(batch.users) ? batch.users : [];
 
@@ -258,36 +251,20 @@ router.get("/search", async (req, res) => {
         accessSvc.isUsernameInAllowedAgencies(authUser, u.username)
       );
 
-      const prevTotal = filteredTotal;
-      filteredTotal += filteredPage.length;
-
-      // If this batch overlaps our requested page window, append those items.
-      if (filteredTotal > targetStart) {
-        const windowStartIdx = Math.max(0, targetStart - prevTotal);
-        const windowEndIdx = Math.min(filteredPage.length, targetEnd - prevTotal);
-        if (windowEndIdx > windowStartIdx) {
-          collected = collected.concat(filteredPage.slice(windowStartIdx, windowEndIdx));
-        }
-      }
-
+      allFiltered = allFiltered.concat(filteredPage);
       hasNext = !!batch.hasNext;
       apiPage += 1;
     }
 
-    // We might not know the true total without scanning all pages.
-    // Use filteredTotal as "at least this many", and if Authentik has more
-    // pages we conservatively assume there may be another page worth of users.
-    let estimatedTotal = filteredTotal;
-    if (hasNext && filteredTotal >= targetEnd) {
-      estimatedTotal = filteredTotal + pageSize;
-    }
-
-    const totalPages = estimatedTotal ? Math.ceil(estimatedTotal / pageSize) : 0;
-    const pageItems = collected.slice(0, pageSize);
+    const filteredTotal = allFiltered.length;
+    const totalPages = filteredTotal ? Math.ceil(filteredTotal / pageSize) : 0;
+    const startIdx = (page - 1) * pageSize;
+    const endIdx = startIdx + pageSize;
+    const pageItems = allFiltered.slice(startIdx, endIdx);
 
     res.json({
       users: pageItems,
-      total: estimatedTotal,
+      total: filteredTotal,
       page,
       pageSize,
       hasNext: page < totalPages,
@@ -330,6 +307,19 @@ router.put("/:userId/groups", async (req, res) => {
     const groupIds = Array.isArray(req.body?.groupIds) ? req.body.groupIds : [];
     await users.setUserGroups(req.params.userId, groupIds);
     res.json({ success: true, groups: groupIds });
+
+router.post("/:userId/groups", async (req, res) => {
+  try {
+    const groupIds = Array.isArray(req.body?.groupIds) ? req.body.groupIds : [];
+    await users.setUserGroups(req.params.userId, groupIds);
+    res.json({ success: true, groups: groupIds });
+  } catch (err) {
+    res.status(400).json({ error: toErrorPayload(err) });
+  }
+});
+
+// Add groups
+
   } catch (err) {
     res.status(400).json({ error: toErrorPayload(err) });
   }
