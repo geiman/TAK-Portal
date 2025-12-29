@@ -147,6 +147,52 @@ async function emailGroupsUpdated({ user, beforeIds, afterIds }) {
   await emailSvc.sendMail({ to, subject, text, html });
 }
 
+// --- Debounced "groups updated" email logic ---
+const GROUP_EMAIL_DEBOUNCE_MS = 3 * 60 * 1000;
+
+// In-memory queue to debounce group-change emails per user.
+// NOTE: This is per-process. If you run multiple Node instances,
+// each process will handle its own debounce window.
+const groupEmailQueue = new Map();
+
+function scheduleDebouncedGroupsEmail({ user, beforeIds, afterIds }) {
+  const userId = String(user?.pk || user?.id || "").trim();
+  if (!userId) return;
+
+  const existing = groupEmailQueue.get(userId);
+  if (existing && existing.timeout) {
+    clearTimeout(existing.timeout);
+  }
+
+  const entry = {
+    // Keep the very first snapshot of "before" so the email shows all changes.
+    user: existing?.user || user,
+    beforeIds:
+      existing?.beforeIds ||
+      (Array.isArray(beforeIds) ? beforeIds.slice() : []),
+    // Always use the latest "after" set so we reflect the final state.
+    afterIds: Array.isArray(afterIds) ? afterIds.slice() : [],
+  };
+
+  entry.timeout = setTimeout(async () => {
+    groupEmailQueue.delete(userId);
+    try {
+      await emailGroupsUpdated({
+        user: entry.user,
+        beforeIds: entry.beforeIds,
+        afterIds: entry.afterIds,
+      });
+    } catch (err) {
+      console.error(
+        "[EMAIL] groups update notice (debounced) failed:",
+        err?.message || err
+      );
+    }
+  }, GROUP_EMAIL_DEBOUNCE_MS);
+
+  groupEmailQueue.set(userId, entry);
+}
+
 // Get templates available for a given agency suffix.
 // Templates are agency-specific; must match the given suffix.
 // Returned templates are used AFTER the "Manual Group Selection" option in the UI.
@@ -598,7 +644,7 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
       );
     }
 
-    await Promise.all(workers);
+  await Promise.all(workers);
   }
 
   const created = [];
@@ -821,15 +867,18 @@ async function setUserGroups(userId, groupIds) {
     : [];
   await api.patch(`/core/users/${userId}/`, { groups: ids });
 
-  // Notify user (do not fail operation if email fails)
+  // Notify user via debounced email (do not fail operation if email fails)
   try {
-    await emailGroupsUpdated({
+    scheduleDebouncedGroupsEmail({
       user: userBefore,
       beforeIds: userBefore?.groups || [],
       afterIds: ids,
     });
   } catch (e) {
-    console.error("[EMAIL] groups update notice failed:", e?.message || e);
+    console.error(
+      "[EMAIL] groups update notice (debounced) failed:",
+      e?.message || e
+    );
   }
   return true;
 }
@@ -975,9 +1024,6 @@ async function getAllGroups(options = {}) {
   // ignore options / forceRefresh; always reload
   return await getAllGroupsRaw();
 }
-
-
-
 
 module.exports = {
   // meta/template support
