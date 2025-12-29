@@ -69,6 +69,7 @@
 
         "PORTAL_AUTH_ENABLED",
         "PORTAL_AUTH_REQUIRED_GROUP",
+        "PORTAL_AUTH_AGENCY_ADMIN_GROUPS",
         "AUTHENTIK_PUBLIC_URL",
 
         "EMAIL_ENABLED",
@@ -229,12 +230,20 @@
           "Require Authentik login",
           "When true, this portal only works behind an Authentik forward_auth / Caddy setup."
         ); %>
+
         <% renderField(
           "PORTAL_AUTH_REQUIRED_GROUP",
-          "Required Authentik group(s)",
-          "Optional. Comma-separated list; user must belong to at least one of these groups."
+          "Global Admin group(s)",
+          "Comma-separated Authentik group names that should have full access, including Server Settings and Agency Templates."
         ); %>
-            <% renderField(
+
+        <% renderField(
+          "PORTAL_AUTH_AGENCY_ADMIN_GROUPS",
+          "Agency Admin group(s)",
+          "Optional. Comma-separated Authentik group names that should have limited admin access (no Server Settings or Agency Templates)."
+        ); %>
+
+        <% renderField(
           "AUTHENTIK_PUBLIC_URL",
           "Authentik Public URL",
           "URL users see in the browser (e.g. https://authentik.yourdomain.com). Used for logout redirects."

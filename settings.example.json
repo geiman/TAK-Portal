@@ -9,6 +9,7 @@
 
   "PORTAL_AUTH_ENABLED": "false",         
   "PORTAL_AUTH_REQUIRED_GROUP": "",
+  "PORTAL_AUTH_AGENCY_ADMIN_GROUPS": "",
   "AUTHENTIK_PUBLIC_URL": "",
 
   "TAK_URL": "https://your-tak-server:8443/Marti",

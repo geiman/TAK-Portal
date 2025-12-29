@@ -96,6 +96,16 @@ app.use((req, res, next) => {
 // >>> NEW: enforce optional Authentik/group access control <<<
 app.use(portalAuth);
 
+// Helper: only allow Global Admins to access certain routes (e.g. settings, templates)
+function requireGlobalAdmin(req, res, next) {
+  const user = req.authentikUser;
+  if (!user || !user.isGlobalAdmin) {
+    const username = user && user.username ? user.username : "";
+    return res.status(403).render("access-denied", { username });
+  }
+  next();
+}
+
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
 
@@ -134,19 +144,28 @@ app.use("/api/groups", require("./routes/groups.routes"));
 app.use("/api/templates", require("./routes/templates.routes"));
 app.use("/api/qr", require("./routes/qr.routes"));
 app.use("/api/mutual-aid", require("./routes/mutualAid.routes"));
-app.use("/", require("./routes/dashboard.routes"));
+app.use("/dashboard", require("./routes/dashboard.routes"));
 
 // UI Routes
-app.get("/", (req, res) => res.redirect("/users/create"));
+
+// Welcome page as public home
+app.get("/", (req, res) => {
+  const authUser = res.locals.authUser || null;
+  res.render("welcome", { authUser });
+});
+
 app.get("/users/create", (req, res) => res.render("users-create"));
 app.get("/users/manage", (req, res) => res.render("users-manage"));
 app.get("/groups", (req, res) => res.render("groups"));
 app.get("/agencies", (req, res) => res.render("agencies"));
-app.get("/templates", (req, res) => res.render("templates"));
+
+// Agency Templates only for Global Admins
+app.get("/templates", requireGlobalAdmin, (req, res) => res.render("templates"));
+
 app.get("/mutual-aid", (req, res) => res.render("mutual-aid"));
 app.get("/qr-generator", (req, res) => res.render("qr-generator"));
 
-app.get("/settings", (req, res) => {
+app.get("/settings", requireGlobalAdmin, (req, res) => {
   const settings = settingsSvc.getSettings();
   const keys = Object.keys(settings).sort();
   res.render("settings", { settings, keys });
@@ -154,6 +173,7 @@ app.get("/settings", (req, res) => {
 
 app.post(
   "/settings",
+  requireGlobalAdmin,
   upload.fields([
     { name: "TAK_API_P12_UPLOAD", maxCount: 1 },
     { name: "TAK_CA_UPLOAD", maxCount: 1 },
@@ -226,7 +246,7 @@ app.post(
 );
 
 // Export a zip of the data folder
-app.get("/settings/export-data", (req, res) => {
+app.get("/settings/export-data", requireGlobalAdmin, (req, res) => {
   const archiver = require("archiver");
   const dataDir = path.join(__dirname, "data");
 

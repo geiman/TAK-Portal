@@ -1,0 +1,60 @@
+<%- include("partials/header") %>
+
+<main class="main main--welcome">
+  <section class="welcome-card">
+    <h1>Welcome to TAK Portal</h1>
+
+    <p class="welcome-text">
+      This portal lets you manage TAK users, agencies, and related settings.
+    </p>
+
+    <% if (authUser && authUser.username) { %>
+      <p class="welcome-user">
+        Signed in as <strong><%= authUser.username %></strong>.
+      </p>
+      <div class="welcome-actions">
+        <a href="/dashboard" class="btn">Go to Dashboard</a>
+        <a href="/logout" class="btn btn-secondary">Log out</a>
+      </div>
+    <% } else { %>
+      <div class="welcome-actions">
+        <!-- This hits a protected route, triggering Authentik via the proxy -->
+        <a href="/dashboard" class="btn btn-primary">Log in</a>
+      </div>
+    <% } %>
+  </section>
+</main>
+
+<style>
+  .main--welcome {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: calc(100vh - 80px);
+  }
+  .welcome-card {
+    max-width: 520px;
+    padding: 2rem 2.5rem;
+    border-radius: 18px;
+    background: var(--surface, #151820);
+    box-shadow: 0 18px 40px rgba(0,0,0,0.55);
+    text-align: center;
+  }
+  .welcome-text {
+    margin-top: 0.75rem;
+    margin-bottom: 1.5rem;
+    color: var(--muted);
+  }
+  .welcome-user {
+    margin-top: 0.5rem;
+    margin-bottom: 1.5rem;
+    color: var(--muted);
+  }
+  .welcome-actions {
+    display: flex;
+    justify-content: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-top: 0.5rem;
+  }
+</style>

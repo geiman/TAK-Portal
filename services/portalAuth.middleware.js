@@ -2,29 +2,58 @@
 const { getBool, getString } = require("./env");
 
 /**
- * Optional Authentik-based access control.
+ * Optional Authentik-based access control with role levels.
  *
  * When PORTAL_AUTH_ENABLED is "false":
- *   - middleware is a no-op.
+ *   - middleware is a no-op (no headers required).
  *
  * When "true":
- *   - require X-Authentik-Username header (from Caddy + Authentik)
- *   - optionally require membership in PORTAL_AUTH_REQUIRED_GROUP (comma-separated list)
+ *   - for most routes:
+ *       - require X-Authentik-Username header (from Caddy + Authentik)
+ *       - require membership in at least one configured admin group
+ *         if any are configured.
+ *   - some routes (home, logout) remain public.
  */
+
+const PUBLIC_PATHS = new Set([
+  "/", // Welcome / home page
+]);
+
+function parseGroupList(raw) {
+  if (!raw) return [];
+  return String(raw)
+    .split(",")
+    .map((g) => g.trim().toLowerCase())
+    .filter(Boolean);
+}
+
 function portalAuthMiddleware(req, res, next) {
   const authEnabled = getBool("PORTAL_AUTH_ENABLED", false);
 
-  // Always allow logout route to pass through so users who are blocked can sign out
+  // Safe defaults for views
+  res.locals.authUser = null;
+  res.locals.isGlobalAdmin = false;
+  res.locals.isAgencyAdmin = false;
+
+  // Always allow logout through so users who are blocked can sign out
   if (req.path === "/logout") {
     return next();
   }
 
+  const isPublicPath = PUBLIC_PATHS.has(req.path);
+
   if (!authEnabled) {
+    // No authentication enforced at all
     return next();
   }
 
   const username = req.headers["x-authentik-username"];
   const groupsHeader = req.headers["x-authentik-groups"] || "";
+
+  // Allow completely anonymous access to public paths
+  if (!username && isPublicPath) {
+    return next();
+  }
 
   if (!username) {
     return res
@@ -34,34 +63,58 @@ function portalAuthMiddleware(req, res, next) {
       );
   }
 
-  const userGroups = groupsHeader
-    .split("|")
+  // Parse groups from header. Authentik commonly uses ';' as a separator,
+  // but we also tolerate ',' and '|' just in case.
+  const userGroups = String(groupsHeader)
+    .split(/[;|,]/)
     .map((g) => String(g || "").trim())
     .filter(Boolean);
 
-  const requiredGroupsStr = getString("PORTAL_AUTH_REQUIRED_GROUP", "").trim();
-  if (requiredGroupsStr) {
-    const requiredGroups = requiredGroupsStr
-      .split(",")
-      .map((g) => g.trim().toLowerCase())
-      .filter(Boolean);
+  const userGroupsLower = userGroups.map((g) => g.toLowerCase());
 
-    const hasAnyRequired = requiredGroups.some((needed) =>
-      userGroups.some((g) => g.toLowerCase() === needed)
-    );
+  // Global Admin groups (existing setting)
+  const globalGroupsStr = getString("PORTAL_AUTH_REQUIRED_GROUP", "").trim();
+  const globalGroups = parseGroupList(globalGroupsStr);
 
-    if (!hasAnyRequired) {
-      // Render a friendly access denied page with a Logout button
-      return res.status(403).render("access-denied", {
-        username,
-      });
-    }
+  // Agency Admin groups (new setting)
+  const agencyGroupsStr = getString("PORTAL_AUTH_AGENCY_ADMIN_GROUPS", "").trim();
+  const agencyGroups = parseGroupList(agencyGroupsStr);
+
+  const isGlobalAdmin =
+    globalGroups.length > 0 &&
+    globalGroups.some((needed) => userGroupsLower.includes(needed));
+
+  const isAgencyAdmin =
+    agencyGroups.length > 0 &&
+    agencyGroups.some((needed) => userGroupsLower.includes(needed));
+
+  const anyAdminGroupConfigured =
+    globalGroups.length > 0 || agencyGroups.length > 0;
+
+  // If no admin groups are configured at all, any authenticated user is allowed.
+  const hasAnyRequired =
+    !anyAdminGroupConfigured || isGlobalAdmin || isAgencyAdmin;
+
+  // For public paths we only enforce "is logged in" when auth is enabled.
+  // Group membership does not gate access to the Welcome page, etc.
+  if (!hasAnyRequired && !isPublicPath) {
+    const safeUsername = username || "";
+    return res.status(403).render("access-denied", {
+      username: safeUsername,
+    });
   }
 
-  req.authentikUser = {
+  const authUser = {
     username,
     groups: userGroups,
+    isGlobalAdmin,
+    isAgencyAdmin,
   };
+
+  req.authentikUser = authUser;
+  res.locals.authUser = authUser;
+  res.locals.isGlobalAdmin = isGlobalAdmin;
+  res.locals.isAgencyAdmin = isAgencyAdmin;
 
   next();
 }

@@ -1,3 +1,12 @@
+<%
+  const _isGlobalAdmin = typeof isGlobalAdmin !== "undefined" ? !!isGlobalAdmin : false;
+  const _isAgencyAdmin = typeof isAgencyAdmin !== "undefined" ? !!isAgencyAdmin : false;
+
+  // Only Global Admins can see these
+  const canSeeServerSettings = _isGlobalAdmin;
+  const canSeeAgencyTemplates = _isGlobalAdmin;
+%>
+
 <aside class="sidebar" id="sidebar">
   <div class="brand <%= brandLogoUrl ? 'has-logo' : 'no-logo' %>">
     <% if (brandLogoUrl) { %>
@@ -9,19 +18,26 @@
 
   <nav class="sidebar-nav">
     <div class="nav-top">
-      <a href="/">Dashboard</a>
+      <a href="/dashboard">Dashboard</a>
       <a href="/users/create">Create Users</a>
       <a href="/users/manage">Manage Users</a>
       <a href="/groups">Manage Groups</a>
       <a href="/agencies">Manage Agencies</a>
-      <a href="/templates">Agency Templates</a>
+
+      <% if (canSeeAgencyTemplates) { %>
+        <a href="/templates">Agency Templates</a>
+      <% } %>
+
       <a href="/mutual-aid">Mutual Aid</a>
       <a href="/qr-generator">QR Code Generator</a>
     </div>
 
     <div class="nav-bottom">
-      <a href="/logout" class"logout-link">Log Out</a>
-      <a href="/settings">Server Settings</a>
+      <a href="/logout" class="logout-link">Log Out</a>
+
+      <% if (canSeeServerSettings) { %>
+        <a href="/settings">Server Settings</a>
+      <% } %>
 
       <small class="version-text">
         Version <%= APP_VERSION %>
