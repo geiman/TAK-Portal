@@ -148,9 +148,9 @@ app.use("/dashboard", require("./routes/dashboard.routes"));
 
 // UI Routes
 
-// Welcome page as public home
+
 app.get("/", (req, res) => {
-  res.render("dashboard");
+  res.redirect("dashboard");
 });
 
 app.get("/users/create", (req, res) => res.render("users-create"));
