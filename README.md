@@ -19,12 +19,12 @@ A lightweight, modern user-management portal designed to integrate seamlessly wi
 ## Prerequisites
 
 > [!NOTE]  
-> TAK Portal relies on your local:
+> TAK Portal relies on your existing local:
 >
 > - Authentik Server — used for identity and user management  
 > - TAK Server — used for certificate revocation  
 >
-> TAK Portal will run without TAK Server connected, but certificates will **not** be revoked when users are disabled or deleted.
+> TAK Portal will run without TAK Server connected, but certificates will ***not*** be revoked when users are disabled or deleted.
 
 ---
 
@@ -53,18 +53,19 @@ Start TAK Portal
 ## Configuration
 
 1. Open your browser and navigate to the docker host IP and port. <br>
-    &emsp; Default: http://<server-ip>:3000 <br>
-    &emsp; Example: http://192.168.1.150:3000
-2. Open Server Settings (bottom of the sidebar).
+    &emsp; Default: `http://<server-ip>:3000` <br>
+    &emsp; Example: `http://192.168.1.150:3000`
+2. Open `Server Settings` (bottom of the sidebar).
 3. Set the Authentik URL & Authentik API Token
 4. Configure TAK Server (optional but recommended): <br>
     &emsp; - Set your TAK URL (ensure the correct port and keep /Marti at the end) <br>
     &emsp; - Upload webadmin.p12 and tak-ca.pem
     &emsp; - Provide the webadmin password (default is usually atakatak)
-5. Scroll to the bottom and click Save.
+5. Scroll to the bottom and click *Save*.
 
 
 ## Getting Started
 
-1. Open Manage Agencies.
-2. Create your first agency.
+1. Navigate to `Manage Agencies` and create your first agency.
+2. Navigate to `Agency Templates` and begin creating templates for your users (You may need to visit `Manage Groups` if there are no existing groups.)
+3. Navigate to `Create Users` and create your first user
