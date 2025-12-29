@@ -4,7 +4,7 @@
 
   // Only Global Admins can see these
   const canSeeServerSettings = _isGlobalAdmin;
-  const canSeeAgencyTemplates = _isGlobalAdmin;
+  const canSeeAgency = _isGlobalAdmin;
 %>
 
 <aside class="sidebar" id="sidebar">
@@ -22,12 +22,12 @@
       <a href="/users/create">Create Users</a>
       <a href="/users/manage">Manage Users</a>
       <a href="/groups">Manage Groups</a>
-      <a href="/agencies">Manage Agencies</a>
 
-      <% if (canSeeAgencyTemplates) { %>
-        <a href="/templates">Agency Templates</a>
+      <% if (canSeeAgency) { %>
+        <a href="/agencies">Manage Agencies</a>
       <% } %>
 
+      <a href="/templates">Agency Templates</a>
       <a href="/mutual-aid">Mutual Aid</a>
       <a href="/qr-generator">QR Code Generator</a>
     </div>
