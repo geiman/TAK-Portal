@@ -71,21 +71,24 @@
     </div>
   </div>
 
-  <div class="card" style="margin-top:14px;">
-    <h2>Bookmarks</h2>
-    <div class="row" style="flex-wrap:wrap; gap:10px;">
-      <% (bookmarks || []).forEach(function(bm) { %>
-        <a
-          class="btn"
-          href="<%= bm.url %>"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <%= bm.title %>
-        </a>
-      <% }); %>
+    <% if (isGlobalAdmin) { %>
+    <div class="card" style="margin-top:14px;">
+      <h2>Bookmarks</h2>
+      <div class="row" style="flex-wrap:wrap; gap:10px;">
+        <% (bookmarks || []).forEach(function(bm) { %>
+          <a
+            class="btn"
+            href="<%= bm.url %>"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <%= bm.title %>
+          </a>
+        <% }); %>
+      </div>
     </div>
-  </div>
+  <% } %>
+
 
   <script>
   (function() {

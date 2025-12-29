@@ -3,8 +3,7 @@
   const _isAgencyAdmin = typeof isAgencyAdmin !== "undefined" ? !!isAgencyAdmin : false;
 
   // Only Global Admins can see these
-  const canSeeServerSettings = _isGlobalAdmin;
-  const canSeeAgency = _isGlobalAdmin;
+  const canSeeSettings = _isGlobalAdmin;
 %>
 
 <aside class="sidebar" id="sidebar">
@@ -23,19 +22,23 @@
       <a href="/users/manage">Manage Users</a>
       <a href="/groups">Manage Groups</a>
 
-      <% if (canSeeAgency) { %>
+      <% if (canSeeSettings) { %>
         <a href="/agencies">Manage Agencies</a>
       <% } %>
 
       <a href="/templates">Agency Templates</a>
-      <a href="/mutual-aid">Mutual Aid</a>
+
+      <% if (canSeeSettings) { %>
+        <a href="/mutual-aid">Mutual Aid</a>
+      <% } %>
+      
       <a href="/qr-generator">QR Code Generator</a>
     </div>
 
     <div class="nav-bottom">
       <a href="/logout" class="logout-link">Log Out</a>
 
-      <% if (canSeeServerSettings) { %>
+      <% if (canSeeSettings) { %>
         <a href="/settings">Server Settings</a>
       <% } %>
 

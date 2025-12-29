@@ -159,7 +159,7 @@ app.get("/users/manage", (req, res) => res.render("users-manage"));
 app.get("/groups", (req, res) => res.render("groups"));
 app.get("/agencies", requireGlobalAdmin, (req, res) => res.render("agencies")); //require Global Admin
 app.get("/templates", (req, res) => res.render("templates"));
-app.get("/mutual-aid", (req, res) => res.render("mutual-aid"));
+app.get("/mutual-aid", requireGlobalAdmin, (req, res) => res.render("mutual-aid")); //require Global Admin
 app.get("/qr-generator", (req, res) => res.render("qr-generator"));
 
 app.get("/settings", requireGlobalAdmin, (req, res) => {
