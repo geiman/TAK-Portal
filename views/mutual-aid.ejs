@@ -778,10 +778,11 @@ userSearch.oninput = () => {
       return;
     }
     try {
-      const res = await fetch(`/api/users/search?q=${encodeURIComponent(q)}`);
+      const res = await fetch(`/api/users/search?q=${encodeURIComponent(q)}&page=1&pageSize=200`);
       const out = await res.json();
       if (!res.ok) throw new Error(out.error || "Search failed");
-      usersSearchCache = Array.isArray(out) ? out.slice(0, 200) : [];
+      const arr = Array.isArray(out.users) ? out.users : [];
+      usersSearchCache = arr.slice(0, 200);
       renderUserList(usersSearchCache);
     } catch (e) {
       renderUserList([]);

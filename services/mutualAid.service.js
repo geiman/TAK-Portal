@@ -5,6 +5,7 @@ const api = require("./authentik");
 const groupsSvc = require("./groups.service");
 const usersSvc = require("./users.service");
 const store = require("./mutualAid.store");
+const settingsSvc = require("./settings.service");
 const emailSvc = require("./email.service");
 const { renderTemplate, htmlToText } = require("./emailTemplates.service");
 
@@ -136,9 +137,33 @@ function randomPassword(length = 18) {
 }
 
 function getTakHost() {
-  const takUrl = process.env.TAK_URL;
-  if (!takUrl) throw new Error("TAK_URL not set in .env");
-  return new URL(takUrl).hostname;
+  // Match QR Generator behavior: prefer TAK_URL from settings.json, fall back to env.
+  try {
+    const settings = settingsSvc.getSettings ? settingsSvc.getSettings() || {} : {};
+    let takUrl = null;
+
+    if (
+      settings.TAK_URL &&
+      typeof settings.TAK_URL === "string" &&
+      settings.TAK_URL.trim()
+    ) {
+      takUrl = settings.TAK_URL.trim();
+    } else if (process.env.TAK_URL && String(process.env.TAK_URL).trim()) {
+      takUrl = String(process.env.TAK_URL).trim();
+    }
+
+    if (!takUrl) {
+      throw new Error(
+        "TAK_URL is not configured. Set it in Settings (TAK URL) or via the TAK_URL environment variable."
+      );
+    }
+
+    return new URL(takUrl).hostname;
+  } catch (e) {
+    throw new Error(
+      "TAK_URL is not configured. Set it in Settings (TAK URL) or via the TAK_URL environment variable."
+    );
+  }
 }
 
 function enrollUrlForCreds(username, token) {
