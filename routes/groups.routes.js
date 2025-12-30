@@ -68,7 +68,40 @@ router.post("/", async (req, res) => {
     }
 
     const description = String(req.body?.description || "").trim() || null;
-    const out = await groups.createGroup(rawName, { description });
+
+    const rawGroupType = String(req.body?.groupType || "").trim();
+    const groupType =
+      rawGroupType === "Agency" || rawGroupType === "County" || rawGroupType === "Global"
+        ? rawGroupType
+        : "Global";
+
+    const groupTypeDetail = String(req.body?.groupTypeDetail || "").trim() || null;
+
+    const createdBy = authUser
+      ? {
+          username: authUser.username,
+          displayName: authUser.displayName || authUser.username,
+        }
+      : null;
+
+    const createdAt = new Date().toISOString();
+
+    const attributes = {
+      created_at: createdAt,
+      created_type: groupType,
+      created_type_detail: groupTypeDetail,
+    };
+
+    if (description) {
+      attributes.description = description;
+    }
+
+    if (createdBy) {
+      attributes.created_by_username = createdBy.username;
+      attributes.created_by_display_name = createdBy.displayName;
+    }
+
+    const out = await groups.createGroup(rawName, { attributes });
     res.json({ success: true, group: out });
   } catch (err) {
     res.status(400).json({ error: toErrorPayload(err) });
