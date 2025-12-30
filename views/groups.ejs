@@ -74,26 +74,57 @@
       <button class="btn" id="editGroupCloseBtn" type="button">Close</button>
     </div>
     <div class="modalBody">
-      <div class="card" style="margin:0;">
-        <h2 style="margin-top:0;">Edit Group</h2>
+<div class="card" style="margin:0;">
+  <h2 style="margin-top:0;">Edit Group</h2>
 
-        <div class="row">
-          <input
-            id="editGroupName"
-            placeholder="Group Name"
-            style="min-width: 360px;"
-          />
-        </div>
+  <div class="row">
+    <select id="editCreateType">
+      <option value="agency">Agency-Specific Group</option>
+      <% if (isGlobalAdmin) { %>
+      <option value="county">County-Specific Group</option>
+      <option value="generic">Global Group</option>
+      <% } %>
+    </select>
 
-        <div class="row" style="margin-top:8px;">
-          <input
-            id="editGroupDescription"
-            placeholder="One-line description for this group (optional)"
-            style="flex: 1; min-width: 360px;"
-          />
-        </div>
+    <select id="editAgencyPrefixSelect" style="display:none; width:260px;">
+      <option value="">Select Agency</option>
+    </select>
 
-        <div class="row" style="margin-top:16px; align-items:center;">
+    <select id="editCountySelect" style="display:none; width:260px;">
+      <option value="">Select County</option>
+    </select>
+  </div>
+
+  <div class="row" style="margin-top:8px;">
+    <input
+      id="editGroupName"
+      placeholder="Group Name"
+      style="min-width: 360px;"
+    />
+  </div>
+
+  <div class="row" style="margin-top:8px;">
+    <select id="editBehaviorSelect">
+      <option value="both">Both (read &amp; write)</option>
+      <option value="read">Read-only (_READ)</option>
+      <option value="write">Write-only (_WRITE)</option>
+    </select>
+  </div>
+
+  <div class="row" style="margin-top:8px;">
+    <input
+      id="editGroupDescription"
+      placeholder="One-line description for this group (optional)"
+      style="flex: 1; min-width: 360px;"
+    />
+  </div>
+
+  <div class="row" style="margin-top:16px; align-items:center;">
+    <button class="btn success" id="editGroupSaveBtn" type="button">Save Changes</button>
+    <span id="editGroupMsg" class="msg"></span>
+  </div>
+</div>
+
           <button class="btn success" id="editGroupSaveBtn" type="button">Save Changes</button>
           <span id="editGroupMsg" class="msg"></span>
         </div>
@@ -198,6 +229,12 @@ const agencyPrefixSelect = document.getElementById("agencyPrefixSelect");
 const countySelect = document.getElementById("countySelect");
 const groupName = document.getElementById("groupName");
 const groupDescription = document.getElementById("groupDescription");
+const editCreateType = document.getElementById("editCreateType");
+const editAgencyPrefixSelect = document.getElementById("editAgencyPrefixSelect");
+const editCountySelect = document.getElementById("editCountySelect");
+const editGroupNameInput = document.getElementById("editGroupName");
+const editBehaviorSelect = document.getElementById("editBehaviorSelect");
+const editGroupDescriptionInput = document.getElementById("editGroupDescription");
 
 // Behavior dropdown
 const behaviorSelect = document.getElementById("behaviorSelect");
@@ -378,6 +415,16 @@ createType.onchange = () => {
   countySelect.style.display = isCounty ? "block" : "none";
 };
 
+// Show/hide agency / county selects in Edit modal based on type
+editCreateType.onchange = () => {
+  const v = editCreateType.value;
+  const isAgency = v === "agency";
+  const isCounty = v === "county";
+
+  editAgencyPrefixSelect.style.display = isAgency ? "block" : "none";
+  editCountySelect.style.display = isCounty ? "block" : "none";
+};
+
 function renderGroups(){
   const needle = String(filter.value || "").trim().toLowerCase();
   const filtered = needle
@@ -522,23 +569,107 @@ window.editGroupName = async (groupId) => {
   const g = (groupsCache || []).find(x => String(x.pk) === String(groupId));
   const currentName = String(g?.name || "").trim();
   const currentDescription = String(g?.attributes?.description || "").trim();
+  const createdTypeRaw = String(g?.attributes?.created_type || "").trim();
+  const createdTypeDetailRaw = String(g?.attributes?.created_type_detail || "").trim();
 
   if (groupActionsLocked(currentName)) {
     setMsg(listMsg, `Actions are locked for group ${currentName || groupId}`, false);
     return;
   }
 
+  // Derive behavior from suffix
+  let behaviorValue = "both";
+  let nameWithoutSuffix = currentName;
+  if (currentName.endsWith("_READ")) {
+    behaviorValue = "read";
+    nameWithoutSuffix = currentName.slice(0, -5);
+  } else if (currentName.endsWith("_WRITE")) {
+    behaviorValue = "write";
+    nameWithoutSuffix = currentName.slice(0, -6);
+  }
+
+  // Split prefix (if any) from base name: "PREFIX - Base"
+  let prefixPart = null;
+  let basePart = nameWithoutSuffix;
+  const sepIdx = nameWithoutSuffix.indexOf(" - ");
+  if (sepIdx !== -1) {
+    prefixPart = nameWithoutSuffix.slice(0, sepIdx).trim();
+    basePart = nameWithoutSuffix.slice(sepIdx + 3).trim();
+  }
+
+  // Decide type + specific selector values
+  let type = "generic";
+  let agencyPrefix = "";
+  let countyName = "";
+
+  if (createdTypeRaw === "Agency") {
+    type = "agency";
+    if (createdTypeDetailRaw) {
+      const byName = (agenciesCache || []).find(a => {
+        return String(a.name || "").trim() === createdTypeDetailRaw;
+      });
+      if (byName && byName.groupPrefix) {
+        agencyPrefix = String(byName.groupPrefix);
+      }
+    }
+  } else if (createdTypeRaw === "County") {
+    type = "county";
+    if (createdTypeDetailRaw) {
+      countyName = createdTypeDetailRaw;
+    }
+  } else if (createdTypeRaw === "Global") {
+    type = "generic";
+  }
+
+  // Fallback: infer from prefix in name if still unknown
+  if (!agencyPrefix && prefixPart) {
+    const byPrefix = (agenciesCache || []).find(a => {
+      const gp = String(a.groupPrefix || "").trim().toUpperCase();
+      return gp === prefixPart.toUpperCase();
+    });
+    if (byPrefix && byPrefix.groupPrefix) {
+      type = "agency";
+      agencyPrefix = String(byPrefix.groupPrefix);
+    }
+  }
+
+  if (!countyName && prefixPart && type === "county") {
+    countyName = prefixPart;
+  }
+
   editGroupCurrentId = groupId;
   editGroupCurrentName = currentName;
   editGroupCurrentDescription = currentDescription;
 
-  editGroupNameInput.value = currentName;
+  // Populate modal controls
+  editCreateType.value = type;
+  editBehaviorSelect.value = behaviorValue;
+  editGroupNameInput.value = basePart;
   editGroupDescriptionInput.value = currentDescription;
+
+  if (type === "agency") {
+    if (agencyPrefix) {
+      editAgencyPrefixSelect.value = agencyPrefix;
+    }
+  } else if (type === "county") {
+    if (countyName) {
+      // try to match case-insensitively
+      const opts = Array.from(editCountySelect.options);
+      const match = opts.find(o => String(o.value || "").toUpperCase() === countyName.toUpperCase());
+      if (match) {
+        editCountySelect.value = match.value;
+      }
+    }
+  }
+
+  // Ensure correct rows are visible
+  if (typeof editCreateType.onchange === "function") {
+    editCreateType.onchange();
+  }
 
   setMsg(editGroupMsg, "");
   showEditGroupModal(true);
 };
-
 // Delete w/ impact
 window.deleteGroup = async (groupId) => {
   // Give immediate feedback so the user sees something while impact is computed
@@ -815,7 +946,7 @@ window.removeUserFromGroup = async (userPk) => {
 editGroupSaveBtn.onclick = async () => {
   setMsg(editGroupMsg, "");
 
-  const newName = String(editGroupNameInput.value || "").trim();
+  const baseName = String(editGroupNameInput.value || "").trim();
   const newDescription = String(editGroupDescriptionInput.value || "").trim();
 
   if (!editGroupCurrentId) {
@@ -823,12 +954,37 @@ editGroupSaveBtn.onclick = async () => {
     return;
   }
 
-  if (!newName) {
+  if (!baseName) {
     setMsg(editGroupMsg, "Group name cannot be empty.", false);
     return;
   }
 
-  if (newName === editGroupCurrentName && newDescription === editGroupCurrentDescription) {
+  const type = editCreateType.value;
+  const behavior = String(editBehaviorSelect.value || "both").toLowerCase();
+
+  let behaviorSuffix = "";
+  if (behavior === "read") behaviorSuffix = "_READ";
+  if (behavior === "write") behaviorSuffix = "_WRITE";
+
+  let fullName = baseName + behaviorSuffix;
+
+  if (type === "agency") {
+    const prefix = String(editAgencyPrefixSelect.value || "").trim().toUpperCase();
+    if (!prefix) {
+      setMsg(editGroupMsg, "Select an agency.", false);
+      return;
+    }
+    fullName = `${prefix} - ${fullName}`;
+  } else if (type === "county") {
+    const county = String(editCountySelect.value || "").trim();
+    if (!county) {
+      setMsg(editGroupMsg, "Select a county.", false);
+      return;
+    }
+    fullName = `${county.toUpperCase()} - ${fullName}`;
+  }
+
+  if (fullName === editGroupCurrentName && newDescription === editGroupCurrentDescription) {
     setMsg(editGroupMsg, "No changes made.", true);
     return;
   }
@@ -839,7 +995,7 @@ editGroupSaveBtn.onclick = async () => {
     method: "PATCH",
     headers: {"Content-Type":"application/json"},
     body: JSON.stringify({
-      name: newName,
+      name: fullName,
       description: newDescription || null,
     }),
   });
@@ -853,12 +1009,11 @@ editGroupSaveBtn.onclick = async () => {
   }
 
   setMsg(editGroupMsg, `Updated "${editGroupCurrentName}"`, true);
-  editGroupCurrentName = newName;
+  editGroupCurrentName = fullName;
   editGroupCurrentDescription = newDescription;
   await loadGroups();
   showEditGroupModal(false);
 };
-
 editGroupCloseBtn.onclick = () => showEditGroupModal(false);
 editGroupOverlay.addEventListener("click", (e) => {
   if (e.target === editGroupOverlay) showEditGroupModal(false);
