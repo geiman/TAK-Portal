@@ -1,45 +1,11 @@
 <%- include("partials/header") %>
 <%- include("partials/sidebar") %>
 
-<main class="main settings-page">
-  <header class="settings-header">
-    <h1>Settings</h1>
-    <p class="settings-intro">
-      Configure how the TAK Portal connects to Authentik, your TAK server, email, and UI.
-      Only change these values if you know what they do.
-    </p>
-
-    <!-- Quick jump nav to reduce "infinite scroll" feeling -->
-    <nav class="settings-nav">
-      <a href="#section-authentik">Authentik</a>
-      <a href="#section-tak">TAK Server</a>
-      <a href="#section-access">Portal Access</a>
-      <a href="#section-email">Email</a>
-      <a href="#section-appearance">Appearance</a>
-      <a href="#section-bookmarks">Bookmarks</a>
-      <% if (keys && keys.length && keys.some(k => ![
-        "AUTHENTIK_URL","AUTHENTIK_TOKEN","USERS_HIDDEN_PREFIXES",
-        "GROUPS_HIDDEN_PREFIXES","USERS_ACTIONS_HIDDEN_PREFIXES",
-        "GROUPS_ACTIONS_HIDDEN_PREFIXES","TAK_URL","TAK_API_P12_PATH",
-        "TAK_API_P12_PASSPHRASE","TAK_CA_PATH","TAK_REVOKE_ON_DISABLE",
-        "TAK_DEBUG","TAK_BYPASS_ENABLED","PORTAL_AUTH_ENABLED",
-        "PORTAL_AUTH_REQUIRED_GROUP","PORTAL_AUTH_AGENCY_ADMIN_GROUPS",
-        "AUTHENTIK_PUBLIC_URL","EMAIL_ENABLED","EMAIL_PROVIDER",
-        "SMTP_HOST","SMTP_PORT","SMTP_SECURE","SMTP_USER","SMTP_PASS",
-        "SMTP_FROM","EMAIL_ALWAYS_CC","EMAIL_SEND_COPY_TO","EMAIL_FAIL_HARD",
-        "BOOKMARK1_TITLE","BOOKMARK1_URL","BOOKMARK2_TITLE","BOOKMARK2_URL",
-        "BOOKMARK3_TITLE","BOOKMARK3_URL","BOOKMARK4_TITLE","BOOKMARK4_URL",
-        "BOOKMARK5_TITLE","BOOKMARK5_URL","BOOKMARK6_TITLE","BOOKMARK6_URL",
-        "BOOKMARK7_TITLE","BOOKMARK7_URL","BOOKMARK8_TITLE","BOOKMARK8_URL",
-        "BRAND_THEME","BRAND_LOGO_URL"
-      ].includes(k))) { %>
-        <a href="#section-other">Other</a>
-      <% } %>
-    </nav>
-  </header>
+<main class="main">
+  <h1>Settings</h1>
 
   <form method="post" action="/settings" autocomplete="off" enctype="multipart/form-data">
-    <%
+    <% 
       // Helper to render a single field
       const BOOL_KEYS = new Set([
         "TAK_REVOKE_ON_DISABLE",
@@ -51,13 +17,13 @@
         "PORTAL_AUTH_ENABLED"
       ]);
 
-      function renderField(key, label, helpText) {
+      function renderField(key, label, helpText) { 
     %>
       <label class="settings-field">
         <span class="settings-label"><%= label || key %></span>
 
         <% if (BOOL_KEYS.has(key)) { %>
-          <%
+          <% 
             const rawVal = (settings && typeof settings[key] === "string")
               ? settings[key].toLowerCase()
               : "";
@@ -68,7 +34,7 @@
           %>
           <select name="settings[<%= key %>]">
             <option value="true" <%= currentVal === "true" ? "selected" : "" %>>true</option>
-            <option value="false" <%= currentVal === "false" ? "selected" : " " %>>false</option>
+            <option value="false" <%= currentVal === "false" ? "selected" : "" %>>false</option>
           </select>
         <% } else { %>
           <input
@@ -84,7 +50,7 @@
       </label>
     <% } %>
 
-    <%
+    <% 
       const knownKeys = new Set([
         "AUTHENTIK_URL",
         "AUTHENTIK_TOKEN",
@@ -143,164 +109,121 @@
     %>
 
     <!-- Authentik / Portal -->
-    <section class="card settings-section" id="section-authentik">
-      <div class="settings-section-header">
-        <h2>Authentik</h2>
-        <p class="settings-section-description">
-          How the portal talks to your Authentik instance and which users/groups are visible.
-        </p>
+    <div class="card">
+      <h2>Authentik</h2>
+      <div class="grid2">
+        <% renderField(
+          "AUTHENTIK_URL",
+          "Authentik Internal URL",
+          "Base URL of your Authentik instance (e.g. http://authentik:9000)"
+        ); %>
+        <% renderField(
+          "AUTHENTIK_TOKEN",
+          "Authentik API Token",
+          "API token with permission to manage users and groups."
+        ); %>
+        <% renderField(
+          "USERS_HIDDEN_PREFIXES",
+          "Hidden User Prefixes",
+          "Comma-separated prefixes of usernames to hide from the UI."
+        ); %>
+        <% renderField(
+          "GROUPS_HIDDEN_PREFIXES",
+          "Hidden Group Prefixes",
+          "Comma-separated prefixes of groups to hide from the UI."
+        ); %>
+        <% renderField(
+          "USERS_ACTIONS_HIDDEN_PREFIXES",
+          "User Action-Lock Prefixes",
+          "Users whose name starts with these prefixes cannot be modified from the portal."
+        ); %>
+        <% renderField(
+          "GROUPS_ACTIONS_HIDDEN_PREFIXES",
+          "Group Action-Lock Prefixes",
+          "Groups whose name starts with these prefixes cannot be modified from the portal."
+        ); %>
       </div>
-
-      <div class="settings-subsection">
-        <h3>Connection</h3>
-        <div class="grid2">
-          <% renderField(
-            "AUTHENTIK_URL",
-            "Authentik Internal URL",
-            "Base URL of your Authentik instance (e.g. http://authentik:9000)."
-          ); %>
-          <% renderField(
-            "AUTHENTIK_TOKEN",
-            "Authentik API Token",
-            "API token with permission to manage users and groups."
-          ); %>
-        </div>
-      </div>
-
-      <div class="settings-subsection">
-        <h3>Visibility & Lock Rules</h3>
-        <div class="grid2">
-          <% renderField(
-            "USERS_HIDDEN_PREFIXES",
-            "Hidden User Prefixes",
-            "Comma-separated prefixes of usernames to hide from the UI."
-          ); %>
-          <% renderField(
-            "GROUPS_HIDDEN_PREFIXES",
-            "Hidden Group Prefixes",
-            "Comma-separated prefixes of groups to hide from the UI."
-          ); %>
-          <% renderField(
-            "USERS_ACTIONS_HIDDEN_PREFIXES",
-            "User Action-Lock Prefixes",
-            "Users whose name starts with these prefixes cannot be modified from the portal."
-          ); %>
-          <% renderField(
-            "GROUPS_ACTIONS_HIDDEN_PREFIXES",
-            "Group Action-Lock Prefixes",
-            "Groups whose name starts with these prefixes cannot be modified from the portal."
-          ); %>
-        </div>
-      </div>
-    </section>
+    </div>
 
     <!-- TAK Server -->
-    <section class="card settings-section" id="section-tak">
-      <div class="settings-section-header">
-        <h2>TAK Server</h2>
-        <p class="settings-section-description">
-          Connection details and certificates used to talk to your TAK server.
-        </p>
+    <div class="card">
+      <h2>TAK Server</h2>
+      <div class="grid2">
+        <% renderField(
+          "TAK_URL",
+          "TAK URL",
+          "Full Marti URL, e.g. https://tak.example.gov:8443/Marti."
+        ); %>
+
+        <!-- Client P12 Upload -->
+        <label class="settings-field">
+          <span class="settings-label">Client P12 Certificate</span>
+          <input
+            type="file"
+            name="TAK_API_P12_UPLOAD"
+            accept=".p12,.pfx,application/x-pkcs12"
+          />
+          <% if (settings.TAK_API_P12_PATH) { %>
+            <small class="settings-help">
+              Currently stored at:
+              <code><%= settings.TAK_API_P12_PATH %></code>
+            </small>
+          <% } else { %>
+            <small class="settings-help">
+              Upload the client .p12/.pfx file. It will be stored under
+              <code>data/certs/</code> inside the container.
+            </small>
+          <% } %>
+        </label>
+
+        <% renderField(
+          "TAK_API_P12_PASSPHRASE",
+          "Client P12 Passphrase",
+          "Passphrase for the client .p12 file (may be empty)."
+        ); %>
+
+        <!-- TAK CA Upload -->
+        <label class="settings-field">
+          <span class="settings-label">TAK CA Certificate</span>
+          <input
+            type="file"
+            name="TAK_CA_UPLOAD"
+            accept=".pem,.crt,.cer,.der"
+          />
+          <% if (settings.TAK_CA_PATH) { %>
+            <small class="settings-help">
+              Currently stored at:
+              <code><%= settings.TAK_CA_PATH %></code>
+            </small>
+          <% } else { %>
+            <small class="settings-help">
+              Upload the TAK CA certificate. It will be stored under
+              <code>data/certs/</code> inside the container.
+            </small>
+          <% } %>
+        </label>
+
+        <% renderField(
+          "TAK_REVOKE_ON_DISABLE",
+          "Revoke on Disable",
+          "If true, revokes TAK certs when a user is disabled."
+        ); %>
+        <% renderField(
+          "TAK_DEBUG",
+          "TAK Debug",
+          "If true, enables verbose TAK debug logging."
+        ); %>
+        <% renderField(
+          "TAK_BYPASS_ENABLED",
+          "Bypass TAK",
+          "If true, disables all outbound TAK calls (for testing)."
+        ); %>
       </div>
-
-      <div class="settings-subsection">
-        <h3>Connection</h3>
-        <div class="grid2">
-          <% renderField(
-            "TAK_URL",
-            "TAK URL",
-            "Full Marti URL, e.g. https://tak.example.gov:8443/Marti."
-          ); %>
-        </div>
-      </div>
-
-      <div class="settings-subsection">
-        <h3>Certificates</h3>
-        <div class="grid2">
-          <!-- Client P12 Upload -->
-          <label class="settings-field">
-            <span class="settings-label">Client P12 Certificate</span>
-            <input
-              type="file"
-              name="TAK_API_P12_UPLOAD"
-              accept=".p12,.pfx,application/x-pkcs12"
-            />
-            <% if (settings.TAK_API_P12_PATH) { %>
-              <small class="settings-help">
-                Currently stored at:
-                <code><%= settings.TAK_API_P12_PATH %></code>
-              </small>
-            <% } else { %>
-              <small class="settings-help">
-                Upload the client .p12/.pfx file. It will be stored under
-                <code>data/certs/</code> inside the container.
-              </small>
-            <% } %>
-          </label>
-
-          <% renderField(
-            "TAK_API_P12_PASSPHRASE",
-            "Client P12 Passphrase",
-            "Passphrase for the client .p12 file (may be empty)."
-          ); %>
-
-          <!-- TAK CA Upload -->
-          <label class="settings-field">
-            <span class="settings-label">TAK CA Certificate</span>
-            <input
-              type="file"
-              name="TAK_CA_UPLOAD"
-              accept=".pem,.crt,.cer,.der"
-            />
-            <% if (settings.TAK_CA_PATH) { %>
-              <small class="settings-help">
-                Currently stored at:
-                <code><%= settings.TAK_CA_PATH %></code>
-              </small>
-            <% } else { %>
-              <small class="settings-help">
-                Upload the TAK CA certificate. It will be stored under
-                <code>data/certs/</code> inside the container.
-              </small>
-            <% } %>
-          </label>
-        </div>
-      </div>
-
-      <div class="settings-subsection settings-subsection-advanced">
-        <h3>Advanced</h3>
-        <p class="settings-section-description">
-          Only change these for debugging or lab environments.
-        </p>
-        <div class="grid2">
-          <% renderField(
-            "TAK_REVOKE_ON_DISABLE",
-            "Revoke on Disable",
-            "If true, revokes TAK certs when a user is disabled."
-          ); %>
-          <% renderField(
-            "TAK_DEBUG",
-            "TAK Debug",
-            "If true, enables verbose TAK debug logging."
-          ); %>
-          <% renderField(
-            "TAK_BYPASS_ENABLED",
-            "Bypass TAK",
-            "If true, disables all outbound TAK calls (for testing)."
-          ); %>
-        </div>
-      </div>
-    </section>
+    </div>
 
     <!-- Portal Access Control -->
-    <section class="card settings-section" id="section-access">
-      <div class="settings-section-header">
-        <h2>Portal Access Control</h2>
-        <p class="settings-section-description">
-          Require Authentik login and assign which groups are Global vs Agency admins.
-        </p>
-      </div>
-
+    <div class="card">
+      <h2>Portal Access Control</h2>
       <div class="grid2">
         <% renderField(
           "PORTAL_AUTH_ENABLED",
@@ -326,100 +249,74 @@
           "URL users see in the browser (e.g. https://authentik.yourdomain.com). Used for logout redirects."
         ); %>
       </div>
-    </section>
+    </div>
+
 
     <!-- Email -->
-    <section class="card settings-section" id="section-email">
-      <div class="settings-section-header">
-        <h2>Email</h2>
-        <p class="settings-section-description">
-          SMTP settings for notifications and user emails.
-        </p>
+    <div class="card">
+      <h2>Email</h2>
+      <div class="grid2">
+        <% renderField(
+          "EMAIL_ENABLED",
+          "Email Enabled",
+          "true/false – whether email notifications are enabled."
+        ); %>
+        <% renderField(
+          "EMAIL_PROVIDER",
+          "Email Provider",
+          "Currently only 'smtp' is supported."
+        ); %>
+        <% renderField(
+          "SMTP_HOST",
+          "SMTP Host",
+          "SMTP server hostname."
+        ); %>
+        <% renderField(
+          "SMTP_PORT",
+          "SMTP Port",
+          "Port for your SMTP server (e.g. 587)."
+        ); %>
+        <% renderField(
+          "SMTP_SECURE",
+          "SMTP Secure",
+          "true for SMTPS/465, false for STARTTLS/587."
+        ); %>
+        <% renderField(
+          "SMTP_USER",
+          "SMTP Username",
+          "Username for SMTP authentication (if required)."
+        ); %>
+        <% renderField(
+          "SMTP_PASS",
+          "SMTP Password",
+          "Password for SMTP authentication (if required)."
+        ); %>
+        <% renderField(
+          "SMTP_FROM",
+          "From Address",
+          'Display name and email, e.g. "TAK Admin <admin@example.com>".'
+        ); %>
+        <% renderField(
+          "EMAIL_ALWAYS_CC",
+          "Always CC",
+          "Optional: comma-separated list of CC recipients."
+        ); %>
+        <% renderField(
+          "EMAIL_SEND_COPY_TO",
+          "Always BCC",
+          "Optional: comma-separated list of BCC recipients."
+        ); %>
+        <% renderField(
+          "EMAIL_FAIL_HARD",
+          "Fail Hard on Email Error",
+          "If true, user operations fail when email sending fails."
+        ); %>
       </div>
-
-      <div class="settings-subsection">
-        <h3>Basic</h3>
-        <div class="grid2">
-          <% renderField(
-            "EMAIL_ENABLED",
-            "Email Enabled",
-            "true/false – whether email notifications are enabled."
-          ); %>
-          <% renderField(
-            "EMAIL_PROVIDER",
-            "Email Provider",
-            "Currently only 'smtp' is supported."
-          ); %>
-          <% renderField(
-            "SMTP_HOST",
-            "SMTP Host",
-            "SMTP server hostname."
-          ); %>
-          <% renderField(
-            "SMTP_PORT",
-            "SMTP Port",
-            "Port for your SMTP server (e.g. 587)."
-          ); %>
-          <% renderField(
-            "SMTP_SECURE",
-            "SMTP Secure",
-            "true for SMTPS/465, false for STARTTLS/587."
-          ); %>
-        </div>
-      </div>
-
-      <div class="settings-subsection">
-        <h3>Authentication & From Address</h3>
-        <div class="grid2">
-          <% renderField(
-            "SMTP_USER",
-            "SMTP Username",
-            "Username for SMTP authentication (if required)."
-          ); %>
-          <% renderField(
-            "SMTP_PASS",
-            "SMTP Password",
-            "Password for SMTP authentication (if required)."
-          ); %>
-          <% renderField(
-            "SMTP_FROM",
-            "From Address",
-            'Display name and email, e.g. "TAK Admin <admin@example.com>".'
-          ); %>
-        </div>
-      </div>
-
-      <div class="settings-subsection settings-subsection-advanced">
-        <h3>Advanced</h3>
-        <div class="grid2">
-          <% renderField(
-            "EMAIL_ALWAYS_CC",
-            "Always CC",
-            "Optional: comma-separated list of CC recipients."
-          ); %>
-          <% renderField(
-            "EMAIL_SEND_COPY_TO",
-            "Always BCC",
-            "Optional: comma-separated list of BCC recipients."
-          ); %>
-          <% renderField(
-            "EMAIL_FAIL_HARD",
-            "Fail Hard on Email Error",
-            "If true, user operations fail when email sending fails."
-          ); %>
-        </div>
-      </div>
-    </section>
+    </div>
 
     <!-- Appearance -->
-    <section class="card settings-section" id="section-appearance">
-      <div class="settings-section-header">
-        <h2>Appearance</h2>
-        <p class="settings-section-description">
-          Branding and color theme for the portal UI.
-        </p>
-      </div>
-
+    <div class="card">
+      <h2>Appearance</h2>
       <div class="grid2">
         <!-- Logo upload -->
         <label class="settings-field">
@@ -461,17 +358,12 @@
           </small>
         </label>
       </div>
-    </section>
+    </div>
 
     <!-- Bookmarks -->
-    <section class="card settings-section" id="section-bookmarks">
-      <div class="settings-section-header">
-        <h2>Dashboard Bookmarks</h2>
-        <p class="settings-section-description">
-          Quick links that appear on the dashboard.
-        </p>
-      </div>
-
+    <div class="card">
+      <h2>Dashboard Bookmarks</h2>
+      <p>These appear on the dashboard as quick links.</p>
       <div class="grid2">
         <% for (let i = 1; i <= 8; i++) { %>
           <% renderField(
@@ -486,28 +378,23 @@
           ); %>
         <% } %>
       </div>
-    </section>
+    </div>
 
     <!-- Any other keys (future-proof) -->
     <% if (otherKeys.length) { %>
-      <section class="card settings-section" id="section-other">
-        <div class="settings-section-header">
-          <h2>Other Settings</h2>
-          <p class="settings-section-description">
-            Keys that don’t have a dedicated section yet.
-          </p>
-        </div>
+      <div class="card">
+        <h2>Other Settings</h2>
         <div class="grid2">
           <% otherKeys.forEach(function(key) { %>
             <% renderField(key, key, "") %>
           <% }); %>
         </div>
-      </section>
+      </div>
     <% } %>
 
-    <div class="settings-actions">
+    <div style="margin-top: 1rem; display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
       <button type="submit" class="btn">Save Settings</button>
-      <a href="/settings/export-data" class="btn btn-secondary">Export Data</a>
-    </div>
+      <a href="/settings/export-data" class="btn">Export Data</a>
+    </div>    
   </form>
 </main>
