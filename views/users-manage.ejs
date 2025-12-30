@@ -499,8 +499,8 @@ function renderGroupsBox(){
     const id = String(g.id);
     const checked = pickedGroupIds.has(id) ? "checked" : "";
     return `
-      <label class="groupRow">
-        <input type="checkbox" value="${escapeHtml(id)}" ${checked}/>
+      <label class="groupItem">
+        <input type="checkbox" value="${escapeHtml(id)}" ${checked} />
         <span>${escapeHtml(g.name)}</span>
       </label>
     `;
