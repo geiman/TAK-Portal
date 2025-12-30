@@ -306,10 +306,32 @@ form.onsubmit = async (e) => {
   overflow-y: auto;
   overflow-x: hidden;
 
-  /* dynamic columns */
-  column-width: 310px;
+  /* mobile-first: 1 column */
+  columns: 1;
   column-gap: 14px;
 }
+
+/* small-ish screens: 2 columns */
+@media (min-width: 640px) {
+  .groupsBox {
+    columns: 2;
+  }
+}
+
+/* medium screens / small desktop: 3 columns */
+@media (min-width: 900px) {
+  .groupsBox {
+    columns: 3;
+  }
+}
+
+/* wider desktop: cap at 4 columns */
+@media (min-width: 1200px) {
+  .groupsBox {
+    columns: 4;
+  }
+}
+
 
 /* Force checkbox + text inline */
 .groupItem{
