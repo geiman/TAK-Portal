@@ -1127,11 +1127,9 @@ th.sortedDesc .sortIndicator{
   max-height: 320px;
   overflow: auto;
 
-  /* COMPACT MULTI-COLUMN LIST */
-  display: grid;
-  grid-auto-flow: row;                 /* fill down, then new column */
-  grid-template-columns: repeat(3, minmax(200px, 1fr));
-  gap: 6px 14px;
+  /* 🌟 vertical flow with max 3 columns */
+  columns: 3;              /* max number of columns */
+  column-gap: 14px;
 }
 .groupItem{
   display: flex !important;
