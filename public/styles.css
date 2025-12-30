@@ -448,7 +448,7 @@ select:focus {
     padding: 10px 12px;
     border-radius: 12px;
     border: 1px solid var(--line);
-    background: #0b1430;
+    background: --panel;
     color: var(--text);
     cursor: pointer;
     font-weight: 700;
