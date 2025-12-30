@@ -5,6 +5,7 @@
 // user who is a member of one of those groups is treated as an
 // "agency admin" for that agency. Global admins still come from
 // PORTAL_AUTH_REQUIRED_GROUP via portalAuth.middleware.
+
 const agenciesStore = require("./agencies.service");
 
 function normalizeSuffix(value) {
@@ -89,7 +90,8 @@ function getAgencyAccess(authUser) {
     };
   }
 
-  const groups = authUser && Array.isArray(authUser.groups) ? authUser.groups : [];
+  const groups =
+    authUser && Array.isArray(authUser.groups) ? authUser.groups : [];
   const allowedAgencySuffixes = getAllowedAgencySuffixesForGroups(groups);
 
   return {
@@ -146,7 +148,6 @@ function isUsernameInAllowedAgencies(authUser, username) {
     .some((sfx) => sfx && un.endsWith(sfx));
 }
 
-
 /**
  * Compute the agency and county prefixes that the current user is allowed to see.
  *
@@ -196,8 +197,10 @@ function getAgencyAndCountyPrefixesForUser(authUser) {
  *
  * - Global admins: see all groups (after GROUPS_HIDDEN_PREFIXES is applied).
  * - Agency admins: see
- *   - their agency-specific groups (name starts with agency groupPrefix + "-"),
- *   - their county groups (name starts with COUNTY + "-"),
+ *   - their agency-specific groups
+ *       (name starts with agency groupPrefix + "-" or groupPrefix + " -"),
+ *   - their county groups
+ *       (name starts with COUNTYNAME + "-" or COUNTYNAME + " -"),
  *   - "global" groups with no prefix (no "-").
  */
 function filterGroupsForUser(authUser, groups) {
@@ -208,10 +211,13 @@ function filterGroupsForUser(authUser, groups) {
     return list;
   }
 
-  const { agencyPrefixes, countyPrefixes } = getAgencyAndCountyPrefixesForUser(authUser);
+  const { agencyPrefixes, countyPrefixes } =
+    getAgencyAndCountyPrefixesForUser(authUser);
 
-  const hasAgencyPrefixes = Array.isArray(agencyPrefixes) && agencyPrefixes.length > 0;
-  const hasCountyPrefixes = Array.isArray(countyPrefixes) && countyPrefixes.length > 0;
+  const hasAgencyPrefixes =
+    Array.isArray(agencyPrefixes) && agencyPrefixes.length > 0;
+  const hasCountyPrefixes =
+    Array.isArray(countyPrefixes) && countyPrefixes.length > 0;
 
   return list.filter((g) => {
     const name = String(g && g.name ? g.name : "").trim();
@@ -220,10 +226,15 @@ function filterGroupsForUser(authUser, groups) {
     const upper = name.toUpperCase();
     const dashIdx = upper.indexOf("-");
     if (dashIdx > 0) {
-      const prefix = upper.slice(0, dashIdx);
+      // IMPORTANT:
+      // Support both "CPD-GROUP" and "CPD - GROUP" by trimming the prefix segment.
+      const rawPrefix = upper.slice(0, dashIdx);
+      const prefix = rawPrefix.trim();
+
       if (hasAgencyPrefixes && agencyPrefixes.includes(prefix)) return true;
       if (hasCountyPrefixes && countyPrefixes.includes(prefix)) return true;
-      // other agency/county prefixes are hidden
+
+      // Other agency/county prefixes are hidden for this user.
       return false;
     }
 
