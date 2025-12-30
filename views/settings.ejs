@@ -242,7 +242,7 @@
 
         <div class="settings-body">
           <div class="grid2">
-            <% renderField("PORTAL_AUTH_ENABLED","Require Authentik login","Requires Authentik forward_auth / Caddy."); %>
+            <% renderField("PORTAL_AUTH_ENABLED","DANGER!! Require Authentik login","Requires Authentik forward_auth / Caddy."); %>
             <% renderField("AUTHENTIK_PUBLIC_URL","Authentik Public URL","Used for logout redirects."); %>
             <% renderField("PORTAL_AUTH_AGENCY_ADMIN_GROUPS","Agency Admin group(s)","Limited admin access."); %>
             <% renderField("PORTAL_AUTH_REQUIRED_GROUP","Global Admin group(s)","Groups with full access."); %>
@@ -267,7 +267,7 @@
     <% } %>
 
     <div style="margin-top:1rem;display:flex;gap:.75rem;flex-wrap:wrap;">
-      <button type="submit" class="btn">Save Settings</button>
+      <button type="submit" class="success">Save Settings</button>
       <a href="/settings/export-data" class="btn">Export Data</a>
     </div>
   </form>
