@@ -427,16 +427,42 @@ createBtn.onclick = async () => {
   }
   // type === "generic" just uses the base name + behavior suffix
 
-  if (!confirm(`Create group "${name}"?`)) return;
+if (!confirm(`Create group "${name}"?`)) return;
 
-  const res = await fetch("/api/groups", {
-    method: "POST",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({
-      name,
-      description: String(groupDescription.value || "").trim() || null,
-    })
+// Derive group type metadata for auditing
+let groupType = "Global";
+let groupTypeDetail = null;
+
+if (type === "agency") {
+  groupType = "Agency";
+  const prefix = String(agencyPrefixSelect.value || "").trim().toUpperCase();
+  const agencyObj = (agenciesCache || []).find(a => {
+    const p = String(a.groupPrefix || "").trim().toUpperCase();
+    return p === prefix;
   });
+  if (agencyObj && agencyObj.name) {
+    groupTypeDetail = String(agencyObj.name);
+  } else if (prefix) {
+    groupTypeDetail = prefix;
+  }
+} else if (type === "county") {
+  groupType = "County";
+  const county = String(countySelect.value || "").trim();
+  if (county) {
+    groupTypeDetail = county;
+  }
+}
+
+const res = await fetch("/api/groups", {
+  method: "POST",
+  headers: {"Content-Type":"application/json"},
+  body: JSON.stringify({
+    name,
+    description: String(groupDescription.value || "").trim() || null,
+    groupType,
+    groupTypeDetail,
+  })
+});
 
   const out = await res.json();
   if(!res.ok){
