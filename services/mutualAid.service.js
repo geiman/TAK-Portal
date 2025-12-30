@@ -2,8 +2,9 @@ const crypto = require("crypto");
 const QRCode = require("qrcode");
 const path = require("path");
 const fs = require("fs");
+
 const { Jimp, loadFont } = require("jimp");
-const font = await loadFont(Jimp.FONT_SANS_64_BLACK);
+const { SANS_64_BLACK } = require("jimp/fonts");
 
 const api = require("./authentik");
 const groupsSvc = require("./groups.service");
