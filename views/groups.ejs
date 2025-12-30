@@ -74,7 +74,7 @@
       <button class="btn" id="editGroupCloseBtn" type="button">Close</button>
     </div>
     <div class="modalBody">
-<div class="card" style="margin:0;">
+      <div class="card" style="margin:0;">
   <h2 style="margin-top:0;">Edit Group</h2>
 
   <div class="row">
@@ -124,11 +124,7 @@
     <span id="editGroupMsg" class="msg"></span>
   </div>
 </div>
-
-          <button class="btn success" id="editGroupSaveBtn" type="button">Save Changes</button>
-          <span id="editGroupMsg" class="msg"></span>
-        </div>
-      </div>
+</div>
     </div>
   </div>
 </div>
@@ -229,12 +225,11 @@ const agencyPrefixSelect = document.getElementById("agencyPrefixSelect");
 const countySelect = document.getElementById("countySelect");
 const groupName = document.getElementById("groupName");
 const groupDescription = document.getElementById("groupDescription");
+
 const editCreateType = document.getElementById("editCreateType");
 const editAgencyPrefixSelect = document.getElementById("editAgencyPrefixSelect");
 const editCountySelect = document.getElementById("editCountySelect");
-const editGroupNameInput = document.getElementById("editGroupName");
 const editBehaviorSelect = document.getElementById("editBehaviorSelect");
-const editGroupDescriptionInput = document.getElementById("editGroupDescription");
 
 // Behavior dropdown
 const behaviorSelect = document.getElementById("behaviorSelect");
@@ -653,7 +648,6 @@ window.editGroupName = async (groupId) => {
     }
   } else if (type === "county") {
     if (countyName) {
-      // try to match case-insensitively
       const opts = Array.from(editCountySelect.options);
       const match = opts.find(o => String(o.value || "").toUpperCase() === countyName.toUpperCase());
       if (match) {
