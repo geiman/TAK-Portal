@@ -294,7 +294,7 @@ form.onsubmit = async (e) => {
 
 <style>
 /* templates page only */
-.groupsBox{
+.groupsBox {
   margin-top: 10px;
   border: 1px solid var(--line);
   background: var(--panel);
@@ -303,11 +303,17 @@ form.onsubmit = async (e) => {
   max-height: 320px;
   overflow: auto;
 
-  /* 🌟 vertical flow with max 3 columns */
-  columns: 3;              /* max number of columns */
+  /* mobile-first: 1 column */
+  columns: 1;
   column-gap: 14px;
 }
 
+/* when the viewport is wide enough, use 3 columns */
+@media (min-width: 1024px) {
+  .groupsBox {
+    columns: 3;
+  }
+}
 /* Force checkbox + text inline */
 .groupItem{
   display: flex !important;
