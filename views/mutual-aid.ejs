@@ -43,7 +43,6 @@
   <div class="card">
     <div class="row" style="justify-content: space-between; align-items:center;">
       <h2 style="margin:0;">Active Incidents & Events</h2>
-      <button class="btn" id="maReloadBtn" type="button">Reload</button>
     </div>
 
     <input id="maFilter" placeholder="Filter..." style="margin: 10px 0; min-width: 360px;" />
@@ -385,7 +384,6 @@ const maExpireWrap = document.getElementById("maExpireWrap");
 const maExpireEnabled = document.getElementById("maExpireEnabled");
 const maExpireAt = document.getElementById("maExpireAt");
 
-const maReloadBtn = document.getElementById("maReloadBtn");
 const maFilter = document.getElementById("maFilter");
 const maTbody = document.getElementById("maTbody");
 const maListMsg = document.getElementById("maListMsg");
@@ -908,7 +906,6 @@ async function loadList(){
   setMsg(maListMsg, `Loaded ${allItems.length} item(s).`, true);
 }
 
-if (maReloadBtn) maReloadBtn.onclick = () => loadList();
 maFilter.oninput = () => renderList();
 
 async function deleteItem(item){
