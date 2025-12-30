@@ -3,7 +3,7 @@ const router = express.Router();
 const QRCode = require("qrcode");
 const path = require("path");
 const fs = require("fs");
-const Jimp = require("jimp");
+const { Jimp } = require("jimp");   
 const settingsSvc = require("../services/settings.service");
 
 // Prefer TAK_URL from settings.json, fall back to .env if needed

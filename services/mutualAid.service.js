@@ -1,8 +1,10 @@
 const crypto = require("crypto");
 const QRCode = require("qrcode");
-const Jimp = require("jimp");
 const path = require("path");
 const fs = require("fs");
+const { Jimp } = require("jimp");  
+const settingsSvc = require("./settings.service");
+
 
 const api = require("./authentik");
 const groupsSvc = require("./groups.service");
