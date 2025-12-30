@@ -300,15 +300,17 @@ form.onsubmit = async (e) => {
   background: var(--panel);
   border-radius: 12px;
   padding: 10px;
-  /*max-height: 320px;*/
 
-  /* only scroll vertically */
+  /* OPTIONAL: cap height & scroll; remove this if you want it to just grow */
+  max-height: 320px;
   overflow-y: auto;
   overflow-x: hidden;
 
-  /* dynamic columns */
-  column-width: 310px;
+  /* use grid instead of multicol */
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
   column-gap: 14px;
+  row-gap: 4px;
 }
 
 /* Force checkbox + text inline */
@@ -341,8 +343,8 @@ form.onsubmit = async (e) => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
 </style>
+
 
 
 </div></body></html>
