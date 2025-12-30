@@ -301,14 +301,14 @@ form.onsubmit = async (e) => {
   border-radius: 12px;
   padding: 10px;
   max-height: 320px;
-  overflow: auto;          /* vertical scroll when content exceeds 320px */
 
-  /* match the Create Users page layout */
-  display: grid;
-  grid-auto-flow: column;                 /* fill down, then start a new column */
-  grid-template-rows: repeat(7, auto);    /* ~7 rows per column */
-  grid-auto-columns: minmax(200px, 1fr);  /* reasonable width per column */
-  gap: 6px 14px;
+  /* only scroll vertically */
+  overflow-y: auto;
+  overflow-x: hidden;
+
+  /* dynamic columns */
+  column-width: 310px;
+  column-gap: 14px;
 }
 
 /* Force checkbox + text inline */
