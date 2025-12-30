@@ -3,7 +3,7 @@
 
 <main class="main">
   <h1>Settings</h1>
-
+  <small>Adjust settings as needed and then hit "Save Settings" for the changes to take effect.</small>
   <form method="post" action="/settings" autocomplete="off" enctype="multipart/form-data">
     <% 
       const BOOL_KEYS = new Set([
@@ -235,7 +235,7 @@
       </details>
     </div>
 
-    <!-- 🔻 MOVED HERE -->
+    <!-- Portal Access Control -->
     <div class="card">
       <details class="settings-section">
         <summary class="settings-summary">Portal Access Control</summary>
@@ -243,9 +243,9 @@
         <div class="settings-body">
           <div class="grid2">
             <% renderField("PORTAL_AUTH_ENABLED","Require Authentik login","Requires Authentik forward_auth / Caddy."); %>
-            <% renderField("PORTAL_AUTH_REQUIRED_GROUP","Global Admin group(s)","Groups with full access."); %>
-            <% renderField("PORTAL_AUTH_AGENCY_ADMIN_GROUPS","Agency Admin group(s)","Limited admin access."); %>
             <% renderField("AUTHENTIK_PUBLIC_URL","Authentik Public URL","Used for logout redirects."); %>
+            <% renderField("PORTAL_AUTH_AGENCY_ADMIN_GROUPS","Agency Admin group(s)","Limited admin access."); %>
+            <% renderField("PORTAL_AUTH_REQUIRED_GROUP","Global Admin group(s)","Groups with full access."); %>
           </div>
         </div>
       </details>
