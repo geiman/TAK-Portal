@@ -3,7 +3,7 @@ const router = express.Router();
 const QRCode = require("qrcode");
 const path = require("path");
 const fs = require("fs");
-const { Jimp } = require("jimp");   
+const { Jimp, loadFont } = require("jimp");  
 const settingsSvc = require("../services/settings.service");
 
 // Prefer TAK_URL from settings.json, fall back to .env if needed
@@ -102,7 +102,7 @@ async function addUsernameLabel(pngBuffer, username) {
     const qrImage = await Jimp.read(pngBuffer);
 
     // Bold-looking font
-    const font = await Jimp.loadFont(Jimp.FONT_SANS_64_BLACK);
+    const font = await loadFont(Jimp.FONT_SANS_64_BLACK);
 
     // FORCE ALL CAPS
     const text = (String(username || "").trim() || "USER").toUpperCase();
