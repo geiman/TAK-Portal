@@ -35,23 +35,34 @@ router.post("/", async (req, res) => {
     if (!access.isGlobalAdmin) {
       const allowedSuffixes = access.allowedAgencySuffixes || [];
       if (!allowedSuffixes.length) {
-        return res.status(403).json({ error: "You do not have permission to create groups." });
+        return res
+          .status(403)
+          .json({ error: "You do not have permission to create groups." });
       }
 
       const allAgencies = agencies.load();
       const allowedPrefixes = allAgencies
-        .filter((a) => allowedSuffixes.includes(String(a.suffix || "").trim().toLowerCase()))
+        .filter((a) =>
+          allowedSuffixes.includes(
+            String(a.suffix || "").trim().toLowerCase()
+          )
+        )
         .map((a) => String(a.groupPrefix || "").trim().toUpperCase())
         .filter(Boolean);
 
       const upperName = rawName.toUpperCase();
-      const canCreateForAny = allowedPrefixes.some((prefix) =>
-        upperName.startsWith(prefix + "-")
-      );
+      const canCreateForAny = allowedPrefixes.some((prefix) => {
+        // Support both "CPD-GROUP" and "CPD - GROUP"
+        return (
+          upperName.startsWith(prefix + "-") ||
+          upperName.startsWith(prefix + " -")
+        );
+      });
 
       if (!canCreateForAny) {
         return res.status(403).json({
-          error: "You may only create agency-specific groups for your own agency.",
+          error:
+            "You may only create agency-specific groups for your own agency.",
         });
       }
     }
@@ -64,7 +75,7 @@ router.post("/", async (req, res) => {
 });
 
 /**
- * NEW: rename group
+ * Rename group
  * Expected body: { name: "NEW_GROUP_NAME" }
  */
 router.patch("/:groupId", async (req, res) => {
@@ -81,7 +92,7 @@ router.patch("/:groupId", async (req, res) => {
   }
 });
 
-// impact preview before delete
+// Impact preview before delete
 router.get("/:groupId/impact", async (req, res) => {
   try {
     const out = await groups.getDeleteImpact(req.params.groupId);
@@ -91,7 +102,7 @@ router.get("/:groupId/impact", async (req, res) => {
   }
 });
 
-// delete now cleans up users + templates
+// Delete now cleans up users + templates
 router.delete("/:groupId", async (req, res) => {
   try {
     const out = await groups.deleteGroupWithCleanup(req.params.groupId);
@@ -106,9 +117,9 @@ router.post("/mass-assign", async (req, res) => {
     const out = await groups.massAssignUsersToGroup({
       groupId: req.body?.groupId,
       suffixes: req.body?.suffixes,
-      // NEW: allow multiple source groups (backwards compatible)
+      // allow multiple source groups (backwards compatible)
       sourceGroupIds: req.body?.sourceGroupIds ?? req.body?.sourceGroupId,
-      userIds: req.body?.userIds
+      userIds: req.body?.userIds,
     });
     res.json({ success: true, ...out });
   } catch (err) {
@@ -116,7 +127,7 @@ router.post("/mass-assign", async (req, res) => {
   }
 });
 
-// NEW: mass unassign users from a group
+// Mass unassign users from a group
 router.post("/mass-unassign", async (req, res) => {
   try {
     const out = await groups.massUnassignUsersFromGroup({
@@ -124,7 +135,7 @@ router.post("/mass-unassign", async (req, res) => {
       suffixes: req.body?.suffixes,
       // allow multiple source groups (same semantics as mass-assign)
       sourceGroupIds: req.body?.sourceGroupIds ?? req.body?.sourceGroupId,
-      userIds: req.body?.userIds
+      userIds: req.body?.userIds,
     });
     res.json({ success: true, ...out });
   } catch (err) {
@@ -132,7 +143,7 @@ router.post("/mass-unassign", async (req, res) => {
   }
 });
 
-// NEW: fetch members of a single group, plus related mutual-aid entries
+// Fetch members of a single group, plus related mutual-aid entries
 router.get("/:groupId/members", async (req, res) => {
   try {
     const groupId = req.params.groupId;
@@ -145,7 +156,8 @@ router.get("/:groupId/members", async (req, res) => {
       const groupName = String(group?.name || "").trim();
       mutual = items.filter((it) => {
         const idMatch = String(it.groupId || "") === String(groupId);
-        const nameMatch = groupName && String(it.groupName || "").trim() === groupName;
+        const nameMatch =
+          groupName && String(it.groupName || "").trim() === groupName;
         return idMatch || nameMatch;
       });
     } catch (e) {
@@ -162,6 +174,5 @@ router.get("/:groupId/members", async (req, res) => {
     res.status(400).json({ error: toErrorPayload(err) });
   }
 });
-
 
 module.exports = router;
