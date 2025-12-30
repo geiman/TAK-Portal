@@ -66,6 +66,42 @@
   </div>
 </main>
 
+<!-- Edit Group Modal -->
+<div class="modalOverlay" id="editGroupOverlay" style="display:none;">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="editGroupTitle">
+    <div class="modalHeader">
+      <h2 id="editGroupTitle" style="margin:0;">Edit Group</h2>
+      <button class="btn" id="editGroupCloseBtn" type="button">Close</button>
+    </div>
+    <div class="modalBody">
+      <div class="card" style="margin:0;">
+        <h2 style="margin-top:0;">Edit Group</h2>
+
+        <div class="row">
+          <input
+            id="editGroupName"
+            placeholder="Group Name"
+            style="min-width: 360px;"
+          />
+        </div>
+
+        <div class="row" style="margin-top:8px;">
+          <input
+            id="editGroupDescription"
+            placeholder="One-line description for this group (optional)"
+            style="flex: 1; min-width: 360px;"
+          />
+        </div>
+
+        <div class="row" style="margin-top:16px; align-items:center;">
+          <button class="btn success" id="editGroupSaveBtn" type="button">Save Changes</button>
+          <span id="editGroupMsg" class="msg"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Mass Assign Modal -->
 <div class="modalOverlay" id="massOverlay" style="display:none;">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="massTitle">
@@ -485,38 +521,22 @@ window.editGroupName = async (groupId) => {
 
   const g = (groupsCache || []).find(x => String(x.pk) === String(groupId));
   const currentName = String(g?.name || "").trim();
+  const currentDescription = String(g?.attributes?.description || "").trim();
 
   if (groupActionsLocked(currentName)) {
     setMsg(listMsg, `Actions are locked for group ${currentName || groupId}`, false);
     return;
   }
 
-  const next = prompt("Enter new group name:", currentName);
-  if (next === null) return;
+  editGroupCurrentId = groupId;
+  editGroupCurrentName = currentName;
+  editGroupCurrentDescription = currentDescription;
 
-  const newName = String(next).trim();
-  if (!newName) return setMsg(listMsg, "Group name cannot be empty.", false);
+  editGroupNameInput.value = currentName;
+  editGroupDescriptionInput.value = currentDescription;
 
-  if (newName === currentName) return setMsg(listMsg, "No changes made.", true);
-
-  if (!confirm(`Rename "${currentName}" to "${newName}"?`)) return;
-
-  const res = await fetch(`/api/groups/${encodeURIComponent(groupId)}`, {
-    method: "PATCH",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({ name: newName })
-  });
-
-  let out = {};
-  try { out = await res.json(); } catch(e) {}
-
-  if(!res.ok){
-    setMsg(listMsg, out.error || "Rename failed", false);
-    return;
-  }
-
-  setMsg(listMsg, `Renamed "${currentName}" → "${newName}"`, true);
-  await loadGroups();
+  setMsg(editGroupMsg, "");
+  showEditGroupModal(true);
 };
 
 // Delete w/ impact
@@ -605,6 +625,23 @@ function updateMassPanes(){
   massGroupPane.style.display = mode === "group" ? "block" : "none";
   massUsersPane.style.display = mode === "users" ? "block" : "none";
   setMsg(massMsg, "");
+}
+
+// Edit Group modal
+const editGroupOverlay = document.getElementById("editGroupOverlay");
+const editGroupCloseBtn = document.getElementById("editGroupCloseBtn");
+const editGroupNameInput = document.getElementById("editGroupName");
+const editGroupDescriptionInput = document.getElementById("editGroupDescription");
+const editGroupSaveBtn = document.getElementById("editGroupSaveBtn");
+const editGroupMsg = document.getElementById("editGroupMsg");
+
+let editGroupCurrentId = null;
+let editGroupCurrentName = "";
+let editGroupCurrentDescription = "";
+
+function showEditGroupModal(show){
+  editGroupOverlay.style.display = show ? "flex" : "none";
+  document.body.classList.toggle("noScroll", !!show);
 }
 
 function showMembersModal(show){
@@ -774,6 +811,64 @@ window.removeUserFromGroup = async (userPk) => {
     alert("Failed to remove user from group.");
   }
 };
+
+editGroupSaveBtn.onclick = async () => {
+  setMsg(editGroupMsg, "");
+
+  const newName = String(editGroupNameInput.value || "").trim();
+  const newDescription = String(editGroupDescriptionInput.value || "").trim();
+
+  if (!editGroupCurrentId) {
+    setMsg(editGroupMsg, "No group selected.", false);
+    return;
+  }
+
+  if (!newName) {
+    setMsg(editGroupMsg, "Group name cannot be empty.", false);
+    return;
+  }
+
+  if (newName === editGroupCurrentName && newDescription === editGroupCurrentDescription) {
+    setMsg(editGroupMsg, "No changes made.", true);
+    return;
+  }
+
+  if (!confirm(`Save changes to "${editGroupCurrentName}"?`)) return;
+
+  const res = await fetch(`/api/groups/${encodeURIComponent(editGroupCurrentId)}`, {
+    method: "PATCH",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({
+      name: newName,
+      description: newDescription || null,
+    }),
+  });
+
+  let out = {};
+  try { out = await res.json(); } catch (e) {}
+
+  if (!res.ok) {
+    setMsg(editGroupMsg, out.error || "Update failed", false);
+    return;
+  }
+
+  setMsg(editGroupMsg, `Updated "${editGroupCurrentName}"`, true);
+  editGroupCurrentName = newName;
+  editGroupCurrentDescription = newDescription;
+  await loadGroups();
+  showEditGroupModal(false);
+};
+
+editGroupCloseBtn.onclick = () => showEditGroupModal(false);
+editGroupOverlay.addEventListener("click", (e) => {
+  if (e.target === editGroupOverlay) showEditGroupModal(false);
+});
+
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && editGroupOverlay.style.display !== "none") {
+    showEditGroupModal(false);
+  }
+});
 
 membersCloseBtn.onclick = () => showMembersModal(false);
 membersOverlay.addEventListener("click", (e) => {

@@ -196,8 +196,23 @@ async function renameGroup(groupId, newName, opts = {}) {
   const oldName = String(current?.name || "").trim();
   if (!oldName) throw new Error("Could not determine existing group name");
 
-  // Rename in Authentik
-  const res = await api.patch(`/core/groups/${id}/`, { name: n });
+// Rename (and optionally update description) in Authentik
+const payload = { name: n };
+
+// If description is explicitly provided in opts, merge it into attributes
+if (Object.prototype.hasOwnProperty.call(opts, "description")) {
+  const desc = String(opts.description || "").trim();
+  const existingAttrs =
+    current && typeof current.attributes === "object" && current.attributes
+      ? current.attributes
+      : {};
+  payload.attributes = {
+    ...existingAttrs,
+    description: desc,
+  };
+}
+
+const res = await api.patch(`/core/groups/${id}/`, payload);
   const updatedGroup = res.data;
 
   // Update templates (replace oldName -> n)

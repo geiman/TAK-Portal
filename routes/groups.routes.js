@@ -133,7 +133,13 @@ router.patch("/:groupId", async (req, res) => {
       return res.status(400).json({ error: "Group name is required" });
     }
 
-    const out = await groups.renameGroup(req.params.groupId, name);
+    // Optional: description update
+    const hasDescription = Object.prototype.hasOwnProperty.call(req.body || {}, "description");
+    const description = hasDescription ? String(req.body.description || "").trim() : undefined;
+
+    const out = await groups.renameGroup(req.params.groupId, name, {
+      description,
+    });
     res.json({ success: true, group: out });
   } catch (err) {
     res.status(400).json({ error: toErrorPayload(err) });
