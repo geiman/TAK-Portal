@@ -301,37 +301,15 @@ form.onsubmit = async (e) => {
   border-radius: 12px;
   padding: 10px;
   max-height: 320px;
+  overflow: auto;          /* vertical scroll when content exceeds 320px */
 
-  /* only scroll vertically */
-  overflow-y: auto;
-  overflow-x: hidden;
-
-  /* mobile-first: 1 column */
-  columns: 1;
-  column-gap: 14px;
+  /* match the Create Users page layout */
+  display: grid;
+  grid-auto-flow: column;                 /* fill down, then start a new column */
+  grid-template-rows: repeat(7, auto);    /* ~7 rows per column */
+  grid-auto-columns: minmax(200px, 1fr);  /* reasonable width per column */
+  gap: 6px 14px;
 }
-
-/* small-ish screens: 2 columns */
-@media (min-width: 640px) {
-  .groupsBox {
-    columns: 2;
-  }
-}
-
-/* medium screens / small desktop: 3 columns */
-@media (min-width: 900px) {
-  .groupsBox {
-    columns: 3;
-  }
-}
-
-/* wider desktop: cap at 4 columns */
-@media (min-width: 1200px) {
-  .groupsBox {
-    columns: 4;
-  }
-}
-
 
 /* Force checkbox + text inline */
 .groupItem{
