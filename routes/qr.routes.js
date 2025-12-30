@@ -3,11 +3,7 @@ const router = express.Router();
 const QRCode = require("qrcode");
 const path = require("path");
 const fs = require("fs");
-
-// Jimp v1.x: Jimp + loadFont + font constant
-const { Jimp, loadFont } = require("jimp");
-const { SANS_64_BLACK } = require("jimp/fonts");
-
+const Jimp = require("jimp"); // Jimp 0.22.x
 const settingsSvc = require("../services/settings.service");
 
 // Prefer TAK_URL from settings.json, fall back to .env if needed
@@ -59,8 +55,8 @@ async function addLogoToPng(pngBuffer) {
       Jimp.read(logoFsPath),
     ]);
 
-    const qrWidth = qrImage.bitmap.width;
-    const qrHeight = qrImage.bitmap.height;
+    const qrWidth = qrImage.getWidth();
+    const qrHeight = qrImage.getHeight();
 
     // Max logo size: 25% of QR's smaller dimension (safe for error-correction H)
     const logoMaxSize = Math.floor(Math.min(qrWidth, qrHeight) * 0.25);
@@ -71,8 +67,8 @@ async function addLogoToPng(pngBuffer) {
 
     // White background "badge" behind logo
     const padding = Math.floor(logoMaxSize * 0.12); // 12% padding around logo
-    const bgWidth = logoImage.bitmap.width + padding * 2;
-    const bgHeight = logoImage.bitmap.height + padding * 2;
+    const bgWidth = logoImage.getWidth() + padding * 2;
+    const bgHeight = logoImage.getHeight() + padding * 2;
 
     // Position of the white background (centered)
     const bgX = Math.floor((qrWidth - bgWidth) / 2);
@@ -105,29 +101,40 @@ async function addUsernameLabel(pngBuffer, username) {
   try {
     const qrImage = await Jimp.read(pngBuffer);
 
-    // Bold-looking font (Jimp v1 font API)
-    const font = await loadFont(SANS_64_BLACK);
+    // Built-in font in Jimp 0.22.x
+    const font = await Jimp.loadFont(Jimp.FONT_SANS_64_BLACK);
 
     // FORCE ALL CAPS
     const text = (String(username || "").trim() || "USER").toUpperCase();
 
     const textBlockHeight = 80; // a little extra space for bigger text
 
-    const qrWidth = qrImage.bitmap.width;
-    const qrHeight = qrImage.bitmap.height;
+    const qrWidth = qrImage.getWidth();
+    const qrHeight = qrImage.getHeight();
 
     // New canvas: same width, extra height for text
-    const combined = new Jimp({
-      width: qrWidth,
-      height: qrHeight + textBlockHeight,
-      color: 0xffffffff, // white background
-    });
+    const combined = new Jimp(
+      qrWidth,
+      qrHeight + textBlockHeight,
+      0xffffffff // white background
+    );
 
     // Paste the QR code at the top
     combined.composite(qrImage, 0, 0);
 
-    // Simple print signature: (font, x, y, text, maxWidth, maxHeight)
-    combined.print(font, 0, qrHeight + 10, text, qrWidth, textBlockHeight);
+    // Center text under QR
+    combined.print(
+      font,
+      0,
+      qrHeight + 10,
+      {
+        text,
+        alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER,
+        alignmentY: Jimp.VERTICAL_ALIGN_TOP,
+      },
+      qrWidth,
+      textBlockHeight
+    );
 
     return combined.getBufferAsync(Jimp.MIME_PNG);
   } catch (err) {
