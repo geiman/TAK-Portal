@@ -147,7 +147,7 @@
             <% renderField("TAK_API_P12_PASSPHRASE","Client P12 Passphrase","Passphrase for the client .p12 file (may be empty)."); %>
 
             <label class="settings-field">
-              <span class="settings-label">TAK CA Certificate</span>
+              <span class="settings-label">TAK Server CA Certificate</span>
               <input type="file" name="TAK_CA_UPLOAD" accept=".pem,.crt,.cer,.der" />
               <% if (settings.TAK_CA_PATH) { %>
                 <small class="settings-help">Currently stored at: <code><%= settings.TAK_CA_PATH %></code></small>
