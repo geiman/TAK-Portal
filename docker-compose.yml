@@ -1,5 +1,5 @@
 services:
-  tak-user-management:
+  tak-portal:
     build: .
     container_name: tak-portal
     restart: unless-stopped
