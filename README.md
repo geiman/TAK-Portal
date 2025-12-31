@@ -24,8 +24,8 @@ Before installing, you should have:
 
 - Access to a Linux/Ubuntu machine running Docker
 - Access to a self-hosted instance of **Authentik**
-  - [Authentik Setup Guide](docs/authentik-setup.md)
-  - [Authentik LDAP Setup](docs/authentik-ldap.md)
+  - [Authentik Setup Guide - Docker](https://docs.goauthentik.io/install-config/install/docker-compose/)
+  - [Authentik LDAP Setup](https://docs.goauthentik.io/add-secure-apps/providers/ldap/generic_setup/)
   - [Authentik API Setup](docs/authentik-api.md)
 - Access to a **TAK Server** including a webadmin.p12 and tak-ca.pem certificate  
   - [Connecting TAK Server to Authentik LDAP](docs/authentik-tak-server.md)
