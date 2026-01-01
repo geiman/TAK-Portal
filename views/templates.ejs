@@ -33,7 +33,7 @@
       <div style="grid-column:1/-1;">
         <label>Groups
           <input id="groupSearch" placeholder="Search groups..." />
-          <div class="row" style="gap:10px; margin-top:8px;">
+          <div class="row" style="gap:10px; margin-top:8px; flex-wrap:wrap;">
             <button class="btn" type="button" id="selectAllBtn">Select All</button>
             <button class="btn" type="button" id="clearAllBtn">Clear</button>
           </div>
@@ -45,7 +45,7 @@
         </label>
       </div>
 
-      <div style="grid-column:1/-1;" class="row">
+      <div style="grid-column:1/-1;" class="row" >
         <button class="btn" id="submitBtn" type="submit">Create Template</button>
         <span id="msg" class="msg"></span>
       </div>
@@ -54,18 +54,21 @@
 
   <div class="card">
     <h2>Existing Templates</h2>
-    <table class="table">
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Agency</th>
-          <th>Default</th>
-          <th>Groups</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody id="tbody"></tbody>
-    </table>
+    <!-- scrollable wrapper for small screens -->
+    <div class="tableWrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Agency</th>
+            <th>Default</th>
+            <th>Groups</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
   </div>
 </main>
 
@@ -168,9 +171,11 @@ async function loadTemplates(){
       <td>${t.agencySuffix ? esc(t.agencySuffix) : "—"}</td>
       <td>${t.isDefault ? "Yes" : ""}</td>
       <td>${esc((t.groups || []).join(", "))}</td>
-      <td class="row" style="gap:8px;">
-        <button class="btn" type="button" onclick="editTemplate(${i})">Edit</button>
-        <button class="btn danger" type="button" onclick="deleteTemplate(${i})">Delete</button>
+      <td>
+        <div class="actionsRow">
+          <button class="btn" type="button" onclick="editTemplate(${i})">Edit</button>
+          <button class="btn danger" type="button" onclick="deleteTemplate(${i})">Delete</button>
+        </div>
       </td>
     </tr>
   `).join("");
@@ -298,6 +303,22 @@ form.onsubmit = async (e) => {
 
 <style>
 /* templates page only */
+
+/* Responsive grid for the form */
+.grid3 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+/* make form controls fill their column */
+.grid3 label > input,
+.grid3 label > select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* groups box */
 .groupsBox {
   margin-top: 10px;
   border: 1px solid var(--line);
@@ -314,7 +335,7 @@ form.onsubmit = async (e) => {
 .groupsInner {
   column-width: 280px;
   column-gap: 14px;
-  column-count: 4;    /* max 4 columns */
+  column-count: 4;    /* max 4 columns on desktop */
 }
 
 /* group items */
@@ -346,6 +367,50 @@ form.onsubmit = async (e) => {
   display: inline-block;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* table wrapper to allow horizontal scroll on small screens */
+.tableWrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+/* ensure table can shrink but still looks ok */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+/* actions buttons inside table should wrap on small screens */
+.actionsRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.actionsRow .btn {
+  flex: 1 1 120px;
+  max-width: 100%;
+}
+
+/* breakpoints */
+@media (max-width: 768px) {
+  /* form becomes single column */
+  .grid3 {
+    grid-template-columns: 1fr;
+  }
+
+  /* fewer columns in groups list */
+  .groupsInner {
+    column-count: 2;
+    column-width: auto;
+  }
+}
+
+@media (max-width: 480px) {
+  .groupsInner {
+    column-count: 1;
+  }
 }
 </style>
 
