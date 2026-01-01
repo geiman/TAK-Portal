@@ -170,43 +170,41 @@ async function loadMeta() {
   const meta = await res.json();
   if (!res.ok) throw new Error(meta.error || "Failed to load templates");
 
-  // NEW: normalize templates so we always have t.name
-  const raw = Array.isArray(meta.templates) ? meta.templates : [];
+  // Expecting new router format: { groups, templates: [ { key, label, isDefault?, groups? }, ... ] }
+  templatesCache = Array.isArray(meta.templates) ? meta.templates : [];
 
-  const all = raw.map((t, idx) => {
-    // Prefer existing name, otherwise use label, otherwise fallback
-    const name = t.name || t.label || `Template ${idx + 1}`;
-    return { ...t, name };
-  });
-
-  // Keep the first one as "manual" if it looks like it
-  const manual =
-    all[0] && String(all[0].name || "").toLowerCase().includes("manual")
-      ? all[0]
-      : { name: "Manual Group Selection", groups: [] };
-
-  const rest = all
-    .slice(1)
-    .slice()
-    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
-
-  templatesCache = [manual, ...rest];
-
-  // Index in the <select> is still the templateIndex used elsewhere
-  templateSelect.innerHTML = templatesCache
-    .map((t, i) => `<option value="${i}">${esc(t.name)}</option>`)
-    .join("");
-
-  let defaultIndex = 0;
-  const defaultInRest = rest.findIndex((t) => !!t.isDefault);
-  if (defaultInRest >= 0) {
-    defaultIndex = 1 + defaultInRest;
-  } else if (templatesCache.length > 1) {
-    defaultIndex = 1;
+  // Optional: if meta.groups is agency-specific, sync it into the manual picker:
+  if (Array.isArray(meta.groups)) {
+    groupsCache = meta.groups;
+    pickedManualGroupIds.clear();
+    groupFilter.value = "";
+    renderGroupsBox();
   }
 
-  templateSelect.value = String(defaultIndex);
-  templateSelect.onchange();
+  if (!templatesCache.length) {
+    // No templates at all – just fall back to manual
+    templatesCache = [
+      { key: "manual", label: "Manual Group Selection", groups: [] },
+    ];
+  }
+
+  // Populate select: value = key, label = label
+  templateSelect.innerHTML = templatesCache
+    .map(
+      (t) =>
+        `<option value="${esc(t.key)}">${esc(t.label || t.name || t.key)}</option>`
+    )
+    .join("");
+
+  // Choose default template
+  let defaultKey = templatesCache[0].key;
+  const foundDefault = templatesCache.find((t) => !!t.isDefault);
+  if (foundDefault) {
+    defaultKey = foundDefault.key;
+  }
+
+  templateSelect.value = defaultKey;
+  updateTemplateVisibility();
 }
 
 
