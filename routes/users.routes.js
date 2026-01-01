@@ -42,14 +42,32 @@ router.get("/meta", async (req, res) => {
     const allGroups = await groupsSvc.getAllGroups({});
     const groups = accessSvc.filterGroupsForUser(authUser, allGroups);
 
+    const templates = [
+      // index 0 = Manual, as the EJS expects
+      {
+        key: "manual",
+        label: "Manual Group Selection",
+        groups: [],
+      },
+      ...dynamic.map((t, idx) => ({
+        // pick something stable/unique for key; name is fine if unique per agency
+        key: t.name || `tpl-${idx}`,
+        label: t.name || `Template ${idx + 1}`,
+        agencySuffix: t.agencySuffix,
+        groups: t.groups,
+        isDefault: t.isDefault,
+      })),
+    ];
+
     res.json({
       groups,
-      templates: [{ name: "Manual Group Selection", groups: [] }, ...dynamic],
+      templates,
     });
   } catch (err) {
     res.status(500).json({ error: toErrorPayload(err) });
   }
 });
+
 
 router.get("/groups", async (req, res) => {
   try {
