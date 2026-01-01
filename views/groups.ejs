@@ -16,18 +16,22 @@
         <% } %>
       </select>
 
-      <select id="agencyPrefixSelect" style="display:none; width:260px;">
+      <select id="agencyPrefixSelect" style="display:none;">
         <option value="">Select Agency</option>
       </select>
 
-      <select id="countySelect" style="display:none; width:260px;">
+      <select id="countySelect" style="display:none;">
         <option value="">Select County</option>
       </select>
 
-      <input id="groupName" placeholder="Group name" style="min-width: 210px;" />
+      <input
+        id="groupName"
+        placeholder="Group name"
+        style="flex: 1; min-width: 120px;"
+      />
 
       <!-- Behavior dropdown -->
-      <select id="behaviorSelect" style="min-width: 160px;">
+      <select id="behaviorSelect" style="min-width: 120px;">
         <option value="both" selected>BOTH - Send and Recieve (default)</option>
         <option value="read">READ - Recieve Only</option>
         <option value="write">WRITE - Send Only</option>
@@ -39,7 +43,7 @@
       <input
         id="groupDescription"
         placeholder="One-line description for this group (optional)"
-        style="flex: 1; min-width: 360px;"
+        style="flex: 1; min-width: 0;"
       />
     </div>
     <div id="createMsg" class="msg"></div>
@@ -50,7 +54,11 @@
       <h2 style="margin:0;">Existing Groups</h2>
     </div>
 
-    <input id="filter" placeholder="Filter groups..." style="margin: 10px 0; min-width: 360px;" />
+    <input
+      id="filter"
+      placeholder="Filter groups..."
+      style="margin: 10px 0; width: 100%; box-sizing: border-box;"
+    />
 
     <div id="listMsg" class="msg"></div>
 
@@ -58,7 +66,7 @@
       <thead>
         <tr>
           <th>Group Name</th>
-          <th style="width: 620px;">Actions</th>
+          <th>Actions</th>
         </tr>
       </thead>
       <tbody id="tbody"></tbody>
@@ -89,12 +97,12 @@
           </select>
 
           <!-- Agency dropdown -->
-          <select id="editAgencyPrefixSelect" style="display:none; width:260px;">
+          <select id="editAgencyPrefixSelect" style="display:none;">
             <option value="">Select Agency</option>
           </select>
 
           <!-- County dropdown -->
-          <select id="editCountySelect" style="display:none; width:260px;">
+          <select id="editCountySelect" style="display:none;">
             <option value="">Select County</option>
           </select>
 
@@ -102,11 +110,11 @@
           <input
             id="editGroupName"
             placeholder="Group name"
-            style="min-width: 210px;"
+            style="flex: 1; min-width: 120px;"
           />
 
           <!-- Behavior dropdown -->
-          <select id="editBehaviorSelect" style="min-width: 160px;">
+          <select id="editBehaviorSelect" style="min-width: 120px;">
             <option value="both">BOTH - Send and Recieve (default)</option>
             <option value="read">READ - Recieve Only</option>
             <option value="write">WRITE - Send Only</option>
@@ -117,7 +125,7 @@
           <input
             id="editGroupDescription"
             placeholder="One-line description for this group (optional)"
-            style="flex: 1; min-width: 360px;"
+            style="flex: 1; min-width: 0;"
           />
         </div>
 
@@ -148,7 +156,11 @@
       <!-- Agency mode -->
       <div id="massAgencyPane" style="margin-top:14px;">
         <div class="row" style="justify-content:space-between; align-items:center;">
-          <input id="agencySearch" placeholder="Search agencies..." style="min-width: 360px;" />
+          <input
+            id="agencySearch"
+            placeholder="Search agencies..."
+            style="flex: 1; min-width: 0;"
+          />
           <div class="row" style="gap:10px;">
             <button class="btn" id="agencySelectAll" type="button">Select All</button>
             <button class="btn" id="agencyClearAll" type="button">Clear</button>
@@ -161,7 +173,11 @@
       <!-- Group mode -->
       <div id="massGroupPane" style="display:none; margin-top:14px;">
         <div class="row" style="justify-content:space-between; align-items:center%;">
-          <input id="sourceGroupSearch" placeholder="Search groups..." style="min-width: 360px;" />
+          <input
+            id="sourceGroupSearch"
+            placeholder="Search groups..."
+            style="flex: 1; min-width: 0;"
+          />
           <div class="row" style="gap:10px;">
             <button class="btn" id="groupSelectAll" type="button">Select All</button>
             <button class="btn" id="groupClearAll" type="button">Clear</button>
@@ -174,7 +190,12 @@
       <!-- Users mode -->
       <div id="massUsersPane" style="display:none; margin-top:14px;">
         <div class="row" style="justify-content:space-between; align-items:center;">
-          <input id="userSearch" placeholder="Search username, name, or email..." style="min-width: 360px;" autocomplete="off" />
+          <input
+            id="userSearch"
+            placeholder="Search username, name, or email..."
+            style="flex: 1; min-width: 0;"
+            autocomplete="off"
+          />
           <div class="row" style="gap:10px;">
             <button class="btn" id="userSelectAll" type="button">Select All (shown)</button>
             <button class="btn" id="userClearAll" type="button">Clear</button>
@@ -203,10 +224,18 @@
       <div id="membersSummary" class="msg"></div>
 
       <div style="margin-top:14px;">
-        <input id="membersFilter" placeholder="Filter by username, name, or email..." style="min-width: 360px;" />
+        <input
+          id="membersFilter"
+          placeholder="Filter by username, name, or email..."
+          style="width: 100%; box-sizing: border-box;"
+        />
       </div>
 
-      <div id="membersList" class="groupsBox" style="margin-top:10px; max-height: 320px; overflow:auto;"></div>
+      <div
+        id="membersList"
+        class="groupsBox"
+        style="margin-top:10px; max-height: 320px; overflow:auto;"
+      ></div>
       <small id="membersHint" class="muted"></small>
     </div>
   </div>
@@ -543,7 +572,7 @@ function renderGroups(){
         ${esc(g.name)}
         ${desc ? `<div class="muted" style="font-size: 11px; margin-top:2px; white-space:normal;">${esc(desc)}</div>` : ""}
       </td>
-      <td style="min-width:460px;">
+      <td>
         <div class="row" style="gap:8px; flex-wrap:wrap; align-items:center;">
           <button class="btn" type="button"
             onclick="openGroupMembers('${esc(g.pk)}')">View Members</button>
