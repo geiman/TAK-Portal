@@ -137,8 +137,6 @@
         </div>
 
         <div style="grid-column:1/-1;" class="row">
-          <button class="btn" id="toggleBtn" type="button"></button>
-          <button class="btn danger" id="deleteBtn" type="button">Delete User</button>
           <span id="actionMsg" class="msg"></span>
         </div>
 
@@ -903,6 +901,109 @@ deleteBtn.onclick = async () => {
 
   applyFilterSortRender();
 };
+
+if (applyTemplateBtn) applyTemplateBtn.addEventListener("click", async () => {
+  if (!selectedUser) return;
+
+  setMsgEl(actionMsg, "");
+
+  const selectedKey = (templateApplySelect && templateApplySelect.value) || "";
+  if (!selectedKey) {
+    setMsgEl(actionMsg, "Select a template first.", false);
+    return;
+  }
+
+  // Find the template by key
+  const template = Array.isArray(agencyTemplatesCache)
+    ? agencyTemplatesCache.find(t => String(t.key) === String(selectedKey))
+    : null;
+
+  if (!template) {
+    setMsgEl(actionMsg, "Selected template not found.", false);
+    return;
+  }
+
+  // If this is the "Manual" item, don't do anything special
+  if (selectedKey === "manual") {
+    setMsgEl(actionMsg, "Manual selection does not apply a template.", false);
+    return;
+  }
+
+  // Build a name -> id lookup from the groupIndex (which is id -> name)
+  const nameToId = {};
+  for (const [id, name] of groupIndex.entries()) {
+    const n = String(name || "").trim().toLowerCase();
+    if (!n) continue;
+    nameToId[n] = id;
+  }
+
+  const templateGroupNames = Array.isArray(template.groups) ? template.groups : [];
+  if (!templateGroupNames.length) {
+    setMsgEl(actionMsg, "This template has no groups configured.", false);
+    return;
+  }
+
+  // Map template group names to IDs using the lookup
+  const newGroupIds = templateGroupNames
+    .map(gName => {
+      const key = String(gName || "").trim().toLowerCase();
+      return nameToId[key] || null;
+    })
+    .filter(Boolean);
+
+  if (!newGroupIds.length) {
+    setMsgEl(
+      actionMsg,
+      "Template groups could not be matched to available Authentik groups.",
+      false
+    );
+    return;
+  }
+
+  // Overwrite the user's groups with this new set
+  setMsgEl(actionMsg, "Applying template...", true);
+
+  let res;
+  try {
+    res = await fetch(`/api/users/${selectedUser.pk}/groups`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ groupIds: newGroupIds }),
+    });
+  } catch (err) {
+    setMsgEl(actionMsg, "Network error while applying template.", false);
+    return;
+  }
+
+  const out = await res.json();
+  if (!res.ok) {
+    setMsgEl(actionMsg, out.error || "Failed to apply template.", false);
+    return;
+  }
+
+  // Server returns the final groups array; prefer that.
+  const applied = Array.isArray(out.groups) ? out.groups : newGroupIds;
+
+  selectedUser.groups = applied;
+  pickedGroupIds = new Set(applied.map(x => String(x)));
+
+  // Refresh UI
+  renderGroupChips(selectedUser);
+  renderGroupsBox();
+
+  // Update the current table page data as well
+  const patch = (u) =>
+    String(u.pk) === String(selectedUser.pk)
+      ? { ...u, groups: selectedUser.groups }
+      : u;
+
+  allUsers = (allUsers || []).map(patch);
+  const updatedVisible = (window.__lastUsers || []).map(patch);
+  applySortAndRender(updatedVisible);
+
+  setMsgEl(actionMsg, "Template applied. Groups overwritten.", true);
+});
+
 
 async function loadAllUsers(){
   setMsgEl(msg, "Loading users...", true);
