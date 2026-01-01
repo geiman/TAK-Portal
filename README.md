@@ -40,17 +40,16 @@ On your docker machine, run:
 
 ```
 git clone https://github.com/AdventureSeeker423/TAK-Portal
-cd TAK-Portal
 ```
 
+(Optional) To set a custom web UI port (Default is 3000)
 ```
-./takportal config
+cd ~/TAK-Portal && ./takportal config
 ```
 
 Start TAK Portal - This will install any dependencies and start the Docker container
-
 ```
-./takportal start
+cd ~/TAK-Portal && ./takportal start
 ```
 ---
 
@@ -83,14 +82,12 @@ Additional commands are included with TAK Portal to assist you in keeping your d
 
 To see all avaliable commands:
 ```
-cd TAK-Portal
-./takportal help
+cd ~/TAK-Portal && ./takportal help
 ```
 
 To update TAK Portal while retaining your current settings and configuration:
 ```
-cd TAK-Portal
-./takportal update
+cd ~/TAK-Portal && ./takportal update
 ```
 
 ---
