@@ -56,9 +56,19 @@
           - Global Admin 
         <% } else if (_isAgencyAdmin) { %>
           - Agency Admin 
-        <% } %> <br>
-        Version <%= APP_VERSION %>
+        <% } %> 
+        <br>
+
+        Version 
+        <a 
+          href="https://github.com/AdventureSeeker423/TAK-Portal/blob/main/CHANGELOG.md"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <%= APP_VERSION %>
+        </a>
       </small>
+
 
       <% if (typeof APP_UPDATE_AVAILABLE !== "undefined" && APP_UPDATE_AVAILABLE) { %>
         <div class="update-available-form">
@@ -73,43 +83,56 @@
     </div>
   </nav>
 
-  <% /* Modal lives outside nav, still inside aside */ %>
-  <% if (typeof APP_UPDATE_AVAILABLE !== "undefined" && APP_UPDATE_AVAILABLE) { %>
-    <div id="update-modal" class="update-modal">
-      <div class="update-modal-backdrop update-modal-close"></div>
-      <div class="update-modal-dialog">
-        <h3 class="update-modal-title">Update Available</h3>
+<% /* Modal lives outside nav, still inside aside */ %>
+<% if (typeof APP_UPDATE_AVAILABLE !== "undefined" && APP_UPDATE_AVAILABLE) { %>
+  <div id="update-modal" class="update-modal">
+    <div class="update-modal-backdrop update-modal-close"></div>
+    <div class="update-modal-dialog">
+      <h3 class="update-modal-title">Update Available</h3>
 
-        <% if (_isGlobalAdmin) { %>
-          <p>To update TAK Portal, log into the server CLI and run:</p>
-          <pre><code>cd ~/TAK-Portal && ./takportal update</code></pre>
-        <% } else { %>
-          <p>Please contact your Global Administrator to update TAK Portal.</p>
-        <% } %>
+      <% if (_isGlobalAdmin) { %>
+        <p>To update TAK Portal, log into the server CLI and run:</p>
+        <pre><code>cd ~/TAK-Portal && ./takportal update</code></pre>
+      <% } else { %>
+        <p>Please contact your Global Administrator to update TAK Portal.</p>
+      <% } %>
 
-        <button type="button" class="update-modal-close-btn update-modal-close">
-          Close
-        </button>
-      </div>
+      <!-- Shows for BOTH cases -->
+      <p>
+        To see what changed, view the
+        <a
+          href="https://github.com/AdventureSeeker423/TAK-Portal/blob/main/CHANGELOG.md"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          changelog
+        </a>.
+      </p>
+
+      <button type="button" class="update-modal-close-btn update-modal-close">
+        Close
+      </button>
     </div>
+  </div>
 
-    <script>
-      (function () {
-        var pill = document.getElementById('update-pill');
-        var modal = document.getElementById('update-modal');
-        if (!pill || !modal) return;
+  <script>
+    (function () {
+      var pill = document.getElementById('update-pill');
+      var modal = document.getElementById('update-modal');
+      if (!pill || !modal) return;
 
-        var closers = modal.querySelectorAll('.update-modal-close');
-        pill.addEventListener('click', function () {
-          modal.classList.add('is-open');
+      var closers = modal.querySelectorAll('.update-modal-close');
+      pill.addEventListener('click', function () {
+        modal.classList.add('is-open');
+      });
+
+      closers.forEach(function (el) {
+        el.addEventListener('click', function () {
+          modal.classList.remove('is-open');
         });
-
-        closers.forEach(function (el) {
-          el.addEventListener('click', function () {
-            modal.classList.remove('is-open');
-          });
-        });
-      })();
-    </script>
-  <% } %>
+      });
+    })();
+  </script>
+<% } %>
 </aside>
+
