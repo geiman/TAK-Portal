@@ -182,9 +182,17 @@
             <% renderField("EMAIL_SEND_COPY_TO","Always BCC","Optional comma-separated list."); %>
             <% renderField("EMAIL_FAIL_HARD","Fail Hard on Email Error","If true, user actions fail when email fails."); %>
           </div>
+
+          <form method="post" action="/settings/test-email" style="margin-top: 1rem;">
+            <button type="submit" class="btn">Send Test Email</button>
+            <small class="settings-help">
+              Sends “TAK Portal - Email SMTP Test” to the configured Always CC and Always BCC addresses.
+            </small>
+          </form>
         </div>
       </details>
     </div>
+
 
     <!-- Appearance -->
     <div class="card">

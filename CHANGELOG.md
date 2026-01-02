@@ -11,6 +11,7 @@ All notable changes to this project will be documented in this file.
 ## Version History
 
 ### v1.1.15 - 1/2/26
+🎉 `New Feature` - Added ability to test SMTP configuration
 🐛 `Bug Fix` - Removes unneeded Agency Admin Group Setting from Setting Page
 
 ### v1.1.14 - 1/1/26

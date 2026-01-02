@@ -5,12 +5,12 @@ const fs = require("fs");
 const multer = require("multer");
 const settingsSvc = require("./services/settings.service");
 const axios = require("axios");   
-
 const { getString } = require("./services/env");
 const { URL } = require("url");
 const pkg = require("./package.json");
 const mutualAidSvc = require("./services/mutualAid.service");
 const portalAuth = require("./services/portalAuth.middleware");
+const emailSvc = require("./services/email.service");
 
 const app = express();
 
@@ -288,6 +288,24 @@ app.post(
     res.redirect("/settings");
   }
 );
+
+app.post("/settings/test-email", requireGlobalAdmin, async (req, res) => {
+  try {
+    // This uses EMAIL_ALWAYS_CC and EMAIL_SEND_COPY_TO via email.service.js
+    const result = await emailSvc.sendMail({
+      // no explicit "to" – we only care about CC/BCC lists
+      subject: "TAK Portal - Email SMTP Test",
+      text: "TAK Portal - Email SMTP Test",
+    });
+
+    console.log("[settings] test email result:", result);
+    return res.redirect("/settings");
+  } catch (err) {
+    console.error("[settings] test email failed:", err?.message || err);
+    return res.status(500).send("Failed to send test email. Check SMTP settings and server logs.");
+  }
+});
+
 
 // Export a zip of the data folder
 app.get("/settings/export-data", requireGlobalAdmin, (req, res) => {
