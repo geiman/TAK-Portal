@@ -68,7 +68,6 @@
 
         "PORTAL_AUTH_ENABLED",
         "PORTAL_AUTH_REQUIRED_GROUP",
-        "PORTAL_AUTH_AGENCY_ADMIN_GROUPS",
         "AUTHENTIK_PUBLIC_URL",
 
         "EMAIL_ENABLED",
@@ -244,7 +243,6 @@
           <div class="grid2">
             <% renderField("PORTAL_AUTH_ENABLED","DANGER!! Require Authentik login","Requires Authentik forward_auth / Caddy."); %>
             <% renderField("AUTHENTIK_PUBLIC_URL","Authentik Public URL","Used for logout redirects."); %>
-            <% renderField("PORTAL_AUTH_AGENCY_ADMIN_GROUPS","Agency Admin group(s)","Limited admin access."); %>
             <% renderField("PORTAL_AUTH_REQUIRED_GROUP","Global Admin group(s)","Groups with full access."); %>
           </div>
         </div>

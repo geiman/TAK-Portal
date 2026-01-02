@@ -10,6 +10,9 @@ All notable changes to this project will be documented in this file.
 
 ## Version History
 
+### v1.1.15 - 1/2/26
+🐛 `Bug Fix` - Removes unneeded Agency Admin Group Setting from Setting Page
+
 ### v1.1.14 - 1/1/26
 ✨ `Enhancement` - All pages now 100% Mobile Friendly <br>
 🐛 `Bug Fix` - Fixes issue with Templates not appearing for Creating Users
