@@ -300,14 +300,16 @@ app.post(
   }
 );
 
-// Send a simple SMTP test email using Always CC / BCC lists
-// (Protected the same way as /settings, and after portalAuth so req.authentikUser is set)
+// Send a simple SMTP test email using Always CC / BCC lists & Ignore Email Enabled
 app.post("/settings/test-email", requireGlobalAdmin, async (req, res) => {
   console.log("[settings] Test email requested");
 
+  // Temporarily override EMAIL_ENABLED
+  const previous = process.env.EMAIL_ENABLED;
+  process.env.EMAIL_ENABLED = "true";
+
   try {
     const result = await emailSvc.sendMail({
-      // no explicit "to": we only use CC / BCC lists
       subject: "TAK Portal - Email SMTP Test",
       text: "TAK Portal - Email SMTP Test",
     });
@@ -319,8 +321,13 @@ app.post("/settings/test-email", requireGlobalAdmin, async (req, res) => {
     return res
       .status(500)
       .send("Failed to send test email. Check SMTP settings and server logs.");
+  } finally {
+    // Restore original value
+    if (previous === undefined) delete process.env.EMAIL_ENABLED;
+    else process.env.EMAIL_ENABLED = previous;
   }
 });
+
 
 // Export a zip of the data folder
 app.get("/settings/export-data", requireGlobalAdmin, (req, res) => {
