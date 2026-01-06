@@ -10,6 +10,7 @@ function normalizeAgency(a) {
     county: String(a.county || "").trim(),
     suffix: String(a.suffix || "").trim().toLowerCase(),
     groupPrefix: String(a.groupPrefix || "").trim().toUpperCase(),
+    color: String(a.color || "").trim(),
     // Comma/semicolon separated list of Authentik groups that
     // should be treated as admins for this agency.
     adminGroups: String(a.adminGroups || "").trim(),
@@ -20,6 +21,7 @@ function validateAgency(a) {
   if (!a.name) return "Name is required";
   if (!a.suffix) return "Username suffix is required";
   if (!a.groupPrefix) return "Group prefix is required";
+  if (!a.color) return "Agency color is required";
   return null;
 }
 

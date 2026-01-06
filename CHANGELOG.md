@@ -10,6 +10,9 @@ All notable changes to this project will be documented in this file.
 
 ## Version History
 
+### v1.1.16 - 1/5/26
+✨ `Enhancement` - Added Agency Color Option <br>
+
 ### v1.1.15 - 1/2/26
 🎉 `New Feature` - Added ability to test SMTP configuration <br>
 🐛 `Bug Fix` - Removes unneeded Agency Admin Group Setting from Setting Page
