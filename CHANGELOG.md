@@ -12,8 +12,8 @@ All notable changes to this project will be documented in this file.
 
 ### v1.1.17 - 1/5/26
 ✨ `Enhancement` - Added Agency Abbreviation, Agency Color, and Badge Number to Email Templates and Email Template Variables <br>
-✨ `Enhancement` - Adjusted window width for the sidebar to hide
-✨ `Enhancement` - Added Agency Color to the agency table
+✨ `Enhancement` - Adjusted window width for the sidebar to hide<br>
+✨ `Enhancement` - Added Agency Color to the agency table <br>
 ✏️ `Documentation` - Created email-template-variables.md to track available email variables
 
 ### v1.1.16 - 1/5/26
