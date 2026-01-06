@@ -99,7 +99,7 @@ body {
 }
 
 /* Desktop sticky sidebar: stays visible while main content scrolls */
-@media (min-width: 901px) {
+@media (min-width: 991px) {
     .sidebar {
         position: sticky;
         top: 0;
@@ -325,7 +325,7 @@ h2 {
     gap: 14px;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 990px) {
     .grid2 {
         grid-template-columns: 1fr;
     }
