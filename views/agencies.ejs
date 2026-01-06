@@ -100,6 +100,7 @@
           <th data-sort="suffix" role="button" tabindex="0" title="Sort by Username Suffix">Username Suffix</th>
           <th data-sort="county" role="button" tabindex="0" title="Sort by County">County</th>
           <th data-sort="type" role="button" tabindex="0" title="Sort by Type">Type</th>
+          <th data-sort="color" role="button" tabindex="0" title="Sort by Color">Color</th>
           <th>Admin Groups</th>
           <th>Actions</th>
         </tr>
@@ -174,6 +175,7 @@ function renderAgencies(){
       <td>${esc(a.suffix)}</td>
       <td>${esc(a.county)}</td>
       <td>${esc(a.type)}</td>
+      <td>${esc(a.color || "")}</td>
       <td>${esc(a.adminGroups || "")}</td>
       <td>
         <button class="btn danger" onclick="delAgency('${esc(a._id ?? a.id ?? "")}')">Delete</button>
@@ -332,20 +334,18 @@ loadAgenciesWithCounts();
 </script>
 
 <style>
-/* Hide Agency Prefix column on small screens */
+/* Hide columns on small screens */
 @media (max-width: 640px){
   .table th:nth-child(4),
-  .table td:nth-child(4){
-    display: none;
-  }
-}
-@media (max-width: 640px){
+  .table td:nth-child(4),
   .table th:nth-child(5),
-  .table td:nth-child(5){
+  .table td:nth-child(5),
+  .table th:nth-child(7),
+  .table td:nth-child(7){
     display: none;
   }
 }
-@media (max-width: 640px){
+@media (max-width: 768px){
   .table th:nth-child(6),
   .table td:nth-child(6){
     display: none;
