@@ -115,19 +115,30 @@ case "$CMD" in
     ;;
 
   data)
-    echo "Opening shell in /usr/src/app/data inside '$SERVICE_NAME'..."
+    echo "Opening host volume for '$SERVICE_NAME'..."
 
-    # Make sure the service is running
-    CONTAINER_ID="$($COMPOSE_CMD ps -q "$SERVICE_NAME" || true)"
-    if [[ -z "$CONTAINER_ID" ]]; then
-      echo "ERROR: Service '$SERVICE_NAME' is not running."
-      echo "Start it first with:"
-      echo "  ./$(basename "${BASH_SOURCE[0]}") start"
+    VOLUME_NAME="tak_portal_data"
+
+    # Resolve the host path of the Docker volume
+    HOST_PATH="$(docker volume inspect -f '{{ .Mountpoint }}' "$VOLUME_NAME" 2>/dev/null || true)"
+
+    if [[ -z "$HOST_PATH" ]]; then
+      echo "ERROR: Could not resolve volume path for '$VOLUME_NAME'."
       exit 1
     fi
 
-    # Open an interactive shell with CWD set to the data volume mount
-    $COMPOSE_CMD exec -it "$SERVICE_NAME" sh -lc 'cd /usr/src/app/data && exec "${SHELL:-/bin/sh}"'
+    if [[ ! -d "$HOST_PATH" ]]; then
+      echo "ERROR: Volume path '$HOST_PATH' does not exist or is not accessible."
+      exit 1
+    fi
+
+    echo "Changing directory to:"
+    echo "  $HOST_PATH"
+    echo
+    echo "Type 'exit' to return."
+
+    cd "$HOST_PATH"
+    "${SHELL:-/bin/bash}"
     ;;
 
   *)
