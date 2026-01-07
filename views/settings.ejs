@@ -163,44 +163,44 @@
       </details>
     </div>
 
-<!-- Email -->
-<div class="card">
-  <details class="settings-section">
-    <summary class="settings-summary">Email</summary>
+    <!-- Email -->
+    <div class="card">
+      <details class="settings-section">
+        <summary class="settings-summary">Email</summary>
 
-    <div class="settings-body">
-      <div class="grid2">
-        <% renderField("EMAIL_ENABLED","Email Enabled","true/false – whether email notifications are enabled."); %>
-        <% renderField("EMAIL_PROVIDER","Email Provider","Currently only 'smtp' is supported."); %>
-        <% renderField("SMTP_HOST","SMTP Host","SMTP server hostname."); %>
-        <% renderField("SMTP_PORT","SMTP Port","SMTP port, e.g. 587."); %>
-        <% renderField("SMTP_SECURE","SMTP Secure","true for SMTPS/465, false for STARTTLS/587."); %>
-        <% renderField("SMTP_USER","SMTP Username","Username for SMTP authentication."); %>
-        <% renderField("SMTP_PASS","SMTP Password","Password for SMTP authentication."); %>
-        <% renderField("SMTP_FROM","From Address",'e.g. "TAK Admin <admin@example.com>".'); %>
-        <% renderField("EMAIL_ALWAYS_CC","Always CC","Optional comma-separated list."); %>
-        <% renderField("EMAIL_SEND_COPY_TO","Always BCC","Optional comma-separated list."); %>
-        <% renderField("EMAIL_FAIL_HARD","Fail Hard on Email Error","If true, user actions fail when email fails."); %>
-      </div>
+        <div class="settings-body">
+          <div class="grid2">
+            <% renderField("EMAIL_ENABLED","Email Enabled","true/false – whether email notifications are enabled."); %>
+            <% renderField("EMAIL_PROVIDER","Email Provider","Currently only 'smtp' is supported."); %>
+            <% renderField("SMTP_HOST","SMTP Host","SMTP server hostname."); %>
+            <% renderField("SMTP_PORT","SMTP Port","SMTP port, e.g. 587."); %>
+            <% renderField("SMTP_SECURE","SMTP Secure","true for SMTPS/465, false for STARTTLS/587."); %>
+            <% renderField("SMTP_USER","SMTP Username","Username for SMTP authentication."); %>
+            <% renderField("SMTP_PASS","SMTP Password","Password for SMTP authentication."); %>
+            <% renderField("SMTP_FROM","From Address",'e.g. "TAK Admin <admin@example.com>".'); %>
+            <% renderField("EMAIL_ALWAYS_CC","Always CC","Optional comma-separated list."); %>
+            <% renderField("EMAIL_SEND_COPY_TO","Always BCC","Optional comma-separated list."); %>
+            <% renderField("EMAIL_FAIL_HARD","Fail Hard on Email Error","If true, user actions fail when email fails."); %>
+          </div>
 
-      <!-- New: Send Test Email button (uses the main form, but overrides action) -->
-      <div style="margin-top:1rem;">
-        <button
-          type="submit"
-          class="btn"
-          formaction="/settings/test-email"
-          formmethod="post"
-          name="_testEmail"
-          value="1">
-          Send Test Email
-        </button>
-        <small class="settings-help">
-          Sends “TAK Portal - Email SMTP Test” to the configured Always CC and Always BCC addresses. (Email Enabled must be true.)
-        </small>
-      </div>
+          <!-- New: Send Test Email button (uses the main form, but overrides action) -->
+          <div style="margin-top:1rem;">
+            <button
+              type="submit"
+              class="btn"
+              formaction="/settings/test-email"
+              formmethod="post"
+              name="_testEmail"
+              value="1">
+              Send Test Email
+            </button>
+            <small class="settings-help">
+              Sends “TAK Portal - Email SMTP Test” to the configured Always CC and Always BCC addresses. (Email Enabled must be true.)
+            </small>
+          </div>
+        </div>
+      </details>
     </div>
-  </details>
-</div>
 
     <% 
       const emailTemplatesList = Array.isArray(
@@ -208,8 +208,36 @@
       )
         ? emailTemplates
         : [];
+
+      // Desired order
+      const templateOrder = [
+        "user_created_password_set.html",
+        "user_created_no_password.html",
+        "groups_updated.html",
+        "password_changed.html",
+        "mutual_aid_created.html"
+      ];
+
+      const friendlyNames = {
+        "user_created_password_set.html": "User Created (with Password)",
+        "user_created_no_password.html": "User Created (without Password)",
+        "groups_updated.html": "Groups Updated",
+        "password_changed.html": "Password Changed by Admin",
+        "mutual_aid_created.html": "Mutual Aid"
+      };
+
+      function templateSortIndex(filename) {
+        const idx = templateOrder.indexOf(filename);
+        return idx === -1 ? templateOrder.length : idx;
+      }
+
+      const orderedEmailTemplates = emailTemplatesList
+        .slice()
+        .sort(function (a, b) {
+          return templateSortIndex(a.filename) - templateSortIndex(b.filename);
+        });
     %>
-    <% if (emailTemplatesList.length) { %>
+    <% if (orderedEmailTemplates.length) { %>
       <div class="card">
         <details class="settings-section email-templates-section">
           <summary class="settings-summary">Email Templates</summary>
@@ -222,7 +250,7 @@
               overwritten by upgrades.
             </p>
 
-            <% emailTemplatesList.forEach(function (tpl) { %>
+            <% orderedEmailTemplates.forEach(function (tpl) { %>
               <details
                 class="email-template-item"
                 data-template-id="<%= tpl.idSafe %>"
@@ -231,7 +259,9 @@
                 <summary
                   style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;list-style:none;"
                 >
-                  <span class="settings-label"><%= tpl.filename %></span>
+                  <span class="settings-label">
+                    <%= friendlyNames[tpl.filename] || tpl.filename %>
+                  </span>
 
                   <% if (tpl.overridden) { %>
                     <span
