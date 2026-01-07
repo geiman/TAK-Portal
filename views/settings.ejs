@@ -347,10 +347,10 @@
 
             <label class="settings-field">
               <span class="settings-label">Color Theme</span>
-              <% const currentTheme = settings.BRAND_THEME || "dark-blue"; %>
+              <% const currentTheme = settings.BRAND_THEME || "dark"; %>
               <select name="settings[BRAND_THEME]">
-                <option value="dark-blue" <%= currentTheme === "dark-blue" ? "selected" : "" %>>Default – Dark Blue</option>
                 <option value="dark" <%= currentTheme === "dark" ? "selected" : "" %>>Dark Mode</option>
+                <option value="dark-blue" <%= currentTheme === "dark-blue" ? "selected" : "" %>>Dark Blue</option>
                 <option value="light" <%= currentTheme === "light" ? "selected" : "" %>>Light Mode</option>
               </select>
             </label>
