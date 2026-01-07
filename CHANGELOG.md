@@ -10,6 +10,9 @@ All notable changes to this project will be documented in this file.
 
 ## Version History
 
+### v1.1.18 - 1/6/26
+🎉 `New Feature` - Added ability to edit email templates from the Server Settings page
+
 ### v1.1.17 - 1/5/26
 ✨ `Enhancement` - Added Agency Abbreviation, Agency Color, and Badge Number to Email Templates and Email Template Variables <br>
 ✨ `Enhancement` - Adjusted window width for the sidebar to hide<br>
