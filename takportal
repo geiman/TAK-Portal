@@ -126,11 +126,23 @@ case "$CMD" in
       exit 1
     fi
 
-    # Get the host path for the volume mounted at /usr/src/app/data
-    HOST_PATH="$(docker inspect -f '{{ range .Mounts }}{{ if and (eq .Type "volume") (eq .Destination "/usr/src/app/data") }}{{ .Mountpoint }}{{ end }}{{ end }}' "$CONTAINER_ID" 2>/dev/null || true)"
+    # Get the Compose project name from the container labels
+    PROJECT_NAME="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "$CONTAINER_ID" 2>/dev/null || true)"
+
+    if [[ -z "$PROJECT_NAME" ]]; then
+      echo "ERROR: Could not determine compose project name from container $CONTAINER_ID."
+      echo "Make sure this container was started with docker compose."
+      exit 1
+    fi
+
+    # Volume key in docker-compose.yml is "tak_portal_data"
+    VOLUME_NAME="${PROJECT_NAME}_tak_portal_data"
+
+    # Resolve the host path of that Docker volume
+    HOST_PATH="$(docker volume inspect -f '{{ .Mountpoint }}' "$VOLUME_NAME" 2>/dev/null || true)"
 
     if [[ -z "$HOST_PATH" ]]; then
-      echo "ERROR: Could not find a volume mounted at /usr/src/app/data for container $CONTAINER_ID."
+      echo "ERROR: Could not resolve volume path for volume '$VOLUME_NAME'."
       exit 1
     fi
 
@@ -147,6 +159,7 @@ case "$CMD" in
     cd "$HOST_PATH"
     "${SHELL:-/bin/bash}"
     ;;
+
 
   *)
     usage
