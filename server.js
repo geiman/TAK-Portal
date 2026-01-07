@@ -321,6 +321,13 @@ app.post(
       merged[key] = bodySettings[key];
     });
 
+    // Figure out if the user clicked a per-template "Save This Template" button.
+    // When present, this is the filename of the template that was explicitly saved.
+    const onlyTemplate =
+      req.body && typeof req.body._saveTemplate === "string"
+        ? req.body._saveTemplate
+        : null;
+
     // --- email template overrides (HTML bodies) ---
     const currentOverrides =
       currentSettings &&
@@ -332,9 +339,15 @@ app.post(
     const overridesFromForm = bodySettings.EMAIL_TEMPLATES_OVERRIDES;
     if (overridesFromForm && typeof overridesFromForm === "object") {
       Object.keys(overridesFromForm).forEach((filename) => {
+        // If a per-template Save was used, ignore other templates.
+        if (onlyTemplate && filename !== onlyTemplate) {
+          return;
+        }
+
         const value = overridesFromForm[filename];
         if (typeof value === "string") {
-          // If the admin typed anything, treat it as the current override.
+          // If the admin typed anything (or even left the default in place),
+          // treat it as the current override. It may be cleared below if reset is set.
           currentOverrides[filename] = value;
         }
       });
@@ -343,13 +356,23 @@ app.post(
     const resetMap = bodySettings.EMAIL_TEMPLATES_OVERRIDES_RESET;
     if (resetMap && typeof resetMap === "object") {
       Object.keys(resetMap).forEach((filename) => {
+        // If a per-template Save was used, ignore reset flags for other templates.
+        if (onlyTemplate && filename !== onlyTemplate) {
+          return;
+        }
+
         const rawFlag = resetMap[filename];
         const flag =
           typeof rawFlag === "string"
             ? rawFlag.trim().toLowerCase()
             : String(rawFlag || "").trim().toLowerCase();
 
-        if (flag === "1" || flag === "true" || flag === "yes" || flag === "on") {
+        if (
+          flag === "1" ||
+          flag === "true" ||
+          flag === "yes" ||
+          flag === "on"
+        ) {
           // "Reset to default" means: drop the override, so we fall back to the file.
           delete currentOverrides[filename];
         }
