@@ -222,13 +222,17 @@
               overwritten by upgrades.
             </p>
 
-            <% emailTemplatesList.forEach(function(tpl) { %>
-              <div class="settings-field">
-                <div
-                  class="settings-label-row"
-                  style="display:flex;align-items:center;gap:.5rem;justify-content:space-between;"
+            <% emailTemplatesList.forEach(function (tpl) { %>
+              <details
+                class="email-template-item"
+                data-template-id="<%= tpl.idSafe %>"
+                style="margin-top:1rem;border:1px solid #e5e7eb;border-radius:0.5rem;padding:0.5rem 0.75rem;"
+              >
+                <summary
+                  style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;list-style:none;"
                 >
                   <span class="settings-label"><%= tpl.filename %></span>
+
                   <% if (tpl.overridden) { %>
                     <span
                       style="background:#2563eb;color:#fff;padding:0.1rem 0.4rem;border-radius:999px;font-size:0.75rem;"
@@ -242,47 +246,57 @@
                       Default
                     </span>
                   <% } %>
-                </div>
+                </summary>
 
-                <textarea
-                  id="email-template-<%= tpl.idSafe %>"
-                  name="settings[EMAIL_TEMPLATES_OVERRIDES][<%= tpl.filename %>]"
-                  class="email-template-editor"
-                  rows="12"
-                  style="width:100%;min-height:180px;font-family:monospace;font-size:.85rem;white-space:pre;overflow:auto;"
-                ><%- tpl.html || "" %></textarea>
+                <div style="margin-top:0.75rem;">
+                  <textarea
+                    id="email-template-<%= tpl.idSafe %>"
+                    name="settings[EMAIL_TEMPLATES_OVERRIDES][<%= tpl.filename %>]"
+                    class="email-template-editor"
+                    rows="30"
+                    style="width:100%;min-height:450px;font-family:monospace;font-size:.85rem;white-space:pre;overflow:auto;"
+                  ><%- tpl.html || "" %></textarea>
 
-                <input
-                  type="hidden"
-                  name="settings[EMAIL_TEMPLATES_OVERRIDES_RESET][<%= tpl.filename %>]"
-                  value="0"
-                  data-reset-flag="<%= tpl.idSafe %>"
-                />
+                  <input
+                    type="hidden"
+                    name="settings[EMAIL_TEMPLATES_OVERRIDES_RESET][<%= tpl.filename %>]"
+                    value="0"
+                    data-reset-flag="<%= tpl.idSafe %>"
+                  />
 
-                <small
-                  class="settings-help"
-                  data-reset-note="<%= tpl.idSafe %>"
-                  style="display:none;"
-                >
-                  This template will be reset to the built-in default when you save.
-                </small>
-
-                <div style="margin-top:.5rem;">
-                  <button
-                    type="button"
-                    class="btn"
-                    data-reset-template="<%= tpl.idSafe %>"
+                  <small
+                    class="settings-help"
+                    data-reset-note="<%= tpl.idSafe %>"
+                    style="display:none;"
                   >
-                    Reset to Default
-                  </button>
+                    This template will be reset to the built-in default when you save.
+                  </small>
+
+                  <div style="margin-top:.75rem;display:flex;gap:.5rem;flex-wrap:wrap;">
+                    <button
+                      type="submit"
+                      class="btn"
+                      name="_saveTemplate"
+                      value="<%= tpl.filename %>"
+                    >
+                      Save This Template
+                    </button>
+
+                    <button
+                      type="button"
+                      class="btn"
+                      data-reset-template="<%= tpl.idSafe %>"
+                    >
+                      Reset to Default
+                    </button>
+                  </div>
                 </div>
-              </div>
+              </details>
             <% }); %>
           </div>
         </details>
       </div>
     <% } %>
-
 
     <!-- Appearance -->
     <div class="card">
@@ -394,4 +408,3 @@
     })();
   </script>
 </main>
-
