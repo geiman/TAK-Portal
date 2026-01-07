@@ -11,6 +11,7 @@ const pkg = require("./package.json");
 const mutualAidSvc = require("./services/mutualAid.service");
 const portalAuth = require("./services/portalAuth.middleware");
 const emailSvc = require("./services/email.service");
+const emailTemplatesSvc = require("./services/emailTemplates.service");
 
 const app = express();
 
@@ -223,8 +224,54 @@ app.get("/qr-generator", (req, res) => res.render("qr-generator"));
 app.get("/settings", requireGlobalAdmin, (req, res) => {
   const settings = settingsSvc.getSettings();
   const keys = Object.keys(settings).sort();
-  res.render("settings", { settings, keys });
+
+  // Discover available email HTML templates (for admin editing).
+  let emailTemplates = [];
+  try {
+    const templatesDir = emailTemplatesSvc.getTemplatesDir();
+    const fileNames = fs.readdirSync(templatesDir).filter((name) =>
+      typeof name === "string" && name.toLowerCase().endsWith(".html")
+    );
+
+    const overrides =
+      settings &&
+      settings.EMAIL_TEMPLATES_OVERRIDES &&
+      typeof settings.EMAIL_TEMPLATES_OVERRIDES === "object"
+        ? settings.EMAIL_TEMPLATES_OVERRIDES
+        : {};
+
+    emailTemplates = fileNames.map((filename) => {
+      let defaultHtml = "";
+      try {
+        defaultHtml = fs.readFileSync(path.join(templatesDir, filename), "utf8");
+      } catch (err) {
+        console.error(
+          "[settings] Failed to read email template file:",
+          filename,
+          err
+        );
+      }
+
+      const overrideHtmlRaw = overrides && overrides[filename];
+      const overrideHtml =
+        typeof overrideHtmlRaw === "string" ? overrideHtmlRaw : "";
+      const html = overrideHtml || defaultHtml;
+
+      return {
+        filename,
+        idSafe: filename.replace(/[^a-zA-Z0-9_-]+/g, "_"),
+        html,
+        overridden: !!overrideHtml,
+      };
+    });
+  } catch (err) {
+    console.error("[settings] Failed to load email templates:", err);
+    emailTemplates = [];
+  }
+
+  res.render("settings", { settings, keys, emailTemplates });
 });
+
 
 app.post(
   "/settings",
@@ -262,9 +309,59 @@ app.post(
     });
 
     // Apply simple settings onto merged
+    // Note: email template overrides are handled separately so we can support
+    // per-template "reset to default" behavior.
     Object.keys(bodySettings).forEach((key) => {
+      if (
+        key === "EMAIL_TEMPLATES_OVERRIDES" ||
+        key === "EMAIL_TEMPLATES_OVERRIDES_RESET"
+      ) {
+        return;
+      }
       merged[key] = bodySettings[key];
     });
+
+    // --- email template overrides (HTML bodies) ---
+    const currentOverrides =
+      currentSettings &&
+      currentSettings.EMAIL_TEMPLATES_OVERRIDES &&
+      typeof currentSettings.EMAIL_TEMPLATES_OVERRIDES === "object"
+        ? { ...currentSettings.EMAIL_TEMPLATES_OVERRIDES }
+        : {};
+
+    const overridesFromForm = bodySettings.EMAIL_TEMPLATES_OVERRIDES;
+    if (overridesFromForm && typeof overridesFromForm === "object") {
+      Object.keys(overridesFromForm).forEach((filename) => {
+        const value = overridesFromForm[filename];
+        if (typeof value === "string") {
+          // If the admin typed anything, treat it as the current override.
+          currentOverrides[filename] = value;
+        }
+      });
+    }
+
+    const resetMap = bodySettings.EMAIL_TEMPLATES_OVERRIDES_RESET;
+    if (resetMap && typeof resetMap === "object") {
+      Object.keys(resetMap).forEach((filename) => {
+        const rawFlag = resetMap[filename];
+        const flag =
+          typeof rawFlag === "string"
+            ? rawFlag.trim().toLowerCase()
+            : String(rawFlag || "").trim().toLowerCase();
+
+        if (flag === "1" || flag === "true" || flag === "yes" || flag === "on") {
+          // "Reset to default" means: drop the override, so we fall back to the file.
+          delete currentOverrides[filename];
+        }
+      });
+    }
+
+    if (Object.keys(currentOverrides).length > 0) {
+      merged.EMAIL_TEMPLATES_OVERRIDES = currentOverrides;
+    } else {
+      delete merged.EMAIL_TEMPLATES_OVERRIDES;
+    }
+
 
     // --- handle uploaded files (certs + logo) ---
 

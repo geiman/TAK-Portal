@@ -163,7 +163,6 @@
       </details>
     </div>
 
-    <!-- Email -->
 <!-- Email -->
 <div class="card">
   <details class="settings-section">
@@ -203,6 +202,86 @@
   </details>
 </div>
 
+    <% 
+      const emailTemplatesList = Array.isArray(
+        typeof emailTemplates !== "undefined" ? emailTemplates : []
+      )
+        ? emailTemplates
+        : [];
+    %>
+    <% if (emailTemplatesList.length) { %>
+      <div class="card">
+        <details class="settings-section email-templates-section">
+          <summary class="settings-summary">Email Templates</summary>
+
+          <div class="settings-body">
+            <p class="settings-help">
+              Edit the HTML bodies used for system notification emails. Changes
+              here are stored separately from the built-in files in
+              <code>/email_templates</code>, so your customizations will not be
+              overwritten by upgrades.
+            </p>
+
+            <% emailTemplatesList.forEach(function(tpl) { %>
+              <div class="settings-field">
+                <div
+                  class="settings-label-row"
+                  style="display:flex;align-items:center;gap:.5rem;justify-content:space-between;"
+                >
+                  <span class="settings-label"><%= tpl.filename %></span>
+                  <% if (tpl.overridden) { %>
+                    <span
+                      style="background:#2563eb;color:#fff;padding:0.1rem 0.4rem;border-radius:999px;font-size:0.75rem;"
+                    >
+                      Custom
+                    </span>
+                  <% } else { %>
+                    <span
+                      style="background:#e5e7eb;color:#374151;padding:0.1rem 0.4rem;border-radius:999px;font-size:0.75rem;"
+                    >
+                      Default
+                    </span>
+                  <% } %>
+                </div>
+
+                <textarea
+                  id="email-template-<%= tpl.idSafe %>"
+                  name="settings[EMAIL_TEMPLATES_OVERRIDES][<%= tpl.filename %>]"
+                  class="email-template-editor"
+                  rows="12"
+                  style="width:100%;min-height:180px;font-family:monospace;font-size:.85rem;white-space:pre;overflow:auto;"
+                ><%- tpl.html || "" %></textarea>
+
+                <input
+                  type="hidden"
+                  name="settings[EMAIL_TEMPLATES_OVERRIDES_RESET][<%= tpl.filename %>]"
+                  value="0"
+                  data-reset-flag="<%= tpl.idSafe %>"
+                />
+
+                <small
+                  class="settings-help"
+                  data-reset-note="<%= tpl.idSafe %>"
+                  style="display:none;"
+                >
+                  This template will be reset to the built-in default when you save.
+                </small>
+
+                <div style="margin-top:.5rem;">
+                  <button
+                    type="button"
+                    class="btn"
+                    data-reset-template="<%= tpl.idSafe %>"
+                  >
+                    Reset to Default
+                  </button>
+                </div>
+              </div>
+            <% }); %>
+          </div>
+        </details>
+      </div>
+    <% } %>
 
 
     <!-- Appearance -->
@@ -288,4 +367,31 @@
       <a href="/settings/export-data" class="btn">Export Data</a>
     </div>
   </form>
+  <script>
+    (function () {
+      var root = document.querySelector(".email-templates-section");
+      if (!root) return;
+
+      var resetButtons = root.querySelectorAll("[data-reset-template]");
+      resetButtons.forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var key = btn.getAttribute("data-reset-template");
+          if (!key) return;
+
+          // Mark this template to be reset on save
+          var flag = root.querySelector('[data-reset-flag="' + key + '"]');
+          if (flag) {
+            flag.value = "1";
+          }
+
+          // Show a small note so the admin knows it's queued for reset
+          var note = root.querySelector('[data-reset-note="' + key + '"]');
+          if (note) {
+            note.style.display = "inline";
+          }
+        });
+      });
+    })();
+  </script>
 </main>
+
