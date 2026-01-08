@@ -2,6 +2,8 @@
   const _isGlobalAdmin = typeof isGlobalAdmin !== "undefined" ? !!isGlobalAdmin : false;
   const _isAgencyAdmin = typeof isAgencyAdmin !== "undefined" ? !!isAgencyAdmin : false;
 
+  const isAdmin = _isGlobalAdmin || _isAgencyAdmin;
+
   // Current user's display name from Authentik (via res.locals.authUser)
   const _displayName =
     typeof authUser !== "undefined" &&
@@ -25,7 +27,7 @@
 
   <nav class="sidebar-nav">
     <div class="nav-top">
-      <% if (!_isGlobalAdmin && !_isAgencyAdmin) { %>
+      <% if (!isAdmin) { %>
         <a href="/setup-my-device">Setup My Device</a>
       <% } else { %>
         <a href="/">Dashboard</a>
@@ -49,97 +51,92 @@
       <% } %>
     </div>
 
-
     <div class="nav-bottom">
       <a href="/logout" class="logout-link">Log Out</a>
 
-      <% if (_isGlobalAdmin || _isAgencyAdmin) { %>
-        <% if (canSeeSettings) { %>
-          <a href="/settings">Server Settings</a>
-        <% } %>
-
-        <small class="version-text">
-          Logged in as: <%= _displayName %>
-          <% if (_isGlobalAdmin) { %>
-            - Global Admin
-          <% } else if (_isAgencyAdmin) { %>
-            - Agency Admin
-          <% } %> <br>
-          <a
-            href="https://github.com/AdventureSeeker423/TAK-Portal/blob/main/CHANGELOG.md"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            TAK Portal Version <%= APP_VERSION %>
-          </a>
-        </small>
-
-        <% if (typeof APP_UPDATE_AVAILABLE !== "undefined" && APP_UPDATE_AVAILABLE) { %>
-          <div class="update-available-form">
-            <button type="button" class="update-available-pill" id="update-pill">
-              ⬆️ Update Available
-              <% if (typeof APP_LATEST_VERSION !== "undefined" && APP_LATEST_VERSION) { %>
-                &nbsp;(v<%= APP_LATEST_VERSION %>)
-              <% } %>
-            </button>
-          </div>
-        <% } %>
-      <% } %>
-    </div>
-  </nav>
-
-<% if (_isGlobalAdmin || _isAgencyAdmin) { %>
-<% /* Modal lives outside nav, still inside aside */ %>
-<% if (typeof APP_UPDATE_AVAILABLE !== "undefined" && APP_UPDATE_AVAILABLE) { %>
-  <div id="update-modal" class="update-modal">
-    <div class="update-modal-backdrop update-modal-close"></div>
-    <div class="update-modal-dialog">
-      <h3 class="update-modal-title">Update Available</h3>
-
-      <% if (_isGlobalAdmin) { %>
-        <p>To update TAK Portal, log into the server CLI and run:</p>
-        <pre><code>cd ~/TAK-Portal && ./takportal update</code></pre>
-      <% } else { %>
-        <p>Please contact your Global Administrator to update TAK Portal.</p>
+      <% if (canSeeSettings) { %>
+        <a href="/settings">Server Settings</a>
       <% } %>
 
-      <!-- Shows for BOTH cases -->
-      <p>
-        To see what changed, view the
+      <small class="version-text">
+        Logged in as: <%= _displayName %>
+        <% if (_isGlobalAdmin) { %>
+          - Global Admin
+        <% } else if (_isAgencyAdmin) { %>
+          - Agency Admin
+        <% } %>
+        <br>
         <a
           href="https://github.com/AdventureSeeker423/TAK-Portal/blob/main/CHANGELOG.md"
           target="_blank"
           rel="noopener noreferrer"
         >
-          changelog
-        </a>.
-      </p>
+          TAK Portal Version <%= APP_VERSION %>
+        </a>
+      </small>
 
-      <button type="button" class="update-modal-close-btn update-modal-close">
-        Close
-      </button>
+      <% /* Only admins see the update pill */ %>
+      <% if (isAdmin && typeof APP_UPDATE_AVAILABLE !== "undefined" && APP_UPDATE_AVAILABLE) { %>
+        <div class="update-available-form">
+          <button type="button" class="update-available-pill" id="update-pill">
+            ⬆️ Update Available
+            <% if (typeof APP_LATEST_VERSION !== "undefined" && APP_LATEST_VERSION) { %>
+              &nbsp;(v<%= APP_LATEST_VERSION %>)
+            <% } %>
+          </button>
+        </div>
+      <% } %>
     </div>
-  </div>
+  </nav>
 
-  <script>
-    (function () {
-      var pill = document.getElementById('update-pill');
-      var modal = document.getElementById('update-modal');
-      if (!pill || !modal) return;
+  <% /* Only admins get the update modal + script */ %>
+  <% if (isAdmin && typeof APP_UPDATE_AVAILABLE !== "undefined" && APP_UPDATE_AVAILABLE) { %>
+    <div id="update-modal" class="update-modal">
+      <div class="update-modal-backdrop update-modal-close"></div>
+      <div class="update-modal-dialog">
+        <h3 class="update-modal-title">Update Available</h3>
 
-      var closers = modal.querySelectorAll('.update-modal-close');
-      pill.addEventListener('click', function () {
-        modal.classList.add('is-open');
-      });
+        <% if (_isGlobalAdmin) { %>
+          <p>To update TAK Portal, log into the server CLI and run:</p>
+          <pre><code>cd ~/TAK-Portal && ./takportal update</code></pre>
+        <% } else { %>
+          <p>Please contact your Global Administrator to update TAK Portal.</p>
+        <% } %>
 
-      closers.forEach(function (el) {
-        el.addEventListener('click', function () {
-          modal.classList.remove('is-open');
+        <p>
+          To see what changed, view the
+          <a
+            href="https://github.com/AdventureSeeker423/TAK-Portal/blob/main/CHANGELOG.md"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            changelog
+          </a>.
+        </p>
+
+        <button type="button" class="update-modal-close-btn update-modal-close">
+          Close
+        </button>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        var pill = document.getElementById('update-pill');
+        var modal = document.getElementById('update-modal');
+        if (!pill || !modal) return;
+
+        var closers = modal.querySelectorAll('.update-modal-close');
+        pill.addEventListener('click', function () {
+          modal.classList.add('is-open');
         });
-      });
-    })();
-  </script>
-<% } %>
-<% } %>
-</aside>
 
+        closers.forEach(function (el) {
+          el.addEventListener('click', function () {
+            modal.classList.remove('is-open');
+          });
+        });
+      })();
+    </script>
+  <% } %>
+</aside>
