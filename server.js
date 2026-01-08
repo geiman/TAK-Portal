@@ -206,7 +206,10 @@ app.use("/dashboard", require("./routes/dashboard.routes"));
 // UI Routes
 
 app.get("/", (req, res) => {
-  res.redirect("dashboard");
+  const user = req.authentikUser;
+  const isAdmin = !!(user && (user.isGlobalAdmin || user.isAgencyAdmin));
+  if (!isAdmin) return res.redirect("setup-my-device");
+  return res.redirect("dashboard");
 });
 
 app.get("/users/create", (req, res) => res.render("users-create"));
@@ -220,6 +223,8 @@ app.get("/mutual-aid", requireGlobalAdmin, (req, res) =>
   res.render("mutual-aid")
 ); //require Global Admin
 app.get("/qr-generator", (req, res) => res.render("qr-generator"));
+
+app.get("/setup-my-device", (req, res) => res.render("setup-my-device"));
 
 app.get("/settings", requireGlobalAdmin, (req, res) => {
   const settings = settingsSvc.getSettings();

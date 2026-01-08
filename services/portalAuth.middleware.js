@@ -15,7 +15,9 @@ const accessSvc = require("./access.service");
  *         if any are configured.
  */
 
-const PUBLIC_PATHS = new Set([]);
+const PUBLIC_PATHS = new Set([
+  "/setup-my-device",
+]);
 
 function parseGroupList(raw) {
   if (!raw) return [];

@@ -25,32 +25,38 @@
 
   <nav class="sidebar-nav">
     <div class="nav-top">
-      <a href="/">Dashboard</a>
-      <a href="/users/create">Create Users</a>
-      <a href="/users/manage">Manage Users</a>
-      <a href="/groups">Manage Groups</a>
+      <% if (!_isGlobalAdmin && !_isAgencyAdmin) { %>
+        <a href="/setup-my-device">Setup My Device</a>
+      <% } else { %>
+        <a href="/">Dashboard</a>
+        <a href="/users/create">Create Users</a>
+        <a href="/users/manage">Manage Users</a>
+        <a href="/groups">Manage Groups</a>
 
-      <% if (canSeeSettings) { %>
-        <a href="/agencies">Manage Agencies</a>
+        <% if (canSeeSettings) { %>
+          <a href="/agencies">Manage Agencies</a>
+        <% } %>
+
+        <a href="/templates">Agency Templates</a>
+
+        <% if (canSeeSettings) { %>
+          <a href="/mutual-aid">Mutual Aid</a>
+        <% } %>
+
+        <a href="/qr-generator">QR Code Generator</a>
+        <a href="/setup-my-device">Setup My Device</a>
       <% } %>
+</div>
 
-      <a href="/templates">Agency Templates</a>
-
-      <% if (canSeeSettings) { %>
-        <a href="/mutual-aid">Mutual Aid</a>
-      <% } %>
-
-      <a href="/qr-generator">QR Code Generator</a>
-    </div>
-
-    <div class="nav-bottom">
+    
       <a href="/logout" class="logout-link">Log Out</a>
 
       <% if (canSeeSettings) { %>
         <a href="/settings">Server Settings</a>
       <% } %>
 
-    <small class="version-text">
+      <% if (_isGlobalAdmin || _isAgencyAdmin) { %>
+        <small class="version-text">
       <%= _displayName %>
       <% if (_isGlobalAdmin) { %>
         - Global Admin 
@@ -65,10 +71,7 @@
         TAK Portal Version <%= APP_VERSION %>
       </a>
     </small>
-
-
-
-      <% if (typeof APP_UPDATE_AVAILABLE !== "undefined" && APP_UPDATE_AVAILABLE) { %>
+        <% if (typeof APP_UPDATE_AVAILABLE !== "undefined" && APP_UPDATE_AVAILABLE) { %>
         <div class="update-available-form">
           <button type="button" class="update-available-pill" id="update-pill">
             ⬆️ Update Available
@@ -80,6 +83,62 @@
       <% } %>
     </div>
   </nav>
+
+<% /* Modal lives outside nav, still inside aside */ %>
+<% if (typeof APP_UPDATE_AVAILABLE !== "undefined" && APP_UPDATE_AVAILABLE) { %>
+  <div id="update-modal" class="update-modal">
+    <div class="update-modal-backdrop update-modal-close"></div>
+    <div class="update-modal-dialog">
+      <h3 class="update-modal-title">Update Available</h3>
+
+      <% if (_isGlobalAdmin) { %>
+        <p>To update TAK Portal, log into the server CLI and run:</p>
+        <pre><code>cd ~/TAK-Portal && ./takportal update</code></pre>
+      <% } else { %>
+        <p>Please contact your Global Administrator to update TAK Portal.</p>
+      <% } %>
+
+      <!-- Shows for BOTH cases -->
+      <p>
+        To see what changed, view the
+        <a
+          href="https://github.com/AdventureSeeker423/TAK-Portal/blob/main/CHANGELOG.md"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          changelog
+        </a>.
+      </p>
+
+      <button type="button" class="update-modal-close-btn update-modal-close">
+        Close
+      </button>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var pill = document.getElementById('update-pill');
+      var modal = document.getElementById('update-modal');
+      if (!pill || !modal) return;
+
+      var closers = modal.querySelectorAll('.update-modal-close');
+      pill.addEventListener('click', function () {
+        modal.classList.add('is-open');
+      });
+
+      closers.forEach(function (el) {
+        el.addEventListener('click', function () {
+          modal.classList.remove('is-open');
+        });
+      });
+    })();
+  </script>
+<% } %>
+      <% } else { %>
+        <small class="version-text"><%= _displayName %></small>
+      <% } %>
+
 
 <% /* Modal lives outside nav, still inside aside */ %>
 <% if (typeof APP_UPDATE_AVAILABLE !== "undefined" && APP_UPDATE_AVAILABLE) { %>
