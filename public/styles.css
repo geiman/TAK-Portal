@@ -636,3 +636,31 @@ select:focus {
     font-size: 0.8rem;
     opacity: 0.8;
 }
+
+/* ======================
+   SETUP MY DEVICE
+   ====================== */
+
+.btn.tile {
+    width: 100%;
+    padding: 18px 16px;
+    border-radius: 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    text-align: left;
+}
+
+.btn.tile .title {
+    font-size: 16px;
+    font-weight: 700;
+}
+
+.btn.tile .desc {
+    font-size: 13px;
+    font-weight: 500;
+    opacity: 0.9;
+    line-height: 1.25;
+}
+
