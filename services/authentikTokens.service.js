@@ -47,7 +47,17 @@ async function listUserAppPasswordsByUserId(resolvedUserId) {
     },
   });
 
-  return Array.isArray(res?.data?.results) ? res.data.results : [];
+  // Some Authentik versions accept the `user=` filter but may still return
+  // broader results depending on permissions. Always hard-filter client-side
+  // to prevent leaking/reusing another user's token.
+  const results = Array.isArray(res?.data?.results) ? res.data.results : [];
+  const pk = String(resolvedUserId);
+  return results.filter((t) => {
+    // Token user can be a pk or an object depending on API version/serializer.
+    const u = t?.user;
+    const tokenUserPk = (u && typeof u === "object") ? (u.pk ?? u.id) : u;
+    return String(tokenUserPk ?? "") === pk;
+  });
 }
 
 async function viewTokenKey(identifier) {
@@ -68,7 +78,7 @@ async function createAppPasswordForUserId(userId, expiresAt) {
   const payload = {
     identifier,
     intent: "app_password",
-    user: resolvedUserId,
+    user: userId,
     description: TOKEN_DESCRIPTION,
     expiring: true,
     expires: toIso(expiresAt),
