@@ -14,16 +14,6 @@ function requireLoggedIn(req, res) {
 }
 
 router.post("/enroll-qr", async (req, res) => {
-  // Debug: what do we actually get from forward_auth?
-  console.log("[enroll-qr] headers:", {
-    "x-authentik-username": req.headers["x-authentik-username"],
-    "x-authentik-uid": req.headers["x-authentik-uid"],
-    "x-authentik-user-id": req.headers["x-authentik-user-id"],
-    "x-authentik-email": req.headers["x-authentik-email"],
-    "x-authentik-groups": req.headers["x-authentik-groups"],
-  });
-  console.log("[enroll-qr] req.authentikUser:", req.authentikUser);
-
   try {
     const user = requireLoggedIn(req, res);
     if (!user) return;
@@ -61,24 +51,18 @@ router.post("/enroll-qr", async (req, res) => {
       qrCode,
     });
   } catch (err) {
-    // Show upstream authentik status in logs so we can diagnose 400s/403s
-    const upstreamStatus = err?.response?.status;
-    const upstreamData = err?.response?.data;
-
-    console.error("[setup-device] Failed to create enrollment QR:", {
-      message: err?.message,
-      upstreamStatus,
-      upstreamData,
-    });
+    // Log only a concise error (no header/user dumps)
+    console.error(
+      "[setup-device] Failed to create enrollment QR:",
+      err?.message || err
+    );
 
     return res.status(500).json({
       ok: false,
       error:
-        upstreamStatus
-          ? `Authentik API error (HTTP ${upstreamStatus})`
+        err?.response?.status
+          ? `Authentik API error (HTTP ${err.response.status})`
           : (err?.message || "Failed to generate enrollment QR"),
-      // optional: include upstreamData for debugging; remove later if you don't want it exposed
-      details: upstreamData || null,
     });
   }
 });
