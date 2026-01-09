@@ -68,7 +68,7 @@ async function createAppPasswordForUserId(userId, expiresAt) {
   const payload = {
     identifier,
     intent: "app_password",
-    user: userId,
+    user: resolvedUserId,
     description: TOKEN_DESCRIPTION,
     expiring: true,
     expires: toIso(expiresAt),
@@ -101,9 +101,7 @@ async function getOrCreateEnrollmentAppPassword(params, ttlMinutes = 30) {
 
   const now = new Date();
   const cleanedUserId = userId ? String(userId).trim() : "";
-  const resolvedUserId =
-    /^\d+$/.test(cleanedUserId) ? cleanedUserId : await getUserIdByUsername(u);
-
+  const resolvedUserId = (/^\d+$/.test(cleanedUserId)) ? cleanedUserId : await getUserIdByUsername(u);
 
   const tokens = await listUserAppPasswordsByUserId(resolvedUserId);
 

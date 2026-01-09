@@ -34,7 +34,7 @@
 
     <div class="grid2">
       <button type="button" class="btn tile" id="scanQrBtn">
-        <span class="title">Scan QR Code</span>
+        <span class="title">Scan QR Code (Recommended)</span>
         <span class="desc">
           Scan an enrollment QR code to automatically configure your device.
         </span>
@@ -90,11 +90,9 @@
   const countdownEl = document.getElementById("setupQrCountdown");
   const msg = document.getElementById("setupQrMsg");
 
-  // Reliable: middleware sets res.locals.authUser
+  // --- IMPORTANT: make cache user-specific to prevent cross-user QR reuse ---
   const CURRENT_USERNAME = "<%= (authUser && authUser.username) ? authUser.username : '' %>";
-
-  // User-scoped cache (prevents cross-user token reuse)
-  const CACHE_KEY = `takPortal.setupDevice.enrollQr.v1:${CURRENT_USERNAME}`;
+  const CACHE_KEY = CURRENT_USERNAME ? `takPortal.setupDevice.enrollQr.v1:${CURRENT_USERNAME}` : null;
   const LEGACY_CACHE_KEY = "takPortal.setupDevice.enrollQr.v1";
 
   let cached = null; // { username, token, expiresAt, enrollUrl, qrCode }
@@ -109,36 +107,40 @@
     try { return JSON.parse(s); } catch { return null; }
   }
 
-  function loadCache() {
-    // remove any old/global cache so it can't leak between users
-    try {
-      if (localStorage.getItem(LEGACY_CACHE_KEY)) localStorage.removeItem(LEGACY_CACHE_KEY);
-    } catch {}
+  function isValidCacheObject(obj) {
+    if (!obj || !obj.expiresAt) return false;
+    const exp = new Date(obj.expiresAt);
+    if (Number.isNaN(exp.getTime())) return false;
+    if (Date.now() >= exp.getTime()) return false;
+    return true;
+  }
 
-    if (!CURRENT_USERNAME) return null;
+  function loadCache() {
+    // Clean up old global key if it exists (prevents surprises)
+    try {
+      const legacy = localStorage.getItem(LEGACY_CACHE_KEY);
+      if (legacy) localStorage.removeItem(LEGACY_CACHE_KEY);
+    } catch {}
 
     const raw = localStorage.getItem(CACHE_KEY);
     const obj = raw ? safeParseJson(raw) : null;
-    if (!obj || !obj.expiresAt) return null;
+    if (!isValidCacheObject(obj)) return null;
 
-    const exp = new Date(obj.expiresAt);
-    if (Number.isNaN(exp.getTime())) return null;
-    if (Date.now() >= exp.getTime()) return null;
-
-    // MUST match the current user
-    if (!obj.username || obj.username !== CURRENT_USERNAME) {
+    // Hard safety: don't ever reuse another user's cached QR
+    if (obj.username && CURRENT_USERNAME && obj.username !== CURRENT_USERNAME) {
       try { localStorage.removeItem(CACHE_KEY); } catch {}
       return null;
     }
+
+    // If we couldn't determine current username, be conservative and do not reuse cache
+    if (!CURRENT_USERNAME) return null;
 
     return obj;
   }
 
   function saveCache(obj) {
-    if (!CURRENT_USERNAME) return;
-    // Do NOT rewrite username/token; keep what server returned.
-    // Just enforce the username matches current user.
-    if (!obj || obj.username !== CURRENT_USERNAME) return;
+    if (!CACHE_KEY) return; // if username unknown, do not cache
+    if (!obj || !obj.username || obj.username !== CURRENT_USERNAME) return;
     try { localStorage.setItem(CACHE_KEY, JSON.stringify(obj)); } catch {}
   }
 
@@ -237,17 +239,11 @@
       body: JSON.stringify({})
     });
 
-    const text = await res.text();
+    const rawText = await res.text();
     let data = {};
-    try { data = JSON.parse(text); } catch {}
-
+    try { data = JSON.parse(rawText); } catch { data = {}; }
     if (!res.ok || !data || !data.ok) {
-      throw new Error((data && data.error) || `Failed to generate enrollment QR (HTTP ${res.status})`);
-    }
-
-    // enforce the server agrees with who is logged in on this page
-    if (CURRENT_USERNAME && data.username && data.username !== CURRENT_USERNAME) {
-      throw new Error("User mismatch while generating QR. Please refresh and try again.");
+      throw new Error((data && data.error) || "Failed to generate enrollment QR");
     }
 
     const obj = {
@@ -259,12 +255,28 @@
       qrCode: data.qrCode,
     };
 
+    // If server returns username, enforce match (extra safety)
+    if (CURRENT_USERNAME && obj.username && obj.username !== CURRENT_USERNAME) {
+      throw new Error("User mismatch while generating QR. Please refresh and try again.");
+    }
+
     saveCache(obj);
     renderFromCache(obj);
   }
 
   scanQrBtn.addEventListener("click", async () => {
     setMsg(msg, "", true);
+
+    // If we can't determine current username, don't reuse cache
+    if (!CURRENT_USERNAME) {
+      try {
+        await fetchAndShowQr();
+      } catch (err) {
+        setMsg(msg, err?.message || String(err), false);
+        openModal();
+      }
+      return;
+    }
 
     const existing = loadCache();
     if (existing && existing.qrCode && existing.enrollUrl && existing.token) {
@@ -276,6 +288,7 @@
       await fetchAndShowQr();
     } catch (err) {
       setMsg(msg, err?.message || String(err), false);
+      // still open modal so the user sees the error
       openModal();
     }
   });
