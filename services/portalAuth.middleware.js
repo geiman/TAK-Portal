@@ -19,6 +19,7 @@ const PUBLIC_PATHS = new Set([
   "/",
   "/dashboard",
   "/setup-my-device",
+  "/api/setup-my-device/enroll-qr", 
   "/styles.css",
   "/favicon.ico",
 ]);
