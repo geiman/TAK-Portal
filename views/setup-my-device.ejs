@@ -113,18 +113,18 @@
 
     const steps = isTakAware
       ? [
-          "1. Open TAK Aware on your iPhone/iPad.",
-          "2. Allow location while using app and select to Change to Allways Allow",
-          "3. Set your Call Sign, Team, and Role as instructed in your welcome email.",
-          "4. Select Connect to a TAK Server.",
-          "5. Select Scan QR Code.",
-          "6. Allow camera access when prompted.",
-          "7. Point your camera at the QR code and look for Status: Enrollment Succeeded."
+          "Open TAK Aware on your iPhone/iPad.",
+          "Allow location while using app and select to Change to Allways Allow",
+          "Set your Call Sign, Team, and Role as instructed in your welcome email.",
+          "Select Connect to a TAK Server.",
+          "Select Scan QR Code.",
+          "Allow camera access.",
+          "Point your camera at the QR code and look for Status: Enrollment Succeeded."
         ]
       : [
-          "1. Open the camera on your Android device.",
-          "2. Point your camera at the QR code and select the notification to open the link.",
-          "3. Select Yes to perform quick enrollment.",
+          "Open the camera on your Android device.",
+          "Point your camera at the QR code and select the notification to open the link.",
+          "Select Yes to perform quick enrollment inside ATAK.",
         ];
 
     instructionsList.innerHTML = steps.map(s => `<li>${s}</li>`).join("");
