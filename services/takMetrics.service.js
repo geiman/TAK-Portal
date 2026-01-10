@@ -1,23 +1,13 @@
 /**
  * services/takMetrics.service.js
  *
- * Pull operational metrics from TAK Server (Spring Boot actuator / Marti metrics).
+ * Pull operational metrics from TAK Server (custom actuator endpoints + Spring metrics).
  *
- * Env or settings.json (services/env.js reads settings first, then process.env):
- *   TAK_URL                       e.g. https://tak.example.com:8443 or https://tak.example.com:8443/Marti
- *   TAK_DEBUG=true                (optional)
- *
- * Mutual TLS (choose ONE):
- *   TAK_API_P12_PATH              PKCS#12 client cert (P12/PFX)
- *   TAK_API_P12_PASSPHRASE        (optional, may be empty)
- *
- *   TAK_API_CERT_PATH             PEM client cert
- *   TAK_API_KEY_PATH              PEM private key
- *   TAK_API_KEY_PASSPHRASE        (optional)
- *
- * Optional:
- *   TAK_CA_PATH                   PEM CA bundle
- *   TAK_CONNECTED_CLIENTS_PATH    Full path starting with "/" (ex: /Marti/api/metrics/connectedClients)
+ * Reads config from settings.json via services/env.js (settings first, then process.env):
+ *   TAK_URL
+ *   TAK_DEBUG
+ *   TAK_API_P12_PATH / TAK_API_P12_PASSPHRASE   OR   TAK_API_CERT_PATH / TAK_API_KEY_PATH
+ *   TAK_CA_PATH
  */
 
 const fs = require("fs");
@@ -38,7 +28,6 @@ function normalizeBase(urlLike) {
   const raw = String(urlLike || "").trim();
   if (!raw) return "";
   const u = new URL(raw);
-  // strip trailing slashes
   u.pathname = u.pathname.replace(/\/+$/, "");
   return u.toString().replace(/\/+$/, "");
 }
@@ -90,9 +79,7 @@ function buildTakAxios() {
   const TAK_DEBUG = getBool("TAK_DEBUG", false);
 
   const p12Path = resolvePathMaybe(getString("TAK_API_P12_PATH", ""));
-  // IMPORTANT: use getString() so settings.json works (not process.env directly)
-  // Allow empty string passphrase (common for P12)
-  const p12Pass = String(getString("TAK_API_P12_PASSPHRASE", ""));
+  const p12Pass = String(getString("TAK_API_P12_PASSPHRASE", "")); // allow empty
 
   const certPath = resolvePathMaybe(getString("TAK_API_CERT_PATH", ""));
   const keyPath = resolvePathMaybe(getString("TAK_API_KEY_PATH", ""));
@@ -110,16 +97,11 @@ function buildTakAxios() {
   };
 
   if (p12Path) {
-    // Parse PKCS#12 (incl RC2-40-CBC) -> PEM using p12-pem
     const { getPemFromP12 } = require("p12-pem");
     const certs = getPemFromP12(p12Path, p12Pass);
 
-    if (!certs?.pemCertificate) {
-      throw new Error("TAK metrics: Unable to extract certificate(s) from P12");
-    }
-    if (!certs?.pemKey) {
-      throw new Error("TAK metrics: Unable to extract private key from P12");
-    }
+    if (!certs?.pemCertificate) throw new Error("TAK metrics: Unable to extract certificate(s) from P12");
+    if (!certs?.pemKey) throw new Error("TAK metrics: Unable to extract private key from P12");
 
     agentOptions.cert = normalizePemCertificateChain(certs.pemCertificate);
     agentOptions.key = normalizePemKey(certs.pemKey);
@@ -176,14 +158,15 @@ async function safeGetJson(client, url) {
   return null;
 }
 
+// ---- Custom endpoints (your TAK server) ----
+
 async function getCpuFromCustomEndpoint(client, actuatorBase) {
   const data = await safeGetJson(client, `${actuatorBase}/actuator/custom-cpu-metrics`);
   if (!data) return null;
 
-  // { cpuCount, cpuUsage (0..1), messagingCpuUsage (0..1), messagingCpuCount }
-  const cpuUsage = pickNumber(data, ["cpuUsage", "usage", "cpu"]);
-  const msgUsage = pickNumber(data, ["messagingCpuUsage", "messagingUsage"]);
-  const cpuCount = pickNumber(data, ["cpuCount", "processors"]);
+  const cpuUsage = pickNumber(data, ["cpuUsage"]);
+  const msgUsage = pickNumber(data, ["messagingCpuUsage"]);
+  const cpuCount = pickNumber(data, ["cpuCount"]);
   const msgCount = pickNumber(data, ["messagingCpuCount"]);
 
   return {
@@ -195,20 +178,30 @@ async function getCpuFromCustomEndpoint(client, actuatorBase) {
   };
 }
 
-/**
- * Custom memory endpoint:
- *   GET /actuator/custom-memory-metrics
- *
- * Sample:
- * {
- *   "heapCommitted":1.04333312E9,
- *   "heapUsed":5.43270664E8,
- *   "messagingHeapCommitted":5.24288E8,
- *   "messagingHeapUsed":4.45533456E8
- * }
- *
- * We compute percent as Used / Committed (committed is what JVM has reserved).
- */
+async function getDiskFromCustomEndpoint(client, actuatorBase) {
+  const data = await safeGetJson(client, `${actuatorBase}/actuator/custom-disk-metrics`);
+  if (!data) return null;
+
+  const total = pickNumber(data, ["totalSpace"]);
+  const used = pickNumber(data, ["usedSpace"]);
+  const free = pickNumber(data, ["freeSpace"]);
+  const usable = pickNumber(data, ["usableSpace"]);
+
+  const diskUsagePercent =
+    Number.isFinite(used) && Number.isFinite(total) && total > 0
+      ? clampPct((used / total) * 100)
+      : null;
+
+  return {
+    totalSpace: Number.isFinite(total) ? total : null,
+    usedSpace: Number.isFinite(used) ? used : null,
+    freeSpace: Number.isFinite(free) ? free : null,
+    usableSpace: Number.isFinite(usable) ? usable : null,
+    diskUsagePercent,
+    raw: data,
+  };
+}
+
 async function getMemoryFromCustomEndpoint(client, actuatorBase) {
   const data = await safeGetJson(client, `${actuatorBase}/actuator/custom-memory-metrics`);
   if (!data) return null;
@@ -239,8 +232,29 @@ async function getMemoryFromCustomEndpoint(client, actuatorBase) {
   };
 }
 
+async function getNetworkFromCustomEndpoint(client, actuatorBase) {
+  const data = await safeGetJson(client, `${actuatorBase}/actuator/custom-network-metrics`);
+  if (!data) return null;
+
+  const numClients = pickNumber(data, ["numClients"]);
+  const bytesRead = pickNumber(data, ["bytesRead"]);
+  const bytesWritten = pickNumber(data, ["bytesWritten"]);
+  const numReads = pickNumber(data, ["numReads"]);
+  const numWrites = pickNumber(data, ["numWrites"]);
+
+  return {
+    numClients: Number.isFinite(numClients) ? numClients : null,
+    bytesRead: Number.isFinite(bytesRead) ? bytesRead : null,
+    bytesWritten: Number.isFinite(bytesWritten) ? bytesWritten : null,
+    numReads: Number.isFinite(numReads) ? numReads : null,
+    numWrites: Number.isFinite(numWrites) ? numWrites : null,
+    raw: data,
+  };
+}
+
+// ---- Spring metric for uptime (works fine) ----
+
 async function getSpringMetricValue(client, actuatorBase, name) {
-  // Spring Actuator metric format: { name, measurements:[{statistic,value}], availableTags:[] }
   const data = await safeGetJson(client, `${actuatorBase}/actuator/metrics/${encodeURIComponent(name)}`);
   if (!data || typeof data !== "object") return null;
 
@@ -250,46 +264,13 @@ async function getSpringMetricValue(client, actuatorBase, name) {
   return first ? first.value : null;
 }
 
-async function getDiskUsagePercent(client, actuatorBase) {
-  const free = await getSpringMetricValue(client, actuatorBase, "disk.free");
-  const total = await getSpringMetricValue(client, actuatorBase, "disk.total");
-  if (!Number.isFinite(free) || !Number.isFinite(total) || total <= 0) return null;
-  return clampPct((1 - free / total) * 100);
-}
-
 async function getUptimeSeconds(client, actuatorBase) {
   const up = await getSpringMetricValue(client, actuatorBase, "process.uptime");
   if (!Number.isFinite(up)) return null;
   return up;
 }
 
-async function getConnectedClients(client, takUrl) {
-  const override = String(getString("TAK_CONNECTED_CLIENTS_PATH", "")).trim();
-  const base = normalizeBase(takUrl);
-  if (!base) return null;
-
-  // If an explicit path is provided, trust it.
-  if (override && override.startsWith("/")) {
-    const data = await safeGetJson(client, `${getHostRootFromTakUrl(base)}${override}`);
-    const n = typeof data === "number" ? data : pickNumber(data, ["connectedClients", "clientCount", "count", "value"]);
-    return Number.isFinite(n) ? n : null;
-  }
-
-  // Otherwise try a couple common patterns (best-effort; may be null)
-  const candidates = [
-    "/Marti/api/metrics/connectedClients",
-    "/Marti/api/metrics/clientCount",
-    "/Marti/api/metrics/clients",
-  ];
-
-  for (const p of candidates) {
-    const data = await safeGetJson(client, `${getHostRootFromTakUrl(base)}${p}`);
-    const n = typeof data === "number" ? data : pickNumber(data, ["connectedClients", "clientCount", "count", "value"]);
-    if (Number.isFinite(n)) return n;
-  }
-
-  return null;
-}
+// ---- Snapshot ----
 
 async function getTakMetricsSnapshot() {
   const takUrl = getString("TAK_URL", "");
@@ -303,21 +284,18 @@ async function getTakMetricsSnapshot() {
 
   const client = buildTakAxios();
 
-  const [cpu, diskPct, memCustom, uptimeSeconds, connectedClients] = await Promise.all([
+  const [cpu, disk, mem, net, uptimeSeconds] = await Promise.all([
     getCpuFromCustomEndpoint(client, actuatorBase).catch(() => null),
-    getDiskUsagePercent(client, actuatorBase).catch(() => null),
+    getDiskFromCustomEndpoint(client, actuatorBase).catch(() => null),
     getMemoryFromCustomEndpoint(client, actuatorBase).catch(() => null),
+    getNetworkFromCustomEndpoint(client, actuatorBase).catch(() => null),
     getUptimeSeconds(client, actuatorBase).catch(() => null),
-    getConnectedClients(client, base).catch(() => null),
   ]);
-
-  // Preserve the existing memoryUsagePercent field so your dashboard keeps working,
-  // but now it is based on custom heap metrics (Used/Committed).
-  const memoryUsagePercent = memCustom?.heapPercent ?? null;
 
   return {
     configured: true,
     fetchedAt: new Date().toISOString(),
+
     cpu: cpu
       ? {
           cpuCount: cpu.cpuCount,
@@ -326,20 +304,42 @@ async function getTakMetricsSnapshot() {
           messagingCpuPercent: cpu.messagingCpuPercent,
         }
       : null,
-    diskUsagePercent: diskPct,
-    memoryUsagePercent,
-    // Extra detail (optional for later UI)
-    memory: memCustom
+
+    // Disk usage from your custom endpoint (used/total)
+    diskUsagePercent: disk?.diskUsagePercent ?? null,
+    disk: disk
       ? {
-          heapPercent: memCustom.heapPercent,
-          heapUsed: memCustom.heapUsed,
-          heapCommitted: memCustom.heapCommitted,
-          messagingHeapPercent: memCustom.messagingHeapPercent,
-          messagingHeapUsed: memCustom.messagingHeapUsed,
-          messagingHeapCommitted: memCustom.messagingHeapCommitted,
+          totalSpace: disk.totalSpace,
+          usedSpace: disk.usedSpace,
+          freeSpace: disk.freeSpace,
+          usableSpace: disk.usableSpace,
         }
       : null,
-    connectedClients,
+
+    // Memory usage from your custom endpoint (heapUsed/heapCommitted)
+    memoryUsagePercent: mem?.heapPercent ?? null,
+    memory: mem
+      ? {
+          heapPercent: mem.heapPercent,
+          heapUsed: mem.heapUsed,
+          heapCommitted: mem.heapCommitted,
+          messagingHeapPercent: mem.messagingHeapPercent,
+          messagingHeapUsed: mem.messagingHeapUsed,
+          messagingHeapCommitted: mem.messagingHeapCommitted,
+        }
+      : null,
+
+    // Connected clients from your custom network endpoint
+    connectedClients: net?.numClients ?? null,
+    network: net
+      ? {
+          bytesRead: net.bytesRead,
+          bytesWritten: net.bytesWritten,
+          numReads: net.numReads,
+          numWrites: net.numWrites,
+        }
+      : null,
+
     uptimeSeconds,
   };
 }
