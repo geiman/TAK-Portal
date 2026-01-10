@@ -202,6 +202,7 @@ app.use("/api/templates", require("./routes/templates.routes"));
 app.use("/api/qr", require("./routes/qr.routes"));
 app.use("/api/setup-my-device", require("./routes/setupDevice.routes"));
 app.use("/api/mutual-aid", require("./routes/mutualAid.routes"));
+app.use("/api/tak", require("./routes/takMetrics.routes"));
 app.use("/dashboard", require("./routes/dashboard.routes"));
 
 // UI Routes

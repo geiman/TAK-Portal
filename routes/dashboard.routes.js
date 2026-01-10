@@ -4,6 +4,7 @@ const usersService = require("../services/users.service");
 const agenciesStore = require("../services/agencies.service");
 const mutualAidService = require("../services/mutualAid.service");
 const bookmarksService = require("../services/bookmarks.service");
+const { getTakMetricsSnapshot } = require("../services/takMetrics.service");
 
 function buildCharts(users, agencies) {
   const agenciesNorm = (agencies || [])
@@ -85,6 +86,9 @@ router.get("/", async (req, res) => {
     const bookmarks = bookmarksService.loadBookmarks();
     const charts = buildCharts(users, agencies);
 
+    // --- TAK server health metrics (best-effort; dashboard still loads if TAK is down) ---
+    const takMetrics = await getTakMetricsSnapshot().catch(() => null);
+
     // --- Mutual Aid active banners ---
     let activeIncidentCount = 0;
     let activeEventCount = 0;
@@ -116,6 +120,7 @@ router.get("/", async (req, res) => {
       },
       charts,
       bookmarks,
+      takMetrics,
     };
 
     res.render("dashboard", viewModel);
@@ -134,6 +139,7 @@ router.get("/", async (req, res) => {
         unknownType: 0,
       },
       bookmarks,
+      takMetrics: null,
       error: err?.response?.data || err?.message || "Failed to load dashboard",
     };
 
