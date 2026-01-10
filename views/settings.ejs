@@ -4,6 +4,19 @@
 <main class="main">
   <h1>Settings</h1>
   <small>Adjust settings as needed and then hit "Save Settings" for the changes to take effect.</small>
+
+<% if (importStatus) { %>
+  <div class="alert success" style="margin-top: 12px;">
+    Configuration imported successfully. Your data folder has been restored from the uploaded zip.
+  </div>
+<% } %>
+<% if (importError) { %>
+  <div class="alert error" style="margin-top: 12px;">
+    Import failed: <%= importError %>
+  </div>
+<% } %>
+
+
   <form method="post" action="/settings" autocomplete="off" enctype="multipart/form-data">
     <% 
       const BOOL_KEYS = new Set([
@@ -411,6 +424,10 @@
     <div style="margin-top:1rem;display:flex;gap:.75rem;flex-wrap:wrap;">
       <button type="submit" class="btn">Save Settings</button>
       <a href="/settings/export-data" class="btn">Export Configuration</a>
+      <form id="importConfigForm" action="/settings/import-data" method="post" enctype="multipart/form-data" style="display:inline-block; margin-left: 8px;">
+        <input id="configZipInput" type="file" name="CONFIG_ZIP_UPLOAD" accept=".zip,application/zip" style="display:none" />
+        <button type="button" id="importConfigBtn" class="btn btn-warning">Import Configuration</button>
+      </form>
     </div>
   </form>
   <script>
@@ -437,6 +454,38 @@
           }
         });
       });
-    })();
+    
+// Import Configuration (restore data from zip)
+var importBtn = document.getElementById("importConfigBtn");
+var importInput = document.getElementById("configZipInput");
+var importForm = document.getElementById("importConfigForm");
+
+if (importBtn && importInput && importForm) {
+  importBtn.addEventListener("click", function () {
+    // First confirm the destructive action
+    var ok = window.confirm(
+      "Importing a configuration will OVERWRITE files in the data folder with the contents of the zip.\n\nContinue?"
+    );
+    if (!ok) return;
+    importInput.value = "";
+    importInput.click();
+  });
+
+  importInput.addEventListener("change", function () {
+    if (!importInput.files || !importInput.files.length) return;
+
+    // Show a second confirmation with the selected file name
+    var fileName = importInput.files[0].name || "selected file";
+    var ok2 = window.confirm("Import '" + fileName + "' and overwrite existing configuration files?");
+    if (!ok2) {
+      importInput.value = "";
+      return;
+    }
+
+    importForm.submit();
+  });
+}
+
+})();
   </script>
 </main>

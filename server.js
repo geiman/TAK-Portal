@@ -277,7 +277,7 @@ app.get("/settings", requireGlobalAdmin, (req, res) => {
     emailTemplates = [];
   }
 
-  res.render("settings", { settings, keys, emailTemplates });
+  res.render("settings", { settings, keys, emailTemplates, importStatus: req.query.import, importError: req.query.error });
 });
 
 
@@ -490,6 +490,98 @@ app.post("/settings/test-email", requireGlobalAdmin, async (req, res) => {
       .send("Failed to send test email. Check SMTP settings and server logs.");
   }
 });
+
+
+// Import (restore) a zip into the data folder
+// Expected zip structure is either:
+//   - data/<files...>  (matches the Export Configuration zip)
+//   - <files...>       (will be treated as data/<files...>)
+app.post(
+  "/settings/import-data",
+  requireGlobalAdmin,
+  upload.single("CONFIG_ZIP_UPLOAD"),
+  async (req, res) => {
+    const unzipper = require("unzipper");
+    const { finished } = require("stream/promises");
+
+    try {
+      if (!req.file || !req.file.path) {
+        return res.redirect("/settings?error=No+file+uploaded");
+      }
+
+      const zipPath = req.file.path;
+      const dataDir = path.join(__dirname, "data");
+
+      // Ensure data directory exists
+      if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
+      }
+
+      const directory = await unzipper.Open.file(zipPath);
+      const dataDirResolved = path.resolve(dataDir) + path.sep;
+
+      // Extract entries safely (prevent Zip Slip)
+      for (const entry of directory.files) {
+        // Normalize to forward slashes as used inside zip archives
+        const raw = (entry.path || "").replace(/\\/g, "/");
+
+        // Ignore empty / weird names
+        if (!raw || raw === "/" || raw.endsWith("/")) {
+          if (entry.type === "Directory") continue;
+        }
+
+        // Only allow restoring into data/
+        const rel = raw.startsWith("data/") ? raw.slice("data/".length) : raw;
+
+        if (!rel) continue;
+
+        // Basic traversal / absolute path protection
+        if (rel.includes("..") || rel.startsWith("/") || rel.startsWith("\\")) {
+          console.warn("Skipping unsafe zip entry:", raw);
+          continue;
+        }
+
+        const outPath = path.join(dataDir, rel);
+        const outResolved = path.resolve(outPath);
+
+        if (!outResolved.startsWith(dataDirResolved)) {
+          console.warn("Skipping zip entry outside dataDir:", raw);
+          continue;
+        }
+
+        if (entry.type === "Directory") {
+          if (!fs.existsSync(outResolved)) {
+            fs.mkdirSync(outResolved, { recursive: true });
+          }
+          continue;
+        }
+
+        // Ensure parent dir exists
+        const parent = path.dirname(outResolved);
+        if (!fs.existsSync(parent)) {
+          fs.mkdirSync(parent, { recursive: true });
+        }
+
+        // Overwrite/create file
+        const writeStream = fs.createWriteStream(outResolved);
+        await finished(entry.stream().pipe(writeStream));
+      }
+
+      // Cleanup uploaded zip
+      try {
+        fs.unlinkSync(zipPath);
+      } catch (_) {}
+
+      return res.redirect("/settings?import=1");
+    } catch (err) {
+      console.error("Import data zip error:", err);
+      try {
+        if (req.file?.path) fs.unlinkSync(req.file.path);
+      } catch (_) {}
+      return res.redirect("/settings?error=Failed+to+import+zip");
+    }
+  }
+);
 
 // Export a zip of the data folder
 app.get("/settings/export-data", requireGlobalAdmin, (req, res) => {
