@@ -300,6 +300,15 @@ function escapeHtml(s){
     .replace(/'/g,"&#39;");
 }
 
+async function readJsonSafe(res) {
+  const text = await res.text();
+  try {
+    return { json: JSON.parse(text), text };
+  } catch {
+    return { json: null, text };
+  }
+}
+
 
 // -------------------- Enrollment QR (per-user) --------------------
 const userQrOverlay = document.getElementById("userQrOverlay");
@@ -1018,63 +1027,95 @@ thead.addEventListener("click", (e) => {
 
 // ---------- Update name ----------
 saveNameBtn.onclick = async () => {
-  if(!selectedUser) return;
+  if (!selectedUser) return;
+
   setMsgEl(nameMsg, "");
   setMsgEl(actionMsg, "");
 
   const first = String(firstNameInput.value || "").trim();
-  const last = String(lastNameInput.value || "").trim();
+  const last  = String(lastNameInput.value || "").trim();
   if (!first && !last) {
     return setMsgEl(nameMsg, "Enter a name or cancel.", false);
   }
 
   const newName = last ? `${last}, ${first}` : first;
-  const res = await fetch(`/api/users/${selectedUser.pk}/name`, {
-    method:"POST",
-    headers:{ "Content-Type":"application/json" },
-    body: JSON.stringify({ name: newName })
-  });
-  const out = await res.json();
-  if(!res.ok) {
-    return setMsgEl(nameMsg, out.error || "Update failed", false);
+
+  let res;
+  try {
+    res = await fetch(`/api/users/${selectedUser.pk}/name`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: newName })
+    });
+  } catch {
+    return setMsgEl(nameMsg, "Network error.", false);
+  }
+
+  const { json } = await readJsonSafe(res);
+
+  if (!res.ok) {
+    return setMsgEl(
+      nameMsg,
+      (json && json.error) || `Update failed (HTTP ${res.status})`,
+      false
+    );
   }
 
   selectedUser.name = newName;
-  if (usernameSpan) {
-    usernameSpan.textContent = `${selectedUser.username} — ${selectedUser.name || ""}`;
-  }
 
-  const patch = (u) => String(u.pk) === String(selectedUser.pk) ? { ...u, name: selectedUser.name} : u;
+  const patch = u =>
+    String(u.pk) === String(selectedUser.pk) ? { ...u, name: newName } : u;
+
   allUsers = (allUsers || []).map(patch);
   const updatedVisible = (window.__lastUsers || []).map(patch);
-
   applySortAndRender(updatedVisible);
+
+  setMsgEl(nameMsg, "Name updated.", true);
 };
+
 
 // ---------- Update email ----------
 saveEmailBtn.onclick = async () => {
-  if(!selectedUser) return;
-  setMsgEl(actionMsg,"");
+  if (!selectedUser) return;
+
+  setMsgEl(actionMsg, "");
 
   const email = String(emailInput.value || "").trim();
-  if(!email) return setMsgEl(actionMsg,"Email is required.", false);
+  if (!email) return setMsgEl(actionMsg, "Email is required.", false);
 
-  const res = await fetch(`/api/users/${selectedUser.pk}/email`,{
-    method:"POST",
-    headers:{ "Content-Type":"application/json" },
-    body:JSON.stringify({ email })
-  });
-  const out = await res.json();
-  if(!res.ok) return setMsgEl(actionMsg, out.error || "Update failed", false);
+  let res;
+  try {
+    res = await fetch(`/api/users/${selectedUser.pk}/email`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email })
+    });
+  } catch {
+    return setMsgEl(actionMsg, "Network error.", false);
+  }
+
+  const { json } = await readJsonSafe(res);
+
+  if (!res.ok) {
+    return setMsgEl(
+      actionMsg,
+      (json && json.error) || `Update failed (HTTP ${res.status})`,
+      false
+    );
+  }
 
   selectedUser.email = email;
 
-  const patch = (u) => String(u.pk) === String(selectedUser.pk) ? { ...u, email: selectedUser.email} : u;
+  const patch = u =>
+    String(u.pk) === String(selectedUser.pk) ? { ...u, email } : u;
+
   allUsers = (allUsers || []).map(patch);
   const updatedVisible = (window.__lastUsers || []).map(patch);
-
   applySortAndRender(updatedVisible);
+
+  setMsgEl(actionMsg, "Email updated.", true);
 };
+
 
 // ---------- Reset password ----------
 resetPwBtn.onclick = async () => {
