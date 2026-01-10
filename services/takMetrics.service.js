@@ -1,7 +1,12 @@
 /**
  * services/takMetrics.service.js
  *
- * Pull operational metrics from TAK Server (custom actuator endpoints + Spring metrics).
+ * Pull operational metrics from TAK Server.
+ *
+ * ONLY exposes what we still use:
+ *   - Connected Clients (custom network endpoint)
+ *   - Server Uptime (Spring actuator metric)
+ *   - Disk Usage (custom disk endpoint)
  *
  * Reads config from settings.json via services/env.js (settings first, then process.env):
  *   TAK_URL
@@ -9,10 +14,9 @@
  *   TAK_API_P12_PATH / TAK_API_P12_PASSPHRASE   OR   TAK_API_CERT_PATH / TAK_API_KEY_PATH
  *   TAK_CA_PATH
  *
- * Optional smoothing config:
+ * Optional smoothing config (still used for sampling freshness / buffering):
  *   TAK_METRICS_SAMPLE_INTERVAL_MS  (default 2000)
  *   TAK_METRICS_WINDOW_SAMPLES      (default 5)
- *   TAK_METRICS_TRIM_SAMPLES        (default 1)  // trims N low + N high when averaging
  *   TAK_METRICS_MAX_SAMPLE_AGE_MS   (default 15000)
  */
 
@@ -166,24 +170,6 @@ async function safeGetJson(client, url) {
 
 // ---- Custom endpoints (your TAK server) ----
 
-async function getCpuFromCustomEndpoint(client, actuatorBase) {
-  const data = await safeGetJson(client, `${actuatorBase}/actuator/custom-cpu-metrics`);
-  if (!data) return null;
-
-  const cpuUsage = pickNumber(data, ["cpuUsage"]);
-  const msgUsage = pickNumber(data, ["messagingCpuUsage"]);
-  const cpuCount = pickNumber(data, ["cpuCount"]);
-  const msgCount = pickNumber(data, ["messagingCpuCount"]);
-
-  return {
-    cpuCount: cpuCount ?? null,
-    cpuPercent: clampPct(cpuUsage != null ? cpuUsage * 100 : null),
-    messagingCpuCount: msgCount ?? null,
-    messagingCpuPercent: clampPct(msgUsage != null ? msgUsage * 100 : null),
-    raw: data,
-  };
-}
-
 async function getDiskFromCustomEndpoint(client, actuatorBase) {
   const data = await safeGetJson(client, `${actuatorBase}/actuator/custom-disk-metrics`);
   if (!data) return null;
@@ -204,45 +190,6 @@ async function getDiskFromCustomEndpoint(client, actuatorBase) {
     freeSpace: Number.isFinite(free) ? free : null,
     usableSpace: Number.isFinite(usable) ? usable : null,
     diskUsagePercent,
-    raw: data,
-  };
-}
-
-async function getMemoryFromCustomEndpoint(client, actuatorBase) {
-  const data = await safeGetJson(client, `${actuatorBase}/actuator/custom-memory-metrics`);
-  if (!data) return null;
-
-  const heapCommitted = pickNumber(data, ["heapCommitted"]);
-  const heapUsed = pickNumber(data, ["heapUsed"]);
-  const msgCommitted = pickNumber(data, ["messagingHeapCommitted"]);
-  const msgUsed = pickNumber(data, ["messagingHeapUsed"]);
-
-  // Combined "overall JVM heap usage" (heap + messaging)
-  const totalUsed =
-    (Number.isFinite(heapUsed) ? heapUsed : 0) +
-    (Number.isFinite(msgUsed) ? msgUsed : 0);
-
-  const totalCommitted =
-    (Number.isFinite(heapCommitted) ? heapCommitted : 0) +
-    (Number.isFinite(msgCommitted) ? msgCommitted : 0);
-
-  const heapPercent =
-    Number.isFinite(totalCommitted) && totalCommitted > 0
-      ? clampPct((totalUsed / totalCommitted) * 100)
-      : null;
-
-  const messagingHeapPercent =
-    Number.isFinite(msgUsed) && Number.isFinite(msgCommitted) && msgCommitted > 0
-      ? clampPct((msgUsed / msgCommitted) * 100)
-      : null;
-
-  return {
-    heapCommitted: Number.isFinite(heapCommitted) ? heapCommitted : null,
-    heapUsed: Number.isFinite(heapUsed) ? heapUsed : null,
-    heapPercent, // combined overall percent
-    messagingHeapCommitted: Number.isFinite(msgCommitted) ? msgCommitted : null,
-    messagingHeapUsed: Number.isFinite(msgUsed) ? msgUsed : null,
-    messagingHeapPercent,
     raw: data,
   };
 }
@@ -286,18 +233,17 @@ async function getUptimeSeconds(client, actuatorBase) {
 }
 
 // ---------------------------
-// Smoothing / Sampling Buffer
+// Sampling Buffer (freshness)
 // ---------------------------
 
 const SAMPLE_INTERVAL_MS = Number(process.env.TAK_METRICS_SAMPLE_INTERVAL_MS ?? 2000);
 const WINDOW_SAMPLES = Math.max(1, Number(process.env.TAK_METRICS_WINDOW_SAMPLES ?? 5));
-const TRIM_SAMPLES = Math.max(0, Number(process.env.TAK_METRICS_TRIM_SAMPLES ?? 1));
 const MAX_SAMPLE_AGE_MS = Math.max(1000, Number(process.env.TAK_METRICS_MAX_SAMPLE_AGE_MS ?? 15000));
 
 let _samplerStarted = false;
 let _sampleTimer = null;
 
-/** Each sample: { ts, cpu, mem, disk, net, uptimeSeconds } */
+/** Each sample: { ts, disk, net, uptimeSeconds } */
 let _samples = [];
 
 function pushSample(s) {
@@ -315,36 +261,11 @@ function isFreshEnough() {
   return Date.now() - last.ts <= MAX_SAMPLE_AGE_MS;
 }
 
-function mean(values) {
-  const v = values.filter((x) => Number.isFinite(x));
-  if (!v.length) return null;
-  const sum = v.reduce((a, b) => a + b, 0);
-  return sum / v.length;
-}
-
-/**
- * Robust average: sort, trim low/high outliers, then mean.
- * If trimming would remove everything, falls back to simple mean.
- */
-function trimmedMean(values, trimEachSide) {
-  const v = values.filter((x) => Number.isFinite(x)).sort((a, b) => a - b);
-  if (!v.length) return null;
-  if (trimEachSide <= 0) return mean(v);
-
-  const start = trimEachSide;
-  const end = v.length - trimEachSide;
-  if (end <= start) return mean(v);
-
-  return mean(v.slice(start, end));
-}
-
 function takeWindowSamples() {
   const now = Date.now();
   // Only consider relatively recent samples (avoid averaging across a long downtime)
   const recent = _samples.filter((s) => now - s.ts <= MAX_SAMPLE_AGE_MS);
   if (!recent.length) return [];
-
-  // Take last WINDOW_SAMPLES
   return recent.slice(Math.max(0, recent.length - WINDOW_SAMPLES));
 }
 
@@ -354,18 +275,14 @@ function startSamplerIfNeeded({ client, actuatorBase }) {
 
   const tick = async () => {
     try {
-      const [cpu, disk, mem, net, uptimeSeconds] = await Promise.all([
-        getCpuFromCustomEndpoint(client, actuatorBase).catch(() => null),
+      const [disk, net, uptimeSeconds] = await Promise.all([
         getDiskFromCustomEndpoint(client, actuatorBase).catch(() => null),
-        getMemoryFromCustomEndpoint(client, actuatorBase).catch(() => null),
         getNetworkFromCustomEndpoint(client, actuatorBase).catch(() => null),
         getUptimeSeconds(client, actuatorBase).catch(() => null),
       ]);
 
       pushSample({
         ts: Date.now(),
-        cpu,
-        mem,
         disk,
         net,
         uptimeSeconds,
@@ -381,29 +298,6 @@ function startSamplerIfNeeded({ client, actuatorBase }) {
   _sampleTimer = setInterval(tick, SAMPLE_INTERVAL_MS);
   // don't keep node alive solely for this timer
   if (typeof _sampleTimer.unref === "function") _sampleTimer.unref();
-}
-
-function buildSmoothedFromWindow(window) {
-  // CPU smoothing
-  const cpuPercents = window.map((s) => s.cpu?.cpuPercent).filter((x) => Number.isFinite(x));
-  const msgCpuPercents = window.map((s) => s.cpu?.messagingCpuPercent).filter((x) => Number.isFinite(x));
-
-  const cpuPercentSmoothed = clampPct(trimmedMean(cpuPercents, TRIM_SAMPLES));
-  const messagingCpuPercentSmoothed = clampPct(trimmedMean(msgCpuPercents, TRIM_SAMPLES));
-
-  // Memory smoothing (combined heapPercent is already computed in endpoint function)
-  const heapPercents = window.map((s) => s.mem?.heapPercent).filter((x) => Number.isFinite(x));
-  const msgHeapPercents = window.map((s) => s.mem?.messagingHeapPercent).filter((x) => Number.isFinite(x));
-
-  const heapPercentSmoothed = clampPct(trimmedMean(heapPercents, TRIM_SAMPLES));
-  const messagingHeapPercentSmoothed = clampPct(trimmedMean(msgHeapPercents, TRIM_SAMPLES));
-
-  return {
-    cpuPercentSmoothed,
-    messagingCpuPercentSmoothed,
-    heapPercentSmoothed,
-    messagingHeapPercentSmoothed,
-  };
 }
 
 // ---- Snapshot ----
@@ -426,14 +320,12 @@ async function getTakMetricsSnapshot() {
   // If we have no fresh sample, do a one-off immediate fetch to avoid returning nulls
   if (!isFreshEnough()) {
     try {
-      const [cpu, disk, mem, net, uptimeSeconds] = await Promise.all([
-        getCpuFromCustomEndpoint(client, actuatorBase).catch(() => null),
+      const [disk, net, uptimeSeconds] = await Promise.all([
         getDiskFromCustomEndpoint(client, actuatorBase).catch(() => null),
-        getMemoryFromCustomEndpoint(client, actuatorBase).catch(() => null),
         getNetworkFromCustomEndpoint(client, actuatorBase).catch(() => null),
         getUptimeSeconds(client, actuatorBase).catch(() => null),
       ]);
-      pushSample({ ts: Date.now(), cpu, mem, disk, net, uptimeSeconds });
+      pushSample({ ts: Date.now(), disk, net, uptimeSeconds });
     } catch {
       // ignore
     }
@@ -442,30 +334,6 @@ async function getTakMetricsSnapshot() {
   const window = takeWindowSamples();
   const latest = window[window.length - 1] || _samples[_samples.length - 1] || null;
 
-  const smoothed = buildSmoothedFromWindow(window);
-
-  // Prefer smoothed values when available; otherwise fall back to latest raw
-  const cpuOut = latest?.cpu
-    ? {
-        cpuCount: latest.cpu.cpuCount,
-        cpuPercent: smoothed.cpuPercentSmoothed ?? latest.cpu.cpuPercent ?? null,
-        messagingCpuCount: latest.cpu.messagingCpuCount,
-        messagingCpuPercent: smoothed.messagingCpuPercentSmoothed ?? latest.cpu.messagingCpuPercent ?? null,
-      }
-    : null;
-
-  const memOut = latest?.mem
-    ? {
-        heapPercent: smoothed.heapPercentSmoothed ?? latest.mem.heapPercent ?? null,
-        heapUsed: latest.mem.heapUsed,
-        heapCommitted: latest.mem.heapCommitted,
-        messagingHeapPercent: smoothed.messagingHeapPercentSmoothed ?? latest.mem.messagingHeapPercent ?? null,
-        messagingHeapUsed: latest.mem.messagingHeapUsed,
-        messagingHeapCommitted: latest.mem.messagingHeapCommitted,
-      }
-    : null;
-
-  // Disk/network/uptime: keep latest (you can smooth these too, but usually not needed)
   const diskOut = latest?.disk
     ? {
         totalSpace: latest.disk.totalSpace,
@@ -488,26 +356,22 @@ async function getTakMetricsSnapshot() {
     configured: true,
     fetchedAt: new Date().toISOString(),
 
-    // Optional: expose how many samples were used
     sampleWindow: {
       intervalMs: SAMPLE_INTERVAL_MS,
       windowSamples: window.length,
-      trimSamples: TRIM_SAMPLES,
       maxSampleAgeMs: MAX_SAMPLE_AGE_MS,
     },
 
-    cpu: cpuOut,
+    // What you said you use:
+    connectedClients: latest?.net?.numClients ?? null,
+
+    uptimeSeconds: latest?.uptimeSeconds ?? null,
 
     diskUsagePercent: latest?.disk?.diskUsagePercent ?? null,
     disk: diskOut,
 
-    memoryUsagePercent: memOut?.heapPercent ?? null,
-    memory: memOut,
-
-    connectedClients: latest?.net?.numClients ?? null,
+    // Optional detail if you still want it downstream:
     network: netOut,
-
-    uptimeSeconds: latest?.uptimeSeconds ?? null,
   };
 }
 
