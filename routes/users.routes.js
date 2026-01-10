@@ -4,6 +4,8 @@ const upload = multer({ storage: multer.memoryStorage() });
 const users = require("../services/users.service");
 const groupsSvc = require("../services/groups.service");
 const accessSvc = require("../services/access.service");
+const qrSvc = require("../services/qr.service");
+const tokensSvc = require("../services/authentikTokens.service");
 
 // -------------------- CSV import progress (in-memory) --------------------
 // Lightweight job store for progress reporting.
@@ -428,5 +430,70 @@ router.delete("/:userId", async (req, res) => {
     res.status(400).json({ error: toErrorPayload(err) });
   }
 });
+
+
+// Generate an enrollment QR for a specific user (admin-only)
+router.post("/enroll-qr", async (req, res) => {
+  try {
+    const authUser = req.authentikUser || null;
+
+    // Require an authenticated admin (global or agency admin)
+    const access = accessSvc.getAgencyAccess(authUser);
+    if (!authUser || (!access.isGlobalAdmin && !access.isAgencyAdmin)) {
+      return res.status(403).json({ ok: false, error: "Admin access required" });
+    }
+
+    const userId = String(req.body?.userId || req.body?.pk || "").trim();
+    const username = String(req.body?.username || "").trim();
+
+    if (!userId || !username) {
+      return res.status(400).json({ ok: false, error: "Missing userId or username" });
+    }
+
+    // Enforce agency-scoped admins can only generate for their allowed agencies
+    if (!access.isGlobalAdmin && !accessSvc.isUsernameInAllowedAgencies(authUser, username)) {
+      return res.status(403).json({ ok: false, error: "You do not have access to that user." });
+    }
+
+    const takUrl = qrSvc.getTakUrl();
+    if (!takUrl) {
+      return res.status(500).json({
+        ok: false,
+        error:
+          "TAK_URL is not configured. Set it in Settings (TAK URL) or via the TAK_URL environment variable.",
+      });
+    }
+
+    const { identifier, key, expiresAt } =
+      await tokensSvc.getOrCreateEnrollmentAppPassword({
+        username,
+        userId,
+        ttlMinutes: 30,
+      });
+
+    const enrollUrl = qrSvc.buildEnrollUrl({ username, token: key });
+    const qrCode = await qrSvc.generateDisplayQrDataUrl(enrollUrl);
+
+    return res.json({
+      ok: true,
+      username,
+      tokenIdentifier: identifier,
+      token: key,
+      expiresAt,
+      enrollUrl,
+      qrCode,
+    });
+  } catch (err) {
+    console.error("[users] Failed to create enrollment QR:", err?.message || err);
+    return res.status(500).json({
+      ok: false,
+      error:
+        err?.response?.status
+          ? `Authentik API error (HTTP ${err.response.status})`
+          : (err?.message || "Failed to generate enrollment QR"),
+    });
+  }
+});
+
 
 module.exports = router;

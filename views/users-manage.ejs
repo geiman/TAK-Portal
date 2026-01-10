@@ -147,6 +147,35 @@
   </div>
 </div>
 
+
+<!-- User Enrollment QR Modal -->
+<div class="modalOverlay" id="userQrOverlay" style="display:none;">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="userQrTitle">
+    <div class="modalHeader">
+      <h2 id="userQrTitle" style="margin:0;">Enrollment QR Code</h2>
+      <button class="btn" id="userQrCloseBtn" type="button">Close</button>
+    </div>
+    <div class="modalBody">
+      <div class="row" style="gap: 24px; align-items: flex-start; flex-wrap: wrap;">
+        <div style="text-align:center; min-width: 260px;">
+          <img id="userQrImg" alt="Enrollment QR Code" style="max-width: 280px; width: 100%; height: auto; border-radius: 14px;" />
+          <div class="row" style="gap: 10px; margin-top: 14px; justify-content: center;">
+            <button class="btn" type="button" id="userQrCopyBtn" disabled>Copy URL</button>
+            <button class="btn" type="button" id="userQrSaveBtn" disabled>Save Image</button>
+          </div>
+        </div>
+        <div style="min-width: 320px;">
+          <h3 style="margin-top:0;">Details</h3>
+          <div class="chips" id="userQrDetails"></div>
+          <div id="userQrCountdown" class="msg" style="margin-top: 10px;"></div>
+          <div id="userQrMsg" class="msg"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
 <script>
 const msg = document.getElementById("msg");
 const actionMsg = document.getElementById("actionMsg");
@@ -244,6 +273,188 @@ function escapeHtml(s){
     .replace(/"/g,"&quot;")
     .replace(/'/g,"&#39;");
 }
+
+
+// -------------------- Enrollment QR (per-user) --------------------
+const userQrOverlay = document.getElementById("userQrOverlay");
+const userQrCloseBtn = document.getElementById("userQrCloseBtn");
+const userQrImg = document.getElementById("userQrImg");
+const userQrCopyBtn = document.getElementById("userQrCopyBtn");
+const userQrSaveBtn = document.getElementById("userQrSaveBtn");
+const userQrDetails = document.getElementById("userQrDetails");
+const userQrCountdown = document.getElementById("userQrCountdown");
+const userQrMsg = document.getElementById("userQrMsg");
+
+let userQrCountdownTimer = null;
+let userQrCurrent = null;
+
+function openUserQrModal(){
+  userQrOverlay.style.display = "flex";
+  document.body.classList.add("noScroll");
+}
+
+function closeUserQrModal(){
+  userQrOverlay.style.display = "none";
+  document.body.classList.remove("noScroll");
+  if (userQrCountdownTimer) {
+    clearInterval(userQrCountdownTimer);
+    userQrCountdownTimer = null;
+  }
+}
+
+function fmtRemain(ms){
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${String(r).padStart(2,"0")}`;
+}
+
+function startUserQrCountdown(expiresAt){
+  if (userQrCountdownTimer) {
+    clearInterval(userQrCountdownTimer);
+    userQrCountdownTimer = null;
+  }
+
+  const exp = expiresAt ? new Date(expiresAt).getTime() : NaN;
+  if (!Number.isFinite(exp)) {
+    userQrCountdown.textContent = "";
+    return;
+  }
+
+  const tick = () => {
+    const remain = exp - Date.now();
+    if (remain <= 0) {
+      userQrCountdown.textContent = "QR Code Expired";
+      userQrCopyBtn.disabled = true;
+      userQrSaveBtn.disabled = true;
+      setMsgEl(userQrMsg, "This enrollment QR has expired. Click QR again to generate a new one.", false);
+      if (userQrCountdownTimer) {
+        clearInterval(userQrCountdownTimer);
+        userQrCountdownTimer = null;
+      }
+      return;
+    }
+    userQrCountdown.textContent = "QR Code Expires In: " + fmtRemain(remain);
+  };
+
+  tick();
+  userQrCountdownTimer = setInterval(tick, 1000);
+}
+
+async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    setMsgEl(userQrMsg, "Copied!", true);
+  } catch (e) {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
+    setMsgEl(userQrMsg, "Copied!", true);
+  }
+}
+
+function renderUserQr(obj){
+  userQrCurrent = obj;
+
+  userQrImg.src = obj.qrCode || "";
+  const chips = [];
+  if (obj.username) chips.push(`<span class="chip">User: ${escapeHtml(obj.username)}</span>`);
+  if (obj.tokenIdentifier) chips.push(`<span class="chip">Token: ${escapeHtml(obj.tokenIdentifier)}</span>`);
+  userQrDetails.innerHTML = chips.join(" ");
+
+  userQrCopyBtn.disabled = !obj.enrollUrl;
+  userQrSaveBtn.disabled = !(obj.username && obj.token);
+
+  setMsgEl(userQrMsg, "QR ready.", true);
+  startUserQrCountdown(obj.expiresAt);
+  openUserQrModal();
+}
+
+async function fetchUserEnrollQr(userId, username){
+  // UI reset
+  userQrImg.src = "";
+  userQrDetails.innerHTML = "";
+  userQrCopyBtn.disabled = true;
+  userQrSaveBtn.disabled = true;
+  userQrCountdown.textContent = "";
+  setMsgEl(userQrMsg, "Generating enrollment QR...", true);
+  openUserQrModal();
+
+  const res = await fetch("/api/users/enroll-qr", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userId, username })
+  });
+
+  const rawText = await res.text();
+  let data = {};
+  try { data = JSON.parse(rawText); } catch { data = {}; }
+
+  if (!res.ok || !data || !data.ok) {
+    throw new Error((data && (data.error || data.message)) || "Failed to generate enrollment QR");
+  }
+
+  return {
+    username: data.username,
+    tokenIdentifier: data.tokenIdentifier,
+    token: data.token,
+    expiresAt: data.expiresAt,
+    enrollUrl: data.enrollUrl,
+    qrCode: data.qrCode
+  };
+}
+
+// Event delegation for QR buttons in table
+tbody.addEventListener("click", async (e) => {
+  const btn = e.target && e.target.closest ? e.target.closest(".userQrBtn") : null;
+  if (!btn) return;
+
+  const userId = btn.dataset.pk || btn.dataset.userId || "";
+  const username = btn.dataset.username || "";
+
+  try {
+    const obj = await fetchUserEnrollQr(userId, username);
+    renderUserQr(obj);
+  } catch (err) {
+    setMsgEl(userQrMsg, err?.message || String(err), false);
+    openUserQrModal();
+  }
+});
+
+userQrCloseBtn.addEventListener("click", closeUserQrModal);
+userQrOverlay.addEventListener("click", (e) => { if (e.target === userQrOverlay) closeUserQrModal(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && userQrOverlay.style.display !== "none") closeUserQrModal(); });
+
+userQrCopyBtn.addEventListener("click", () => {
+  if (userQrCurrent && userQrCurrent.enrollUrl) copyToClipboard(userQrCurrent.enrollUrl);
+});
+
+userQrSaveBtn.addEventListener("click", () => {
+  if (!userQrCurrent || !userQrCurrent.username || !userQrCurrent.token) {
+    setMsgEl(userQrMsg, "Generate a QR first.", false);
+    return;
+  }
+
+  const url =
+    `/api/qr/download?username=${encodeURIComponent(userQrCurrent.username)}` +
+    `&token=${encodeURIComponent(userQrCurrent.token)}`;
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+
+  setMsgEl(userQrMsg, "Downloading high-res QR...", true);
+});
+// ------------------ end Enrollment QR ------------------
+
 
 /**
  * Parses either:
@@ -347,6 +558,7 @@ function renderResults(users){
           ${locked ? `<span class="muted">Actions Hidden</span>` : `
             <div class="row" style="gap:8px; flex-wrap:wrap;">
               <button class="btn" onclick="editUser('${pk}')">Edit</button>
+              <button class="btn qr userQrBtn" type="button" data-pk="${pk}" data-username="${escapeHtml(u.username)}">QR</button>
               <button class="btn" onclick="toggleUserFromTable('${pk}')">${toggleLabel}</button>
               <button class="btn danger" onclick="deleteUserFromTable('${pk}')">Delete</button>
             </div>
