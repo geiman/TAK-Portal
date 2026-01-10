@@ -14,16 +14,18 @@ const agenciesStore = require("./agencies.service");
  *
  * Note:
  * - Refresh interval is read at startup from settings.json:
- *   DASHBOARD_AUTHENTIK_STATS_REFRESH_SECONDS (default 300).
- * - Changing the setting requires a server restart to take effect.
+ *   DASHBOARD_AUTHENTIK_STATS_REFRESH_SECONDS (default 300)
+ * - Changes require a server restart to take effect (intentional).
  */
 
-let _timer = null;
+const DEFAULT_REFRESH_SECONDS = 300;
+const MIN_REFRESH_SECONDS = 30;
 
 const _state = {
-  refreshedAt: null,
+  timer: null,
+  isRefreshing: false,
   lastError: null,
-  // Computed dashboard payload (Authentik-derived + agency metadata)
+  refreshedAt: null,
   snapshot: {
     stats: {
       totalUsers: 0,
@@ -39,11 +41,18 @@ const _state = {
   },
 };
 
-function parseRefreshSeconds(v, fallback) {
-  const n = parseInt(String(v ?? ""), 10);
-  if (!Number.isFinite(n) || n <= 0) return fallback;
-  // Protect from accidental tiny values
-  return Math.max(n, 15);
+function parseRefreshSeconds() {
+  const settings = settingsSvc.getSettings() || {};
+
+  const raw =
+    settings.DASHBOARD_AUTHENTIK_STATS_REFRESH_SECONDS ??
+    process.env.DASHBOARD_AUTHENTIK_STATS_REFRESH_SECONDS;
+
+  let seconds = Number(raw);
+  if (!Number.isFinite(seconds) || seconds <= 0) seconds = DEFAULT_REFRESH_SECONDS;
+  if (seconds < MIN_REFRESH_SECONDS) seconds = MIN_REFRESH_SECONDS;
+
+  return Math.floor(seconds);
 }
 
 function buildCharts(users, agencies) {
@@ -55,8 +64,15 @@ function buildCharts(users, agencies) {
     }))
     .filter((a) => a.name && a.suffix);
 
+  // Fast lookup: suffix -> agency record
   const bySuffix = new Map();
   for (const a of agenciesNorm) bySuffix.set(a.suffix, a);
+
+  // Optional: build a list of known suffixes for username fallback matching.
+  // Sort longest-first to avoid ".pd" matching before ".lpd", etc.
+  const knownSuffixes = Array.from(bySuffix.keys()).sort(
+    (a, b) => b.length - a.length
+  );
 
   const usersByAgency = {};
   const usersByType = {};
@@ -64,11 +80,27 @@ function buildCharts(users, agencies) {
   let unknownType = 0;
 
   for (const u of users || []) {
-    const username = String(u.username || "").trim().toLowerCase();
+    const username = String(u?.username || "").trim().toLowerCase();
 
-    // detect agency suffix from username convention: "name.suffix"
-    const parts = username.split(".");
-    const suffix = parts.length > 1 ? parts[parts.length - 1] : "";
+    // 1) Prefer explicit Authentik attribute (this is what the portal writes)
+    const attrs = (u && typeof u === "object" ? u.attributes : null) || {};
+    let suffix = String(attrs.agency || "").trim().toLowerCase();
+
+    // 2) Fallback: common username convention "name.suffix"
+    if (!suffix) {
+      const parts = username.split(".");
+      suffix = parts.length > 1 ? parts[parts.length - 1] : "";
+    }
+
+    // 3) Fallback: endsWith any known suffix (covers cases without dots, etc.)
+    if (!suffix && username) {
+      for (const s of knownSuffixes) {
+        if (username.endsWith(s)) {
+          suffix = s;
+          break;
+        }
+      }
+    }
 
     const agency = suffix ? bySuffix.get(suffix) : null;
 
@@ -89,14 +121,22 @@ function buildCharts(users, agencies) {
 }
 
 async function refreshNow() {
+  if (_state.isRefreshing) return _state.snapshot;
+
+  _state.isRefreshing = true;
+  _state.lastError = null;
+
   try {
+    // Authentik data
     const [users, groups] = await Promise.all([
       usersService.getAllUsers(),
       usersService.getAllGroups(),
     ]);
 
+    // Local data (agencies)
     const agencies = agenciesStore.load();
-    const charts = buildCharts(users, agencies);
+
+    const charts = buildCharts(users || [], agencies || []);
 
     _state.snapshot = {
       stats: {
@@ -108,28 +148,28 @@ async function refreshNow() {
     };
 
     _state.refreshedAt = new Date();
-    _state.lastError = null;
+    return _state.snapshot;
   } catch (err) {
-    _state.lastError = err?.response?.data || err?.message || String(err);
-    // Keep prior snapshot to avoid breaking dashboard entirely
-    console.error("[DASHBOARD] Authentik stats refresh failed:", _state.lastError);
+    _state.lastError = err?.message || String(err);
+    console.warn("[DASHBOARD] Authentik stats cache refresh failed:", err);
+    return _state.snapshot; // keep last good snapshot
+  } finally {
+    _state.isRefreshing = false;
   }
 }
 
 function startDashboardStatsRefresher() {
-  if (_timer) return; // idempotent
+  // Prevent multiple intervals if called twice
+  if (_state.timer) return;
 
-  const seconds = parseRefreshSeconds(
-    settingsSvc.get("DASHBOARD_AUTHENTIK_STATS_REFRESH_SECONDS", 300),
-    300
-  );
+  const seconds = parseRefreshSeconds();
 
-  // Initial prime
-  refreshNow();
+  // Prime immediately (best-effort)
+  refreshNow().catch(() => null);
 
-  _timer = setInterval(refreshNow, seconds * 1000);
-  // don't keep process alive purely because of this interval
-  if (typeof _timer.unref === "function") _timer.unref();
+  _state.timer = setInterval(() => {
+    refreshNow().catch(() => null);
+  }, seconds * 1000);
 
   console.log(
     `[DASHBOARD] Authentik stats cache enabled: refresh every ${seconds}s`
