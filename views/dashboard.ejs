@@ -240,8 +240,23 @@
       const initial = <%- JSON.stringify(takMetrics || null) %>;
       if (initial) apply(initial);
 
-      // Auto-refresh every 25s
-      setInterval(refresh, 25000);
+      // Delay the first health check until after full page load, then +5s.
+      // Then poll every 25s.
+      function startTakPolling() {
+        // Wait 5s after load so the dashboard feels snappier
+        setTimeout(async () => {
+          await refresh();                 // first live check
+          setInterval(refresh, 25000);     // subsequent checks
+        }, 5000);
+      }
+
+      if (document.readyState === "complete") {
+        // page already fully loaded
+        startTakPolling();
+      } else {
+        // wait for full load (images/css/etc)
+        window.addEventListener("load", startTakPolling, { once: true });
+      }
     })();
   </script>
 </main>
