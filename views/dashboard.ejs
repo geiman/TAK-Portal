@@ -239,6 +239,15 @@
         return parts.join(" ");
       }
 
+      function fmtPct(n){
+        if (typeof n !== "number" || !isFinite(n)) return "--";
+
+        // show at most 1 decimal, but never trailing .0
+        if (n < 10) return n.toFixed(1).replace(/\.0$/, "");
+        return Math.round(n).toString();
+      }
+
+
       async function refresh(){
         try{
           const res = await fetch("/api/tak/metrics", { headers: { "Accept": "application/json" } });
@@ -254,11 +263,11 @@
           $("takLastUpdate").textContent = data && data.fetchedAt ? data.fetchedAt : "—";
 
           const cpu = data && data.cpu ? data.cpu : null;
-          $("takCpu").textContent = cpu && typeof cpu.cpuPercent === "number" ? cpu.cpuPercent.toFixed(1) : "--";
+          $("takCpu").textContent = cpu ? fmtPct(cpu.cpuPercent) : "--";
           $("takCpuHint").textContent = cpu && typeof cpu.cpuCount === "number" ? (cpu.cpuCount + " cores") : "";
 
-          $("takMem").textContent = typeof data.memoryUsagePercent === "number" ? data.memoryUsagePercent.toFixed(1) : "--";
-          $("takDisk").textContent = typeof data.diskUsagePercent === "number" ? data.diskUsagePercent.toFixed(1) : "--";
+          $("takMem").textContent = fmtPct(data.memoryUsagePercent);
+          $("takDisk").textContent = fmtPct(data.diskUsagePercent);
           $("takClients").textContent = typeof data.connectedClients === "number" ? String(data.connectedClients) : "--";
 
           // ONLY show human uptime string (no raw seconds)
