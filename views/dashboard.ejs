@@ -51,89 +51,67 @@
     <!-- TAK Server Health -->
     <div class="card" style="padding: 18px;">
       <div style="display:flex; align-items:center; justify-content:space-between; gap: 12px;">
-        <div style="font-size: 22px; font-weight: 800;">TAK Server Health</div>
+        <div style="font-size: 20px; font-weight: 800;">TAK Server Health</div>
         <div style="display:flex; align-items:center; gap:10px;">
-          <span id="takStatusPill" style="padding:6px 10px; border-radius:999px; font-weight:800; font-size:12px; background: rgba(255,255,255,0.08);">
+          <span
+            id="takStatusPill"
+            style="padding:6px 10px; border-radius:999px; font-weight:800; font-size:12px; background: rgba(255,255,255,0.08);"
+          >
             <%= takMetrics && takMetrics.configured ? "CONNECTED" : "NOT CONFIGURED" %>
           </span>
-          <button class="btn" type="button" id="takRefreshBtn" style="padding:8px 12px; border-radius: 10px;">Refresh</button>
         </div>
       </div>
 
       <div class="grid3 tak-grid" style="margin-top: 14px;">
         <div class="card stat" style="margin:0;">
           <div class="statLabel">CPU %</div>
-          <div class="statValue" id="takCpu">
-            <%= takMetrics && takMetrics.cpu && typeof takMetrics.cpu.cpuPercent === "number" ? takMetrics.cpu.cpuPercent.toFixed(1) : "--" %>
-          </div>
-          <div class="statHint" id="takCpuHint">
-            <%= takMetrics && takMetrics.cpu && typeof takMetrics.cpu.cpuCount === "number" ? (takMetrics.cpu.cpuCount + " cores") : "" %>
-          </div>
+          <div class="statValue" id="takCpu">--</div>
+          <div class="statHint" id="takCpuHint"></div>
         </div>
 
         <div class="card stat" style="margin:0;">
           <div class="statLabel">Memory %</div>
-          <div class="statValue" id="takMem">
-            <%= takMetrics && typeof takMetrics.memoryUsagePercent === "number" ? takMetrics.memoryUsagePercent.toFixed(1) : "--" %>
-          </div>
+          <div class="statValue" id="takMem">--</div>
           <div class="statHint"></div>
         </div>
 
         <div class="card stat" style="margin:0;">
           <div class="statLabel">Disk %</div>
-          <div class="statValue" id="takDisk">
-            <%= takMetrics && typeof takMetrics.diskUsagePercent === "number" ? takMetrics.diskUsagePercent.toFixed(1) : "--" %>
-          </div>
+          <div class="statValue" id="takDisk">--</div>
           <div class="statHint"></div>
         </div>
 
         <div class="card stat" style="margin:0;">
           <div class="statLabel">Clients</div>
-          <div class="statValue" id="takClients">
-            <%= takMetrics && typeof takMetrics.connectedClients === "number" ? takMetrics.connectedClients : "--" %>
-          </div>
+          <div class="statValue" id="takClients">--</div>
           <div class="statHint"></div>
         </div>
 
         <div class="card stat tak-uptime-wide" style="margin:0;">
           <div class="statLabel">Uptime</div>
-          <!-- ONLY show human string here -->
-          <div class="statValue" id="takUptime">
-            <%= takMetrics && typeof takMetrics.uptimeSeconds === "number" ? "" : "--" %>
-          </div>
+          <!-- ONLY show formatted string here -->
+          <div class="statValue" id="takUptime">--</div>
           <div class="statHint" id="takUptimeHint"></div>
         </div>
-      </div>
-
-      <div style="margin-top:10px; font-size: 12px; color: var(--muted);">
-        Last update: <span id="takLastUpdate"><%= takMetrics && takMetrics.fetchedAt ? takMetrics.fetchedAt : "—" %></span>
       </div>
     </div>
 
     <!-- Pie 1 -->
     <div class="card">
-      <h2>Users by Agency</h2>
+      <h2 style="font-size:18px;">Users by Agency</h2>
       <div class="chartWrap">
         <canvas id="agencyChart"></canvas>
       </div>
-      <small style="color: var(--muted);">
-        <% if (charts && charts.unknownAgency && charts.unknownAgency > 0) { %>
-          Unknown suffix: <%= charts.unknownAgency %>
-        <% } %>
-      </small>
+      <!-- removed the "Unknown suffix" line -->
     </div>
 
     <!-- Pie 2 -->
     <div class="card">
-      <h2>Users by Type</h2>
+      <h2 style="font-size:18px;">Users by Type</h2>
       <div class="chartWrap">
         <canvas id="typeChart"></canvas>
       </div>
-      <small style="color: var(--muted);">
-        <% if (charts && charts.unknownType && charts.unknownType > 0) { %>
-          Unknown: <%= charts.unknownType %>
-        <% } %>
-      </small>
+      <!-- removed the "Unknown" line -->
     </div>
   </div>
 
@@ -142,12 +120,7 @@
       <h2>Bookmarks</h2>
       <div class="row" style="flex-wrap:wrap; gap:10px;">
         <% (bookmarks || []).forEach(function(bm) { %>
-          <a
-            class="btn"
-            href="<%= bm.url %>"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
+          <a class="btn" href="<%= bm.url %>" target="_blank" rel="noopener noreferrer">
             <%= bm.title %>
           </a>
         <% }); %>
@@ -158,17 +131,12 @@
   <script>
     (function() {
       function initCharts() {
-        // ---- Left chart: Users by Agency ----
         const usersByAgency = <%- JSON.stringify((charts && charts.usersByAgency) || {}) %>;
         const unknownAgency = <%- JSON.stringify((charts && charts.unknownAgency) || 0) %>;
 
         const agencyLabels = Object.keys(usersByAgency);
         const agencyData = Object.values(usersByAgency);
-
-        if (unknownAgency > 0) {
-          agencyLabels.push("Unknown");
-          agencyData.push(unknownAgency);
-        }
+        if (unknownAgency > 0) { agencyLabels.push("Unknown"); agencyData.push(unknownAgency); }
 
         new Chart(document.getElementById("agencyChart"), {
           type: "pie",
@@ -176,17 +144,12 @@
           options: { responsive: true, plugins: { legend: { position: "bottom" } } }
         });
 
-        // ---- Right chart: Users by Agency Type ----
         const usersByType = <%- JSON.stringify((charts && charts.usersByType) || {}) %>;
         const unknownType = <%- JSON.stringify((charts && charts.unknownType) || 0) %>;
 
         const typeLabels = Object.keys(usersByType);
         const typeData = Object.values(usersByType);
-
-        if (unknownType > 0) {
-          typeLabels.push("Unknown");
-          typeData.push(unknownType);
-        }
+        if (unknownType > 0) { typeLabels.push("Unknown"); typeData.push(unknownType); }
 
         new Chart(document.getElementById("typeChart"), {
           type: "pie",
@@ -196,11 +159,7 @@
       }
 
       function loadChartJsAndInit() {
-        if (window.Chart) {
-          initCharts();
-          return;
-        }
-        // CDN only (avoid /chart.js MIME issue)
+        if (window.Chart) return initCharts();
         var cdnScript = document.createElement("script");
         cdnScript.src = "https://cdn.jsdelivr.net/npm/chart.js";
         cdnScript.onload = initCharts;
@@ -226,6 +185,14 @@
         pill.style.background = ok ? "rgba(56, 166, 91, 0.25)" : "rgba(199, 82, 82, 0.25)";
       }
 
+      // CPU/Mem/Disk formatting:
+      // < 10 => 1 decimal (trim trailing .0), >= 10 => integer
+      function fmtPct(n){
+        if (typeof n !== "number" || !isFinite(n)) return "--";
+        if (n < 10) return n.toFixed(1).replace(/\.0$/, "");
+        return String(Math.round(n));
+      }
+
       function fmtUptime(seconds){
         if (typeof seconds !== "number" || !isFinite(seconds)) return "--";
         const s = Math.max(0, Math.floor(seconds));
@@ -239,56 +206,41 @@
         return parts.join(" ");
       }
 
-      function fmtPct(n){
-        if (typeof n !== "number" || !isFinite(n)) return "--";
+      function apply(data){
+        if (!data || data.configured === false) setPill("NOT CONFIGURED", false);
+        else setPill("CONNECTED", true);
 
-        // show at most 1 decimal, but never trailing .0
-        if (n < 10) return n.toFixed(1).replace(/\.0$/, "");
-        return Math.round(n).toString();
+        const cpu = data && data.cpu ? data.cpu : null;
+
+        $("takCpu").textContent = cpu ? fmtPct(cpu.cpuPercent) : "--";
+        $("takCpuHint").textContent = cpu && typeof cpu.cpuCount === "number" ? (cpu.cpuCount + " cores") : "";
+
+        $("takMem").textContent = fmtPct(data.memoryUsagePercent);
+        $("takDisk").textContent = fmtPct(data.diskUsagePercent);
+
+        $("takClients").textContent =
+          typeof data.connectedClients === "number" ? String(data.connectedClients) : "--";
+
+        $("takUptime").textContent = fmtUptime(data.uptimeSeconds);
+        $("takUptimeHint").textContent = "";
       }
-
 
       async function refresh(){
         try{
           const res = await fetch("/api/tak/metrics", { headers: { "Accept": "application/json" } });
           if (!res.ok) throw new Error("HTTP " + res.status);
           const data = await res.json();
-
-          if (!data || data.configured === false){
-            setPill("NOT CONFIGURED", false);
-          } else {
-            setPill("CONNECTED", true);
-          }
-
-          $("takLastUpdate").textContent = data && data.fetchedAt ? data.fetchedAt : "—";
-
-          const cpu = data && data.cpu ? data.cpu : null;
-          $("takCpu").textContent = cpu ? fmtPct(cpu.cpuPercent) : "--";
-          $("takCpuHint").textContent = cpu && typeof cpu.cpuCount === "number" ? (cpu.cpuCount + " cores") : "";
-
-          $("takMem").textContent = fmtPct(data.memoryUsagePercent);
-          $("takDisk").textContent = fmtPct(data.diskUsagePercent);
-          $("takClients").textContent = typeof data.connectedClients === "number" ? String(data.connectedClients) : "--";
-
-          // ONLY show human uptime string (no raw seconds)
-          $("takUptime").textContent = fmtUptime(data.uptimeSeconds);
-          $("takUptimeHint").textContent = "";
+          apply(data);
         }catch(e){
           setPill("UNAVAILABLE", false);
         }
       }
 
-      const btn = $("takRefreshBtn");
-      if (btn) btn.addEventListener("click", refresh);
+      // Initial render from server-side snapshot (so it looks good immediately)
+      const initial = <%- JSON.stringify(takMetrics || null) %>;
+      if (initial) apply(initial);
 
-      // initial render from server-side value if present
-      const initialSeconds = <%- JSON.stringify(takMetrics && typeof takMetrics.uptimeSeconds === "number" ? takMetrics.uptimeSeconds : null) %>;
-      if (initialSeconds != null) {
-        $("takUptime").textContent = fmtUptime(initialSeconds);
-        $("takUptimeHint").textContent = "";
-      }
-
-      // auto-refresh every 15s
+      // Auto-refresh every 15s
       setInterval(refresh, 15000);
     })();
   </script>
@@ -300,23 +252,19 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 14px;
   }
-  .grid2{
-    display:grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 14px;
-  }
   @media (max-width: 1100px){
     .grid3{ grid-template-columns: 1fr; }
-    .grid2{ grid-template-columns: 1fr; }
   }
+
   .stat{ padding: 18px; }
+
   .statLabel{
-    font-size: 18px;
+    font-size: 22px;
     color: var(--muted);
-    margin-bottom: 6px;
+    margin-bottom: 10px;
   }
   .statValue{
-    font-size: 46px;
+    font-size: 64px;
     font-weight: 800;
     line-height: 1;
   }
@@ -325,10 +273,23 @@
     color: var(--muted);
     font-size: 12px;
   }
-  .tak-uptime-wide {
-  grid-column: span 2;
-}
 
+  /* Compact typography for TAK Server Health stats */
+  .tak-grid .statLabel{
+    font-size: 16px;
+    margin-bottom: 6px;
+  }
+  .tak-grid .statValue{
+    font-size: 44px;
+  }
+  .tak-grid .statHint{
+    font-size: 11px;
+  }
+
+  /* Uptime double-wide */
+  .tak-uptime-wide{
+    grid-column: span 2;
+  }
 
   /* Makes both charts smaller + centered */
   .chartWrap{
@@ -343,10 +304,6 @@
     color: #ffffff;
     margin-bottom: 10px;
   }
-  .maBannerIncident{
-    background: #992525;
-  }
-  .maBannerEvent{
-    background: #995725;
-  }
+  .maBannerIncident{ background: #992525; }
+  .maBannerEvent{ background: #995725; }
 </style>
