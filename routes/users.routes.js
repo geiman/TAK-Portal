@@ -468,7 +468,6 @@ router.post("/enroll-qr", async (req, res) => {
       await tokensSvc.getOrCreateEnrollmentAppPassword({
         username,
         userId,
-        ttlMinutes: 30,
       });
 
     const enrollUrl = qrSvc.buildEnrollUrl({ username, token: key });
