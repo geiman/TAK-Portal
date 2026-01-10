@@ -47,17 +47,9 @@
   </div>
 
   <!-- TAK stats row (same style as top row) -->
-  <div class="grid3" style="margin-top:14px;">
+  <div class="grid3 gridTight" style="margin-top:8px;">
     <div class="card stat">
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
-        <div class="statLabel">Connected Clients</div>
-        <span
-          id="takStatusPill"
-          style="padding:6px 10px; border-radius:999px; font-weight:800; font-size:12px; background: rgba(255,255,255,0.08);"
-        >
-          <%= takMetrics && takMetrics.configured ? "CONNECTED" : "NOT CONFIGURED" %>
-        </span>
-      </div>
+      <div class="statLabel">Connected Clients</div>
       <div class="statValue" id="takClients">--</div>
       <div class="statHint"></div>
     </div>
@@ -76,7 +68,7 @@
   </div>
 
   <!-- Two pies side by side -->
-  <div class="grid2" style="margin-top:14px;">
+  <div class="grid2 gridTight" style="margin-top:8px;">
     <div class="card">
       <h2 class="cardTitle">Users by Agency</h2>
       <div class="chartWrap">
@@ -93,7 +85,7 @@
   </div>
 
   <% if (isGlobalAdmin) { %>
-    <div class="card" style="margin-top:14px;">
+    <div class="card" style="margin-top:8px;">
       <h2>Bookmarks</h2>
       <div class="row" style="flex-wrap:wrap; gap:10px;">
         <% (bookmarks || []).forEach(function(bm) { %>
@@ -155,13 +147,6 @@
     (function(){
       const $ = (id) => document.getElementById(id);
 
-      function setPill(text, ok){
-        const pill = $("takStatusPill");
-        if (!pill) return;
-        pill.textContent = text;
-        pill.style.background = ok ? "rgba(56, 166, 91, 0.25)" : "rgba(199, 82, 82, 0.25)";
-      }
-
       // Disk formatting:
       // < 10 => 1 decimal (trim trailing .0), >= 10 => integer
       function fmtPct(n){
@@ -184,15 +169,10 @@
       }
 
       function apply(data){
-        if (!data || data.configured === false) setPill("NOT CONFIGURED", false);
-        else setPill("CONNECTED", true);
-
-        $("takDisk").textContent = fmtPct(data.diskUsagePercent);
-
+        $("takDisk").textContent = fmtPct(data && data.diskUsagePercent);
         $("takClients").textContent =
-          typeof data.connectedClients === "number" ? String(data.connectedClients) : "--";
-
-        $("takUptime").textContent = fmtUptime(data.uptimeSeconds);
+          data && typeof data.connectedClients === "number" ? String(data.connectedClients) : "--";
+        $("takUptime").textContent = fmtUptime(data && data.uptimeSeconds);
         $("takUptimeHint").textContent = "";
       }
 
@@ -203,7 +183,7 @@
           const data = await res.json();
           apply(data);
         }catch(e){
-          setPill("UNAVAILABLE", false);
+          // no "Connected"/status pill on this page; just leave values as-is
         }
       }
 
@@ -233,7 +213,7 @@
   .grid3{
     display:grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 14px;
+    gap: 10px; /* tightened */
   }
   @media (max-width: 1100px){
     .grid3{ grid-template-columns: 1fr; }
@@ -242,11 +222,14 @@
   .grid2{
     display:grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 14px;
+    gap: 10px; /* tightened */
   }
   @media (max-width: 1100px){
     .grid2{ grid-template-columns: 1fr; }
   }
+
+  /* Reduce vertical spacing between separate grid rows */
+  .gridTight{ margin-top: 8px !important; }
 
   /* Slightly refreshed card feel */
   .card{
@@ -255,12 +238,12 @@
     border-radius: 16px;
   }
 
-  .stat{ padding: 18px; }
+  .stat{ padding: 16px; } /* slightly tighter */
 
   .statLabel{
     font-size: 18px;
     color: var(--muted);
-    margin-bottom: 10px;
+    margin-bottom: 8px; /* tighter */
   }
   .statValue{
     font-size: 48px;
@@ -269,7 +252,7 @@
     letter-spacing: -0.02em;
   }
   .statHint{
-    margin-top: 10px;
+    margin-top: 8px; /* tighter */
     color: var(--muted);
     font-size: 12px;
   }
