@@ -13,9 +13,9 @@ const agenciesStore = require("./agencies.service");
  * - ONLY used by the dashboard route. Other routes remain live/uncached.
  *
  * Note:
- * - Refresh interval is read at startup from settings.json:
+ * - Refresh interval is read from settings.json:
  *   DASHBOARD_AUTHENTIK_STATS_REFRESH_SECONDS (default 300)
- * - Changes require a server restart to take effect (intentional).
+ * - Historically changes required restart; we now support restart after import.
  */
 
 const DEFAULT_REFRESH_SECONDS = 300;
@@ -158,8 +158,15 @@ async function refreshNow() {
   }
 }
 
+function stopDashboardStatsRefresher() {
+  if (_state.timer) {
+    clearInterval(_state.timer);
+    _state.timer = null;
+  }
+}
+
 function startDashboardStatsRefresher() {
-  // Prevent multiple intervals if called twice
+  // If already running, do nothing (use restartDashboardStatsRefresher to reconfigure)
   if (_state.timer) return;
 
   const seconds = parseRefreshSeconds();
@@ -176,6 +183,11 @@ function startDashboardStatsRefresher() {
   );
 }
 
+function restartDashboardStatsRefresher() {
+  stopDashboardStatsRefresher();
+  startDashboardStatsRefresher();
+}
+
 function getDashboardStatsSnapshot() {
   const refreshedAt = _state.refreshedAt;
   const ageMs = refreshedAt ? Date.now() - refreshedAt.getTime() : null;
@@ -190,6 +202,8 @@ function getDashboardStatsSnapshot() {
 
 module.exports = {
   startDashboardStatsRefresher,
+  stopDashboardStatsRefresher,
+  restartDashboardStatsRefresher,
   refreshNow,
   getDashboardStatsSnapshot,
 };
