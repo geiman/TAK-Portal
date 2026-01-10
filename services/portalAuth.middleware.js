@@ -6,7 +6,9 @@ const accessSvc = require("./access.service");
  * Optional Authentik-based access control with role levels.
  *
  * When PORTAL_AUTH_ENABLED is "false":
- *   - middleware is a no-op (no headers required).
+ *   - authentication is disabled entirely
+ *   - everything is wide open
+ *   - every visitor is treated as a bootstrap GLOBAL ADMIN
  *
  * When "true":
  *   - for most routes:
@@ -19,7 +21,7 @@ const PUBLIC_PATHS = new Set([
   "/",
   "/dashboard",
   "/setup-my-device",
-  "/api/setup-my-device/enroll-qr", 
+  "/api/setup-my-device/enroll-qr",
   "/api/qr/download",
   "/styles.css",
   "/favicon.ico",
@@ -31,6 +33,12 @@ function parseGroupList(raw) {
     .split(",")
     .map((g) => g.trim().toLowerCase())
     .filter(Boolean);
+}
+
+function normalizePath(p) {
+  // remove trailing slashes (except keep "/" as "/")
+  const out = String(p || "").replace(/\/+$/, "");
+  return out || "/";
 }
 
 function portalAuthMiddleware(req, res, next) {
@@ -46,16 +54,38 @@ function portalAuthMiddleware(req, res, next) {
     return next();
   }
 
-  const isPublicPath = PUBLIC_PATHS.has(req.path);
+  const normalizedPath = normalizePath(req.path);
+  const isPublicPath = PUBLIC_PATHS.has(normalizedPath);
 
+  // ============================================================
+  // AUTH DISABLED => EVERYTHING WIDE OPEN + BOOTSTRAP ADMIN USER
+  // ============================================================
   if (!authEnabled) {
-    // No authentication enforced at all
+    const bootstrapUser = {
+      username: "bootstrap",
+      uid: null,
+      displayName: "Bootstrap Admin",
+      groups: [],
+      isGlobalAdmin: true,
+      isAgencyAdmin: true, // optional, but helps if any code checks this too
+    };
+
+    req.authentikUser = bootstrapUser;
+    res.locals.authUser = bootstrapUser;
+    res.locals.isGlobalAdmin = true;
+    res.locals.isAgencyAdmin = true;
+
     return next();
   }
 
+  // ============================================================
+  // AUTH ENABLED => REQUIRE HEADERS + APPLY GROUP RULES
+  // ============================================================
+
   const usernameHeader = req.headers["x-authentik-username"];
   const username = (usernameHeader && String(usernameHeader).trim()) || "";
-    const uidHeader =
+
+  const uidHeader =
     req.headers["x-authentik-uid"] ||
     req.headers["x-authentik-user-id"] ||
     req.headers["x-authentik-userid"] ||
@@ -118,10 +148,10 @@ function portalAuthMiddleware(req, res, next) {
     });
   }
 
-const displayNameHeader =
-  req.headers["x-authentik-name"] || req.headers["x-authentik-display-name"];
-const displayName =
-  (displayNameHeader && String(displayNameHeader).trim()) || username;
+  const displayNameHeader =
+    req.headers["x-authentik-name"] || req.headers["x-authentik-display-name"];
+  const displayName =
+    (displayNameHeader && String(displayNameHeader).trim()) || username;
 
   const authUser = {
     username,
@@ -137,7 +167,7 @@ const displayName =
   res.locals.isGlobalAdmin = isGlobalAdmin;
   res.locals.isAgencyAdmin = isAgencyAdmin;
 
-  next();
+  return next();
 }
 
 module.exports = portalAuthMiddleware;
