@@ -5,7 +5,7 @@
   <h1>Dashboard</h1>
 
   <% if (mutualAid && (mutualAid.activeIncidents > 0 || mutualAid.activeEvents > 0)) { %>
-    <div style="margin: 6px 0 10px 0;">
+    <div style="margin: 10px 0 14px 0;">
       <% if (mutualAid.activeIncidents > 0) { %>
         <div class="maBanner maBannerIncident">
           <%= mutualAid.activeIncidents %> Mutual Aid Incident<%= mutualAid.activeIncidents === 1 ? "" : "s" %> <%= mutualAid.activeIncidents === 1 ? "Is" : "Are" %> Active
@@ -25,107 +25,259 @@
     </div>
   <% } %>
 
-  <!-- Top stats -->
+  <!-- Top stats (unchanged) -->
   <div class="grid3">
     <div class="card stat">
       <div class="statLabel">Total Users</div>
       <div class="statValue"><%= stats.totalUsers %></div>
+      <div class="statHint"></div>
     </div>
 
     <div class="card stat">
       <div class="statLabel">Total Agencies</div>
       <div class="statValue"><%= stats.totalAgencies %></div>
+      <div class="statHint"></div>
     </div>
 
     <div class="card stat">
       <div class="statLabel">Total Groups</div>
       <div class="statValue"><%= stats.totalGroups %></div>
+      <div class="statHint"></div>
     </div>
   </div>
 
-  <!-- TAK stats -->
-  <div class="grid3 gridTight">
+  <!-- TAK stats row (same style as top row) -->
+  <div class="grid3 gridTight" style="margin-top:8px;">
     <div class="card stat">
       <div class="statLabel">Connected Users / Clients</div>
       <div class="statValue" id="takClients">--</div>
+      <div class="statHint"></div>
     </div>
 
     <div class="card stat">
       <div class="statLabel">TAK Server Uptime</div>
       <div class="statValue" id="takUptime">--</div>
+      <div class="statHint" id="takUptimeHint"></div>
     </div>
 
     <div class="card stat">
       <div class="statLabel">Disk Usage %</div>
       <div class="statValue" id="takDisk">--</div>
+      <div class="statHint"></div>
     </div>
   </div>
 
-  <!-- Charts -->
-  <div class="grid2 gridTight">
+  <!-- Two pies side by side -->
+  <div class="grid2 gridTight" style="margin-top:8px;">
     <div class="card">
       <h2 class="cardTitle">Users by Agency</h2>
-      <div class="chartWrap"><canvas id="agencyChart"></canvas></div>
+      <div class="chartWrap">
+        <canvas id="agencyChart"></canvas>
+      </div>
     </div>
 
     <div class="card">
       <h2 class="cardTitle">Users by Type</h2>
-      <div class="chartWrap"><canvas id="typeChart"></canvas></div>
+      <div class="chartWrap">
+        <canvas id="typeChart"></canvas>
+      </div>
     </div>
   </div>
 
   <% if (isGlobalAdmin) { %>
-    <div class="card gridTight">
+    <div class="card" style="margin-top:8px;">
       <h2>Bookmarks</h2>
-      <div class="row" style="flex-wrap:wrap; gap:8px;">
+      <div class="row" style="flex-wrap:wrap; gap:10px;">
         <% (bookmarks || []).forEach(function(bm) { %>
-          <a class="btn" href="<%= bm.url %>" target="_blank"><%= bm.title %></a>
+          <a class="btn" href="<%= bm.url %>" target="_blank" rel="noopener noreferrer">
+            <%= bm.title %>
+          </a>
         <% }); %>
       </div>
     </div>
   <% } %>
 
+  <script>
+    (function() {
+      function initCharts() {
+        const usersByAgency = <%- JSON.stringify((charts && charts.usersByAgency) || {}) %>;
+        const unknownAgency = <%- JSON.stringify((charts && charts.unknownAgency) || 0) %>;
+
+        const agencyLabels = Object.keys(usersByAgency);
+        const agencyData = Object.values(usersByAgency);
+        if (unknownAgency > 0) { agencyLabels.push("Unknown"); agencyData.push(unknownAgency); }
+
+        new Chart(document.getElementById("agencyChart"), {
+          type: "pie",
+          data: { labels: agencyLabels, datasets: [{ data: agencyData }] },
+          options: { responsive: true, plugins: { legend: { position: "bottom" } } }
+        });
+
+        const usersByType = <%- JSON.stringify((charts && charts.usersByType) || {}) %>;
+        const unknownType = <%- JSON.stringify((charts && charts.unknownType) || 0) %>;
+
+        const typeLabels = Object.keys(usersByType);
+        const typeData = Object.values(usersByType);
+        if (unknownType > 0) { typeLabels.push("Unknown"); typeData.push(unknownType); }
+
+        new Chart(document.getElementById("typeChart"), {
+          type: "pie",
+          data: { labels: typeLabels, datasets: [{ data: typeData }] },
+          options: { responsive: true, plugins: { legend: { position: "bottom" } } }
+        });
+      }
+
+      function loadChartJsAndInit() {
+        if (window.Chart) return initCharts();
+        var cdnScript = document.createElement("script");
+        cdnScript.src = "https://cdn.jsdelivr.net/npm/chart.js";
+        cdnScript.onload = initCharts;
+        document.head.appendChild(cdnScript);
+      }
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", loadChartJsAndInit);
+      } else {
+        loadChartJsAndInit();
+      }
+    })();
+  </script>
+
+  <script>
+    (function(){
+      const $ = (id) => document.getElementById(id);
+
+      // Disk formatting:
+      // < 10 => 1 decimal (trim trailing .0), >= 10 => integer
+      function fmtPct(n){
+        if (typeof n !== "number" || !isFinite(n)) return "--";
+        if (n < 10) return n.toFixed(1).replace(/\.0$/, "");
+        return String(Math.round(n));
+      }
+
+      function fmtUptime(seconds){
+        if (typeof seconds !== "number" || !isFinite(seconds)) return "--";
+        const s = Math.max(0, Math.floor(seconds));
+        const d = Math.floor(s / 86400);
+        const h = Math.floor((s % 86400) / 3600);
+        const m = Math.floor((s % 3600) / 60);
+        const parts = [];
+        if (d) parts.push(d + "d");
+        if (h || d) parts.push(h + "h");
+        parts.push(m + "m");
+        return parts.join(" ");
+      }
+
+      function apply(data){
+        $("takDisk").textContent = fmtPct(data && data.diskUsagePercent);
+        $("takClients").textContent =
+          data && typeof data.connectedClients === "number" ? String(data.connectedClients) : "--";
+        $("takUptime").textContent = fmtUptime(data && data.uptimeSeconds);
+        $("takUptimeHint").textContent = "";
+      }
+
+      async function refresh(){
+        try{
+          const res = await fetch("/api/tak/metrics", { headers: { "Accept": "application/json" } });
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          const data = await res.json();
+          apply(data);
+        }catch(e){
+          // no "Connected"/status pill on this page; just leave values as-is
+        }
+      }
+
+      // Initial render from server-side snapshot
+      const initial = <%- JSON.stringify(takMetrics || null) %>;
+      if (initial) apply(initial);
+
+      // Delay the first health check until after full page load, then +5s.
+      // Then poll every 25s.
+      function startTakPolling() {
+        setTimeout(async () => {
+          await refresh();
+          setInterval(refresh, 25000);
+        }, 5000);
+      }
+
+      if (document.readyState === "complete") {
+        startTakPolling();
+      } else {
+        window.addEventListener("load", startTakPolling, { once: true });
+      }
+    })();
+  </script>
 </main>
 
 <style>
-  .grid3{ display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
-  .grid2{ display:grid; grid-template-columns:repeat(2,1fr); gap:6px; }
-
-  @media (max-width:1100px){
-    .grid3,.grid2{ grid-template-columns:1fr; }
+  .grid3{
+    display:grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 5px; /* tightened */
+  }
+  @media (max-width: 1100px){
+    .grid3{ grid-template-columns: 1fr; }
   }
 
-  .gridTight{ margin-top:6px; }
+  .grid2{
+    display:grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px; /* tightened */
+  }
+  @media (max-width: 1100px){
+    .grid2{ grid-template-columns: 1fr; }
+  }
 
+  /* Reduce vertical spacing between separate grid rows */
+  .gridTight{ margin-top: 8px !important; }
+
+  /* Slightly refreshed card feel */
   .card{
-    border:1px solid rgba(255,255,255,0.06);
-    border-radius:14px;
-    box-shadow:0 6px 16px rgba(0,0,0,.25);
+    border: 1px solid rgba(255,255,255,0.06);
+    box-shadow: 0 10px 25px rgba(0,0,0,0.18);
+    border-radius: 16px;
   }
 
-  .stat{ padding:10px; }
+  .stat{ padding: 12px; } /* slightly tighter */
 
   .statLabel{
-    font-size:16px;
-    color:var(--muted);
-    margin-bottom:4px;
+    font-size: 18px;
+    color: var(--muted);
+    margin-bottom: 8px; /* tighter */
   }
-
   .statValue{
-    font-size:44px;
-    font-weight:800;
-    line-height:.95;
+    font-size: 48px;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -0.02em;
+  }
+  .statHint{
+    margin-top: 8px; /* tighter */
+    color: var(--muted);
+    font-size: 12px;
   }
 
+  /* Chart titles */
   .cardTitle{
-    font-size:16px;
-    margin:0 0 6px 0;
-    font-weight:800;
+    font-size:18px;
+    margin: 0 0 10px 0;
+    font-weight: 900;
+    letter-spacing: -0.01em;
   }
 
-  .chartWrap{ max-width:300px; margin:0 auto; }
+  /* Makes both charts smaller + centered */
+  .chartWrap{
+    max-width: 320px;
+    margin: 0 auto;
+  }
 
-  .maBanner{ padding:10px 12px; border-radius:10px; font-weight:800; }
-  .maBannerIncident{ background:#992525; }
-  .maBannerEvent{ background:#995725; }
+  .maBanner{
+    padding: 12px 14px;
+    border-radius: 12px;
+    font-weight: 800;
+    color: #ffffff;
+    margin-bottom: 10px;
+  }
+  .maBannerIncident{ background: #992525; }
+  .maBannerEvent{ background: #995725; }
 </style>
