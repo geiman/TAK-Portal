@@ -558,7 +558,10 @@ function renderResults(users){
           ${locked ? `<span class="muted">Actions Hidden</span>` : `
             <div class="row" style="gap:8px; flex-wrap:wrap;">
               <button class="btn" onclick="editUser('${pk}')">Edit</button>
-              <button class="btn qr userQrBtn" type="button" data-pk="${pk}" data-username="${escapeHtml(u.username)}">QR</button>
+              ${u.is_active ? `
+            <button class="btn qr userQrBtn" type="button"
+              data-pk="${pk}" data-username="${escapeHtml(u.username)}">QR</button>
+          ` : ""}
               <button class="btn" onclick="toggleUserFromTable('${pk}')">${toggleLabel}</button>
               <button class="btn danger" onclick="deleteUserFromTable('${pk}')">Delete</button>
             </div>
