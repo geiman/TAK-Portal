@@ -46,36 +46,37 @@
     </div>
   </div>
 
-  <!-- TAK row: Connected Clients / Uptime / Disk % -->
+  <!-- TAK stats row (same style as top row) -->
   <div class="grid3" style="margin-top:14px;">
-    <div class="card takCard">
-      <div class="takHeaderRow">
-        <div class="takTitle">TAK Server Health (beta)</div>
-        <span id="takStatusPill" class="takPill">
+    <div class="card stat">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+        <div class="statLabel">Connected Clients</div>
+        <span
+          id="takStatusPill"
+          style="padding:6px 10px; border-radius:999px; font-weight:800; font-size:12px; background: rgba(255,255,255,0.08);"
+        >
           <%= takMetrics && takMetrics.configured ? "CONNECTED" : "NOT CONFIGURED" %>
         </span>
       </div>
-
-      <div class="takStatsRow">
-        <div class="miniStat">
-          <div class="miniLabel">Connected Clients</div>
-          <div class="miniValue" id="takClients">--</div>
-        </div>
-
-        <div class="miniStat">
-          <div class="miniLabel">Uptime</div>
-          <div class="miniValue" id="takUptime">--</div>
-          <div class="miniHint" id="takUptimeHint"></div>
-        </div>
-
-        <div class="miniStat">
-          <div class="miniLabel">Disk %</div>
-          <div class="miniValue" id="takDisk">--</div>
-        </div>
-      </div>
+      <div class="statValue" id="takClients">--</div>
+      <div class="statHint"></div>
     </div>
 
-    <!-- Pie 1 -->
+    <div class="card stat">
+      <div class="statLabel">Uptime</div>
+      <div class="statValue" id="takUptime">--</div>
+      <div class="statHint" id="takUptimeHint"></div>
+    </div>
+
+    <div class="card stat">
+      <div class="statLabel">Disk %</div>
+      <div class="statValue" id="takDisk">--</div>
+      <div class="statHint"></div>
+    </div>
+  </div>
+
+  <!-- Two pies side by side -->
+  <div class="grid2" style="margin-top:14px;">
     <div class="card">
       <h2 class="cardTitle">Users by Agency</h2>
       <div class="chartWrap">
@@ -83,7 +84,6 @@
       </div>
     </div>
 
-    <!-- Pie 2 -->
     <div class="card">
       <h2 class="cardTitle">Users by Type</h2>
       <div class="chartWrap">
@@ -239,6 +239,15 @@
     .grid3{ grid-template-columns: 1fr; }
   }
 
+  .grid2{
+    display:grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+  @media (max-width: 1100px){
+    .grid2{ grid-template-columns: 1fr; }
+  }
+
   /* Slightly refreshed card feel */
   .card{
     border: 1px solid rgba(255,255,255,0.06);
@@ -263,56 +272,6 @@
     margin-top: 10px;
     color: var(--muted);
     font-size: 12px;
-  }
-
-  /* TAK compact card */
-  .takCard{ padding: 18px; }
-  .takHeaderRow{
-    display:flex;
-    align-items:center;
-    justify-content:space-between;
-    gap: 12px;
-    margin-bottom: 14px;
-  }
-  .takTitle{
-    font-size: 18px;
-    font-weight: 900;
-    letter-spacing: -0.01em;
-  }
-  .takPill{
-    padding:6px 10px;
-    border-radius:999px;
-    font-weight:900;
-    font-size:12px;
-    background: rgba(255,255,255,0.08);
-  }
-  .takStatsRow{
-    display:grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 12px;
-  }
-  .miniStat{
-    padding: 14px;
-    border-radius: 14px;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.06);
-  }
-  .miniLabel{
-    font-size: 13px;
-    color: var(--muted);
-    margin-bottom: 6px;
-    font-weight: 700;
-  }
-  .miniValue{
-    font-size: 34px;
-    font-weight: 900;
-    line-height: 1.05;
-    letter-spacing: -0.02em;
-  }
-  .miniHint{
-    margin-top: 6px;
-    color: var(--muted);
-    font-size: 11px;
   }
 
   /* Chart titles */
