@@ -180,8 +180,7 @@ async function getCpuFromCustomEndpoint(client, actuatorBase) {
   const data = await safeGetJson(client, `${actuatorBase}/actuator/custom-cpu-metrics`);
   if (!data) return null;
 
-  // Expected shape:
-  // { cpuCount: 4, cpuUsage: 0.0434..., messagingCpuUsage: 0.0419..., messagingCpuCount: 4 }
+  // { cpuCount, cpuUsage (0..1), messagingCpuUsage (0..1), messagingCpuCount }
   const cpuUsage = pickNumber(data, ["cpuUsage", "usage", "cpu"]);
   const msgUsage = pickNumber(data, ["messagingCpuUsage", "messagingUsage"]);
   const cpuCount = pickNumber(data, ["cpuCount", "processors"]);
@@ -192,6 +191,50 @@ async function getCpuFromCustomEndpoint(client, actuatorBase) {
     cpuPercent: clampPct(cpuUsage != null ? cpuUsage * 100 : null),
     messagingCpuCount: msgCount ?? null,
     messagingCpuPercent: clampPct(msgUsage != null ? msgUsage * 100 : null),
+    raw: data,
+  };
+}
+
+/**
+ * Custom memory endpoint:
+ *   GET /actuator/custom-memory-metrics
+ *
+ * Sample:
+ * {
+ *   "heapCommitted":1.04333312E9,
+ *   "heapUsed":5.43270664E8,
+ *   "messagingHeapCommitted":5.24288E8,
+ *   "messagingHeapUsed":4.45533456E8
+ * }
+ *
+ * We compute percent as Used / Committed (committed is what JVM has reserved).
+ */
+async function getMemoryFromCustomEndpoint(client, actuatorBase) {
+  const data = await safeGetJson(client, `${actuatorBase}/actuator/custom-memory-metrics`);
+  if (!data) return null;
+
+  const heapCommitted = pickNumber(data, ["heapCommitted"]);
+  const heapUsed = pickNumber(data, ["heapUsed"]);
+  const msgCommitted = pickNumber(data, ["messagingHeapCommitted"]);
+  const msgUsed = pickNumber(data, ["messagingHeapUsed"]);
+
+  const heapPercent =
+    Number.isFinite(heapUsed) && Number.isFinite(heapCommitted) && heapCommitted > 0
+      ? clampPct((heapUsed / heapCommitted) * 100)
+      : null;
+
+  const messagingHeapPercent =
+    Number.isFinite(msgUsed) && Number.isFinite(msgCommitted) && msgCommitted > 0
+      ? clampPct((msgUsed / msgCommitted) * 100)
+      : null;
+
+  return {
+    heapCommitted: Number.isFinite(heapCommitted) ? heapCommitted : null,
+    heapUsed: Number.isFinite(heapUsed) ? heapUsed : null,
+    heapPercent,
+    messagingHeapCommitted: Number.isFinite(msgCommitted) ? msgCommitted : null,
+    messagingHeapUsed: Number.isFinite(msgUsed) ? msgUsed : null,
+    messagingHeapPercent,
     raw: data,
   };
 }
@@ -212,13 +255,6 @@ async function getDiskUsagePercent(client, actuatorBase) {
   const total = await getSpringMetricValue(client, actuatorBase, "disk.total");
   if (!Number.isFinite(free) || !Number.isFinite(total) || total <= 0) return null;
   return clampPct((1 - free / total) * 100);
-}
-
-async function getMemoryUsagePercent(client, actuatorBase) {
-  const used = await getSpringMetricValue(client, actuatorBase, "jvm.memory.used");
-  const max = await getSpringMetricValue(client, actuatorBase, "jvm.memory.max");
-  if (!Number.isFinite(used) || !Number.isFinite(max) || max <= 0) return null;
-  return clampPct((used / max) * 100);
 }
 
 async function getUptimeSeconds(client, actuatorBase) {
@@ -267,13 +303,17 @@ async function getTakMetricsSnapshot() {
 
   const client = buildTakAxios();
 
-  const [cpu, diskPct, memPct, uptimeSeconds, connectedClients] = await Promise.all([
+  const [cpu, diskPct, memCustom, uptimeSeconds, connectedClients] = await Promise.all([
     getCpuFromCustomEndpoint(client, actuatorBase).catch(() => null),
     getDiskUsagePercent(client, actuatorBase).catch(() => null),
-    getMemoryUsagePercent(client, actuatorBase).catch(() => null),
+    getMemoryFromCustomEndpoint(client, actuatorBase).catch(() => null),
     getUptimeSeconds(client, actuatorBase).catch(() => null),
     getConnectedClients(client, base).catch(() => null),
   ]);
+
+  // Preserve the existing memoryUsagePercent field so your dashboard keeps working,
+  // but now it is based on custom heap metrics (Used/Committed).
+  const memoryUsagePercent = memCustom?.heapPercent ?? null;
 
   return {
     configured: true,
@@ -287,7 +327,18 @@ async function getTakMetricsSnapshot() {
         }
       : null,
     diskUsagePercent: diskPct,
-    memoryUsagePercent: memPct,
+    memoryUsagePercent,
+    // Extra detail (optional for later UI)
+    memory: memCustom
+      ? {
+          heapPercent: memCustom.heapPercent,
+          heapUsed: memCustom.heapUsed,
+          heapCommitted: memCustom.heapCommitted,
+          messagingHeapPercent: memCustom.messagingHeapPercent,
+          messagingHeapUsed: memCustom.messagingHeapUsed,
+          messagingHeapCommitted: memCustom.messagingHeapCommitted,
+        }
+      : null,
     connectedClients,
     uptimeSeconds,
   };
