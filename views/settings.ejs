@@ -78,6 +78,7 @@
         "TAK_REVOKE_ON_DISABLE",
         "TAK_DEBUG",
         "TAK_BYPASS_ENABLED",
+        "CLOUDTAK_URL",
 
         "PORTAL_AUTH_ENABLED",
         "PORTAL_AUTH_REQUIRED_GROUP",
@@ -172,6 +173,7 @@
             <% renderField("TAK_REVOKE_ON_DISABLE","Revoke on Disable","If true, revokes TAK certs when a user is disabled."); %>
             <% renderField("TAK_DEBUG","TAK Debug","If true, enables verbose TAK debug logging."); %>
             <% renderField("TAK_BYPASS_ENABLED","Bypass TAK","If true, disables all outbound TAK calls (for testing)."); %>
+            <% renderField("CLOUDTAK_URL","CloudTAK URL","Optional. Base URL for CloudTAK web (e.g. https://cloudtak.example.gov)."); %>
           </div>
         </div>
       </details>

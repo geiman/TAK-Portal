@@ -16,6 +16,7 @@
   "TAK_REVOKE_ON_DISABLE": "true",
   "TAK_DEBUG": "false",
   "TAK_BYPASS_ENABLED": "false",
+  "CLOUDTAK_URL": "",
   "EMAIL_ENABLED": "false",
   "EMAIL_PROVIDER": "smtp",
   "SMTP_HOST": "smtp.email.com",

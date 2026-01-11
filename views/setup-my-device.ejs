@@ -18,6 +18,13 @@
         <span class="title">Android (Phone / Tablet)</span>
         <span class="desc">Use ATAK on Android devices.</span>
       </button>
+
+      <% if (settings && typeof settings.CLOUDTAK_URL === "string" && settings.CLOUDTAK_URL.trim()) { %>
+        <button type="button" class="btn tile deviceTile" id="selectWeb">
+          <span class="title">Web Browser</span>
+          <span class="desc">Use CloudTAK on web browsers.</span>
+        </button>
+      <% } %>
     </div>
   </div>
 
@@ -100,11 +107,15 @@
 </div>
 
 <script>
+  // CloudTAK URL (from settings.json via server render)
+  const cloudtakUrl = <%- JSON.stringify((settings && typeof settings.CLOUDTAK_URL === "string") ? settings.CLOUDTAK_URL.trim() : "") %>;
+
   // --- device selection UI (NO persistence; forgets on reload) ---
   const iosFlow = document.getElementById("iosFlow");
   const androidFlow = document.getElementById("androidFlow");
   const selectIOS = document.getElementById("selectIOS");
   const selectAndroid = document.getElementById("selectAndroid");
+  const selectWeb = document.getElementById("selectWeb");
 
   function showIOS() {
     iosFlow.style.display = "block";
@@ -121,6 +132,11 @@
     androidFlow.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
+  function openCloudTAK() {
+    if (!cloudtakUrl) return;
+    window.open(cloudtakUrl, "_blank", "noopener,noreferrer");
+  }
+
   // On load: always start with chooser only
   (function resetOnLoad() {
     iosFlow.style.display = "none";
@@ -129,6 +145,7 @@
 
   selectIOS.addEventListener("click", showIOS);
   selectAndroid.addEventListener("click", showAndroid);
+  if (selectWeb) selectWeb.addEventListener("click", openCloudTAK);
 
   // --- QR modal + enrollment logic ---
   const scanQrBtnTakAware = document.getElementById("scanQrBtnTakAware");

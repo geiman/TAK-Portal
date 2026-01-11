@@ -10,7 +10,10 @@ All notable changes to this project will be documented in this file.  Minor qual
 
 ## Version History
 
-## v1.1.29 - 1/10/26
+### v1.1.30 - 1/11/26
+✨ `Enhancement` - Adds CloudTAK URL to settings and Setup My Device pages
+
+### v1.1.29 - 1/10/26
 🐛 `Bug Fix` - Fixes issue with Agency Templates not appearing in sidebar
 
 ### v1.1.28 - 1/10/26
