@@ -8,7 +8,7 @@
   <div class="card" id="deviceSelectCard">
     <h2>Select Your Device Type</h2>
 
-    <div class="grid2">
+    <div class="<%= (settings && settings.CLOUDTAK_URL && settings.CLOUDTAK_URL.trim()) ? 'grid3' : 'grid2' %>">
       <button type="button" class="btn tile deviceTile deviceTile-ios" id="selectIOS">
         <span class="title">Apple (iPhone / iPad)</span>
         <span class="desc">Use TAK Aware on iOS devices.</span>
