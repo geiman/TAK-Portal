@@ -2,14 +2,40 @@ const router = require("express").Router();
 const store = require("../services/templates.service");
 const accessSvc = require("../services/access.service");
 
+const ALLOWED_COLORS = new Set([
+  "Blue",
+  "Dark Blue",
+  "Brown",
+  "Cyan",
+  "Green",
+  "Dark Green",
+  "Magenta",
+  "Maroon",
+  "Orange",
+  "Purple",
+  "Red",
+  "Teal",
+  "White",
+  "Yellow",
+]);
+
+function normalizeColorOverride(v) {
+  const s = String(v ?? "").trim();
+  if (!s) return "";
+  if (!ALLOWED_COLORS.has(s)) return "";
+  return s;
+}
+
 function normalizeTemplate(t) {
   return {
     name: String(t.name || "").trim(),
-    agencySuffix: String(t.agencySuffix || "").trim().toLowerCase(), // must be an agency suffix (no global templates)
+    agencySuffix: String(t.agencySuffix || "").trim().toLowerCase(),
+    colorOverride: normalizeColorOverride(t.colorOverride),
     groups: Array.isArray(t.groups) ? t.groups.map(g => String(g).trim()).filter(Boolean) : [],
     isDefault: !!t.isDefault
   };
 }
+
 router.get("/", (req, res) => {
   const templates = store.load();
   const authUser = req.authentikUser || null;
@@ -44,23 +70,21 @@ router.post("/", (req, res) => {
   if (!t.name) return res.status(400).json({ error: "Template name is required" });
   if (!t.groups.length) return res.status(400).json({ error: "At least one group is required" });
 
-  // prevent duplicates by (name + agencySuffix)
   const exists = templates.some(x =>
     String(x.name).toLowerCase() === t.name.toLowerCase() &&
     String(x.agencySuffix || "").toLowerCase() === t.agencySuffix
   );
   if (exists) return res.status(400).json({ error: "Template already exists for the selected agency" });
 
+  if (t.isDefault) {
+    const sfx = t.agencySuffix;
+    templates.forEach((existing) => {
+      if (String(existing.agencySuffix || "").trim().toLowerCase() === sfx) {
+        existing.isDefault = false;
+      }
+    });
+  }
 
-// If this template is marked as default, clear default on other templates for same agency
-if (t.isDefault) {
-  const sfx = t.agencySuffix; // already normalized lower-case
-  templates.forEach((existing, i) => {
-    if (String(existing.agencySuffix || "").trim().toLowerCase() === sfx && existing !== t) {
-      existing.isDefault = false;
-    }
-  });
-}
   templates.push(t);
   store.save(templates);
   res.json({ success: true });
@@ -74,7 +98,6 @@ router.put("/:index", (req, res) => {
   const existing = templates[idx];
   const authUser = req.authentikUser || null;
 
-  // User must be allowed to modify this template's agency
   if (existing && existing.agencySuffix && !accessSvc.isSuffixAllowed(authUser, existing.agencySuffix)) {
     return res.status(403).json({ error: "You do not have access to this template." });
   }
@@ -87,7 +110,6 @@ router.put("/:index", (req, res) => {
   if (!t.name) return res.status(400).json({ error: "Template name is required" });
   if (!t.groups.length) return res.status(400).json({ error: "At least one group is required" });
 
-  // uniqueness check excluding itself
   const exists = templates.some((x, i) =>
     i !== idx &&
     String(x.name).toLowerCase() === t.name.toLowerCase() &&
@@ -95,17 +117,20 @@ router.put("/:index", (req, res) => {
   );
   if (exists) return res.status(400).json({ error: "Template already exists for the selected agency" });
 
+  if (t.isDefault) {
+    const sfx = t.agencySuffix;
+    templates.forEach((existing2) => {
+      if (String(existing2.agencySuffix || "").trim().toLowerCase() === sfx) {
+        existing2.isDefault = false;
+      }
+    });
+  }
 
-// If this template is marked as default, clear default on other templates for same agency
-if (t.isDefault) {
-  const sfx = t.agencySuffix; // already normalized lower-case
-  templates.forEach((existing, i) => {
-    if (String(existing.agencySuffix || "").trim().toLowerCase() === sfx && existing !== t) {
-      existing.isDefault = false;
-    }
-  });
-}
-  templates[idx] = t;
+  templates[idx] = {
+    ...templates[idx],
+    ...t
+  };
+
   store.save(templates);
   res.json({ success: true });
 });

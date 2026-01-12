@@ -12,7 +12,6 @@
       </div>
     </div>
 
-    <!-- FIX: use a page-specific class instead of grid3 (grid3 is defined globally as 3 columns) -->
     <form id="form" class="templatesGrid" autocomplete="off">
       <label>Template Name
         <input id="name" placeholder="Template Name Here (ex. Patrol, Medic, etc...)" required />
@@ -59,7 +58,6 @@
             <button class="btn" type="button" id="clearAllBtn">Clear</button>
           </div>
 
-          <!-- SCROLLABLE OUTER BOX + MULTICOL INNER WRAPPER -->
           <div id="groupsBox" class="groupsBox">
             <div id="groupsInner" class="groupsInner"></div>
           </div>
@@ -111,11 +109,11 @@ const groupSearch = document.getElementById("groupSearch");
 const groupsBox = document.getElementById("groupsBox");
 const selectAllBtn = document.getElementById("selectAllBtn");
 const clearAllBtn = document.getElementById("clearAllBtn");
-const groupsInner = document.getElementById("groupsInner"); // inner multicol wrapper
+const groupsInner = document.getElementById("groupsInner");
 
-let allGroups = [];       // Authentik groups: [{pk,name,...}]
-let allTemplates = [];    // templates from JSON
-let editingIndex = null;  // number | null
+let allGroups = [];
+let allTemplates = [];
+let editingIndex = null;
 
 function setMsg(text, ok=true){
   msg.textContent = text || "";
@@ -158,7 +156,6 @@ function renderGroups(filterText = ""){
     </label>
   `).join("");
 
-  // if we're editing, preserve checked state after re-render
   if (editingIndex !== null) {
     const t = allTemplates[editingIndex];
     setCheckedGroupNames(t?.groups || []);
@@ -253,7 +250,6 @@ window.deleteTemplate = async (idx) => {
 
   setMsg("Template deleted", true);
 
-  // If you deleted the one you were editing, exit edit mode
   if (editingIndex === idx) setCreateMode();
 
   await loadTemplates();
@@ -280,7 +276,7 @@ form.onsubmit = async (e) => {
   const payload = {
     name: nameEl.value.trim(),
     agencySuffix: agencyEl.value,
-    colorOverride: (colorOverrideEl.value || ""), // optional
+    colorOverride: (colorOverrideEl.value || ""),
     groups: getCheckedGroupNames(),
     isDefault: isDefaultEl.value === "yes"
   };
@@ -306,8 +302,6 @@ form.onsubmit = async (e) => {
 
   setMsg(isEdit ? "Template updated" : "Template created", true);
   await loadTemplates();
-
-  // after save, go back to create mode
   setCreateMode();
 };
 
@@ -324,13 +318,6 @@ form.onsubmit = async (e) => {
 </script>
 
 <style>
-/* templates page only */
-
-/*
-  FIX:
-  - Do NOT use .grid3 here because your global CSS defines .grid3 as exactly 3 columns.
-  - This page needs 4 columns on desktop (Name/Agency/Color/Default) so we use .templatesGrid.
-*/
 .templatesGrid {
   display: grid;
   gap: 12px;
@@ -349,7 +336,6 @@ form.onsubmit = async (e) => {
   }
 }
 
-/* allow grid items + selects to shrink/grow correctly */
 .templatesGrid > label {
   min-width: 0;
 }
@@ -361,33 +347,28 @@ form.onsubmit = async (e) => {
   min-width: 0;
 }
 
-/* groups checkbox grid – restored to original */
 .groupsBox {
   margin-top: 10px;
   border: 1px solid var(--line);
   background: var(--panel);
   border-radius: 12px;
   padding: 10px;
-
   max-height: 320px;
-  overflow-y: auto;   /* scrollable vertically */
+  overflow-y: auto;
   overflow-x: hidden;
 }
 
-/* columns go on the INNER wrapper */
 .groupsInner {
   column-width: 280px;
   column-gap: 14px;
-  column-count: 4;    /* max 4 columns */
+  column-count: 4;
 }
 
-/* group items */
 .groupItem{
   display: flex;
   flex-direction: row;
   align-items: center;
   gap: 8px;
-
   padding: 6px 8px;
   border-radius: 10px;
   cursor: pointer;
@@ -412,13 +393,11 @@ form.onsubmit = async (e) => {
   text-overflow: ellipsis;
 }
 
-/* table wrapper for overflow on tiny screens */
 .tableWrap {
   width: 100%;
   overflow-x: auto;
 }
 
-/* hide Default column on small screens (Default is 4th col now) */
 @media (max-width: 768px) {
   .templatesTable th:nth-child(4),
   .templatesTable td:nth-child(4) {
