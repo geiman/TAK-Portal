@@ -409,12 +409,13 @@ form.onsubmit = async (e) => {
   }
 }
 
-.templatesTable { display: table !important; width: 100% !important; border-collapse: collapse !important; table-layout: auto !important; }
-.templatesTable thead { display: table-header-group !important; }
-.templatesTable tbody { display: table-row-group !important; }
-.templatesTable tr { display: table-row !important; height: auto !important; }
-.templatesTable th,
-.templatesTable td { display: table-cell !important; height: auto !important; vertical-align: top !important; }
+.templatesTable { width: 100% !important; border-collapse: collapse !important; }
+.templatesTable, 
+.templatesTable thead, 
+.templatesTable tbody, 
+.templatesTable tr { display: revert !important; }
+.templatesTable th, 
+.templatesTable td { display: revert !important; vertical-align: top !important; height: auto !important; }
 
 .actionsCell{
   display: inline-flex;
@@ -427,10 +428,6 @@ form.onsubmit = async (e) => {
   white-space: normal;
   word-break: break-word;
   line-height: 1.25;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
 }
 </style>
 
