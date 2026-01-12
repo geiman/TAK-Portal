@@ -632,7 +632,7 @@ function renderGroups(){
               onclick="openMassUnassign('${esc(g.pk)}')">Unassign</button>
             ${editable ? `
             <button class="btn" type="button"
-              onclick="editGroupName('${esc(g.pk)}')">Rename</button>
+              onclick="editGroupName('${esc(g.pk)}')">Edit</button>
             <button class="btn danger" type="button"
               onclick="deleteGroup('${esc(g.pk)}')">Delete</button>
             ` : ``}
