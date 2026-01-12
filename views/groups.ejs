@@ -5,60 +5,75 @@
   <h1>Manage Groups</h1>
 
   <div class="card">
-    <h2>Create Group</h2>
+  <h2>Create Group</h2>
 
-    <div class="row"><label>Group Type
+  <div class="row">
+    <label>Group Type
       <select id="createType">
         <option value="agency" selected>Agency-Specific Group</option>
         <% if (isGlobalAdmin) { %>
         <option value="county">County-Specific Group</option>
         <option value="generic">Global Group</option>
         <% } %>
-      </select></label>
+      </select>
+    </label>
 
-      <label id="agencyPrefixWrap" style="display:none;">Select Agency
-        <select id="agencyPrefixSelect">
-          <option value="">Select Agency</option>
-        </select>
-      </label>
+    <label id="agencyPrefixWrap" style="display:none;">Select Agency
+      <select id="agencyPrefixSelect">
+        <option value="">Select Agency</option>
+      </select>
+    </label>
 
-      <label id="countyWrap" style="display:none;">Select County
-        <select id="countySelect">
-          <option value="">Select County</option>
-        </select>
-      </label>
+    <label id="countyWrap" style="display:none;">Select County
+      <select id="countySelect">
+        <option value="">Select County</option>
+      </select>
+    </label>
 
-      <label> Group Name<input
+    <label style="flex: 1; min-width: 160px;">Group Name
+      <input
         id="groupName"
         placeholder="Group name"
-        style="flex: 1; min-width: 120px;"
-      /></label>
+        style="width: 100%;"
+      />
+    </label>
 
-      <!-- Behavior dropdown -->
-      <label>Channel Behavior<select id="behaviorSelect" style="min-width: 120px;">
+    <label style="min-width: 220px;">Channel Behavior
+      <select id="behaviorSelect" style="min-width: 120px;">
         <option value="both" selected>BOTH - Send and Recieve (default)</option>
         <option value="read">READ - Recieve Only</option>
         <option value="write">WRITE - Send Only</option>
-      </select></label>
+      </select>
+    </label>
 
-      <% if (isGlobalAdmin) { %>
-      <label>Private<select id="privateSelect" style="min-width: 120px;">
+    <% if (isGlobalAdmin) { %>
+    <label style="min-width: 140px;">Private
+      <select id="privateSelect" style="min-width: 120px;">
         <option value="no" selected>No</option>
         <option value="yes">Yes</option>
-      </select></label>
-      <% } %>
+      </select>
+    </label>
+    <% } %>
 
+    <!-- optional: keep button aligned with labeled fields -->
+    <label>&nbsp;
       <button class="btn" id="createBtn" type="button">Create New Group</button>
-    </div>
-    <div class="row" style="margin-top:8px;">
-      <label style="flex: 1; min-width: 0;">Group Description
-        <input
-          id="groupDescription"
-          placeholder="One-line description for this group (optional)"
-          style="width: 100%;"
-        />
-      </label>
-    </div>
+    </label>
+  </div>
+
+  <div class="row" style="margin-top:8px;">
+    <label style="flex: 1; min-width: 0;">Group Description
+      <input
+        id="groupDescription"
+        placeholder="One-line description for this group (optional)"
+        style="width: 100%;"
+      />
+    </label>
+  </div>
+
+  <div id="createMsg" class="msg"></div>
+</div>
+
 
   <div class="card">
     <div class="row" style="justify-content: space-between; align-items:center;">
