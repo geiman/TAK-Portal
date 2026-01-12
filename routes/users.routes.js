@@ -296,46 +296,83 @@ router.get("/search", async (req, res) => {
       return res.json(result);
     }
 
-    // ---------------- Non-global admins: deterministic paging ----------------
-    const currentPageRequested = requestedPage < 1 ? 1 : requestedPage;
+    
+// ---------------- Non-global admins ----------------
+// For an agency admin (non-global), avoid pulling the entire Authentik user list.
+// Instead, filter server-side in Authentik using the user's `attributes.agency_abbreviation`.
+//
+// NOTE: If the current user appears to administer multiple agencies (multiple allowed suffixes),
+// we fall back to the legacy suffix-based filtering to avoid accidentally hiding valid results.
+const allowedSuffixes = Array.isArray(access.allowedAgencySuffixes)
+  ? access.allowedAgencySuffixes.filter(Boolean)
+  : [];
 
-    // 1) Get all matching users (path + hidden-prefix filters already applied inside findUsers)
-    const allMatching = await users.findUsers({ q, forceRefresh: false });
+const canUseAttributeFilter =
+  authUser &&
+  authUser.uid &&
+  allowedSuffixes.length === 1; // typical "single-agency admin" case
 
-    // 2) Filter to only the users in allowed agencies for this authUser
-    const visible = allMatching.filter((u) =>
-      accessSvc.isUsernameInAllowedAgencies(authUser, u.username)
-    );
+if (canUseAttributeFilter) {
+  let agencyAbbr = "";
+  try {
+    const me = await users.getUserById(authUser.uid);
+    agencyAbbr = String(me?.attributes?.agency_abbreviation || "").trim();
+  } catch (e) {
+    agencyAbbr = "";
+  }
 
-    const total = visible.length;
-
-    if (total === 0) {
-      return res.json({
-        users: [],
-        total: 0,
-        page: 1,
-        pageSize,
-        hasNext: false,
-        hasPrev: false,
-      });
-    }
-
-    // 3) Compute total pages and clamp the requested page into that range
-    const totalPages = Math.max(1, Math.ceil(total / pageSize));
-    const page = Math.min(currentPageRequested, totalPages);
-
-    const start = (page - 1) * pageSize;
-    const end = start + pageSize;
-    const pageItems = visible.slice(start, end);
-
-    return res.json({
-      users: pageItems,
-      total,
-      page,
+  if (agencyAbbr) {
+    const result = await users.searchUsersByAgencyAbbreviationPaged({
+      agencyAbbreviation: agencyAbbr,
+      q,
+      page: requestedPage,
       pageSize,
-      hasNext: page < totalPages,
-      hasPrev: page > 1,
     });
+    return res.json(result);
+  }
+}
+
+// ---------------- Legacy fallback (suffix-based) ----------------
+// Deterministic in-memory paging over the fully filtered set.
+const currentPageRequested = requestedPage < 1 ? 1 : requestedPage;
+
+// 1) Get all matching users (path + hidden-prefix filters already applied inside findUsers)
+const allMatching = await users.findUsers({ q, forceRefresh: false });
+
+// 2) Filter to only the users in allowed agencies for this authUser
+const visible = allMatching.filter((u) =>
+  accessSvc.isUsernameInAllowedAgencies(authUser, u.username)
+);
+
+const total = visible.length;
+
+if (total === 0) {
+  return res.json({
+    users: [],
+    total: 0,
+    page: 1,
+    pageSize,
+    hasNext: false,
+    hasPrev: false,
+  });
+}
+
+const totalPages = Math.max(1, Math.ceil(total / pageSize));
+const page = Math.min(currentPageRequested, totalPages);
+
+const start = (page - 1) * pageSize;
+const end = start + pageSize;
+const pageItems = visible.slice(start, end);
+
+return res.json({
+  users: pageItems,
+  total,
+  page,
+  pageSize,
+  hasNext: page < totalPages,
+  hasPrev: page > 1,
+});
+
   } catch (err) {
     res.status(500).json({ error: toErrorPayload(err) });
   }

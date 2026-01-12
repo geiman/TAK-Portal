@@ -1053,6 +1053,100 @@ async function searchUsersPaged({ q, page = 1, pageSize = 50 } = {}) {
 }
 
 
+
+async function searchUsersByAgencyAbbreviationPaged({
+  agencyAbbreviation,
+  q,
+  page = 1,
+  pageSize = 50,
+} = {}) {
+  const abbr = String(agencyAbbreviation || "").trim();
+  if (!abbr) {
+    return {
+      users: [],
+      total: 0,
+      page: 1,
+      pageSize,
+      hasNext: false,
+      hasPrev: false,
+    };
+  }
+
+  const params = {
+    page,
+    page_size: pageSize,
+    ordering: "username",
+    // Authentik uses Django filter-style query params for custom fields.
+    // User attributes live under `attributes`, so we can filter by attribute key.
+    "attributes__agency_abbreviation": abbr,
+  };
+
+  if (q && String(q).trim()) {
+    // Authentik supports "search" across username/email/etc.
+    params.search = String(q).trim();
+  }
+
+  const res = await api.get("/core/users/", { params });
+  const data = res?.data || {};
+  let users = Array.isArray(data.results) ? data.results : [];
+
+  // Apply the same hidden-prefix/path filters used elsewhere.
+  const hiddenPrefixesRaw = String(getString("USERS_HIDDEN_PREFIXES", "")).trim();
+  const hiddenPrefixes = hiddenPrefixesRaw
+    ? hiddenPrefixesRaw
+        .split(",")
+        .map((x) => String(x).trim().toLowerCase())
+        .filter(Boolean)
+    : [];
+
+  if (hiddenPrefixes.length) {
+    users = users.filter((u) => {
+      const username = String(u?.username || "").trim().toLowerCase();
+      return !hiddenPrefixes.some((p) => username.startsWith(p));
+    });
+  }
+
+  const folderRaw = String(getString("AUTHENTIK_USER_PATH", "")).trim();
+  if (folderRaw) {
+    const target = normalizePath(folderRaw);
+    users = users.filter((u) => {
+      const up = normalizePath(u.path);
+      return up === target || up.startsWith(target + "/");
+    });
+  }
+
+  const pagination = data.pagination || {};
+  let total = 0;
+
+  if (pagination) {
+    if (typeof pagination.count === "number") total = pagination.count;
+    if (!total && typeof pagination.total === "number") total = pagination.total;
+    if (!total && typeof pagination.total_items === "number")
+      total = pagination.total_items;
+  }
+
+  if (!total && data && data.count != null) {
+    const c = Number(data.count);
+    if (!Number.isNaN(c) && c >= 0) total = c;
+  }
+
+  if (!total) total = users.length;
+
+  const currentPage =
+    typeof pagination.current === "number"
+      ? pagination.current
+      : Number(params.page) || 1;
+
+  return {
+    users,
+    total,
+    page: currentPage,
+    pageSize,
+    hasNext: Boolean(pagination.next ?? data.next),
+    hasPrev: Boolean(pagination.previous ?? data.previous),
+  };
+}
+
 async function resetPassword(userId, password) {
   await assertUserNotActionLocked(userId);
   const err = validatePassword(password);
@@ -1248,8 +1342,10 @@ module.exports = {
   userExists,
   createUser,
   importUsersFromCsvBuffer,
+  getUserById,
   findUsers,
   searchUsersPaged,
+  searchUsersByAgencyAbbreviationPaged,
   resetPassword,
   updateEmail,
   updateName,
