@@ -189,10 +189,12 @@ async function loadTemplates(){
       <td>${t.agencySuffix ? esc(t.agencySuffix) : "—"}</td>
       <td>${t.colorOverride ? esc(t.colorOverride) : "—"}</td>
       <td>${t.isDefault ? "Yes" : ""}</td>
-      <td>${esc((t.groups || []).join(", "))}</td>
-      <td class="row" style="gap:8px;">
-        <button class="btn" type="button" onclick="editTemplate(${i})">Edit</button>
-        <button class="btn danger" type="button" onclick="deleteTemplate(${i})">Delete</button>
+      <td class="groupsCell">${esc((t.groups || []).join(", "))}</td>
+      <td>
+        <div class="actionsCell">
+          <button class="btn" type="button" onclick="editTemplate(${i})">Edit</button>
+          <button class="btn danger" type="button" onclick="deleteTemplate(${i})">Delete</button>
+        </div>
       </td>
     </tr>
   `).join("");
@@ -406,6 +408,22 @@ form.onsubmit = async (e) => {
     display: none;
   }
 }
+.templatesTable td {
+  vertical-align: top;
+}
+
+.actionsCell{
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.groupsCell{
+  white-space: normal;
+  word-break: break-word;
+}
+
 </style>
 
 </div></body></html>
