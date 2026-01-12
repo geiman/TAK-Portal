@@ -409,25 +409,12 @@ form.onsubmit = async (e) => {
   }
 }
 
-.templatesTable{
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: auto;
-}
-
-.templatesTable tr,
-.templatesTable td,
-.templatesTable th{
-  height: auto;
-}
-
-.templatesTable td{
-  vertical-align: top;
-}
-
-.templatesTable td .row{
-  display: block;
-}
+.templatesTable { display: table !important; width: 100% !important; border-collapse: collapse !important; table-layout: auto !important; }
+.templatesTable thead { display: table-header-group !important; }
+.templatesTable tbody { display: table-row-group !important; }
+.templatesTable tr { display: table-row !important; height: auto !important; }
+.templatesTable th,
+.templatesTable td { display: table-cell !important; height: auto !important; vertical-align: top !important; }
 
 .actionsCell{
   display: inline-flex;
