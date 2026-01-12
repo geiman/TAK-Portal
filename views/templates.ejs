@@ -409,13 +409,13 @@ form.onsubmit = async (e) => {
   }
 }
 
-.templatesTable { width: 100% !important; border-collapse: collapse !important; }
-.templatesTable, 
-.templatesTable thead, 
-.templatesTable tbody, 
-.templatesTable tr { display: revert !important; }
-.templatesTable th, 
-.templatesTable td { display: revert !important; vertical-align: top !important; height: auto !important; }
+div.tableWrap > table.table.templatesTable { display: table !important; }
+div.tableWrap > table.table.templatesTable > thead { display: table-header-group !important; }
+div.tableWrap > table.table.templatesTable > tbody { display: table-row-group !important; }
+div.tableWrap > table.table.templatesTable > thead > tr,
+div.tableWrap > table.table.templatesTable > tbody > tr { display: table-row !important; height: auto !important; }
+div.tableWrap > table.table.templatesTable th,
+div.tableWrap > table.table.templatesTable td { display: table-cell !important; height: auto !important; vertical-align: top !important; }
 
 .actionsCell{
   display: inline-flex;
