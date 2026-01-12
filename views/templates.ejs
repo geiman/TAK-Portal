@@ -408,12 +408,29 @@ form.onsubmit = async (e) => {
     display: none;
   }
 }
-.templatesTable td {
+
+.templatesTable{
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: auto;
+}
+
+.templatesTable tr,
+.templatesTable td,
+.templatesTable th{
+  height: auto;
+}
+
+.templatesTable td{
   vertical-align: top;
 }
 
+.templatesTable td .row{
+  display: block;
+}
+
 .actionsCell{
-  display: flex;
+  display: inline-flex;
   gap: 8px;
   flex-wrap: wrap;
   align-items: center;
@@ -422,8 +439,12 @@ form.onsubmit = async (e) => {
 .groupsCell{
   white-space: normal;
   word-break: break-word;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
-
 </style>
 
 </div></body></html>
