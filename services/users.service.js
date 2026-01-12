@@ -1,8 +1,9 @@
-const { getString, getInt } = require("./env");
+const { getString, getInt, getBool } = require("./env");
 const api = require("./authentik");
 const agenciesStore = require("./agencies.service");
 const templatesStore = require("./templates.service");
 const tak = require("./tak.service");
+const settingsSvc = require("./settings.service");
 
 
 function getHiddenUserPrefixes() {
@@ -40,7 +41,6 @@ async function assertUserNotActionLocked(userId, { ignoreLocks } = {}) {
 
 const emailSvc = require("./email.service");
 const { renderTemplate, htmlToText } = require("./emailTemplates.service");
-const { getBool } = require("./env");
 
 // Helpers
 function normalizePath(p) {
@@ -100,6 +100,27 @@ function parseName(displayName) {
   };
 }
 
+function getTakPortalPublicUrl() {
+  try {
+    const settings = settingsSvc.getSettings ? settingsSvc.getSettings() || {} : {};
+
+    if (
+      settings.TAK_PORTAL_PUBLIC_URL &&
+      typeof settings.TAK_PORTAL_PUBLIC_URL === "string" &&
+      settings.TAK_PORTAL_PUBLIC_URL.trim()
+    ) {
+      return settings.TAK_PORTAL_PUBLIC_URL.trim();
+    }
+
+    const env = getString("TAK_PORTAL_PUBLIC_URL", "").trim();
+    if (env) return env;
+
+    return "";
+  } catch {
+    return "";
+  }
+}
+
 
 /**
  * User-created email.
@@ -146,6 +167,7 @@ async function emailUserCreated({ user, groups, hasPassword }) {
       attrs.agency_color ||
       ""
     );
+  
 
   const templateKey = hasPassword
     ? "user_created_password_set.html"
@@ -162,6 +184,7 @@ async function emailUserCreated({ user, groups, hasPassword }) {
     badgeNumber,
     agencyAbbreviation,
     agencyColor,
+    takPortalPublicUrl: getTakPortalPublicUrl(),
   });
 
   const text = htmlToText(html);
@@ -209,6 +232,7 @@ async function emailPasswordChanged(user) {
     badgeNumber,
     agencyAbbreviation,
     agencyColor,
+    takPortalPublicUrl: getTakPortalPublicUrl(),
   });
 
   const text = htmlToText(html);
@@ -265,6 +289,7 @@ async function emailGroupsUpdated({ user, beforeIds, afterIds }) {
     badgeNumber,
     agencyAbbreviation,
     agencyColor,
+    takPortalPublicUrl: getTakPortalPublicUrl(),
   });
 
   const text = htmlToText(html);
@@ -1141,17 +1166,6 @@ async function removeUserGroups(userId, groupIds) {
   return remaining;
 }
 
-
-// ---------------- Authentik read helpers (no caching) ----------------
-// For now we always hit Authentik directly so each page load sees fresh data.
-
-function invalidateUsersCache() {
-  // no-op – kept so existing callers still work
-}
-
-function invalidateGroupsCache() {
-  // no-op – kept so existing callers still work
-}
 
 let USERS_CACHE = null;
 let USERS_CACHE_TS = 0;

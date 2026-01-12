@@ -2,9 +2,8 @@ const crypto = require("crypto");
 const QRCode = require("qrcode");
 const path = require("path");
 const fs = require("fs");
-
+const { getString } = require("./env");
 const Jimp = require("jimp");
-
 const api = require("./authentik");
 const groupsSvc = require("./groups.service");
 const usersSvc = require("./users.service");
@@ -163,6 +162,28 @@ function getTakHost() {
     );
   }
 }
+
+function getTakPortalPublicUrl() {
+  try {
+    const settings = settingsSvc.getSettings ? settingsSvc.getSettings() || {} : {};
+
+    if (
+      settings.TAK_PORTAL_PUBLIC_URL &&
+      typeof settings.TAK_PORTAL_PUBLIC_URL === "string" &&
+      settings.TAK_PORTAL_PUBLIC_URL.trim()
+    ) {
+      return settings.TAK_PORTAL_PUBLIC_URL.trim();
+    }
+
+    const env = getString("TAK_PORTAL_PUBLIC_URL", "").trim();
+    if (env) return env;
+
+    return "";
+  } catch {
+    return "";
+  }
+}
+
 
 function enrollUrlForCreds(username, token) {
   const host = getTakHost();
@@ -365,6 +386,7 @@ async function sendMutualAidCreatedEmail({ type, title, username, password, grou
     password: String(password || ""),
     enrollUrl,
     qrDataUrl: qrCode,
+    takPortalPublicUrl: getTakPortalPublicUrl(),
   });
   const text = htmlToText(html);
 
