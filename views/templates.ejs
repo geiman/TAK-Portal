@@ -23,6 +23,26 @@
         </select>
       </label>
 
+      <label>Color Override (optional)
+        <select id="colorOverride">
+          <option value="">(no override)</option>
+          <option value="Blue">Blue</option>
+          <option value="Dark Blue">Dark Blue</option>
+          <option value="Brown">Brown</option>
+          <option value="Cyan">Cyan</option>
+          <option value="Green">Green</option>
+          <option value="Dark Green">Dark Green</option>
+          <option value="Magenta">Magenta</option>
+          <option value="Maroon">Maroon</option>
+          <option value="Orange">Orange</option>
+          <option value="Purple">Purple</option>
+          <option value="Red">Red</option>
+          <option value="Teal">Teal</option>
+          <option value="White">White</option>
+          <option value="Yellow">Yellow</option>
+        </select>
+      </label>
+
       <label>Default Template
         <select id="isDefault">
           <option value="no">No</option>
@@ -60,6 +80,7 @@
           <tr>
             <th>Name</th>
             <th>Agency</th>
+            <th>Color</th>
             <th>Default</th>
             <th>Groups</th>
             <th>Actions</th>
@@ -83,6 +104,7 @@ const cancelEditBtn = document.getElementById("cancelEditBtn");
 const nameEl = document.getElementById("name");
 const agencyEl = document.getElementById("agency");
 const isDefaultEl = document.getElementById("isDefault");
+const colorOverrideEl = document.getElementById("colorOverride");
 
 const groupSearch = document.getElementById("groupSearch");
 const groupsBox = document.getElementById("groupsBox");
@@ -167,6 +189,7 @@ async function loadTemplates(){
     <tr>
       <td>${esc(t.name)}</td>
       <td>${t.agencySuffix ? esc(t.agencySuffix) : "—"}</td>
+      <td>${t.colorOverride ? esc(t.colorOverride) : "—"}</td>
       <td>${t.isDefault ? "Yes" : ""}</td>
       <td>${esc((t.groups || []).join(", "))}</td>
       <td class="row" style="gap:8px;">
@@ -186,6 +209,7 @@ function setCreateMode(){
 
   nameEl.value = "";
   agencyEl.value = "";
+  colorOverrideEl.value = "";
   isDefaultEl.value = "no";
   groupSearch.value = "";
   renderGroups("");
@@ -203,12 +227,12 @@ function setEditMode(idx){
 
   nameEl.value = t.name || "";
   agencyEl.value = t.agencySuffix || "";
+  colorOverrideEl.value = t.colorOverride || "";
   isDefaultEl.value = t.isDefault ? "yes" : "no";
   groupSearch.value = "";
   renderGroups("");
   setCheckedGroupNames(t.groups || []);
 
-  // scroll to form for convenience
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -255,6 +279,7 @@ form.onsubmit = async (e) => {
   const payload = {
     name: nameEl.value.trim(),
     agencySuffix: agencyEl.value,
+    colorOverride: (colorOverrideEl.value || ""), // optional
     groups: getCheckedGroupNames(),
     isDefault: isDefaultEl.value === "yes"
   };
@@ -373,8 +398,8 @@ form.onsubmit = async (e) => {
 
 /* hide 3rd column (Default) on small screens */
 @media (max-width: 768px) {
-  .templatesTable th:nth-child(3),
-  .templatesTable td:nth-child(3) {
+  .templatesTable th:nth-child(4),
+  .templatesTable td:nth-child(4) {
     display: none;
   }
 }
