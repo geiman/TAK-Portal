@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Your group memberships were updated</title>
+  <title>Your TAK Group Memberships Were Updated</title>
 </head>
 <body style="margin:0; padding:0; background:#f4f4f7; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; color:#111827; line-height:1.5;">
   <div style="width:100%; padding:24px 0;">
@@ -16,7 +16,7 @@
       </p>
 
       <p style="margin:0 0 12px; font-size:14px;">
-        Your TAK account’s access groups were recently changed. Below is a summary of what your access looked like before and what it looks like now.
+        Your TAK account’s access groups were recently changed by your agency administrator. Below is a summary of your previous and current access.
       </p>
 
       <div style="margin:0 0 12px; padding:12px; border:1px solid #e5e7eb; border-radius:6px; background:#f9fafb; font-size:13px;">
@@ -36,7 +36,7 @@
       </div>
 
       <p style="margin:0 0 12px; font-size:14px;">
-        As a reminder, please use the following callsign and team color when configuring TAK on your device:
+        Please use the following callsign and team color when configuring TAK on your device:
       </p>
 
       <div style="margin:0 0 12px; padding:12px; border:1px solid #e5e7eb; border-radius:6px; background:#f9fafb; font-size:13px;">
@@ -46,20 +46,33 @@
         <div>
           <strong>TEAM COLOR:</strong> {{agencyColor}}
         </div>
-      </div>      
+      </div>
 
-      <p style="margin:0 0 8px; font-size:13px; color:#374151;">
-        If you don’t recognize these changes or believe something is missing,
-        please contact your TAK agency administrator so they can review your access.
-      </p>
+      {{#if takPortalPublicUrl}}
+        <p style="margin:0 0 12px; font-size:14px;">
+          Use the TAK Portal to review your access, manage your account, follow device setup instructions, or generate a QR code for faster sign-in on your mobile device.
+        </p>
+
+        <p style="margin:0 0 16px; font-size:14px;">
+          <a href="{{takPortalPublicUrl}}"
+             style="display:inline-block; padding:9px 18px; background:#2563eb; color:#ffffff; text-decoration:none; border-radius:999px; font-size:14px; font-weight:500;"
+             target="_blank" rel="noopener noreferrer">
+            Open TAK Portal
+          </a>
+        </p>
+      {{else}}
+        <p style="margin:0 0 16px; font-size:14px;">
+          If you need to review your access or get help setting up TAK on your device, contact your TAK Portal Administrator.
+        </p>
+      {{/if}}
 
       <p style="margin:0; font-size:12px; color:#6b7280;">
-        This message is informational — no action is required.
+        If you do not recognize these changes or believe something is missing, please contact your TAK agency administrator so they can review your access.
       </p>
     </div>
 
     <div style="max-width:600px; margin:8px auto 0; text-align:center; font-size:11px; color:#9ca3af;">
-      This message was sent automatically by the TAK Portal. Please do not reply to this email.
+      This message was sent by the TAK Portal. Please do not reply to this email.
     </div>
   </div>
 </body>

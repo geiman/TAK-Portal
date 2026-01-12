@@ -11,7 +11,9 @@ All notable changes to this project will be documented in this file.  Minor qual
 ## Version History
 
 ### v1.1.30 - 1/11/26
-✨ `Enhancement` - Adds CloudTAK URL to settings and Setup My Device pages
+✨ `Enhancement` - Added CloudTAK URL to settings and Setup My Device pages <br>
+✨ `Enhancement` - Added setting variable to pass TAK Portal Public URL to email templates <br>
+✨ `Enhancement` - Updated email templates to default to the TAK Public URL, but fall back to contact TAK Portal Admin if variable isn't set
 
 ### v1.1.29 - 1/10/26
 🐛 `Bug Fix` - Fixes issue with Agency Templates not appearing in sidebar
