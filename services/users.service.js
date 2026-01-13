@@ -5,7 +5,6 @@ const templatesStore = require("./templates.service");
 const tak = require("./tak.service");
 const settingsSvc = require("./settings.service");
 
-
 function getHiddenUserPrefixes() {
   return String(getString("USERS_HIDDEN_PREFIXES", ""))
     .split(",")
@@ -121,6 +120,41 @@ function getTakPortalPublicUrl() {
   }
 }
 
+/**
+ * Build an HTML block for "TAK Portal" content.
+ * NOTE: This is used with {{{takPortalBlock}}} in templates so it must be valid HTML.
+ */
+function buildTakPortalBlock({
+  takPortalPublicUrl,
+  introHtml,
+  buttonText,
+  elseHtml,
+} = {}) {
+  const url = String(takPortalPublicUrl || "").trim();
+
+  if (url) {
+    const intro = String(introHtml || "").trim();
+    const btnText = String(buttonText || "Open TAK Portal").trim();
+
+    return `
+      ${intro ? `<p style="margin:0 0 12px; font-size:14px;">${intro}</p>` : ""}
+      <p style="margin:0 0 16px; font-size:14px;">
+        <a href="${url}"
+           style="display:inline-block; padding:9px 18px; background:#2563eb; color:#ffffff; text-decoration:none; border-radius:999px; font-size:14px; font-weight:500;"
+           target="_blank" rel="noopener noreferrer">
+          ${btnText}
+        </a>
+      </p>
+    `.trim();
+  }
+
+  const fallback = String(elseHtml || "").trim();
+  return `
+    <p style="margin:0 0 16px; font-size:14px;">
+      ${fallback}
+    </p>
+  `.trim();
+}
 
 /**
  * User-created email.
@@ -191,11 +225,30 @@ async function emailUserCreated({ user, groups, hasPassword }) {
   } catch (e) {
     // Never block email sending because of template lookup issues.
   }
-  
 
   const templateKey = hasPassword
     ? "user_created_password_set.html"
     : "user_created_no_password.html";
+
+  const takPortalPublicUrl = getTakPortalPublicUrl();
+
+  const takPortalBlock = hasPassword
+    ? buildTakPortalBlock({
+        takPortalPublicUrl,
+        introHtml:
+          "Use the TAK Portal to access device setup instructions, reset your password, or generate a QR code for faster sign-in on your mobile device.",
+        buttonText: "Open TAK Portal",
+        elseHtml:
+          "If you forget your password or need help setting up TAK on your device, contact your TAK Portal Administrator.",
+      })
+    : buildTakPortalBlock({
+        takPortalPublicUrl,
+        introHtml:
+          "Use the TAK Portal to set your password, access device setup instructions, or generate a QR code for faster sign-in on your mobile device.",
+        buttonText: "Open TAK Portal To Set Your Password",
+        elseHtml:
+          "To set your password or get help setting up TAK on your device, contact your TAK Portal Administrator.",
+      });
 
   const html = renderTemplate(templateKey, {
     displayName,
@@ -208,14 +261,14 @@ async function emailUserCreated({ user, groups, hasPassword }) {
     badgeNumber,
     agencyAbbreviation,
     agencyColor: agencyColorEffective,
-    takPortalPublicUrl: getTakPortalPublicUrl(),
+    takPortalPublicUrl, // keep available if any template uses it elsewhere
+    takPortalBlock,     // NEW: injected HTML block used by {{{takPortalBlock}}}
   });
 
   const text = htmlToText(html);
 
   await emailSvc.sendMail({ to, subject, text, html });
 }
-
 
 async function emailPasswordChanged(user) {
   const to = safeMailTo(user);
@@ -247,6 +300,17 @@ async function emailPasswordChanged(user) {
   const subject = "Password changed";
   const displayName = String(user?.name || "").trim() || "there";
   const { lastName, lastNameUpper, firstName } = parseName(displayName);
+
+  const takPortalPublicUrl = getTakPortalPublicUrl();
+  const takPortalBlock = buildTakPortalBlock({
+    takPortalPublicUrl,
+    introHtml:
+      "Use the TAK Portal to manage your password, access device setup instructions, or generate a QR code for faster sign-in on your mobile device.",
+    buttonText: "Open TAK Portal",
+    elseHtml:
+      "If you need to change your password or get help setting up TAK on your device, contact your TAK Portal Administrator.",
+  });
+
   const html = renderTemplate("password_changed.html", {
     displayName,
     lastName,
@@ -256,14 +320,14 @@ async function emailPasswordChanged(user) {
     badgeNumber,
     agencyAbbreviation,
     agencyColor,
-    takPortalPublicUrl: getTakPortalPublicUrl(),
+    takPortalPublicUrl,
+    takPortalBlock,
   });
 
   const text = htmlToText(html);
 
   await emailSvc.sendMail({ to, subject, text, html });
 }
-
 
 async function emailGroupsUpdated({ user, beforeIds, afterIds }) {
   const to = safeMailTo(user);
@@ -302,6 +366,17 @@ async function emailGroupsUpdated({ user, beforeIds, afterIds }) {
   const { lastName, lastNameUpper, firstName } = parseName(displayName);
   const beforeGroupsCsv = beforeNames.length ? beforeNames.join(", ") : "(none)";
   const afterGroupsCsv = afterNames.length ? afterNames.join(", ") : "(none)";
+
+  const takPortalPublicUrl = getTakPortalPublicUrl();
+  const takPortalBlock = buildTakPortalBlock({
+    takPortalPublicUrl,
+    introHtml:
+      "Use the TAK Portal to review your access, manage your account, follow device setup instructions, or generate a QR code for faster sign-in on your mobile device.",
+    buttonText: "Open TAK Portal",
+    elseHtml:
+      "If you need to review your access or get help setting up TAK on your device, contact your TAK Portal Administrator.",
+  });
+
   const html = renderTemplate("groups_updated.html", {
     displayName,
     lastName,
@@ -313,14 +388,14 @@ async function emailGroupsUpdated({ user, beforeIds, afterIds }) {
     badgeNumber,
     agencyAbbreviation,
     agencyColor,
-    takPortalPublicUrl: getTakPortalPublicUrl(),
+    takPortalPublicUrl,
+    takPortalBlock,
   });
 
   const text = htmlToText(html);
 
   await emailSvc.sendMail({ to, subject, text, html });
 }
-
 
 // --- Debounced "groups updated" email logic ---
 const GROUP_EMAIL_DEBOUNCE_MS = 3 * 60 * 1000;
@@ -563,8 +638,8 @@ async function createUser(
     const dynTemplates = getTemplatesForAgency(agency.suffix);
     const selectedTemplate = dynTemplates[tIdx - 1]; // subtract 1 because index 0 is manual
 
-if (selectedTemplate) {
-  templateNameUsed = String(selectedTemplate.name || "") || null;
+    if (selectedTemplate) {
+      templateNameUsed = String(selectedTemplate.name || "") || null;
 
       selectedGroups = (selectedTemplate.groups || [])
         .map(n =>
@@ -597,7 +672,6 @@ if (selectedTemplate) {
     attributes.created_by_display_name = String(createdBy.displayName);
   }
 
-
   // when / how / from which template
   attributes.created_at = createdAt;
   if (templateNameUsed) {
@@ -615,7 +689,7 @@ if (selectedTemplate) {
     attributes,
   };
 
-// Ensure created users land in the correct "folder" (path)
+  // Ensure created users land in the correct "folder" (path)
   const folderRaw = String(getString("AUTHENTIK_USER_PATH", "")).trim();
   if (folderRaw) payload.path = normalizePath(folderRaw);
 
@@ -669,8 +743,8 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
     ? opts.allowedAgencySuffixes.map((s) => String(s || "").trim().toLowerCase())
     : null;
 
-const createdBy = opts.createdBy || null;
-const creationMethod = opts.creationMethod || "csv";
+  const createdBy = opts.createdBy || null;
+  const creationMethod = opts.creationMethod || "csv";
 
   // Throttle progress callbacks to avoid taxing the system.
   let _lastProgressAt = 0;
@@ -843,7 +917,6 @@ const creationMethod = opts.creationMethod || "csv";
 
   reportProgress({ phase: "creating", total: rows.length, processed: 0, created: 0, skipped: 0, force: true });
 
-
   async function runWithConcurrencyLimit(items, limit, worker) {
     let index = 0;
     const workers = [];
@@ -952,6 +1025,7 @@ const creationMethod = opts.creationMethod || "csv";
   invalidateUsersCache();
   return { count: created.length, created, skipped };
 }
+
 // Search users
 // - If no q provided -> returns all users (already filtered by folder)
 async function findUsers({ q, forceRefresh = false } = {}) {
@@ -1051,8 +1125,6 @@ async function searchUsersPaged({ q, page = 1, pageSize = 50 } = {}) {
     hasPrev: Boolean(pagination.previous ?? data.previous),
   };
 }
-
-
 
 async function searchUsersByAgencyAbbreviationPaged({
   agencyAbbreviation,
@@ -1283,7 +1355,6 @@ async function removeUserGroups(userId, groupIds) {
   await setUserGroups(userId, remaining);
   return remaining;
 }
-
 
 let USERS_CACHE = null;
 let USERS_CACHE_TS = 0;

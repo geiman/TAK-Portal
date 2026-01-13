@@ -48,23 +48,7 @@
         </div>
       </div>
 
-      {{#if takPortalPublicUrl}}
-        <p style="margin:0 0 12px; font-size:14px;">
-          Use the TAK Portal to review your access, manage your account, follow device setup instructions, or generate a QR code for faster sign-in on your mobile device.
-        </p>
-
-        <p style="margin:0 0 16px; font-size:14px;">
-          <a href="{{takPortalPublicUrl}}"
-             style="display:inline-block; padding:9px 18px; background:#2563eb; color:#ffffff; text-decoration:none; border-radius:999px; font-size:14px; font-weight:500;"
-             target="_blank" rel="noopener noreferrer">
-            Open TAK Portal
-          </a>
-        </p>
-      {{else}}
-        <p style="margin:0 0 16px; font-size:14px;">
-          If you need to review your access or get help setting up TAK on your device, contact your TAK Portal Administrator.
-        </p>
-      {{/if}}
+      {{{takPortalBlock}}}
 
       <p style="margin:0; font-size:12px; color:#6b7280;">
         If you do not recognize these changes or believe something is missing, please contact your TAK agency administrator so they can review your access.
