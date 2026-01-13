@@ -174,7 +174,7 @@ async function emailUserCreated({ user, groups, hasPassword }) {
         .sort((a, b) => a.localeCompare(b))
     : [];
 
-  const subject = "Account created";
+  const subject = "TAK Account Created";
   const displayName = String(user?.name || "").trim() || "there";
   const { lastName, lastNameUpper, firstName } = parseName(displayName);
   const groupsCsv = groupNames.length ? groupNames.join(", ") : "(none)";
@@ -297,7 +297,7 @@ async function emailPasswordChanged(user) {
       ""
     );
 
-  const subject = "Password changed";
+  const subject = "TAK Password Updated";
   const displayName = String(user?.name || "").trim() || "there";
   const { lastName, lastNameUpper, firstName } = parseName(displayName);
 
@@ -361,7 +361,7 @@ async function emailGroupsUpdated({ user, beforeIds, afterIds }) {
       ""
     );
 
-  const subject = "Groups updated";
+  const subject = "TAK Groups Updated";
   const displayName = String(user?.name || "").trim() || "there";
   const { lastName, lastNameUpper, firstName } = parseName(displayName);
   const beforeGroupsCsv = beforeNames.length ? beforeNames.join(", ") : "(none)";
