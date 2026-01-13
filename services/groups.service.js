@@ -2,6 +2,7 @@ const { getString } = require("./env");
 const api = require("./authentik");
 const usersService = require("./users.service");
 const templatesStore = require("./templates.service");
+const accessSvc = require("./access.service");
 
 // ---------------- Action-lock helpers ----------------
 // If a group name starts with any prefix in GROUPS_ACTIONS_HIDDEN_PREFIXES,
@@ -47,6 +48,29 @@ function normalizeId(x) {
 function normalizeIdList(value) {
   if (!Array.isArray(value)) return [];
   return value.map(v => String(v).trim()).filter(Boolean);
+}
+
+function applyUserVisibilityFilters(users) {
+  let out = Array.isArray(users) ? users : [];
+
+  // Hide users by username prefix for group-related views (USERS_HIDDEN_PREFIXES)
+  const hiddenPrefixes = getHiddenUserPrefixes();
+  if (hiddenPrefixes.length) {
+    out = out.filter(u => {
+      const username = String(u?.username || "").trim().toLowerCase();
+      return !hiddenPrefixes.some(p => username.startsWith(p));
+    });
+  }
+
+  // Respect AUTHENTIK_USER_PATH if set
+  const folderRaw = String(getString("AUTHENTIK_USER_PATH", "")).trim();
+  if (!folderRaw) return out;
+
+  const target = normalizePath(folderRaw);
+  return out.filter(u => {
+    const up = normalizePath(u.path);
+    return up === target || up.startsWith(target + "/");
+  });
 }
 
 // ---------------- Authentik API helpers (groups) ----------------
@@ -119,24 +143,45 @@ async function getAllUsersRaw() {
     }
   }
 
-  // Hide users by username prefix for group-related views (USERS_HIDDEN_PREFIXES)
-  const hiddenPrefixes = getHiddenUserPrefixes();
-  if (hiddenPrefixes.length) {
-    users = users.filter(u => {
-      const username = String(u?.username || "").trim().toLowerCase();
-      return !hiddenPrefixes.some(p => username.startsWith(p));
-    });
+  return applyUserVisibilityFilters(users);
+}
+
+// Fetch all users who are members of a single group via Authentik filtering.
+// This avoids downloading the full user list and filtering in Node.
+async function getUsersByGroupIdRaw({ groupId, agencyAbbreviation } = {}) {
+  const gid = normalizeId(groupId);
+  if (!gid) throw new Error("Group id is required");
+
+  let users = [];
+  const pageSize = 200;
+  let page = 1;
+
+  // Use server-side filters:
+  // - groups_by_pk=<uuid>
+  // - optionally attributes__agency_abbreviation=<abbr>
+  // Also reduce payload size (no embedded groups/roles).
+  const abbr = String(agencyAbbreviation || "").trim();
+  const abbrParam = abbr ? `&attributes__agency_abbreviation=${encodeURIComponent(abbr)}` : "";
+  let url = `/core/users/?page=${page}&page_size=${pageSize}&groups_by_pk=${encodeURIComponent(gid)}&include_groups=false&include_roles=false${abbrParam}`;
+
+  while (url) {
+    const res = await api.get(url);
+    const data = res?.data || {};
+    const results = Array.isArray(data.results) ? data.results : [];
+    users = users.concat(results);
+
+    const pagination = data.pagination || {};
+    if (pagination && pagination.next) {
+      page = pagination.next;
+      url = `/core/users/?page=${page}&page_size=${pageSize}&groups_by_pk=${encodeURIComponent(gid)}&include_groups=false&include_roles=false${abbrParam}`;
+    } else if (data.next) {
+      url = data.next.replace(`${getString("AUTHENTIK_URL", "")}/api/v3`, "");
+    } else {
+      url = null;
+    }
   }
 
-  // Respect AUTHENTIK_USER_PATH if set
-  const folderRaw = String(getString("AUTHENTIK_USER_PATH", "")).trim();
-  if (!folderRaw) return users;
-
-  const target = normalizePath(folderRaw);
-  return users.filter(u => {
-    const up = normalizePath(u.path);
-    return up === target || up.startsWith(target + "/");
-  });
+  return applyUserVisibilityFilters(users);
 }
 
 // ---------------- Group CRUD ----------------
@@ -457,15 +502,25 @@ async function massAssignUsersToGroup({ groupId, suffixes, sourceGroupIds, userI
 }
 
 // Fetch all members of a single group (lightweight projection)
-async function getGroupMembers(groupId) {
+async function getGroupMembers(groupId, { authUser, agencyAbbreviation } = {}) {
   const gid = normalizeId(groupId);
   if (!gid) throw new Error("Group id is required");
 
-  const users = await getAllUsers();
-  const members = users.filter((u) => {
-    const gs = Array.isArray(u.groups) ? u.groups.map((x) => String(x)) : [];
-    return gs.includes(gid);
+  // Try the fast path: server-side filter by group membership
+  // and (for agency admins) by agency_abbreviation.
+  let members = await getUsersByGroupIdRaw({
+    groupId: gid,
+    agencyAbbreviation,
   });
+
+  // Safety: for agency admins, ensure they don't see users outside of allowed agencies.
+  // (This preserves existing behavior even if attributes are missing/misconfigured.)
+  const access = accessSvc.getAgencyAccess(authUser || null);
+  if (!access.isGlobalAdmin) {
+    members = members.filter((u) =>
+      accessSvc.isUsernameInAllowedAgencies(authUser || null, u?.username)
+    );
+  }
 
   return members.map((u) => ({
     pk: u.pk,
