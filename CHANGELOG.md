@@ -10,6 +10,11 @@ All notable changes to this project will be documented in this file.  Minor qual
 
 ## Version History
 
+### v1.1.36 - 1/12/26
+🐛 `Bug Fix` - Fixes issue with incorrect email conditional formatting <br>
+🐛 `Bug Fix` - Fixes issue with incorrect settings format for SMTP `From` Address.  All existing users should remove the quotes around the text in that field <br>
+✨ `Enhancement` - Email formatting cleaned up and optimized for readability
+
 ### v1.1.35 - 1/12/26
 ⬆️ `Dependency` - Updated DockerFile to manage certificates for SMTP
 
