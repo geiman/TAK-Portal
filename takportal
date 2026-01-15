@@ -67,7 +67,7 @@ case "$CMD" in
   restart)
     echo "Restarting..."
     $COMPOSE_CMD down
-    $COMPOSE_CMD up -d --build
+    $COMPOSE_CMD up -d
     ;;
 
   update)
