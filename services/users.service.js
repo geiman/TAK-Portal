@@ -136,25 +136,62 @@ function buildTakPortalBlock({
     const intro = String(introHtml || "").trim();
     const btnText = String(buttonText || "Open TAK Portal").trim();
 
+    // Button sizing
+    const btnPadV = 12;   // vertical padding
+    const btnPadH = 22;   // horizontal padding
+    const btnRadius = 8;  // modern but still professional
+    const btnBg = "#2563eb";
+    const btnTextColor = "#ffffff";
+
     return `
-      ${intro ? `<p style="margin:0 0 12px; font-size:14px;">${intro}</p>` : ""}
-      <p style="margin:0 0 16px; font-size:14px;">
-        <a href="${url}"
-           style="display:inline-block; padding:9px 18px; background:#2563eb; color:#ffffff; text-decoration:none; border-radius:999px; font-size:14px; font-weight:500;"
-           target="_blank" rel="noopener noreferrer">
-          ${btnText}
-        </a>
-      </p>
+      ${intro ? `<p style="margin:0 0 12px; font-size:14px; line-height:21px;">${intro}</p>` : ""}
+
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 16px;">
+        <tr>
+          <td align="center">
+
+            <!--[if mso]>
+            <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml"
+              href="${url}"
+              style="height:${btnPadV * 2 + 16}px; v-text-anchor:middle; width:320px;"
+              arcsize="${Math.round((btnRadius / 40) * 100)}%"
+              stroke="f"
+              fillcolor="${btnBg}">
+              <w:anchorlock/>
+              <center style="color:${btnTextColor}; font-family:Segoe UI, Arial, sans-serif; font-size:14px; font-weight:700;">
+                ${btnText}
+              </center>
+            </v:roundrect>
+            <![endif]-->
+
+            <!--[if !mso]><!-- -->
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+              <tr>
+                <td bgcolor="${btnBg}" style="border-radius:${btnRadius}px;">
+                  <a href="${url}" target="_blank" rel="noopener noreferrer"
+                     style="display:inline-block; padding:${btnPadV}px ${btnPadH}px; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+                            font-size:14px; line-height:16px; font-weight:700; color:${btnTextColor}; text-decoration:none; border-radius:${btnRadius}px;">
+                    ${btnText}
+                  </a>
+                </td>
+              </tr>
+            </table>
+            <!--<![endif]-->
+
+          </td>
+        </tr>
+      </table>
     `.trim();
   }
 
   const fallback = String(elseHtml || "").trim();
   return `
-    <p style="margin:0 0 16px; font-size:14px;">
+    <p style="margin:0 0 16px; font-size:14px; line-height:21px;">
       ${fallback}
     </p>
   `.trim();
 }
+
 
 /**
  * User-created email.
