@@ -40,7 +40,9 @@
           <th class="sortable" data-key="email">
             Email <span class="sortIndicator" aria-hidden="true"></span>
           </th>
-          <th>Role</th>
+          <th class="sortable" data-key="role">
+            Role <span class="sortIndicator" aria-hidden="true"></span>
+          </th>
           <th class="sortable" data-key="status">
             Status <span class="sortIndicator" aria-hidden="true"></span>
           </th>
@@ -540,6 +542,7 @@ function getSortValue(user, key){
   if (key === "username") return normalizeSortValue(user.username);
   if (key === "email") return normalizeSortValue(user.email);
   if (key === "name") return normalizeSortValue(lastNameForSort(user.name));
+  if (key === "role") return normalizeSortValue(user.__role);
   if (key === "status") return user.is_active ? "enabled" : "disabled";
 
   return "";
@@ -713,13 +716,13 @@ function getAgencyAdminGroupNameForUser(user){
   return `authentik-${String(abbr).trim().toUpperCase()}-AgencyAdmin`;
 }
 
-// Cache agency admin group ids per abbreviation so we can show a Role column in the results table
+// Cache agency admin group ids per abbreviation so we can show/sort the Role column in the results table
 const agencyAdminGroupIdByAbbr = new Map();
 
 async function ensureAgencyAdminIdsForUsers(users){
   const uniq = new Set();
   (users || []).forEach(u => {
-    const abbr = String(getUserAgencyAbbreviation(u) || '').trim().toUpperCase();
+    const abbr = String(getUserAgencyAbbreviation(u) || "").trim().toUpperCase();
     if (abbr) uniq.add(abbr);
   });
 
@@ -732,10 +735,10 @@ async function ensureAgencyAdminIdsForUsers(users){
 }
 
 function roleForUser(user){
-  const abbr = String(getUserAgencyAbbreviation(user) || '').trim().toUpperCase();
+  const abbr = String(getUserAgencyAbbreviation(user) || "").trim().toUpperCase();
   const adminId = abbr ? agencyAdminGroupIdByAbbr.get(abbr) : null;
   const groups = Array.isArray(user && user.groups) ? user.groups.map(x => String(x)) : [];
-  return (adminId && groups.includes(String(adminId))) ? 'Admin' : 'User';
+  return (adminId && groups.includes(String(adminId))) ? "Admin" : "User";
 }
 
 async function loadGroups(){
@@ -788,6 +791,7 @@ async function applyGroupChange(groupId, shouldBeMember){
 
   // Update role label (User/Admin) based on groups
   selectedUser.__role = roleForUser(selectedUser);
+
   renderGroupChips(selectedUser);
 
   const patch = (u) => String(u.pk) === String(selectedUser.pk)
@@ -1031,11 +1035,14 @@ if (applyPermissionsBtn) applyPermissionsBtn.addEventListener("click", async () 
   pickedGroupIds = new Set((newGroups || []).map(x => String(x)));
 
   selectedUser.__role = roleForUser(selectedUser);
+
   renderGroupChips(selectedUser);
   renderGroupsBox();
 
   const patch = (u) =>
-    String(u.pk) === String(selectedUser.pk) ? { ...u, groups: selectedUser.groups, __role: selectedUser.__role } : u;
+    String(u.pk) === String(selectedUser.pk)
+      ? { ...u, groups: selectedUser.groups, __role: selectedUser.__role }
+      : u;
   allUsers = (allUsers || []).map(patch);
   const updatedVisible = (window.__lastUsers || []).map(patch);
   applySortAndRender(updatedVisible);
@@ -1425,6 +1432,7 @@ if (applyTemplateBtn) applyTemplateBtn.addEventListener("click", async () => {
   pickedGroupIds = new Set(applied.map(x => String(x)));
 
   selectedUser.__role = roleForUser(selectedUser);
+
   renderGroupChips(selectedUser);
   renderGroupsBox();
 
@@ -1467,7 +1475,7 @@ async function loadAllUsers(){
   currentPageUsers = users.slice();
   allUsers = users.slice();
 
-  // Compute per-row role (User/Admin) for the results table
+  // Compute per-row role (User/Admin) for the results table (needed for display + sorting)
   await ensureAgencyAdminIdsForUsers(users);
   currentPageUsers = currentPageUsers.map(u => ({ ...u, __role: roleForUser(u) }));
   allUsers = allUsers.map(u => ({ ...u, __role: roleForUser(u) }));
