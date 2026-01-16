@@ -773,7 +773,12 @@ async function applyGroupChange(groupId, shouldBeMember){
 }
 
 function renderGroupsBox(){
-  const allGroupsArray = Array.from(groupIndex.entries()).map(([id,name]) => ({id,name}));
+  // Only show "known/portal-visible" groups in the checkbox grid.
+  // We may inject hidden/internal groups into groupIndex so we can render their names
+  // in the "Current Groups" chips, but we don't want admins toggling them here.
+  const allGroupsArray = Array.from(groupIndex.entries())
+    .map(([id,name]) => ({id: String(id), name}))
+    .filter(g => visibleGroupIds.has(String(g.id)));
 
   const filterText = groupFilter.value.trim().toLowerCase();
   const filteredGroups = filterText
@@ -807,7 +812,7 @@ function renderGroupsBox(){
 groupFilter.addEventListener("input", ()=>renderGroupsBox());
 
 if (selectAllBtn) selectAllBtn.addEventListener("click", function() {
-  pickedGroupIds = new Set(Array.from(groupIndex.keys()));
+  pickedGroupIds = new Set(Array.from(visibleGroupIds));
   renderGroupsBox();
 });
 
