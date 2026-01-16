@@ -1,10 +1,13 @@
 // services/access.service.js
 // Centralized helper for per-agency access rules.
-// Agency admin rights are defined *only* on the Agencies page:
-// each agency may declare one or more "admin groups". Any Authentik
-// user who is a member of one of those groups is treated as an
-// "agency admin" for that agency. Global admins still come from
-// PORTAL_AUTH_REQUIRED_GROUP via portalAuth.middleware.
+//
+// Agency admin rights are derived from Authentik group membership.
+// For each agency we compute the expected admin group name:
+//   authentik-<AGENCY_ABBREVIATION>-AgencyAdmin
+//
+// NOTE: For backwards compatibility, we *also* support the legacy
+// `adminGroups` field that may still exist in agencies.json.
+// Global admins still come from PORTAL_AUTH_REQUIRED_GROUP via portalAuth.middleware.
 
 const agenciesStore = require("./agencies.service");
 
@@ -18,6 +21,12 @@ function normalizeGroupList(raw) {
     .split(/[;,]/)
     .map((g) => String(g || "").trim().toLowerCase())
     .filter(Boolean);
+}
+
+function getAgencyAdminGroupName(agency) {
+  const abbr = String(agency?.groupPrefix || "").trim().toUpperCase();
+  if (!abbr) return null;
+  return `authentik-${abbr}-AgencyAdmin`;
 }
 
 /**
@@ -38,13 +47,22 @@ function getAllowedAgencySuffixesForGroups(userGroups) {
   const allowed = new Set();
 
   for (const agency of agencies) {
+    // Legacy (manual) admin groups stored in agencies.json
     const rawAdmin =
       agency.adminGroups != null ? agency.adminGroups : agency.adminGroup;
-    const adminList = normalizeGroupList(rawAdmin);
+    const legacyAdminList = normalizeGroupList(rawAdmin);
 
-    if (!adminList.length) continue;
+    // New (computed) admin group name
+    const computed = getAgencyAdminGroupName(agency);
+    const computedLower = computed ? computed.toLowerCase() : null;
 
-    const hasAny = adminList.some((needed) => groupsLower.includes(needed));
+    const neededGroups = [];
+    if (computedLower) neededGroups.push(computedLower);
+    if (legacyAdminList.length) neededGroups.push(...legacyAdminList);
+
+    if (!neededGroups.length) continue;
+
+    const hasAny = neededGroups.some((needed) => groupsLower.includes(needed));
     if (!hasAny) continue;
 
     const sfx = normalizeSuffix(agency.suffix);
@@ -62,6 +80,10 @@ function getAllowedAgencySuffixesForGroups(userGroups) {
 function hasAnyAgencyAdminsConfigured() {
   const agencies = agenciesStore.load();
   return agencies.some((agency) => {
+    const computed = getAgencyAdminGroupName(agency);
+    if (computed) return true;
+
+    // Legacy support
     const rawAdmin =
       agency.adminGroups != null ? agency.adminGroups : agency.adminGroup;
     const list = normalizeGroupList(rawAdmin);
@@ -254,6 +276,7 @@ function filterGroupsForUser(authUser, groups) {
 module.exports = {
   normalizeSuffix,
   normalizeGroupList,
+  getAgencyAdminGroupName,
   getAllowedAgencySuffixesForGroups,
   hasAnyAgencyAdminsConfigured,
   getAgencyAccess,

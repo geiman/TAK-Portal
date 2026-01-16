@@ -74,13 +74,6 @@
         </select>
       </label>
       
-      <!-- 7) Agency admin groups -->
-      <label>Agency Admin Groups
-        <input
-          name="adminGroups"
-          placeholder="Authentik Admin Group"
-        />
-      </label>
       <label> <br>
       <button class="btn">Create Agency</button></label>
     </form>
@@ -101,7 +94,7 @@
           <th data-sort="county" role="button" tabindex="0" title="Sort by County">County</th>
           <th data-sort="type" role="button" tabindex="0" title="Sort by Type">Type</th>
           <th data-sort="color" role="button" tabindex="0" title="Sort by Color">Color</th>
-          <th>Admin Groups</th>
+          <th>Admin Group</th>
           <th>Actions</th>
         </tr>
       </thead>
@@ -110,12 +103,48 @@
   </div>
 </main>
 
+<!-- Agency Admins Modal (same behavior as Groups -> View Members) -->
+<div class="modalOverlay" id="adminsOverlay" style="display:none;">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="adminsTitle">
+    <div class="modalHeader">
+      <h2 id="adminsTitle" style="margin:0;">Agency Admins</h2>
+      <button class="btn" id="adminsCloseBtn" type="button">Close</button>
+    </div>
+    <div class="modalBody">
+      <div id="adminsSummary" class="msg"></div>
+
+      <div style="margin-top:14px;">
+        <input
+          id="adminsFilter"
+          placeholder="Filter by username, name, or email..."
+          style="width: 100%; box-sizing: border-box;"
+        />
+      </div>
+
+      <div
+        id="adminsList"
+        class="groupsBox"
+        style="margin-top:10px; max-height: 320px; overflow:auto;"
+      ></div>
+      <small id="adminsHint" class="muted"></small>
+    </div>
+  </div>
+</div>
+
 <script>
 const msg = document.getElementById("msg");
 const tbody = document.getElementById("tbody");
 const addForm = document.getElementById("addForm");
 const refreshBtn = document.getElementById("refreshBtn");
 const agencyTable = document.getElementById("agencyTable");
+
+// Admins modal (mirrors Groups page View Members)
+const adminsOverlay = document.getElementById("adminsOverlay");
+const adminsCloseBtn = document.getElementById("adminsCloseBtn");
+const adminsSummary = document.getElementById("adminsSummary");
+const adminsFilter = document.getElementById("adminsFilter");
+const adminsList = document.getElementById("adminsList");
+const adminsHint = document.getElementById("adminsHint");
 
 let agencies = [];
 let sortState = { key: "name", dir: 1 }; // default: Agency asc
@@ -136,6 +165,85 @@ function normalizeVal(v){
   if (v === null || v === undefined) return "";
   return String(v).toLowerCase().trim();
 }
+
+function adminGroupNameForAgency(a){
+  const abbr = String(a?.groupPrefix || "").trim().toUpperCase();
+  if(!abbr) return "";
+  return `authentik-${abbr}-AgencyAdmin`;
+}
+
+// ---- Admin modal behavior (copy of Groups -> View Members) ----
+let activeAdmins = [];
+let activeAdminsGroupId = "";
+let activeAdminsGroupName = "";
+
+function showAdminsModal(on){
+  if(!adminsOverlay) return;
+  adminsOverlay.style.display = on ? "flex" : "none";
+  document.body.style.overflow = on ? "hidden" : "";
+}
+
+function escAttr(s){
+  return String(s ?? "")
+    .replaceAll("&","&amp;")
+    .replaceAll("<","&lt;")
+    .replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;")
+    .replaceAll("'","&#39;");
+}
+
+function memberRow(u){
+  const username = String(u?.username || "");
+  const name = String(u?.name || u?.displayName || "");
+  const email = String(u?.email || "");
+  const pk = String(u?.pk || u?.id || "");
+  const canRemove = !!(activeAdminsGroupId && pk);
+  return `
+    <tr>
+      <td>${escAttr(username)}</td>
+      <td>${escAttr(name)}</td>
+      <td>${escAttr(email)}</td>
+      <td style="text-align:right;">
+        ${canRemove ? `<button class="btn danger" type="button" onclick="removeUserFromAdminsGroup('${escAttr(pk)}')">Remove</button>` : ``}
+      </td>
+    </tr>
+  `;
+}
+
+function renderAdminsList(){
+  const needle = String(adminsFilter?.value || "").trim().toLowerCase();
+  const filtered = needle
+    ? (activeAdmins || []).filter(u => {
+        const u1 = String(u?.username || "").toLowerCase();
+        const u2 = String(u?.name || u?.displayName || "").toLowerCase();
+        const u3 = String(u?.email || "").toLowerCase();
+        return u1.includes(needle) || u2.includes(needle) || u3.includes(needle);
+      })
+    : (activeAdmins || []);
+
+  const rowsHtml = filtered.map(memberRow).join("");
+  adminsList.innerHTML = `
+    <table class="table" style="margin:0;">
+      <thead>
+        <tr>
+          <th>Username</th>
+          <th>Name</th>
+          <th>Email</th>
+          <th style="text-align:right;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rowsHtml || `<tr><td colspan="4" class="muted">No users found.</td></tr>`}
+      </tbody>
+    </table>
+  `;
+}
+
+if (adminsCloseBtn) adminsCloseBtn.onclick = () => showAdminsModal(false);
+if (adminsOverlay) adminsOverlay.addEventListener("click", (e) => {
+  if (e.target === adminsOverlay) showAdminsModal(false);
+});
+if (adminsFilter) adminsFilter.oninput = renderAdminsList;
 
 function renderAgencies(){
   // apply sort (copy to avoid mutating original order if you later want it)
@@ -176,13 +284,110 @@ function renderAgencies(){
       <td>${esc(a.county)}</td>
       <td>${esc(a.type)}</td>
       <td>${esc(a.color || "")}</td>
-      <td>${esc(a.adminGroups || "")}</td>
+      <td>${esc(adminGroupNameForAgency(a))}</td>
       <td>
-        <button class="btn danger" onclick="delAgency('${esc(a._id ?? a.id ?? "")}')">Delete</button>
+        <button class="btn" type="button" onclick="openAgencyAdmins('${esc(a._id ?? a.id ?? "")}')">View Admins</button>
+        <button class="btn danger" type="button" onclick="delAgency('${esc(a._id ?? a.id ?? "")}')">Delete</button>
       </td>
     </tr>
   `).join("");
 }
+
+// Open admins modal for the agency's computed admin group.
+window.openAgencyAdmins = async (agencyId) => {
+  const a = (agencies || []).find(x => String(x._id ?? x.id) === String(agencyId));
+  if(!a){
+    setMsg("Could not find agency.", false);
+    return;
+  }
+
+  const groupName = adminGroupNameForAgency(a);
+  if(!groupName){
+    setMsg("Agency abbreviation is missing; cannot determine admin group.", false);
+    return;
+  }
+
+  activeAdminsGroupName = groupName;
+  activeAdminsGroupId = "";
+  activeAdmins = [];
+
+  adminsSummary.textContent = `Loading admins for "${groupName}"...`;
+  adminsSummary.className = "msg";
+  adminsList.innerHTML = "";
+  adminsHint.textContent = "";
+  if (adminsFilter) adminsFilter.value = "";
+
+  showAdminsModal(true);
+
+  try {
+    // Find the group (same strategy as Groups page, but by name)
+    const gRes = await fetch("/api/groups");
+    const gOut = await gRes.json();
+    if(!gRes.ok) throw new Error(gOut.error || "Failed to load groups");
+
+    const allGroups = Array.isArray(gOut) ? gOut : [];
+    const g = allGroups.find(x => String(x?.name || "").trim().toLowerCase() === groupName.toLowerCase());
+    if(!g || !g.pk){
+      adminsSummary.textContent = `Admin group "${groupName}" was not found in Authentik.`;
+      adminsSummary.className = "msg bad";
+      adminsHint.textContent = "If this agency was created before the new auto-create behavior, create this group in Authentik or re-save the agency.";
+      return;
+    }
+
+    activeAdminsGroupId = String(g.pk);
+
+    const res = await fetch(`/api/groups/${encodeURIComponent(activeAdminsGroupId)}/members`);
+    const out = await res.json();
+    if(!res.ok) throw new Error(out.error || "Failed to load admins");
+
+    activeAdmins = Array.isArray(out.users) ? out.users : [];
+    const memberCount = typeof out.memberCount === "number" ? out.memberCount : activeAdmins.length;
+
+    adminsSummary.textContent = `${memberCount} admin${memberCount === 1 ? "" : "s"} in group "${groupName}".`;
+    adminsSummary.className = "msg ok";
+    adminsHint.textContent = memberCount
+      ? "Showing current admins for this agency. Use Remove to strip admin access from individual users."
+      : "No users are currently assigned to this agency admin group.";
+
+    renderAdminsList();
+  } catch (e) {
+    adminsSummary.textContent = "Failed to load admins.";
+    adminsSummary.className = "msg bad";
+    adminsList.innerHTML = "";
+    adminsHint.textContent = "";
+    activeAdmins = [];
+  }
+};
+
+window.removeUserFromAdminsGroup = async (userPk) => {
+  if(!activeAdminsGroupId) return;
+
+  if(!confirm(`Remove this user from "${activeAdminsGroupName || activeAdminsGroupId}"?`)) return;
+
+  try {
+    const res = await fetch("/api/groups/mass-unassign", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({
+        groupId: activeAdminsGroupId,
+        userIds: [String(userPk)]
+      })
+    });
+    const out = await res.json();
+    if(!res.ok){
+      alert(out.error || "Failed to remove user from admin group.");
+      return;
+    }
+
+    // Optimistically update local list
+    activeAdmins = (activeAdmins || []).filter(u => String(u?.pk || u?.id) !== String(userPk));
+    adminsSummary.textContent = `${activeAdmins.length} admin${activeAdmins.length === 1 ? "" : "s"} in group "${activeAdminsGroupName || activeAdminsGroupId}".`;
+    adminsSummary.className = "msg ok";
+    renderAdminsList();
+  } catch (e) {
+    alert("Failed to remove user from admin group.");
+  }
+};
 
 async function loadAgenciesWithCounts(){
   const res = await fetch("/api/agencies/with-counts");

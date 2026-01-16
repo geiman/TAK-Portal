@@ -2,6 +2,40 @@ const router = require("express").Router();
 const store = require("../services/agencies.service");
 const accessSvc = require("../services/access.service");
 const usersService = require("../services/users.service");
+const groupsService = require("../services/groups.service");
+
+function getAgencyAdminGroupName(groupPrefix) {
+  const abbr = String(groupPrefix || "").trim().toUpperCase();
+  if (!abbr) return null;
+  return `authentik-${abbr}-AgencyAdmin`;
+}
+
+async function ensureAgencyAdminGroupExists(agency) {
+  const name = getAgencyAdminGroupName(agency?.groupPrefix);
+  if (!name) throw new Error("Agency abbreviation (groupPrefix) is required");
+
+  // Create (idempotent-ish): if the group already exists, Authentik will reject.
+  // We treat "already exists" as success.
+  const attributes = {
+    created_at: new Date().toISOString(),
+    created_type: "Agency",
+    created_type_detail: String(agency?.name || agency?.groupPrefix || "").trim() || null,
+    description: `Agency admin group for ${String(agency?.name || agency?.groupPrefix || "").trim()}`,
+  };
+
+  try {
+    await groupsService.createGroup(name, { attributes });
+    return { created: true, name };
+  } catch (err) {
+    const msg = String(err?.response?.data?.detail || err?.response?.data || err?.message || "");
+    // Common Authentik duplicate patterns include "unique" / "already exists".
+    const lower = msg.toLowerCase();
+    if (lower.includes("already") || lower.includes("exists") || lower.includes("unique")) {
+      return { created: false, name };
+    }
+    throw err;
+  }
+}
 
 function normalizeAgency(a) {
   return {
@@ -11,9 +45,6 @@ function normalizeAgency(a) {
     suffix: String(a.suffix || "").trim().toLowerCase(),
     groupPrefix: String(a.groupPrefix || "").trim().toUpperCase(),
     color: String(a.color || "").trim(),
-    // Comma/semicolon separated list of Authentik groups that
-    // should be treated as admins for this agency.
-    adminGroups: String(a.adminGroups || "").trim(),
   };
 }
 
@@ -49,7 +80,7 @@ router.get("/with-counts", async (req, res) => {
   }
 });
 
-router.post("/", (req, res) => {
+router.post("/", async (req, res) => {
   const agencies = store.load();
   const a = normalizeAgency(req.body || {});
 
@@ -60,12 +91,21 @@ router.post("/", (req, res) => {
     return res.status(400).json({ error: "Suffix already exists" });
   }
 
+  try {
+    // Ensure the agency admin group exists in Authentik.
+    await ensureAgencyAdminGroupExists(a);
+  } catch (err) {
+    return res.status(400).json({
+      error: err?.response?.data || err?.message || "Failed to create agency admin group",
+    });
+  }
+
   agencies.push(a);
   store.save(agencies);
   res.json({ success: true });
 });
 
-router.put("/:index", (req, res) => {
+router.put("/:index", async (req, res) => {
   const idx = Number(req.params.index);
   const agencies = store.load();
   if (!Number.isInteger(idx) || !agencies[idx]) return res.status(404).json({ error: "Not found" });
@@ -79,6 +119,15 @@ router.put("/:index", (req, res) => {
     i !== idx && String(x.suffix || "").toLowerCase() === a.suffix
   )) {
     return res.status(400).json({ error: "Suffix already exists" });
+  }
+
+  try {
+    // If the abbreviation changed (or group is missing), create the new admin group.
+    await ensureAgencyAdminGroupExists(a);
+  } catch (err) {
+    return res.status(400).json({
+      error: err?.response?.data || err?.message || "Failed to ensure agency admin group",
+    });
   }
 
   agencies[idx] = a;
