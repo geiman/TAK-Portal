@@ -43,6 +43,9 @@
           <th class="sortable" data-key="status">
             Status <span class="sortIndicator" aria-hidden="true"></span>
           </th>
+          <th class="sortable" data-key="status">
+            Status <span class="sortIndicator" aria-hidden="true"></span>
+          </th>
           <th>Actions</th>
         </tr>
       </thead>
@@ -591,6 +594,7 @@ function renderResults(users){
         <td>${escapeHtml(u.username)}</td>
         <td>${escapeHtml(u.name || "")}</td>
         <td>${escapeHtml(u.email || "")}</td>
+        <td><span class="chip">${getUserRoleLabel(u)}</span></td>
         <td>${u.is_active ? "Enabled" : "Disabled"}</td>
         <td>
           ${locked ? `<span class="muted">Actions Hidden</span>` : `
@@ -705,6 +709,23 @@ function getAgencyAdminGroupNameForUser(user){
   const abbr = getUserAgencyAbbreviation(user);
   if (!abbr) return null;
   return `authentik-${String(abbr).trim().toUpperCase()}-AgencyAdmin`;
+}
+
+function getUserRoleLabel(user){
+  if (!user || !Array.isArray(user.groups)) return "User";
+
+  const adminGroupName = getAgencyAdminGroupNameForUser(user);
+  if (!adminGroupName) return "User";
+
+  const hasAdmin = user.groups.some(gid => {
+    const name = groupIndex.get(String(gid));
+    return (
+      name &&
+      String(name).trim().toLowerCase() === adminGroupName.toLowerCase()
+    );
+  });
+
+  return hasAdmin ? "Agency Admin" : "User";
 }
 
 async function loadGroups(){
