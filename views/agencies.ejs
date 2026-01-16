@@ -94,7 +94,6 @@
           <th data-sort="county" role="button" tabindex="0" title="Sort by County">County</th>
           <th data-sort="type" role="button" tabindex="0" title="Sort by Type">Type</th>
           <th data-sort="color" role="button" tabindex="0" title="Sort by Color">Color</th>
-          <th>Admin Group</th>
           <th>Actions</th>
         </tr>
       </thead>
@@ -284,7 +283,6 @@ function renderAgencies(){
       <td>${esc(a.county)}</td>
       <td>${esc(a.type)}</td>
       <td>${esc(a.color || "")}</td>
-      <td>${esc(adminGroupNameForAgency(a))}</td>
       <td>
         <button class="btn" type="button" onclick="openAgencyAdmins('${esc(a._id ?? a.id ?? "")}')">View Admins</button>
         <button class="btn danger" type="button" onclick="delAgency('${esc(a._id ?? a.id ?? "")}')">Delete</button>
@@ -320,13 +318,12 @@ window.openAgencyAdmins = async (agencyId) => {
   showAdminsModal(true);
 
   try {
-    // Find the group (same strategy as Groups page, but by name)
-    const gRes = await fetch("/api/groups");
+    // Resolve group via agencies API (unfiltered; bypasses GROUPS_HIDDEN_PREFIXES)
+    const gRes = await fetch(`/api/agencies/${encodeURIComponent(String(a._id ?? a.id ?? ""))}/admin-group`);
     const gOut = await gRes.json();
-    if(!gRes.ok) throw new Error(gOut.error || "Failed to load groups");
+    if(!gRes.ok) throw new Error(gOut.error || "Failed to resolve admin group");
 
-    const allGroups = Array.isArray(gOut) ? gOut : [];
-    const g = allGroups.find(x => String(x?.name || "").trim().toLowerCase() === groupName.toLowerCase());
+    const g = gOut?.group;
     if(!g || !g.pk){
       adminsSummary.textContent = `Admin group "${groupName}" was not found in Authentik.`;
       adminsSummary.className = "msg bad";
