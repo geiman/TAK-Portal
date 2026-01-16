@@ -12,7 +12,7 @@ All notable changes to this project will be documented in this file.  Minor qual
 
 ### v1.1.42 - 1/16/26
 ✨ `Enhancement` - Adds "Role" to manage users columns <br>
-✨ `Enhancement` - Allows for reordering / deleting / adding bookmarks
+✨ `Enhancement` - Allows for reordering / deleting / adding bookmarks<br>
 🐛 `Bug Fix` - Fixes issue with using a template and accidentally overwriting a user's agency admin group <br>
 🐛 `Bug Fix` - Fixes issue with agency admin groups not appearing properly in the groups list <br>
 🐛 `Bug Fix` - Fixes issue with incorrect user counts on Manage Users page for Global Admins
