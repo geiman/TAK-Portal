@@ -40,6 +40,7 @@
           <th class="sortable" data-key="email">
             Email <span class="sortIndicator" aria-hidden="true"></span>
           </th>
+          <th>Role</th>
           <th class="sortable" data-key="status">
             Status <span class="sortIndicator" aria-hidden="true"></span>
           </th>
@@ -591,6 +592,7 @@ function renderResults(users){
         <td>${escapeHtml(u.username)}</td>
         <td>${escapeHtml(u.name || "")}</td>
         <td>${escapeHtml(u.email || "")}</td>
+        <td>${escapeHtml(u.__role || "User")}</td>
         <td>${u.is_active ? "Enabled" : "Disabled"}</td>
         <td>
           ${locked ? `<span class="muted">Actions Hidden</span>` : `
@@ -711,6 +713,31 @@ function getAgencyAdminGroupNameForUser(user){
   return `authentik-${String(abbr).trim().toUpperCase()}-AgencyAdmin`;
 }
 
+// Cache agency admin group ids per abbreviation so we can show a Role column in the results table
+const agencyAdminGroupIdByAbbr = new Map();
+
+async function ensureAgencyAdminIdsForUsers(users){
+  const uniq = new Set();
+  (users || []).forEach(u => {
+    const abbr = String(getUserAgencyAbbreviation(u) || '').trim().toUpperCase();
+    if (abbr) uniq.add(abbr);
+  });
+
+  for (const abbr of uniq){
+    if (agencyAdminGroupIdByAbbr.has(abbr)) continue;
+    const groupName = `authentik-${abbr}-AgencyAdmin`;
+    const id = await resolveGroupIdByName(groupName);
+    agencyAdminGroupIdByAbbr.set(abbr, id || null);
+  }
+}
+
+function roleForUser(user){
+  const abbr = String(getUserAgencyAbbreviation(user) || '').trim().toUpperCase();
+  const adminId = abbr ? agencyAdminGroupIdByAbbr.get(abbr) : null;
+  const groups = Array.isArray(user && user.groups) ? user.groups.map(x => String(x)) : [];
+  return (adminId && groups.includes(String(adminId))) ? 'Admin' : 'User';
+}
+
 async function loadGroups(){
   const res = await fetch("/api/users/meta");
   const meta = await res.json();
@@ -759,10 +786,12 @@ async function applyGroupChange(groupId, shouldBeMember){
   selectedUser.groups = newGroups;
   pickedGroupIds = new Set((newGroups || []).map(x => String(x)));
 
+  // Update role label (User/Admin) based on groups
+  selectedUser.__role = roleForUser(selectedUser);
   renderGroupChips(selectedUser);
 
   const patch = (u) => String(u.pk) === String(selectedUser.pk)
-    ? { ...u, groups: selectedUser.groups }
+    ? { ...u, groups: selectedUser.groups, __role: selectedUser.__role }
     : u;
 
   allUsers = (allUsers || []).map(patch);
@@ -1001,11 +1030,12 @@ if (applyPermissionsBtn) applyPermissionsBtn.addEventListener("click", async () 
   selectedUser.groups = newGroups;
   pickedGroupIds = new Set((newGroups || []).map(x => String(x)));
 
+  selectedUser.__role = roleForUser(selectedUser);
   renderGroupChips(selectedUser);
   renderGroupsBox();
 
   const patch = (u) =>
-    String(u.pk) === String(selectedUser.pk) ? { ...u, groups: selectedUser.groups } : u;
+    String(u.pk) === String(selectedUser.pk) ? { ...u, groups: selectedUser.groups, __role: selectedUser.__role } : u;
   allUsers = (allUsers || []).map(patch);
   const updatedVisible = (window.__lastUsers || []).map(patch);
   applySortAndRender(updatedVisible);
@@ -1394,12 +1424,13 @@ if (applyTemplateBtn) applyTemplateBtn.addEventListener("click", async () => {
   selectedUser.groups = applied;
   pickedGroupIds = new Set(applied.map(x => String(x)));
 
+  selectedUser.__role = roleForUser(selectedUser);
   renderGroupChips(selectedUser);
   renderGroupsBox();
 
   const patch = (u) =>
     String(u.pk) === String(selectedUser.pk)
-      ? { ...u, groups: selectedUser.groups }
+      ? { ...u, groups: selectedUser.groups, __role: selectedUser.__role }
       : u;
 
   allUsers = (allUsers || []).map(patch);
@@ -1435,6 +1466,11 @@ async function loadAllUsers(){
   hasPrevPage = !!out.hasPrev;
   currentPageUsers = users.slice();
   allUsers = users.slice();
+
+  // Compute per-row role (User/Admin) for the results table
+  await ensureAgencyAdminIdsForUsers(users);
+  currentPageUsers = currentPageUsers.map(u => ({ ...u, __role: roleForUser(u) }));
+  allUsers = allUsers.map(u => ({ ...u, __role: roleForUser(u) }));
 
   renderCurrentPage();
 
@@ -1668,8 +1704,8 @@ th.sortable:hover{
 
 /* Hide Status/Email column on small screens */
 @media (max-width: 640px){
-  .table th:nth-child(4),
-  .table td:nth-child(4){
+  .table th:nth-child(5),
+  .table td:nth-child(5){
     display: none;
   }
 }
