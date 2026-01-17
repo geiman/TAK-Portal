@@ -654,18 +654,22 @@ async function downloadDeploymentPacket() {
     // --- Page 2: User + Mutual Aid QR ---
     doc.addPage();
 
-    // New label above callsign
+    const labelY = margin + 6;
+    const callsignY = margin + 22;
+
+    // Label above callsign
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(14);
+    doc.setFontSize(12);
     doc.setTextColor(0);
-    doc.text("Callsign Format", pageW / 2, margin + 0, { align: "center" });
+    doc.text("Callsign Format", pageW / 2, labelY, { align: "center" });
 
     // Callsign placeholder
     const callsignText = "AGENCY-LASTNAME-CALLSIGN";
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(24);
-    fitOneLine(doc, callsignText, pageW - margin * 2, 36);
-    doc.text(callsignText, pageW / 2, margin + 14, { align: "center" });
+
+    // Let fitOneLine control the font size safely
+    fitOneLine(doc, callsignText, pageW - margin * 2, 28);
+    doc.text(callsignText, pageW / 2, callsignY, { align: "center" });
 
     const qrSize2 = min(pageW - margin * 2, pageH - (margin * 2 + 80));
     const qrY2 = margin + 50;
@@ -680,7 +684,6 @@ async function downloadDeploymentPacket() {
       doc.setTextColor(0);
       doc.text(userLabel, pageW / 2, userY, { align: "center" });
     }
-
 
     // --- Page 3: Team Color Guide ---
     doc.addPage();
