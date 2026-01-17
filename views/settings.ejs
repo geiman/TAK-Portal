@@ -28,7 +28,7 @@
         "PORTAL_AUTH_ENABLED"
       ]);
 
-      function renderField(key, label, helpText) {
+      function renderField(key, label, helpText, defaultValue) {
     %>
       <label class="settings-field">
         <span class="settings-label"><%= label || key %></span>
@@ -48,10 +48,16 @@
             <option value="false" <%= currentVal === "false" ? "selected" : "" %>>false</option>
           </select>
         <% } else { %>
+          <%
+            const resolvedVal =
+              (settings && typeof settings[key] === "string")
+                ? settings[key]
+                : (typeof defaultValue === "string" ? defaultValue : "");
+          %>
           <input
             type="text"
             name="settings[<%= key %>]"
-            value="<%= typeof settings[key] === 'string' ? settings[key] : '' %>"
+            value="<%= resolvedVal %>"
           />
         <% } %>
 
@@ -500,34 +506,34 @@
         <div class="settings-body">
           <h3 style="margin:0 0 .5rem 0;">Color / Team</h3>
           <div class="grid2">
-            <% renderField("DP_COLOR_BLUE","Blue","Free text meaning for the color."); %>
-            <% renderField("DP_COLOR_DARK_BLUE","Dark Blue","Free text meaning for the color."); %>
-            <% renderField("DP_COLOR_BROWN","Brown","Free text meaning for the color."); %>
-            <% renderField("DP_COLOR_CYAN","Cyan","Free text meaning for the color."); %>
-            <% renderField("DP_COLOR_GREEN","Green","Free text meaning for the color."); %>
-            <% renderField("DP_COLOR_DARK_GREEN","Dark Green","Free text meaning for the color."); %>
-            <% renderField("DP_COLOR_MAGENTA","Magenta","Free text meaning for the color."); %>
-            <% renderField("DP_COLOR_MAROON","Maroon","Free text meaning for the color."); %>
-            <% renderField("DP_COLOR_ORANGE","Orange","Free text meaning for the color."); %>
-            <% renderField("DP_COLOR_PURPLE","Purple","Free text meaning for the color."); %>
-            <% renderField("DP_COLOR_RED","Red","Free text meaning for the color."); %>
-            <% renderField("DP_COLOR_TEAL","Teal","Free text meaning for the color."); %>
-            <% renderField("DP_COLOR_WHITE","White","Free text meaning for the color."); %>
-            <% renderField("DP_COLOR_YELLOW","Yellow","Free text meaning for the color."); %>
+            <% renderField("DP_COLOR_BLUE","Blue",null,"Aircraft"); %>
+            <% renderField("DP_COLOR_DARK_BLUE","Dark Blue",null,"Law Enforcement"); %>
+            <% renderField("DP_COLOR_BROWN","Brown",null,"State Defense Forces"); %>
+            <% renderField("DP_COLOR_CYAN","Cyan",null,"SWAT / Sniper / Overwatch"); %>
+            <% renderField("DP_COLOR_GREEN","Green",null,"Military"); %>
+            <% renderField("DP_COLOR_DARK_GREEN","Dark Green",null,"TWRA / NPS / Forestry"); %>
+            <% renderField("DP_COLOR_MAGENTA","Magenta",null,"CBRNE / HAZMAT"); %>
+            <% renderField("DP_COLOR_MAROON","Maroon",null,"EMS"); %>
+            <% renderField("DP_COLOR_ORANGE","Orange",null,"SAR / Technical"); %>
+            <% renderField("DP_COLOR_PURPLE","Purple",null,"Volunteers"); %>
+            <% renderField("DP_COLOR_RED","Red",null,"Fire"); %>
+            <% renderField("DP_COLOR_TEAL","Teal",null,"EMA"); %>
+            <% renderField("DP_COLOR_WHITE","White",null,"Command Post"); %>
+            <% renderField("DP_COLOR_YELLOW","Yellow",null); %>
           </div>
 
           <hr style="margin:1rem 0;opacity:.35;" />
 
           <h3 style="margin:0 0 .5rem 0;">Role</h3>
           <div class="grid2">
-            <% renderField("DP_ROLE_TEAM_MEMBER","Team Member","Free text meaning/notes for the role."); %>
-            <% renderField("DP_ROLE_TEAM_LEAD","Team Lead","Free text meaning/notes for the role."); %>
-            <% renderField("DP_ROLE_HQ","HQ","Free text meaning/notes for the role."); %>
-            <% renderField("DP_ROLE_SNIPER","Sniper","Free text meaning/notes for the role."); %>
-            <% renderField("DP_ROLE_MEDIC","Medic","Free text meaning/notes for the role."); %>
-            <% renderField("DP_ROLE_FORWARD_OBSERVER","Forward Observer","Free text meaning/notes for the role."); %>
-            <% renderField("DP_ROLE_RTO","RTO","Free text meaning/notes for the role."); %>
-            <% renderField("DP_ROLE_K9","K9","Free text meaning/notes for the role."); %>
+            <% renderField("DP_ROLE_TEAM_MEMBER","Team Member",null,"All Standard Operators"); %>
+            <% renderField("DP_ROLE_TEAM_LEAD","Team Lead",null,"Team Leaders / Supervisors"); %>
+            <% renderField("DP_ROLE_HQ","HQ",null,"Command Staff / Admin Support"); %>
+            <% renderField("DP_ROLE_SNIPER","Sniper",null,"Advanced Marksman Capabilities"); %>
+            <% renderField("DP_ROLE_MEDIC","Medic",null,"Advanced Medical Capabilities"); %>
+            <% renderField("DP_ROLE_FORWARD_OBSERVER","Forward Observer",null,"Drone or Surveillance"); %>
+            <% renderField("DP_ROLE_RTO","RTO",null); %>
+            <% renderField("DP_ROLE_K9","K9",null,"K9 Handlers"); %>
           </div>
         </div>
       </details>
