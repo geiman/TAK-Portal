@@ -663,13 +663,24 @@ async function downloadDeploymentPacket() {
     const qrY2 = margin + 50;
     doc.addImage(qrImg.src, "PNG", (pageW - qrSize2) / 2, qrY2, qrSize2, qrSize2);
 
+    // Username label under the QR (e.g., MA-XYZ)
+    const userLabel = String(qrActiveItem?.username || "").trim();
+    if (userLabel) {
+      const userY = Math.min(pageH - margin, qrY2 + qrSize2 + 28);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(18);
+      doc.setTextColor(0);
+      doc.text(userLabel, pageW / 2, userY, { align: "center" });
+    }
+
     // --- Page 3: Team Color Guide ---
     doc.addPage();
     doc.setFont("helvetica", "bold");
     doc.setFontSize(26);
     doc.text("Team Color Guide", pageW / 2, margin, { align: "center" });
 
-    let y = margin + 30;
+    // Add a full row of whitespace under the title.
+    let y = margin + 30 + 44;
     const lineH = 44;
     const swatch = 22;
     doc.setFont("helvetica", "bold");
@@ -700,7 +711,8 @@ async function downloadDeploymentPacket() {
     doc.setFontSize(26);
     doc.text("Team Role Guide", pageW / 2, margin, { align: "center" });
 
-    y = margin + 30;
+    // Add a full row of whitespace under the title.
+    y = margin + 30 + 44;
     doc.setFont("helvetica", "bold");
     doc.setFontSize(20);
     for (const r of TEAM_ROLES) {
