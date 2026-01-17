@@ -653,12 +653,21 @@ async function downloadDeploymentPacket() {
 
     // --- Page 2: User + Mutual Aid QR ---
     doc.addPage();
-    // Per request: show a fixed placeholder above the QR section.
-    const callsignText = "AGENCY-LASTNAME-CALLSIGN";
+
+    const callsignLabel = "CALLSIGN FORMAT";
+    const callsignText  = "AGENCY-LASTNAME-CALLSIGN";
+
+    let y = margin + 10;
+
     doc.setFont("helvetica", "bold");
-    fitOneLine(doc, "CALLSIGN FORMAT:", pageW - margin * 2, 26);
-    fitOneLine(doc, callsignText, pageW - margin * 2, 36);
-    doc.text(callsignText, pageW / 2, margin + 10, { align: "center" });
+    doc.setFontSize(14);
+    doc.text(callsignLabel, pageW / 2, y, { align: "center" });
+
+    y += 10;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(13);
+    doc.text(callsignText, pageW / 2, y, { align: "center" });
 
     const qrSize2 = min(pageW - margin * 2, pageH - (margin * 2 + 80));
     const qrY2 = margin + 50;
