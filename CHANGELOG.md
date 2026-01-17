@@ -10,6 +10,9 @@ All notable changes to this project will be documented in this file.  Minor qual
 
 ## Version History
 
+### v1.1.43 - 1/17/26
+🎉 `New Feature` - Added settings for "Deployment Packet" to define colors and roles for the Mutual Aid Deployment Packet
+
 ### v1.1.42 - 1/16/26
 ✨ `Enhancement` - Adds "Role" to manage users columns <br>
 ✨ `Enhancement` - Allows for reordering / deleting / adding bookmarks<br>
