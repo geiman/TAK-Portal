@@ -476,6 +476,14 @@ async function create({ type, title, expireEnabled, expireAt, groupMode, existin
   const res = await api.post("/core/users/", userPayload);
   const user = res.data;
 
+  // IMPORTANT:
+  // Authentik's create-user endpoint may not reliably apply the provided
+  // password field (depending on configuration / permissions). The main
+  // users.service.js was updated to always set passwords using the dedicated
+  // set_password endpoint; mutual-aid users should follow the same pattern
+  // so the stored password always matches the actual Authentik password.
+  await api.post(`/core/users/${user.pk}/set_password/`, { password });
+
   // 3) Ensure user gets this mutual aid group
   const finalGroups = [group];
 
