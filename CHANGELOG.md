@@ -10,6 +10,9 @@ All notable changes to this project will be documented in this file.  Minor qual
 
 ## Version History
 
+### v1.1.44 - 1/17/26
+🐛 `Bug Fix` - Fixes issue with Mutual Aid not setting password properly
+
 ### v1.1.43 - 1/17/26
 🎉 `New Feature` - Added a "Deployment Packet" in Mutual Aid to provide a PDF document to be used at CP for onboarding arriving assets, not already on the TAK system <br>
 🎉 `New Feature` - Added custom settings in Server Settings to define colors and roles for deployment packet
