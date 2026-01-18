@@ -609,6 +609,29 @@ function fitOneLine(doc, text, maxWidthPt, startSizePt) {
   return size;
 }
 
+function drawNumberedList(doc, items, x, y, maxWidth, lineHeight = 16, indent = 14) {
+  let cursorY = y;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(12);
+
+  items.forEach((text, i) => {
+    const number = `${i + 1}.`;
+
+    // Draw the number
+    doc.text(number, x, cursorY);
+
+    // Draw the text, indented
+    const lines = doc.splitTextToSize(text, maxWidth - indent);
+    doc.text(lines, x + indent, cursorY);
+
+    cursorY += lines.length * lineHeight;
+  });
+
+  return cursorY;
+}
+
+
 async function downloadDeploymentPacket() {
   try {
     if (!qrEnrollUrl || !qrImg?.src) {
