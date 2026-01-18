@@ -658,6 +658,7 @@ async function downloadDeploymentPacket() {
     const margin = 54;
 
     // --- Page 1: App QR codes + Instructions ---
+    const qrSize1 = 280; // Bigger but still safe on Letter
     const textWidth = pageW - margin * 2;
     let y = margin;
 
@@ -666,86 +667,59 @@ async function downloadDeploymentPacket() {
     const takAwareQr = makeQrDataUrl(takAwareUrl, 10, 2);
     const atakQr = makeQrDataUrl(atakUrl, 10, 2);
 
-    // Instruction blocks
-    const takAwareSteps = [
-      "Open TAK Aware on your iPhone or iPad.",
-      "When prompted, allow Location access and set it to Always Allow.",
-      "Enter your assigned Call Sign, Team, and Role.",
-      "Tap Connect to a TAK Server, then select Scan QR Code.",
-      "Allow camera access and scan the QR code.",
-      "Confirm the status shows Succeeded."
-    ];
-
-    const atakSteps = [
-      "Open the camera on your Android device.",
-      "Point your camera at the QR code and open the link.",
-      "Install and open ATAK.",
-      "Select Yes to perform quick enrollment."
-    ];
-
-    // Layout math
-    const titleH = 32;
-    const instrLineH = 16;
-    const gap = 16;
-
-    // Estimate instruction heights
-    const takAwareInstrH = takAwareSteps.length * instrLineH;
-    const atakInstrH = atakSteps.length * instrLineH;
-
-    // Available height for BOTH QR codes
-    const availableQrHeight =
-      pageH -
-      margin * 2 -
-      (titleH * 2) -
-      (takAwareInstrH + atakInstrH) -
-      gap * 5;
-
-    // Max QR size that fits both sections
-    const qrSize1 = Math.floor(availableQrHeight / 2);
-    const qrX = (pageW - qrSize1) / 2;
-
     /* =========================================================
       TAK AWARE (iOS)
     ========================================================= */
 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(26);
-    doc.text("Download TAK Aware (iOS)", pageW / 2, y, { align: "center" });
-    y += titleH;
+    doc.text("Download TAK Aware (iOS)", margin, y);
 
-    doc.addImage(takAwareQr, "PNG", qrX, y, qrSize1, qrSize1);
-    y += qrSize1 + 12;
+    doc.addImage(takAwareQr, "PNG", margin, y + 14, qrSize1, qrSize1);
 
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(12);
     drawNumberedList(
       doc,
-      takAwareSteps,
-      margin,
-      y,
-      textWidth
+      [
+        "Open TAK Aware on your iPhone or iPad.",
+        "When prompted, allow Location access and set it to Always Allow.",
+        "Enter your assigned Call Sign, Team, and Role.",
+        "Tap Connect to a TAK Server, then select Scan QR Code.",
+        "Allow camera access and scan the QR code.",
+        "Confirm the status shows Succeeded."
+      ],
+      margin + qrSize1 + 28,
+      y + 32,
+      textWidth - qrSize1 - 28
     );
-
-    y += takAwareInstrH + gap * 2;
 
     /* =========================================================
       ATAK (Android)
     ========================================================= */
 
+    y = y + qrSize1 + 110;
+
     doc.setFont("helvetica", "bold");
     doc.setFontSize(26);
-    doc.text("Download ATAK (Android)", pageW / 2, y, { align: "center" });
-    y += titleH;
+    doc.text("Download ATAK (Android)", margin, y);
 
-    doc.addImage(atakQr, "PNG", qrX, y, qrSize1, qrSize1);
-    y += qrSize1 + 12;
+    doc.addImage(atakQr, "PNG", margin, y + 14, qrSize1, qrSize1);
 
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(12);
     drawNumberedList(
       doc,
-      atakSteps,
-      margin,
-      y,
-      textWidth
+      [
+        "Open the camera on your Android device.",
+        "Point your camera at the QR code and open the link.",
+        "Install and open ATAK.",
+        "Select Yes to perform quick enrollment."
+      ],
+      margin + qrSize1 + 28,
+      y + 32,
+      textWidth - qrSize1 - 28
     );
-
 
     /* =========================================================
        PAGE 2 — USER QR + CALLSIGN FORMAT
