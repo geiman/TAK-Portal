@@ -92,6 +92,7 @@
       <thead>
         <tr>
           <th>Group Name</th>
+          <th style="width:120px;">Private</th>
           <th>Actions</th>
         </tr>
       </thead>
@@ -615,12 +616,14 @@ function renderGroups(){
     const locked = groupActionsLocked(g.name);
     const editable = !locked && isGroupEditable(g.name);
     const desc = String(g?.attributes?.description || "").trim();
+    const isPrivate = String(g?.attributes?.private || "no").trim().toLowerCase() === "yes";
     return `
     <tr>
       <td style="max-width:320px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
         ${esc(g.name)}
         ${desc ? `<div class="muted" style="font-size: 11px; margin-top:2px; white-space:normal;">${esc(desc)}</div>` : ""}
       </td>
+      <td>${isPrivate ? "Private" : ""}</td>
       <td>
         <div class="row" style="gap:8px; flex-wrap:wrap; align-items:center;">
           <button class="btn" type="button"
