@@ -242,7 +242,14 @@
           "You can then tap 'Close'."
         ]
       : [
-          "Instructions TBD."
+          "Open ATAK on your Android device.",
+          "Tap the menu icon and navigate to 'Settings'.",
+          "Select 'Network Preferences' and select 'TAK Servers'.",
+          "Tap the three lines in the top right and select 'Add'.",
+          "Enter the address: <strong><%= takHost || 'your TAK server hostname' %></strong>",
+          "Select 'Use Authentication' and enter your username and password: <strong>${CURRENT_USERNAME}</strong>`",
+          "Select 'Enroll for Client Certificate' and DESELECT 'Enroll with Preconfigured Trust'.",
+          "Select 'Ok' and you should see 'TAK Server registration succeeded'."
         ];
 
     manualLoginInstructions.innerHTML = steps.map(s => `<li>${s}</li>`).join("");
