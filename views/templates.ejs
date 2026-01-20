@@ -14,14 +14,16 @@
     </div>
 
     <form id="form" class="templatesGrid" autocomplete="off">
-      <label>Template Name
-        <input id="name" placeholder="Template Name Here (ex. Patrol, Medic, etc...)" required />
-      </label>
-
       <label>Agency
         <select id="agency">
           <option value="">Select an agency</option>
         </select>
+      </label>
+
+      
+
+      <label>Template Name
+        <input id="name" placeholder="Template Name Here (ex. Patrol, Medic, etc...)" required />
       </label>
 
       <label>Color Override (optional)
@@ -78,11 +80,11 @@
       <table class="table templatesTable">
         <thead>
           <tr>
-            <th>Name</th>
-            <th>Agency</th>
-            <th>Color</th>
-            <th>Default</th>
-            <th>Groups</th>
+            <th class="sortable" data-key="agency">Agency <span class="sortIndicator"></span></th>
+            <th class="sortable" data-key="name">Name <span class="sortIndicator"></span></th>
+            <th class="sortable" data-key="color">Color <span class="sortIndicator"></span></th>
+            <th class="sortable" data-key="default">Default <span class="sortIndicator"></span></th>
+            <th class="sortable" data-key="groups">Groups <span class="sortIndicator"></span></th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -96,6 +98,112 @@
 const msg = document.getElementById("msg");
 const tbody = document.getElementById("tbody");
 const form = document.getElementById("form");
+
+// ---- sortable Existing Templates table ----
+let viewTemplates = []; // [{ t, idx }] where idx is the original index in the stored templates array
+let sortState = { key: "agency", dir: "asc" }; // default: agency, then name
+
+function getAgencyDisplay(t){
+  return t && t.agencySuffix ? (agencyAbbrFromSuffix(t.agencySuffix) || t.agencySuffix) : "";
+}
+
+function getSortValue(pair, key){
+  const t = (pair && pair.t) || {};
+  if (key === "agency") return String(getAgencyDisplay(t) || "");
+  if (key === "name") return String(t.name || "");
+  if (key === "color") return String(t.colorOverride || "");
+  if (key === "default") return t.isDefault ? "1" : "";
+  if (key === "groups") return String((t.groups || []).join(", "));
+  return "";
+}
+
+function stableSort(arr, key, dir){
+  const sign = (dir === "desc") ? -1 : 1;
+  return arr
+    .map((item, originalPos) => ({ item, originalPos }))
+    .sort((a, b) => {
+      const av = getSortValue(a.item, key);
+      const bv = getSortValue(b.item, key);
+
+      const aBlank = !String(av || "").trim();
+      const bBlank = !String(bv || "").trim();
+      if (aBlank && !bBlank) return 1 * sign;
+      if (!aBlank && bBlank) return -1 * sign;
+
+      let cmp = String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: "base" });
+      if (cmp !== 0) return cmp * sign;
+
+      // Secondary key only for the default sort by agency: name asc within agency
+      if (key === "agency") {
+        const an = getSortValue(a.item, "name");
+        const bn = getSortValue(b.item, "name");
+        const cmp2 = String(an).localeCompare(String(bn), undefined, { numeric: true, sensitivity: "base" });
+        if (cmp2 !== 0) return cmp2; // secondary always asc
+      }
+
+      return a.originalPos - b.originalPos;
+    })
+    .map(x => x.item);
+}
+
+function renderTemplates(list){
+  tbody.innerHTML = (list || []).map(({t, idx}) => `
+    <tr>
+      <td>${t.agencySuffix ? esc(getAgencyDisplay(t) || t.agencySuffix) : "—"}</td>
+      <td>${esc(t.name)}</td>
+      <td>${t.colorOverride ? esc(t.colorOverride) : "—"}</td>
+      <td>${t.isDefault ? "Yes" : ""}</td>
+      <td class="groupsCell">${esc((t.groups || []).join(", "))}</td>
+      <td>
+        <div class="actionsCell">
+          <button class="btn" type="button" onclick="editTemplate(${idx})">Edit</button>
+          <button class="btn danger" type="button" onclick="deleteTemplate(${idx})">Delete</button>
+        </div>
+      </td>
+    </tr>
+  `).join("");
+}
+
+function updateSortIndicators(){
+  const table = document.querySelector("table.templatesTable");
+  const thead = table ? table.querySelector("thead") : null;
+  const ths = Array.from(thead ? thead.querySelectorAll("th.sortable") : []);
+  ths.forEach(th => {
+    const key = th.dataset.key;
+    const indicator = th.querySelector(".sortIndicator");
+    if (!indicator) return;
+    indicator.textContent = (key === sortState.key) ? (sortState.dir === "asc" ? "▲" : "▼") : "";
+  });
+}
+
+function applySortAndRender(){
+  viewTemplates = stableSort(viewTemplates || [], sortState.key, sortState.dir);
+  renderTemplates(viewTemplates);
+  updateSortIndicators();
+}
+
+// click-to-sort headers
+(() => {
+  const table = document.querySelector("table.templatesTable");
+  const thead = table ? table.querySelector("thead") : null;
+  if (!thead) return;
+
+  thead.addEventListener("click", (e) => {
+    const th = e.target && e.target.closest ? e.target.closest("th.sortable") : null;
+    if (!th) return;
+    const key = th.dataset.key;
+    if (!key) return;
+
+    if (sortState.key === key) {
+      sortState.dir = (sortState.dir === "asc") ? "desc" : "asc";
+    } else {
+      sortState.key = key;
+      sortState.dir = "asc";
+    }
+    applySortAndRender();
+  });
+})();
+
 
 const formTitle = document.getElementById("formTitle");
 const submitBtn = document.getElementById("submitBtn");
@@ -202,21 +310,16 @@ async function loadTemplates(){
   if (!res.ok) throw new Error(templates.error || "Failed to load templates");
   allTemplates = templates;
 
-  tbody.innerHTML = allTemplates.map((t,i)=>`
-    <tr>
-      <td>${esc(t.name)}</td>
-      <td>${t.agencySuffix ? esc(agencyAbbrFromSuffix(t.agencySuffix) || t.agencySuffix): "—"}</td>
-      <td>${t.colorOverride ? esc(t.colorOverride) : "—"}</td>
-      <td>${t.isDefault ? "Yes" : ""}</td>
-      <td class="groupsCell">${esc((t.groups || []).join(", "))}</td>
-      <td>
-        <div class="actionsCell">
-          <button class="btn" type="button" onclick="editTemplate(${i})">Edit</button>
-          <button class="btn danger" type="button" onclick="deleteTemplate(${i})">Delete</button>
-        </div>
-      </td>
-    </tr>
-  `).join("");
+  // Keep the real backing index (global templates array index) stable for Edit/Delete/Save.
+  viewTemplates = allTemplates.map((t, listPos) => ({
+    t,
+    idx: (t && typeof t._index === "number") ? t._index : listPos
+  }));
+
+  // Default sort: agency asc, then name asc
+  sortState.key = "agency";
+  sortState.dir = "asc";
+  applySortAndRender();
 }
 
 function setCreateMode(){
@@ -237,7 +340,7 @@ function setCreateMode(){
 
 function setEditMode(idx){
   editingIndex = idx;
-  const t = allTemplates.find(x => (x && ((x._index ?? x._idx) === idx))) || allTemplates[idx];
+  const t = allTemplates.find(x => x && (x._index === idx)) || allTemplates[idx];
 
   formTitle.textContent = "Edit Template";
   submitBtn.textContent = "Save Changes";
