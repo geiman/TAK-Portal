@@ -76,13 +76,13 @@
     <h2>Existing Templates</h2>
     <div class="tableWrap">
       <table class="table templatesTable">
-        <thead>
+        <thead id="templatesThead">
           <tr>
-            <th>Name</th>
-            <th>Agency</th>
-            <th>Color</th>
-            <th>Default</th>
-            <th>Groups</th>
+            <th class="sortable" data-key="name">Name <span class="sortIndicator" aria-hidden="true"></span></th>
+            <th class="sortable" data-key="agency">Agency <span class="sortIndicator" aria-hidden="true"></span></th>
+            <th class="sortable" data-key="color">Color <span class="sortIndicator" aria-hidden="true"></span></th>
+            <th class="sortable" data-key="default">Default <span class="sortIndicator" aria-hidden="true"></span></th>
+            <th class="sortable" data-key="groups">Groups <span class="sortIndicator" aria-hidden="true"></span></th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -112,6 +112,78 @@ const selectAllBtn = document.getElementById("selectAllBtn");
 const clearAllBtn = document.getElementById("clearAllBtn");
 const groupsInner = document.getElementById("groupsInner");
 
+
+// ------- Sorting state -------
+let sortState = {
+  key: "name",   // default sort
+  dir: "asc"     // "asc" | "desc"
+};
+
+function normalizeSortValue(v){
+  return String(v ?? "").trim().toLowerCase();
+}
+
+function getSortValue(t, key){
+  if (key === "name") return normalizeSortValue(t.name);
+  if (key === "agency") return normalizeSortValue(agencyAbbrFromSuffix(t.agencySuffix) || t.agencySuffix);
+  if (key === "color") return normalizeSortValue(t.colorOverride);
+  if (key === "default") return t.isDefault ? "yes" : "no";
+  if (key === "groups") return normalizeSortValue((t.groups || []).join(", "));
+  return "";
+}
+
+function stableSortedCopy(arr, key, dir){
+  const sign = dir === "desc" ? -1 : 1;
+  return (arr || [])
+    .map((item, idx) => ({ item, idx }))
+    .sort((a, b) => {
+      const av = getSortValue(a.item, key);
+      const bv = getSortValue(b.item, key);
+
+      const cmp = av.localeCompare(bv, undefined, { numeric: true, sensitivity: "base" });
+      if (cmp !== 0) return cmp * sign;
+      return a.idx - b.idx;
+    })
+    .map(x => x.item);
+}
+
+function updateSortIndicators(){
+  const thead = document.getElementById("templatesThead");
+  const ths = Array.from(thead ? thead.querySelectorAll("th.sortable") : []);
+  ths.forEach(th => {
+    const key = th.dataset.key;
+    const indicator = th.querySelector(".sortIndicator");
+    if (!indicator) return;
+
+    if (key === sortState.key) {
+      indicator.textContent = sortState.dir === "asc" ? "▲" : "▼";
+    } else {
+      indicator.textContent = "";
+    }
+  });
+}
+
+
+
+const templatesThead = document.getElementById("templatesThead");
+if (templatesThead){
+  templatesThead.addEventListener("click", (e) => {
+    const th = e.target && e.target.closest ? e.target.closest("th.sortable") : null;
+    if (!th) return;
+
+    const key = th.dataset.key;
+    if (!key) return;
+
+    if (sortState.key === key){
+      sortState.dir = sortState.dir === "asc" ? "desc" : "asc";
+    } else {
+      sortState.key = key;
+      sortState.dir = "asc";
+    }
+
+    loadTemplates();
+  });
+}
 let allGroups = [];
 let allTemplates = [];
 let allAgencies = [];
@@ -202,7 +274,20 @@ async function loadTemplates(){
   if (!res.ok) throw new Error(templates.error || "Failed to load templates");
   allTemplates = templates;
 
-  tbody.innerHTML = allTemplates.map((t,i)=>`
+  
+  const sorted = (allTemplates || [])
+    .map((t, idx) => ({ t, idx }))
+    .sort((a, b) => {
+      const sign = sortState.dir === "desc" ? -1 : 1;
+      const av = getSortValue(a.t, sortState.key);
+      const bv = getSortValue(b.t, sortState.key);
+
+      const cmp = av.localeCompare(bv, undefined, { numeric: true, sensitivity: "base" });
+      if (cmp !== 0) return cmp * sign;
+      return a.idx - b.idx;
+    });
+
+  tbody.innerHTML = sorted.map(({t, idx})=>`
     <tr>
       <td>${esc(t.name)}</td>
       <td>${t.agencySuffix ? esc(agencyAbbrFromSuffix(t.agencySuffix) || t.agencySuffix): "—"}</td>
@@ -211,12 +296,14 @@ async function loadTemplates(){
       <td class="groupsCell">${esc((t.groups || []).join(", "))}</td>
       <td>
         <div class="actionsCell">
-          <button class="btn" type="button" onclick="editTemplate(${i})">Edit</button>
-          <button class="btn danger" type="button" onclick="deleteTemplate(${i})">Delete</button>
+          <button class="btn" type="button" onclick="editTemplate(${idx})">Edit</button>
+          <button class="btn danger" type="button" onclick="deleteTemplate(${idx})">Delete</button>
         </div>
       </td>
     </tr>
   `).join("");
+
+  updateSortIndicators();
 }
 
 function setCreateMode(){
