@@ -45,10 +45,16 @@
 
     <div class="card">
       <h2>Step 2: Enroll Your Device</h2>
-      <button type="button" class="btn tile" id="scanQrBtnTakAware">
-        <span class="title">Scan QR Code</span>
-        <span class="desc">Scan an enrollment QR code to automatically configure TAK Aware.</span>
-      </button>
+      <div class="grid2">
+        <button type="button" class="btn tile" id="scanQrBtnTakAware">
+          <span class="title">Scan QR Code</span>
+          <span class="desc">Scan an enrollment QR code to automatically configure TAK Aware.</span>
+        </button>
+        <button type="button" class="btn tile" id="manualLoginBtnTakAware">
+          <span class="title">Manual Login</span>
+          <span class="desc">Manually configure TAK Aware with step-by-step instructions.</span>
+        </button>
+      </div>
     </div>
   </div>
 
@@ -69,10 +75,16 @@
 
     <div class="card">
       <h2>Step 2: Enroll Your Device</h2>
-      <button type="button" class="btn tile" id="scanQrBtnAtak">
-        <span class="title">Scan QR Code</span>
-        <span class="desc">Scan an enrollment QR code to automatically configure ATAK.</span>
-      </button>
+      <div class="grid2">
+        <button type="button" class="btn tile" id="scanQrBtnAtak">
+          <span class="title">Scan QR Code</span>
+          <span class="desc">Scan an enrollment QR code to automatically configure ATAK.</span>
+        </button>
+        <button type="button" class="btn tile" id="manualLoginBtnAtak">
+          <span class="title">Manual Login</span>
+          <span class="desc">Manually configure ATAK with step-by-step instructions.</span>
+        </button>
+      </div>
     </div>
   </div>
 </main>
@@ -101,6 +113,24 @@
           <div id="setupQrCountdown" class="msg" style="margin-top: 10px;"></div>
           <div id="setupQrMsg" class="msg"></div>
         </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Manual Login Modal -->
+<div class="modalOverlay" id="manualLoginOverlay" style="display:none;">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="manualLoginTitle">
+    <div class="modalHeader">
+      <h2 id="manualLoginTitle" style="margin:0;">Manual Login Instructions</h2>
+      <button class="btn" id="manualLoginCloseBtn" type="button">Close</button>
+    </div>
+    <div class="modalBody">
+      <div style="max-width: 600px;">
+        <h3 style="margin-top:0;" id="manualLoginInstructionsTitle">How to Manually Configure</h3>
+        <ol id="manualLoginInstructions" style="margin-top: 6px;"></ol>
+        <h3 style="margin-top:0;">Details</h3>
+        <div class="chips" id="manualLoginDetails"></div>
       </div>
     </div>
   </div>
@@ -161,6 +191,15 @@
   const instructionsTitle = document.getElementById("setupQrInstructionsTitle");
   const instructionsList = document.getElementById("setupQrInstructions");
 
+  // Manual Login modal elements
+  const manualLoginBtnTakAware = document.getElementById("manualLoginBtnTakAware");
+  const manualLoginBtnAtak = document.getElementById("manualLoginBtnAtak");
+  const manualLoginOverlay = document.getElementById("manualLoginOverlay");
+  const manualLoginCloseBtn = document.getElementById("manualLoginCloseBtn");
+  const manualLoginInstructionsTitle = document.getElementById("manualLoginInstructionsTitle");
+  const manualLoginInstructions = document.getElementById("manualLoginInstructions");
+  const manualLoginDetails = document.getElementById("manualLoginDetails");
+
   // Which app the user is scanning with (controls modal instructions)
   let scanMode = "takaware"; // "takaware" | "atak"
 
@@ -173,10 +212,10 @@
     const steps = isTakAware
       ? [
           "Open TAK Aware on your iPhone/iPad.",
-          "When prompted, allow Location access and set it to “Always Allow”.",
+          "When prompted, allow Location access and set it to "Always Allow".",
           "Enter your assigned Call Sign / Team / Role (per your welcome email).",
-          "Tap “Connect to a TAK Server”, then choose “Scan QR Code”.",
-          "Allow camera access and scan the QR until you see “Status: Succeeded”."
+          "Tap "Connect to a TAK Server", then choose "Scan QR Code".",
+          "Allow camera access and scan the QR until you see "Status: Succeeded"."
         ]
       : [
           "Open the camera on your Android device.",
@@ -185,7 +224,27 @@
         ];
 
     instructionsList.innerHTML = steps.map(s => `<li>${s}</li>`).join("");
+  }
 
+  function setManualLoginInstructions(mode) {
+    const isTakAware = mode === "takaware";
+    manualLoginInstructionsTitle.textContent = isTakAware ? "TAK Aware (iOS): How to Manually Configure" : "ATAK (Android): How to Manually Configure";
+
+    const steps = isTakAware
+      ? [
+          "Open TAK Aware on your iPhone/iPad.",
+          "When prompted, allow Location access and set it to "Always Allow".",
+          "Enter your assigned Call Sign / Team / Role (per your welcome email).",
+          "Tap "Connect to a TAK Server", then choose "Scan QR Code".",
+          "Allow camera access and scan the QR until you see "Status: Succeeded"."
+        ]
+      : [
+          "Open the camera on your Android device.",
+          "Point your camera at the QR code and select the notification to open the link.",
+          "Select Yes to perform quick enrollment inside ATAK."
+        ];
+
+    manualLoginInstructions.innerHTML = steps.map(s => `<li>${s}</li>`).join("");
   }
 
   // --- IMPORTANT: make cache user-specific to prevent cross-user QR reuse ---
@@ -307,6 +366,16 @@
     clearCountdown();
   }
 
+  function openManualLoginModal() {
+    manualLoginOverlay.style.display = "flex";
+    document.body.classList.add("noScroll");
+  }
+
+  function closeManualLoginModal() {
+    manualLoginOverlay.style.display = "none";
+    document.body.classList.remove("noScroll");
+  }
+
   function renderFromCache(obj) {
     cached = obj;
     qrImg.src = obj.qrCode || "";
@@ -392,16 +461,38 @@
     }
   }
 
+  function handleManualLoginClick(mode) {
+    setManualLoginInstructions(mode);
+    
+    // Display username in details
+    const chips = [];
+    if (CURRENT_USERNAME) chips.push(`<span class="chip">User: ${CURRENT_USERNAME}</span>`);
+    manualLoginDetails.innerHTML = chips.join(" ");
+    
+    openManualLoginModal();
+  }
+
   // Attach handlers (buttons exist in DOM even when flows are hidden)
   scanQrBtnTakAware.addEventListener("click", () => handleScanClick("takaware"));
   scanQrBtnAtak.addEventListener("click", () => handleScanClick("atak"));
+  manualLoginBtnTakAware.addEventListener("click", () => handleManualLoginClick("takaware"));
+  manualLoginBtnAtak.addEventListener("click", () => handleManualLoginClick("atak"));
 
   closeBtn.addEventListener("click", closeModal);
   overlay.addEventListener("click", (e) => {
     if (e.target === overlay) closeModal();
   });
+  
+  manualLoginCloseBtn.addEventListener("click", closeManualLoginModal);
+  manualLoginOverlay.addEventListener("click", (e) => {
+    if (e.target === manualLoginOverlay) closeManualLoginModal();
+  });
+  
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && overlay.style.display !== "none") closeModal();
+    if (e.key === "Escape") {
+      if (overlay.style.display !== "none") closeModal();
+      if (manualLoginOverlay.style.display !== "none") closeManualLoginModal();
+    }
   });
 
   copyBtn.addEventListener("click", () => {
