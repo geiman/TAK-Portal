@@ -78,11 +78,11 @@
       <table class="table templatesTable">
         <thead>
           <tr>
-            <th>Name</th>
-            <th>Agency</th>
-            <th>Color</th>
-            <th>Default</th>
-            <th>Groups</th>
+            <th class="sortable" data-key="agency">Agency <span class="sortIndicator"></span></th>
+            <th class="sortable" data-key="name">Name <span class="sortIndicator"></span></th>
+            <th class="sortable" data-key="color">Color <span class="sortIndicator"></span></th>
+            <th class="sortable" data-key="default">Default <span class="sortIndicator"></span></th>
+            <th class="sortable" data-key="groups">Groups <span class="sortIndicator"></span></th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -95,6 +95,32 @@
 <script>
 const msg = document.getElementById("msg");
 const tbody = document.getElementById("tbody");
+
+
+// ----- sortable table headers -----
+(() => {
+  const table = document.querySelector("table.templatesTable");
+  const thead = table ? table.querySelector("thead") : null;
+  if (!thead) return;
+
+  thead.addEventListener("click", (e) => {
+    const th = e.target && e.target.closest ? e.target.closest("th.sortable") : null;
+    if (!th) return;
+
+    const key = th.dataset.key;
+    if (!key) return;
+
+    if (sortState.key === key) {
+      sortState.dir = (sortState.dir === "asc") ? "desc" : "asc";
+    } else {
+      sortState.key = key;
+      sortState.dir = "asc";
+    }
+
+    applySortAndRender(viewTemplates || []);
+  });
+})();
+
 const form = document.getElementById("form");
 
 const formTitle = document.getElementById("formTitle");
@@ -114,6 +140,100 @@ const groupsInner = document.getElementById("groupsInner");
 
 let allGroups = [];
 let allTemplates = [];
+
+let viewTemplates = []; // { t, idx } pairs; idx is the server index
+
+let sortState = {
+  key: "agency",  // default: agency then name
+  dir: "asc"      // "asc" | "desc"
+};
+
+function getAgencyDisplay(t){
+  return t.agencySuffix ? (agencyAbbrFromSuffix(t.agencySuffix) || t.agencySuffix) : "";
+}
+
+function getSortValue(pair, key){
+  const t = pair?.t || {};
+  if (key === "name") return String(t.name || "");
+  if (key === "agency") return String(getAgencyDisplay(t) || "");
+  if (key === "color") return String(t.colorOverride || "");
+  if (key === "default") return t.isDefault ? "1" : "";
+  if (key === "groups") return String((t.groups || []).join(", "));
+  return "";
+}
+
+function stableSortedCopy(arr, key, dir){
+  const sign = dir === "desc" ? -1 : 1;
+  return arr
+    .map((item, idx) => ({ item, idx }))
+    .sort((a, b) => {
+      // Primary compare
+      const av = getSortValue(a.item, key);
+      const bv = getSortValue(b.item, key);
+
+      const aBlank = !String(av || "").trim();
+      const bBlank = !String(bv || "").trim();
+      if (aBlank && !bBlank) return 1 * sign;
+      if (!aBlank && bBlank) return -1 * sign;
+
+      let cmp = String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: "base" });
+      if (cmp !== 0) return cmp * sign;
+
+      // Secondary default: if sorting by agency, then sort by name (always asc within agency)
+      if (key === "agency") {
+        const an = getSortValue(a.item, "name");
+        const bn = getSortValue(b.item, "name");
+        const cmp2 = String(an).localeCompare(String(bn), undefined, { numeric: true, sensitivity: "base" });
+        if (cmp2 !== 0) return cmp2; // intentionally not multiplied by sign
+      }
+
+      return (a.idx - b.idx);
+    })
+    .map(x => x.item);
+}
+
+function renderTemplates(list){
+  tbody.innerHTML = (list || []).map(({t, idx}) => `
+    <tr>
+      <td>${t.agencySuffix ? esc(getAgencyDisplay(t) || t.agencySuffix) : "—"}</td>
+      <td>${esc(t.name)}</td>
+      <td>${t.colorOverride ? esc(t.colorOverride) : "—"}</td>
+      <td>${t.isDefault ? "Yes" : ""}</td>
+      <td class="groupsCell">${esc((t.groups || []).join(", "))}</td>
+      <td>
+        <div class="actionsCell">
+          <button class="btn" type="button" onclick="editTemplate(${idx})">Edit</button>
+          <button class="btn danger" type="button" onclick="deleteTemplate(${idx})">Delete</button>
+        </div>
+      </td>
+    </tr>
+  `).join("");
+}
+
+function updateSortIndicators(){
+  const table = document.querySelector("table.templatesTable");
+  const thead = table ? table.querySelector("thead") : null;
+  const ths = Array.from(thead ? thead.querySelectorAll("th.sortable") : []);
+  ths.forEach(th => {
+    const key = th.dataset.key;
+    const indicator = th.querySelector(".sortIndicator");
+    if (!indicator) return;
+
+    if (key === sortState.key) {
+      indicator.textContent = sortState.dir === "asc" ? "▲" : "▼";
+    } else {
+      indicator.textContent = "";
+    }
+  });
+}
+
+function applySortAndRender(list){
+  const base = Array.isArray(list) ? list.slice() : [];
+  const sorted = stableSortedCopy(base, sortState.key, sortState.dir);
+  viewTemplates = sorted;
+  renderTemplates(sorted);
+  updateSortIndicators();
+}
 let allAgencies = [];
 let editingIndex = null;
 
@@ -202,21 +322,13 @@ async function loadTemplates(){
   if (!res.ok) throw new Error(templates.error || "Failed to load templates");
   allTemplates = templates;
 
-  tbody.innerHTML = allTemplates.map((t,i)=>`
-    <tr>
-      <td>${esc(t.name)}</td>
-      <td>${t.agencySuffix ? esc(agencyAbbrFromSuffix(t.agencySuffix) || t.agencySuffix): "—"}</td>
-      <td>${t.colorOverride ? esc(t.colorOverride) : "—"}</td>
-      <td>${t.isDefault ? "Yes" : ""}</td>
-      <td class="groupsCell">${esc((t.groups || []).join(", "))}</td>
-      <td>
-        <div class="actionsCell">
-          <button class="btn" type="button" onclick="editTemplate(${i})">Edit</button>
-          <button class="btn danger" type="button" onclick="deleteTemplate(${i})">Delete</button>
-        </div>
-      </td>
-    </tr>
-  `).join("");
+  // keep server indices stable for Edit/Delete endpoints
+  viewTemplates = allTemplates.map((t, idx) => ({ t, idx }));
+
+  // default sort: agency asc, then name asc
+  sortState.key = "agency";
+  sortState.dir = "asc";
+  applySortAndRender(viewTemplates);
 }
 
 function setCreateMode(){
