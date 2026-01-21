@@ -10,6 +10,11 @@ All notable changes to this project will be documented in this file.  Minor qual
 
 ## Version History
 
+### v1.1.47 - 1/20/26
+✨ `Enhancement` - Adds sorting to Groups, Templates, and Mutual Aid. Template creation form order also adjusted to match the order of other pages. <br>
+✨ `Enhancement` - Adds "Private" column to Groups <br>
+🐛 `Bug Fix` - Fixes issue with incorrect permissions blocking agency admins from editing templates belonging to their agency
+
 ### v1.1.46 - 1/20/26
 ✨ `Enhancement` - Added "Manual Login" button to the Setup My Device page to provide manual cert enrollment instructions for each device type
 
