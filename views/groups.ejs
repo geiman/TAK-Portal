@@ -612,11 +612,11 @@ function buildGroupNameFromParts({ type, baseName, behavior, prefix, county }) {
   if (type === "agency") {
     const p = String(prefix || "").trim().toUpperCase();
     if (!p) return "";
-    name = `${p} - ${name}`;
+    name = `${p} ${name}`;
   } else if (type === "county") {
     const c = String(county || "").trim();
     if (!c) return "";
-    name = `${c} Co - ${name}`;
+    name = `${c} Co ${name}`;
   }
 
   return name;
