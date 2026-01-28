@@ -153,7 +153,7 @@ if (access.isGlobalAdmin && typeof privateStatus === "string" && privateStatus) 
   const truthy = privateStatus === "yes" || privateStatus === "true" || privateStatus === "1";
   attributes.private = truthy ? "yes" : "no";
 }
-attributes.cn = nameWithoutTak;
+attributes.CN = nameWithoutTak;
 
     const out = await groups.createGroup(name, { attributes });
     res.json({ success: true, group: out });
@@ -195,7 +195,7 @@ router.patch("/:groupId", async (req, res) => {
     const out = await groups.renameGroup(req.params.groupId, name, {
       description,
       private: access.isGlobalAdmin ? privateStatus : undefined,
-      cn: nameWithoutTak,
+      CN: nameWithoutTak,
     });
     res.json({ success: true, group: out });
   } catch (err) {
