@@ -5,6 +5,19 @@ const agencies = require("../services/agencies.service");
 const accessSvc = require("../services/access.service");
 const usersService = require("../services/users.service");
 
+
+function ensureTakPrefix(name) {
+  const n = String(name || "").trim();
+  if (!n) return "";
+  return n.toLowerCase().startsWith("tak_") ? n : `tak_${n}`;
+}
+
+function stripTakPrefix(name) {
+  const n = String(name || "").trim();
+  if (n.toLowerCase().startsWith("tak_")) return n.slice(4);
+  return n;
+}
+
 function toErrorPayload(err) {
   const data = err?.response?.data;
   if (data) return typeof data === "string" ? data : data;
@@ -26,6 +39,8 @@ router.get("/", async (req, res) => {
 router.post("/", async (req, res) => {
   try {
     const rawName = String(req.body?.name || "").trim();
+    const name = ensureTakPrefix(rawName);
+    const nameWithoutTak = stripTakPrefix(name);
     if (!rawName) {
       return res.status(400).json({ error: "Group name is required" });
     }
@@ -61,7 +76,7 @@ router.post("/", async (req, res) => {
         .map((a) => String(a.groupPrefix || "").trim().toUpperCase())
         .filter(Boolean);
 
-      const upperName = rawName.toUpperCase();
+      const upperName = nameWithoutTak.toUpperCase();
       const canCreateForAny = allowedPrefixes.some((prefix) => {
         // Support both "CPD-GROUP" and "CPD - GROUP"
         return (
@@ -138,7 +153,9 @@ if (access.isGlobalAdmin && typeof privateStatus === "string" && privateStatus) 
   const truthy = privateStatus === "yes" || privateStatus === "true" || privateStatus === "1";
   attributes.private = truthy ? "yes" : "no";
 }
-const out = await groups.createGroup(rawName, { attributes });
+attributes.cn = `CN: ${nameWithoutTak}`;
+
+    const out = await groups.createGroup(name, { attributes });
     res.json({ success: true, group: out });
   } catch (err) {
     res.status(400).json({ error: toErrorPayload(err) });
@@ -151,7 +168,9 @@ const out = await groups.createGroup(rawName, { attributes });
  */
 router.patch("/:groupId", async (req, res) => {
   try {
-    const name = String(req.body?.name || "").trim();
+    const rawName = String(req.body?.name || "").trim();
+    const name = ensureTakPrefix(rawName);
+    const nameWithoutTak = stripTakPrefix(name);
     if (!name) {
       return res.status(400).json({ error: "Group name is required" });
     }
@@ -176,6 +195,7 @@ router.patch("/:groupId", async (req, res) => {
     const out = await groups.renameGroup(req.params.groupId, name, {
       description,
       private: access.isGlobalAdmin ? privateStatus : undefined,
+      cn: `CN: ${nameWithoutTak}`,
     });
     res.json({ success: true, group: out });
   } catch (err) {

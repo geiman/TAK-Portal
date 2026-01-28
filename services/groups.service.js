@@ -249,8 +249,9 @@ async function renameGroup(groupId, newName, opts = {}) {
 
   const wantsDescription = Object.prototype.hasOwnProperty.call(opts, "description");
   const wantsPrivate = Object.prototype.hasOwnProperty.call(opts, "private");
+  const wantsCn = Object.prototype.hasOwnProperty.call(opts, "cn");
 
-  if (wantsDescription || wantsPrivate) {
+  if (wantsDescription || wantsPrivate || wantsCn) {
     const existingAttrs =
       current && typeof current.attributes === "object" && current.attributes
         ? current.attributes

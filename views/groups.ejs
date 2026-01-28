@@ -463,6 +463,18 @@ function esc(s){
     .replaceAll(">","&gt;")
     .replaceAll('"',"&quot;")
     .replaceAll("'","&#39;");
+
+function ensureTakPrefix(name){
+  const n = String(name || "").trim();
+  if(!n) return "";
+  return n.toLowerCase().startsWith("tak_") ? n : `tak_${n}`;
+}
+
+function stripTakPrefix(name){
+  const n = String(name || "").trim();
+  return n.toLowerCase().startsWith("tak_") ? n.slice(4) : n;
+}
+
 }
 
 async function loadAgencies(){
@@ -535,6 +547,8 @@ function agencyItems(){
 // Parse a full group name into type/prefix/county/baseName/behavior
 function parseGroupName(fullName) {
   let name = String(fullName || "").trim();
+  // Remove mandatory tak_ prefix before parsing
+  name = stripTakPrefix(name);
   let behavior = "both";
 
   // Strip behavior suffix first
@@ -651,7 +665,7 @@ function buildGroupNameFromParts({ type, baseName, behavior, prefix, county }) {
     name = `${c} Co ${name}`;
   }
 
-  return name;
+  return ensureTakPrefix(name);
 }
 
 function isGroupEditable(name){
@@ -813,6 +827,9 @@ createBtn.onclick = async () => {
   }
   // type === "generic" just uses the base name + behavior suffix
 
+  // Enforce tak_ prefix
+  name = ensureTakPrefix(name);
+
   if (!confirm(`Create group "${name}"?`)) return;
 
   // Derive group type metadata for auditing
@@ -878,6 +895,7 @@ const editGroupMsg = document.getElementById("editGroupMsg");
 let editGroupCurrentId = null;
 let editGroupCurrentName = "";
 let editGroupCurrentDescription = "";
+let editGroupCurrentPrivate = "no";
 let editGroupOriginalType = null; // used to prevent agency->global for non-global admins
 
 // Rename (Edit Name)
@@ -897,6 +915,7 @@ window.editGroupName = async (groupId) => {
   editGroupCurrentId = groupId;
   editGroupCurrentName = currentName;
   editGroupCurrentDescription = currentDescription;
+  editGroupCurrentPrivate = currentPrivate;
 
   // Break apart the current name into structured fields
   const parsed = parseGroupName(currentName);
@@ -1252,13 +1271,18 @@ editGroupSaveBtn.onclick = async () => {
   });
 
   const newDescription = String(editGroupDescriptionInput.value || "").trim();
+  const newPrivate = (IS_GLOBAL_ADMIN && editPrivateSelect)
+    ? String(editPrivateSelect.value || "no").trim().toLowerCase()
+    : null;
 
   if (!newName) {
     setMsg(editGroupMsg, "Invalid group name.", false);
     return;
   }
 
-  if (newName === editGroupCurrentName && newDescription === editGroupCurrentDescription) {
+  const privateUnchanged = (newPrivate === null) || (newPrivate === editGroupCurrentPrivate);
+
+  if (newName === editGroupCurrentName && newDescription === editGroupCurrentDescription && privateUnchanged) {
     setMsg(editGroupMsg, "No changes made.", true);
     return;
   }
@@ -1288,6 +1312,7 @@ editGroupSaveBtn.onclick = async () => {
   setMsg(editGroupMsg, `Updated "${editGroupCurrentName}"`, true);
   editGroupCurrentName = newName;
   editGroupCurrentDescription = newDescription;
+  if (newPrivate !== null) editGroupCurrentPrivate = newPrivate;
   await loadGroups();
   showEditGroupModal(false);
 };
