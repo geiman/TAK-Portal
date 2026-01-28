@@ -754,7 +754,7 @@ function renderGroups(){
     return `
     <tr>
       <td style="max-width:320px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-        ${esc(g.name)}
+        ${esc(stripTakPrefix(g.name))}
         ${desc ? `<div class="muted" style="font-size: 11px; margin-top:2px; white-space:normal;">${esc(desc)}</div>` : ""}
       </td>
       ${IS_GLOBAL_ADMIN ? `<td>${isPrivate ? "Private" : ""}</td>` : ``}
@@ -1491,7 +1491,7 @@ function renderSourceGroupList(){
     return `
       <label class="groupItem">
         <input type="checkbox" class="srcGroupChk" value="${esc(id)}" ${checked} />
-        <span>${esc(String(g.name || id))}</span>
+        <span>${esc(stripTakPrefix(String(g.name || id)))}</span>
       </label>
     `;
   }).join("") || `<div style="padding:10px; color: var(--muted);">No groups found.</div>`;
