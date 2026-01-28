@@ -68,35 +68,38 @@ function stripTakPrefix(name) {
 function normalizeCNValue(rawValue, nameWithoutTak) {
   const fallback = String(nameWithoutTak || "").trim();
 
+  // We intentionally accept a wide range of inputs and normalize to a single canonical form:
+  //   "CN: <nameWithoutTak>"
+  // This must handle common bad inputs like:
+  //   CN: "CN: test 5"   (your current bug)
+  //   "CN: test 5"
+  //   CN:test 5
+  //   test 5
   let v = String(rawValue ?? "").trim();
   if (!v) v = fallback;
 
-  // Strip surrounding quotes on the whole value
-  const stripOuterQuotes = (s) => {
-    const t = String(s || "").trim();
-    if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
-      return t.slice(1, -1).trim();
+  // Unwrap up to 3 layers of quotes and CN prefixes.
+  // (We use a small loop to avoid writing a brittle one-off regex.)
+  for (let i = 0; i < 3; i += 1) {
+    // strip surrounding quotes
+    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+      v = v.slice(1, -1).trim();
     }
-    return t;
-  };
 
-  v = stripOuterQuotes(v);
+    // strip leading CN:
+    const m = v.match(/^cn\s*:\s*(.*)$/i);
+    if (!m) break;
+    v = String(m[1] || "").trim();
+  }
 
-  // If the value is already "CN: ...", take the rest; otherwise treat as the rest directly.
-  const m = v.match(/^cn\s*:\s*(.*)$/i);
-  let rest = m ? String(m[1] || "").trim() : v;
+  // One last quote unwrap in case we ended the loop after removing a prefix.
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+    v = v.slice(1, -1).trim();
+  }
 
-  // Handle broken nested cases like: CN: "CN: Foo"
-  rest = stripOuterQuotes(rest);
-  const m2 = rest.match(/^cn\s*:\s*(.*)$/i);
-  if (m2) rest = String(m2[1] || "").trim();
-
-  rest = stripOuterQuotes(rest);
-
-  const finalRest = rest || fallback;
+  const finalRest = String(v || fallback).trim();
   return `CN: ${finalRest}`;
 }
-
 
 function applyUserVisibilityFilters(users) {
   let out = Array.isArray(users) ? users : [];
