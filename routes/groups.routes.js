@@ -195,7 +195,7 @@ router.patch("/:groupId", async (req, res) => {
     const out = await groups.renameGroup(req.params.groupId, name, {
       description,
       private: access.isGlobalAdmin ? privateStatus : undefined,
-      cn: `CN: ${nameWithoutTak}`,
+      cn: $nameWithoutTak,
     });
     res.json({ success: true, group: out });
   } catch (err) {
