@@ -153,7 +153,7 @@ if (access.isGlobalAdmin && typeof privateStatus === "string" && privateStatus) 
   const truthy = privateStatus === "yes" || privateStatus === "true" || privateStatus === "1";
   attributes.private = truthy ? "yes" : "no";
 }
-attributes.cn = `CN: ${nameWithoutTak}`;
+attributes.cn = $nameWithoutTak;
 
     const out = await groups.createGroup(name, { attributes });
     res.json({ success: true, group: out });
