@@ -10,6 +10,10 @@ All notable changes to this project will be documented in this file.  Minor qual
 
 ## Version History
 
+### v1.1.50 - 1/28/26
+✨ `Enhancement` - Group formatting names and CN now adjusted to pass proper attributes such as name and description to TAK <br>
+🐛 `Bug Fix` - Fixes issue with changing a group's private settings
+
 ### v1.1.49 - 1/26/26
 ✨ `Enhancement` - Minor Update - Simplified sidebar navigation wording
 
