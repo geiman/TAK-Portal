@@ -107,6 +107,10 @@ function getAgencyDisplay(t){
   return t && t.agencySuffix ? (agencyAbbrFromSuffix(t.agencySuffix) || t.agencySuffix) : "";
 }
 
+function displayGroupName(name){
+  return String(name || "").replace(/^tak_/, "");
+}
+
 function getSortValue(pair, key){
   const t = (pair && pair.t) || {};
   if (key === "agency") return String(getAgencyDisplay(t) || "");
@@ -153,7 +157,7 @@ function renderTemplates(list){
       <td>${esc(t.name)}</td>
       <td>${t.colorOverride ? esc(t.colorOverride) : "—"}</td>
       <td>${t.isDefault ? "Yes" : ""}</td>
-      <td class="groupsCell">${esc((t.groups || []).join(", "))}</td>
+      <td class="groupsCell">${esc((t.groups || []).map(displayGroupName).join(", "))}</td>
       <td>
         <div class="actionsCell">
           <button class="btn" type="button" onclick="editTemplate(${idx})">Edit</button>
@@ -257,14 +261,20 @@ function renderGroups(filterText = ""){
   const list = allGroups
     .map(g => String(g.name))
     .sort((a,b)=>a.localeCompare(b))
-    .filter(name => !q || name.toLowerCase().includes(q));
+    .filter(rawName => {
+      if (!q) return true;
+      const raw = rawName.toLowerCase();
+      const disp = displayGroupName(rawName).toLowerCase();
+      return raw.includes(q) || disp.includes(q);
+    });
 
-  groupsInner.innerHTML = list.map(name => `
+  groupsInner.innerHTML = list.map(rawName => `
     <label class="groupItem">
-      <input type="checkbox" value="${esc(name)}" />
-      <span>${esc(name)}</span>
+      <input type="checkbox" value="${esc(rawName)}" />
+      <span>${esc(displayGroupName(rawName))}</span>
     </label>
   `).join("");
+
 
   if (editingIndex !== null) {
     const t = allTemplates[editingIndex];
