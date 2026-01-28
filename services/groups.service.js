@@ -75,127 +75,85 @@ function applyUserVisibilityFilters(users) {
 
 // ---------------- Authentik API helpers (groups) ----------------
 async function getAllGroupsRaw(options = {}) {
-  let groups = [];
-  let url = "/core/groups/";
+  const limit = 200;
+  let next = null;
+  let all = [];
 
-  while (url) {
-    const res = await api.get(url);
+  do {
+    const params = { page_size: limit };
+    if (next) params.page = next;
+
+    const res = await api.get("/core/groups/", { params });
     const data = res?.data || {};
     const results = Array.isArray(data.results) ? data.results : [];
-    groups = groups.concat(results);
-    url = data.next
-      ? data.next.replace(`${getString("AUTHENTIK_URL", "")}/api/v3`, "")
-      : null;
-  }
+    all = all.concat(results);
+    next = data.next ? (new URL(data.next)).searchParams.get("page") : null;
+  } while (next);
 
-  // Hide internal Authentik groups from this portal UI unless explicitly requested.
-  // We read GROUPS_HIDDEN_PREFIXES via getString so settings.json and env both work.
-  // Example: GROUPS_HIDDEN_PREFIXES=authentik-,internal-
-  const includeHidden = !!options.includeHidden;
-  if (!includeHidden) {
-    const prefixes = String(getString("GROUPS_HIDDEN_PREFIXES", ""))
-      .split(",")
-      .map(p => String(p || "").trim().toLowerCase())
-      .filter(Boolean);
-
-    groups = groups.filter(g => {
-      const name = String(g?.name || "").trim().toLowerCase();
-      return !prefixes.some(p => name.startsWith(p));
-    });
-  }
-
-  return groups;
+  return all;
 }
 
-async function getGroupById(groupId) {
+let groupsCache = null;
+let groupsCacheTs = 0;
+const GROUPS_CACHE_TTL_MS = 15 * 1000;
+
+function invalidateGroupsCache() {
+  groupsCache = null;
+  groupsCacheTs = 0;
+}
+
+async function getAllGroups({ forceRefresh } = {}) {
+  const now = Date.now();
+  if (!forceRefresh && groupsCache && (now - groupsCacheTs) < GROUPS_CACHE_TTL_MS) {
+    return groupsCache;
+  }
+  const raw = await getAllGroupsRaw();
+  groupsCache = raw;
+  groupsCacheTs = now;
+  return raw;
+}
+
+async function getGroupById(groupId, options = {}) {
   const id = normalizeId(groupId);
   if (!id) throw new Error("Group id is required");
   const res = await api.get(`/core/groups/${id}/`);
   return res.data;
 }
 
-// ---------------- Fetch all users (hybrid pagination) ----------------
-// Supports BOTH:
-// - data.pagination.next (like users.service.js)
-// - data.next (DRF-style next URL)
-// Also:
-// - Hides USERS_HIDDEN_PREFIXES
-// - Respects AUTHENTIK_USER_PATH
-async function getAllUsersRaw() {
-  let users = [];
-  const pageSize = 200;
-  let page = 1;
-  let url = `/core/users/?page=${page}&page_size=${pageSize}`;
+// ---------------- TAK naming helpers ----------------
+const TAK_PREFIX = "tak_";
 
-  while (url) {
-    const res = await api.get(url);
-    const data = res?.data || {};
-    const results = Array.isArray(data.results) ? data.results : [];
-    users = users.concat(results);
-
-    const pagination = data.pagination || {};
-    if (pagination && pagination.next) {
-      // Authentik-style pagination object (what users.service.js uses)
-      page = pagination.next;
-      url = `/core/users/?page=${page}&page_size=${pageSize}`;
-    } else if (data.next) {
-      // DRF-style "next" URL
-      url = data.next.replace(`${getString("AUTHENTIK_URL", "")}/api/v3`, "");
-    } else {
-      url = null;
-    }
-  }
-
-  return applyUserVisibilityFilters(users);
+function stripTakPrefix(name) {
+  const n = String(name || "").trim();
+  if (!n) return "";
+  return n.toLowerCase().startsWith(TAK_PREFIX) ? n.slice(TAK_PREFIX.length) : n;
 }
 
-// Fetch all users who are members of a single group via Authentik filtering.
-// This avoids downloading the full user list and filtering in Node.
-async function getUsersByGroupIdRaw({ groupId, agencyAbbreviation } = {}) {
-  const gid = normalizeId(groupId);
-  if (!gid) throw new Error("Group id is required");
+function ensureTakPrefix(name) {
+  const n = String(name || "").trim();
+  if (!n) return "";
+  return n.toLowerCase().startsWith(TAK_PREFIX) ? n : TAK_PREFIX + n;
+}
 
-  let users = [];
-  const pageSize = 200;
-  let page = 1;
-
-  // Use server-side filters:
-  // - groups_by_pk=<uuid>
-  // - optionally attributes__agency_abbreviation=<abbr>
-  // Also reduce payload size (no embedded groups/roles).
-  const abbr = String(agencyAbbreviation || "").trim();
-  const abbrParam = abbr ? `&attributes__agency_abbreviation=${encodeURIComponent(abbr)}` : "";
-  let url = `/core/users/?page=${page}&page_size=${pageSize}&groups_by_pk=${encodeURIComponent(gid)}&include_groups=false&include_roles=false${abbrParam}`;
-
-  while (url) {
-    const res = await api.get(url);
-    const data = res?.data || {};
-    const results = Array.isArray(data.results) ? data.results : [];
-    users = users.concat(results);
-
-    const pagination = data.pagination || {};
-    if (pagination && pagination.next) {
-      page = pagination.next;
-      url = `/core/users/?page=${page}&page_size=${pageSize}&groups_by_pk=${encodeURIComponent(gid)}&include_groups=false&include_roles=false${abbrParam}`;
-    } else if (data.next) {
-      url = data.next.replace(`${getString("AUTHENTIK_URL", "")}/api/v3`, "");
-    } else {
-      url = null;
-    }
-  }
-
-  return applyUserVisibilityFilters(users);
+function buildCnAttributeValue(nameWithTak) {
+  const without = stripTakPrefix(nameWithTak);
+  return `CN: ${without}`;
 }
 
 // ---------------- Group CRUD ----------------
 async function createGroup(name, opts = {}) {
-  const n = String(name || "").trim();
-  if (!n) throw new Error("Group name is required");
+  const raw = String(name || "").trim();
+  if (!raw) throw new Error("Group name is required");
+
+  // Always enforce tak_ prefix
+  const n = ensureTakPrefix(raw);
 
   const payload = { name: n };
 
   // Merge description (if provided) with any attributes passed in opts
   const attributes = Object.assign({}, opts.attributes || {});
+  // Always keep Authentik attribute "CN" in sync (without tak_ prefix)
+  attributes.CN = buildCnAttributeValue(n);
   const description = String(opts.description || "").trim();
   if (description) {
     attributes.description = description;
@@ -210,24 +168,20 @@ async function createGroup(name, opts = {}) {
   return res.data;
 }
 
-async function setUserGroups(userId, groupIds) {
-  const id = normalizeId(userId);
-  const ids = normalizeIdList(groupIds);
-  await api.patch(`/core/users/${id}/`, { groups: ids });
-  return true;
-}
+async function setUserGroupMembership(userId, groupIds) {
+  const uid = normalizeId(userId);
+  if (!uid) throw new Error("User id is required");
 
-async function deleteGroup(groupId) {
-  const id = normalizeId(groupId);
-  if (!id) throw new Error("Group id is required");
-  await api.delete(`/core/groups/${id}/`);
-  invalidateGroupsCache();
-  invalidateGroupUsersCache();
-  return true;
+  const groups = normalizeIdList(groupIds);
+
+  const res = await api.patch(`/core/users/${uid}/`, { groups });
+  return res.data;
 }
 
 /**
- * Rename group in Authentik AND update templates store (templates store group *names*, not IDs)
+ * Renames a group in Authentik, and updates any templates that reference the old name.
+ * Also supports updating group attributes (description/private).
+ * Templates store group NAMES, not IDs, so we need to update those too.
  * Returns the updated group object, with some meta counts attached.
  */
 async function renameGroup(groupId, newName, opts = {}) {
@@ -237,8 +191,11 @@ async function renameGroup(groupId, newName, opts = {}) {
   // Block protected groups unless explicitly overridden
   const current = await assertGroupNotActionLocked(id, opts);
 
-  const n = String(newName || "").trim();
-  if (!n) throw new Error("Group name is required");
+  const rawNew = String(newName || "").trim();
+  if (!rawNew) throw new Error("Group name is required");
+
+  // Always enforce tak_ prefix
+  const n = ensureTakPrefix(rawNew);
 
   // Need old name so we can update templates that reference it
   const oldName = String(current?.name || "").trim();
@@ -250,28 +207,27 @@ async function renameGroup(groupId, newName, opts = {}) {
   const wantsDescription = Object.prototype.hasOwnProperty.call(opts, "description");
   const wantsPrivate = Object.prototype.hasOwnProperty.call(opts, "private");
 
-  if (wantsDescription || wantsPrivate) {
-    const existingAttrs =
-      current && typeof current.attributes === "object" && current.attributes
-        ? current.attributes
-        : {};
+  // Always keep Authentik attribute "CN" in sync (without tak_ prefix),
+  // and apply optional description/private updates.
+  const existingAttrs =
+    current && typeof current.attributes === "object" && current.attributes
+      ? current.attributes
+      : {};
 
-    const nextAttrs = { ...existingAttrs };
+  const nextAttrs = { ...existingAttrs, CN: buildCnAttributeValue(n) };
 
-    if (wantsDescription) {
-      const desc = String(opts.description || "").trim();
-      nextAttrs.description = desc;
-    }
-
-    if (wantsPrivate) {
-      const priv = String(opts.private || "").trim().toLowerCase();
-      // Normalize to "yes"/"no"; treat anything other than "yes" as "no"
-      nextAttrs.private = priv === "yes" ? "yes" : "no";
-    }
-
-    payload.attributes = nextAttrs;
+  if (wantsDescription) {
+    const desc = String(opts.description || "").trim();
+    nextAttrs.description = desc;
   }
 
+  if (wantsPrivate) {
+    const priv = String(opts.private || "").trim().toLowerCase();
+    // Normalize to "yes"/"no"; treat anything other than "yes" as "no"
+    nextAttrs.private = priv === "yes" ? "yes" : "no";
+  }
+
+  payload.attributes = nextAttrs;
   const res = await api.patch(`/core/groups/${id}/`, payload);
   const updatedGroup = res.data;
 
@@ -304,333 +260,216 @@ async function renameGroup(groupId, newName, opts = {}) {
   };
 }
 
-// ---------- impact + cleanup ----------
+// ---------- impact
 async function getDeleteImpact(groupId) {
   const id = normalizeId(groupId);
   if (!id) throw new Error("Group id is required");
 
-  // Group name matters because templates store names, not IDs
   const group = await getGroupById(id);
-  const groupName = String(group.name || "").trim();
+  const name = String(group?.name || "").trim();
 
-  // Users affected (computed via full user list; reuse users.service cache)
-  const users = await usersService.getAllUsers();
-  const usersAffected = users.filter(u => {
-    const gs = Array.isArray(u.groups) ? u.groups.map(x => String(x)) : [];
-    return gs.includes(id);
-  }).length;
-
-  // Templates affected (by group name)
   const templates = templatesStore.load();
-  const templatesAffected = templates
-    .map((t, index) => ({
-      index,
-      name: String(t.name || ""),
-      agencySuffix: String(t.agencySuffix || ""),
-      has: Array.isArray(t.groups) && t.groups.includes(groupName)
-    }))
-    .filter(x => x.has)
-    .map(x => ({ index: x.index, name: x.name, agencySuffix: x.agencySuffix }));
+  const affectedTemplates = templates
+    .filter(t => Array.isArray(t.groups) && t.groups.includes(name))
+    .map(t => t.name || t.id || "(unnamed)");
+
+  // Count users currently in the group
+  const users = await usersService.getAllUsers({ forceRefresh: true });
+  const usersInGroup = (Array.isArray(users) ? users : []).filter(u => {
+    const groups = Array.isArray(u.groups) ? u.groups : [];
+    return groups.includes(id) || groups.includes(String(id));
+  });
 
   return {
     groupId: id,
-    groupName,
-    usersAffected,
-    templatesAffected,
-    templatesAffectedCount: templatesAffected.length
+    groupName: name,
+    templatesAffectedCount: affectedTemplates.length,
+    templatesAffected: affectedTemplates,
+    usersAffected: usersInGroup.length,
   };
 }
 
-async function deleteGroupWithCleanup(groupId, opts = {}) {
+async function deleteGroup(groupId, opts = {}) {
   const id = normalizeId(groupId);
   if (!id) throw new Error("Group id is required");
 
   // Block protected groups unless explicitly overridden
   await assertGroupNotActionLocked(id, opts);
 
-  const impact = await getDeleteImpact(id);
-  const groupName = impact.groupName;
+  const res = await api.delete(`/core/groups/${id}/`);
+  invalidateGroupsCache();
+  return res.data;
+}
 
-  // NOTE:
-  // We do NOT manually strip this group from every user.
-  // Authentik will take care of cleaning up user/group membership
-  // when the group is deleted. Here we only clean up templates.
+async function deleteGroupWithCleanup(groupId, opts = {}) {
+  const id = normalizeId(groupId);
+  if (!id) throw new Error("Group id is required");
 
-  // 1) Remove group name from templates
-  const templates = templatesStore.load();
-  let templatesUpdated = 0;
-  let templatesNowEmpty = 0;
+  const group = await getGroupById(id);
+  const groupName = String(group?.name || "").trim();
 
-  const updatedTemplates = templates.map(t => {
-    const groups = Array.isArray(t.groups) ? t.groups : [];
-    if (!groupName || !groups.includes(groupName)) return t;
+  // Block protected groups unless explicitly overridden
+  await assertGroupNotActionLocked(id, opts);
 
-    const nextGroups = groups.filter(g => g !== groupName);
-    templatesUpdated++;
-
-    if (nextGroups.length === 0) templatesNowEmpty++;
-
-    return { ...t, groups: nextGroups };
+  // Remove group from users
+  const users = await usersService.getAllUsers({ forceRefresh: true });
+  const affectedUsers = (Array.isArray(users) ? users : []).filter(u => {
+    const groups = Array.isArray(u.groups) ? u.groups : [];
+    return groups.includes(id) || groups.includes(String(id));
   });
 
+  for (const u of affectedUsers) {
+    const uid = normalizeId(u.pk);
+    if (!uid) continue;
+
+    const nextGroups = (Array.isArray(u.groups) ? u.groups : [])
+      .map(g => String(g))
+      .filter(g => g !== String(id));
+
+    await api.patch(`/core/users/${uid}/`, { groups: nextGroups });
+  }
+
+  // Remove group from templates store
+  const templates = templatesStore.load();
+  const updatedTemplates = templates.map(t => {
+    const groupsArr = Array.isArray(t.groups) ? t.groups : [];
+    if (!groupsArr.includes(groupName)) return t;
+    return { ...t, groups: groupsArr.filter(g => g !== groupName) };
+  });
   templatesStore.save(updatedTemplates);
 
-  // 2) Delete group in Authentik
-  await deleteGroup(id);
+  // Delete group
+  const res = await api.delete(`/core/groups/${id}/`);
+  invalidateGroupsCache();
 
   return {
     success: true,
     groupId: id,
     groupName,
-    usersUpdated: 0, // we did not touch users directly
-    templatesUpdated,
-    templatesNowEmpty
+    usersUpdated: affectedUsers.length,
+    templatesUpdated: templates.filter(t => Array.isArray(t.groups) && t.groups.includes(groupName)).length,
+    authentik: res.data,
   };
 }
 
-// ---------- bulk helpers (group-centric membership updates) ----------
-async function bulkAddUsersToGroup(groupId, userPks) {
-  const id = normalizeId(groupId);
-  if (!id) throw new Error("Group id is required");
-
-  const toAdd = normalizeIdList(userPks);
-  if (!toAdd.length) return { matched: 0, changed: 0 };
-
-  // Use group.users as source of truth so we don't drop unseen members
-  const group = await getGroupById(id);
-  const currentUsers = Array.isArray(group.users)
-    ? group.users.map(x => String(x))
-    : [];
-
-  const merged = Array.from(
-    new Set([...currentUsers, ...toAdd.map(String)])
-  );
-
-  if (merged.length === currentUsers.length) {
-    // nothing actually changed
-    return { matched: toAdd.length, changed: 0 };
-  }
-
-  await api.patch(`/core/groups/${id}/`, { users: merged });
-
-  return {
-    matched: toAdd.length,
-    changed: merged.length - currentUsers.length,
-  };
-}
-
-async function bulkRemoveUsersFromGroup(groupId, userPks) {
-  const id = normalizeId(groupId);
-  if (!id) throw new Error("Group id is required");
-
-  const toRemove = new Set(
-    normalizeIdList(userPks).map(String)
-  );
-  if (!toRemove.size) return { matched: 0, changed: 0 };
-
-  const group = await getGroupById(id);
-  const currentUsers = Array.isArray(group.users)
-    ? group.users.map(x => String(x))
-    : [];
-
-  const remaining = currentUsers.filter(pk => !toRemove.has(String(pk)));
-
-  if (remaining.length === currentUsers.length) {
-    // nothing actually changed
-    return { matched: toRemove.size, changed: 0 };
-  }
-
-  await api.patch(`/core/groups/${id}/`, { users: remaining });
-
-  return {
-    matched: toRemove.size,
-    changed: currentUsers.length - remaining.length,
-  };
-}
-
-// ---------- Mass assign / unassign ----------
-async function massAssignUsersToGroup({ groupId, suffixes, sourceGroupIds, userIds }) {
+// ---------- mass ops
+async function massAssignUsersToGroup({ groupId, suffixes, sourceGroupIds, userIds } = {}) {
   const gid = normalizeId(groupId);
-  if (!gid) throw new Error("Target group is required");
+  const sfx = normalizeIdList(suffixes).map(s => String(s).trim().toLowerCase());
+  const srcGroupIds = Array.isArray(sourceGroupIds)
+    ? normalizeIdList(sourceGroupIds)
+    : normalizeIdList([sourceGroupIds]);
+  const uids = normalizeIdList(userIds);
 
-  // Block protected groups
-  await assertGroupNotActionLocked(gid);
+  if (!gid) throw new Error("groupId is required");
+  if (!sfx.length) throw new Error("suffixes are required");
+  if (!srcGroupIds.length) throw new Error("sourceGroupIds are required");
+  if (!uids.length) throw new Error("userIds are required");
 
-  const users = await getAllUsers();
+  const users = await usersService.getAllUsers({ forceRefresh: true });
 
-  // Strategy 1: explicit users
-  const explicitUsers = normalizeIdList(userIds);
-  if (explicitUsers.length) {
-    const matchedUsers = users.filter(u => explicitUsers.includes(String(u.pk)));
-    const targetUserPks = matchedUsers.map(u => u.pk);
+  // Filter users by agency suffix (based on access.service rules)
+  const filteredUsers = accessSvc.filterUsersByAgencySuffix(users, sfx);
 
-    const { changed } = await bulkAddUsersToGroup(gid, targetUserPks);
+  // Build a set of eligible user IDs
+  const eligibleUserIds = new Set(filteredUsers.map(u => String(u.pk)));
 
-    return { matched: matchedUsers.length, updated: changed };
+  // Only apply to requested userIds that are eligible
+  const targets = uids.filter(id => eligibleUserIds.has(String(id)));
+
+  // For each user, add the group if they are in ANY of the source groups
+  let updated = 0;
+  let skipped = 0;
+
+  for (const uid of targets) {
+    const u = filteredUsers.find(x => String(x.pk) === String(uid));
+    if (!u) {
+      skipped++;
+      continue;
+    }
+
+    const currentGroups = Array.isArray(u.groups) ? u.groups.map(g => String(g)) : [];
+
+    // Must be in at least one source group to be included
+    const inSource = srcGroupIds.some(sg => currentGroups.includes(String(sg)));
+    if (!inSource) {
+      skipped++;
+      continue;
+    }
+
+    if (!currentGroups.includes(String(gid))) {
+      const next = currentGroups.concat([String(gid)]);
+      await api.patch(`/core/users/${uid}/`, { groups: next });
+      updated++;
+    } else {
+      skipped++;
+    }
   }
 
-  // Strategy 2: users with an existing group (allow multiple)
-  const srcGids = normalizeIdList(sourceGroupIds);
-  if (srcGids.length) {
-    const matchedUsers = users.filter(u => {
-      const gs = Array.isArray(u.groups) ? u.groups.map(x => String(x)) : [];
-      return srcGids.some(id => gs.includes(id));
-    });
-
-    const targetUserPks = matchedUsers.map(u => u.pk);
-    const { changed } = await bulkAddUsersToGroup(gid, targetUserPks);
-
-    return { matched: matchedUsers.length, updated: changed };
-  }
-
-  // Strategy 3: match by agency suffix
-  const suffixList = Array.isArray(suffixes)
-    ? suffixes.map(s => String(s).trim().toLowerCase()).filter(Boolean)
-    : [];
-  if (!suffixList.length) {
-    throw new Error("Provide suffixes, sourceGroupIds, or userIds to mass-assign.");
-  }
-
-  const matchedUsers = users.filter(u => {
-    const un = String(u.username || "").toLowerCase();
-    return suffixList.some(sfx => un.endsWith(sfx));
-  });
-
-  const targetUserPks = matchedUsers.map(u => u.pk);
-  const { changed } = await bulkAddUsersToGroup(gid, targetUserPks);
-
-  invalidateGroupUsersCache();
-
-  return { matched: matchedUsers.length, updated: changed };
+  return { updated, skipped };
 }
 
-// Fetch all members of a single group (lightweight projection)
-async function getGroupMembers(groupId, { authUser, agencyAbbreviation } = {}) {
+async function massUnassignUsersFromGroup({ groupId, suffixes, sourceGroupIds, userIds } = {}) {
   const gid = normalizeId(groupId);
-  if (!gid) throw new Error("Group id is required");
+  const sfx = normalizeIdList(suffixes).map(s => String(s).trim().toLowerCase());
+  const srcGroupIds = Array.isArray(sourceGroupIds)
+    ? normalizeIdList(sourceGroupIds)
+    : normalizeIdList([sourceGroupIds]);
+  const uids = normalizeIdList(userIds);
 
-  // Try the fast path: server-side filter by group membership
-  // and (for agency admins) by agency_abbreviation.
-  let members = await getUsersByGroupIdRaw({
-    groupId: gid,
-    agencyAbbreviation,
-  });
+  if (!gid) throw new Error("groupId is required");
+  if (!sfx.length) throw new Error("suffixes are required");
+  if (!srcGroupIds.length) throw new Error("sourceGroupIds are required");
+  if (!uids.length) throw new Error("userIds are required");
 
-  // Safety: for agency admins, ensure they don't see users outside of allowed agencies.
-  // (This preserves existing behavior even if attributes are missing/misconfigured.)
-  const access = accessSvc.getAgencyAccess(authUser || null);
-  if (!access.isGlobalAdmin) {
-    members = members.filter((u) =>
-      accessSvc.isUsernameInAllowedAgencies(authUser || null, u?.username)
-    );
+  const users = await usersService.getAllUsers({ forceRefresh: true });
+
+  const filteredUsers = accessSvc.filterUsersByAgencySuffix(users, sfx);
+  const eligibleUserIds = new Set(filteredUsers.map(u => String(u.pk)));
+
+  const targets = uids.filter(id => eligibleUserIds.has(String(id)));
+
+  let updated = 0;
+  let skipped = 0;
+
+  for (const uid of targets) {
+    const u = filteredUsers.find(x => String(x.pk) === String(uid));
+    if (!u) {
+      skipped++;
+      continue;
+    }
+
+    const currentGroups = Array.isArray(u.groups) ? u.groups.map(g => String(g)) : [];
+
+    // Must be in at least one source group to be included
+    const inSource = srcGroupIds.some(sg => currentGroups.includes(String(sg)));
+    if (!inSource) {
+      skipped++;
+      continue;
+    }
+
+    if (currentGroups.includes(String(gid))) {
+      const next = currentGroups.filter(g => g !== String(gid));
+      await api.patch(`/core/users/${uid}/`, { groups: next });
+      updated++;
+    } else {
+      skipped++;
+    }
   }
 
-  return members.map((u) => ({
-    pk: u.pk,
-    username: u.username,
-    name: u.name,
-    email: u.email,
-    is_active: u.is_active,
-    path: u.path,
-    attributes: u.attributes || {},
-  }));
+  return { updated, skipped };
 }
-
-async function massUnassignUsersFromGroup({ groupId, suffixes, sourceGroupIds, userIds }) {
-  const gid = normalizeId(groupId);
-  if (!gid) throw new Error("Target group is required");
-
-  // Block protected groups
-  await assertGroupNotActionLocked(gid);
-
-  const users = await getAllUsers();
-
-  // Strategy 1: explicit users
-  const explicitUsers = normalizeIdList(userIds);
-  if (explicitUsers.length) {
-    const matchedUsers = users.filter((u) => explicitUsers.includes(String(u.pk)));
-    const targetUserPks = matchedUsers.map(u => u.pk);
-
-    const { changed } = await bulkRemoveUsersFromGroup(gid, targetUserPks);
-
-    invalidateGroupUsersCache();
-
-    return { matched: matchedUsers.length, updated: changed };
-  }
-
-  // Strategy 2: users with an existing group (allow multiple)
-  const srcGids = normalizeIdList(sourceGroupIds);
-  if (srcGids.length) {
-    const matchedUsers = users.filter((u) => {
-      const gs = Array.isArray(u.groups) ? u.groups.map((x) => String(x)) : [];
-      return srcGids.some((id) => gs.includes(id));
-    });
-
-    const targetUserPks = matchedUsers.map(u => u.pk);
-    const { changed } = await bulkRemoveUsersFromGroup(gid, targetUserPks);
-
-    invalidateGroupUsersCache();
-
-    return { matched: matchedUsers.length, updated: changed };
-  }
-
-  // Strategy 3: match by agency suffix
-  const suffixList = Array.isArray(suffixes)
-    ? suffixes.map((s) => String(s).trim().toLowerCase()).filter(Boolean)
-    : [];
-  if (!suffixList.length) {
-    throw new Error("Provide suffixes, sourceGroupIds, or userIds to mass-unassign.");
-  }
-
-  const matchedUsers = users.filter((u) => {
-    const un = String(u.username || "").toLowerCase();
-    return suffixList.some((sfx) => un.endsWith(sfx));
-  });
-
-  const targetUserPks = matchedUsers.map(u => u.pk);
-  const { changed } = await bulkRemoveUsersFromGroup(gid, targetUserPks);
-
-  return { matched: matchedUsers.length, updated: changed };
-}
-
-
-// ---------------- Authentik group/user helpers (no caching) ----------------
-// Always hit Authentik directly so each page load sees fresh data.
-
-function invalidateGroupsCache() {
-  // no-op – kept so existing callers still work
-}
-
-function invalidateGroupUsersCache() {
-  // no-op – kept so existing callers still work
-}
-
-async function getAllGroups(options = {}) {
-  // ignore caching / forceRefresh; always reload
-  return await getAllGroupsRaw(options);
-}
-
-async function getAllUsers(options = {}) {
-  // ignore options / forceRefresh; always reload
-  return await getAllUsersRaw();
-}
-
-
 
 module.exports = {
   getAllGroups,
+  getAllGroupsRaw,
   getGroupById,
   createGroup,
-  deleteGroup,
-
   renameGroup,
-
-  getDeleteImpact,
+  deleteGroup,
   deleteGroupWithCleanup,
+  getDeleteImpact,
+  setUserGroupMembership,
   massAssignUsersToGroup,
-  getGroupMembers,
   massUnassignUsersFromGroup,
-
-  // shared for other services if needed
-  getAllUsers,
 };
