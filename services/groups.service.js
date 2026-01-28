@@ -66,45 +66,38 @@ function stripTakPrefix(name) {
 // - value must be exactly "CN: <nameWithoutTak>" (no surrounding quotes)
 // - if caller provides a value, accept either "<nameWithoutTak>" or "CN: <nameWithoutTak>"
 function normalizeCNValue(rawValue, nameWithoutTak) {
-  // Desired: CN attribute value should be JUST the group name (without "tak_" and without any "CN:" prefix).
+  // Desired CN attribute value is JUST the group name (without "tak_" and without any "CN:" prefix).
   const fallback = String(nameWithoutTak || "").trim();
 
   let v = String(rawValue ?? "").trim();
   if (!v) v = fallback;
 
-  // unwrap surrounding quotes (single or double)
-  for (let i = 0; i < 3; i++) {
+  // Handle nested/bad forms like:
+  // - CN: "CN: Group Name"
+  // - "CN: Group Name"
+  // - CN: Group Name
+  // by repeatedly stripping leading CN: and surrounding quotes.
+  for (let i = 0; i < 5; i++) {
     v = v.trim();
-    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
-      v = v.slice(1, -1);
-      continue;
-    }
-    break;
-  }
-  v = v.trim();
 
-  // Strip any accidental "CN:" prefix (including nested cases like CN: "CN: name")
-  for (let i = 0; i < 3; i++) {
+    // Strip leading CN:
     const m = v.match(/^cn\s*:\s*(.*)$/i);
-    if (!m) break;
-    v = String(m[1] || "").trim();
+    if (m) v = String(m[1] || "").trim();
 
-    // after stripping CN:, unwrap quotes again if present
+    // Strip one layer of surrounding quotes
     if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
       v = v.slice(1, -1).trim();
+      continue;
     }
+
+    // If we didn't strip quotes this iteration and there's no CN: prefix left, we're done
+    if (!m) break;
   }
 
   v = v.trim();
   return v || fallback;
 }
 
-  // If it already contains a CN: prefix (any case), normalize to exactly "CN: <rest>"
-  const m = v.match(/^cn\s*:\s*(.*)$/i);
-  const rest = m ? String(m[1] || "").trim() : v;
-
-  const finalRest = rest || fallback;
-  return `CN: ${finalRest}`;
 
 function applyUserVisibilityFilters(users) {
   let out = Array.isArray(users) ? users : [];
