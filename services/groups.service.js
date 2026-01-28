@@ -212,8 +212,16 @@ async function createGroup(name, opts = {}) {
     attributes.description = description;
   }
 
-  // Always maintain CN attribute (matches group name without tak_ prefix)
-  attributes.cn = `CN: ${stripTakPrefix(n)}`;
+  // Always maintain the Authentik CN attribute (uppercase key).
+  // Value should be "CN: <group name without tak_>".
+  // Also remove any legacy lowercase "cn" attribute to avoid duplicates.
+  delete attributes.cn;
+  if (!Object.prototype.hasOwnProperty.call(attributes, "CN")) {
+    attributes.CN = `CN: ${stripTakPrefix(n)}`;
+  } else {
+    // Normalize if caller provided CN
+    attributes.CN = String(attributes.CN || "").trim();
+  }
 
   if (Object.keys(attributes).length > 0) {
     payload.attributes = attributes;
@@ -263,7 +271,8 @@ async function renameGroup(groupId, newName, opts = {}) {
 
   const wantsDescription = Object.prototype.hasOwnProperty.call(opts, "description");
   const wantsPrivate = Object.prototype.hasOwnProperty.call(opts, "private");
-  const wantsCn = Object.prototype.hasOwnProperty.call(opts, "cn");
+  const wantsCN = Object.prototype.hasOwnProperty.call(opts, "CN") ||
+                  Object.prototype.hasOwnProperty.call(opts, "cn");
 
   const existingAttrs =
     current && typeof current.attributes === "object" && current.attributes
@@ -283,11 +292,14 @@ async function renameGroup(groupId, newName, opts = {}) {
     nextAttrs.private = priv === "yes" ? "yes" : "no";
   }
 
-  // Always maintain CN attribute (matches group name without tak_ prefix)
-  const cn = wantsCn && typeof opts.cn === "string" && opts.cn.trim()
-    ? String(opts.cn).trim()
-    : `CN: ${stripTakPrefix(n)}`;
-  nextAttrs.cn = cn;
+  // Always maintain the Authentik CN attribute (uppercase key).
+  // Value should be "CN: <group name without tak_>".
+  // Remove any legacy lowercase "cn" attribute to avoid duplicates.
+  delete nextAttrs.cn;
+  const cnVal = wantsCN
+    ? String((Object.prototype.hasOwnProperty.call(opts, "CN") ? opts.CN : opts.cn) || "").trim()
+    : "";
+  nextAttrs.CN = cnVal || `CN: ${stripTakPrefix(n)}`;
 
   payload.attributes = nextAttrs;
 

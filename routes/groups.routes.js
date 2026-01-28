@@ -153,7 +153,8 @@ if (access.isGlobalAdmin && typeof privateStatus === "string" && privateStatus) 
   const truthy = privateStatus === "yes" || privateStatus === "true" || privateStatus === "1";
   attributes.private = truthy ? "yes" : "no";
 }
-attributes.CN = nameWithoutTak;
+// Authentik attribute: uppercase key "CN" with value "CN: <name without tak_>"
+attributes.CN = `CN: ${nameWithoutTak}`;
 
     const out = await groups.createGroup(name, { attributes });
     res.json({ success: true, group: out });
@@ -195,7 +196,7 @@ router.patch("/:groupId", async (req, res) => {
     const out = await groups.renameGroup(req.params.groupId, name, {
       description,
       private: access.isGlobalAdmin ? privateStatus : undefined,
-      CN: nameWithoutTak,
+      CN: `CN: ${nameWithoutTak}`,
     });
     res.json({ success: true, group: out });
   } catch (err) {
