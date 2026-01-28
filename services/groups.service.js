@@ -68,34 +68,32 @@ function stripTakPrefix(name) {
 function normalizeCNValue(rawValue, nameWithoutTak) {
   const fallback = String(nameWithoutTak || "").trim();
 
-  // We sometimes see the CN value come through in nested/quoted forms like:
-  //   CN: "CN: My Group"
-  //   CN: "My Group"
-  //   "CN: My Group"
-  // Normalize all of these to exactly: "CN: <name>".
   let v = String(rawValue ?? "").trim();
   if (!v) v = fallback;
 
-  // Repeatedly unwrap "CN:" prefixes and surrounding quotes.
-  // We loop a few times to handle nested cases like CN: "CN: X".
-  for (let i = 0; i < 4; i += 1) {
-    const before = v;
+  // We have seen inputs like:
+  //   CN: "CN: some group"
+  //   "CN: some group"
+  //   CN: some group
+  // Normalize by repeatedly stripping a leading CN: prefix and surrounding quotes.
+  // (Loop is bounded to avoid pathological cases.)
+  for (let i = 0; i < 5; i++) {
     // Strip leading CN: (case-insensitive)
-    const m = v.match(/^cn\s*:\s*(.*)$/i);
-    if (m) v = String(m[1] || "").trim();
+    v = v.replace(/^\s*cn\s*:\s*/i, "").trim();
 
-    // Strip surrounding quotes
-    if (
-      (v.startsWith('"') && v.endsWith('"')) ||
-      (v.startsWith("'") && v.endsWith("'") )
-    ) {
+    // Strip one layer of surrounding quotes
+    const hasDouble = v.startsWith('"') && v.endsWith('"');
+    const hasSingle = v.startsWith("'") && v.endsWith("'");
+    if (hasDouble || hasSingle) {
       v = v.slice(1, -1).trim();
+      continue;
     }
 
-    if (v === before) break;
+    // No more wrapping to remove
+    break;
   }
 
-  const finalRest = String(v || fallback).trim();
+  const finalRest = (v || fallback).trim();
   return `CN: ${finalRest}`;
 }
 
