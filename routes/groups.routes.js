@@ -155,6 +155,7 @@ if (access.isGlobalAdmin && typeof privateStatus === "string" && privateStatus) 
 }
 // Authentik attribute: uppercase key "CN" with value "CN: <name without tak_>"
 attributes.CN = `CN: ${nameWithoutTak}`;
+delete attributes.cn;
 
     const out = await groups.createGroup(name, { attributes });
     res.json({ success: true, group: out });
