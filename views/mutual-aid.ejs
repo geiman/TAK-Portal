@@ -103,6 +103,7 @@
             <button class="btn" type="button" id="qrCopyBtn" disabled>Copy URL</button>
             <button class="btn" type="button" id="qrSaveBtn" disabled>Save Image</button>
             <button class="btn" type="button" id="qrPacketBtn" disabled style="background:#2e7d32;border-color:#2e7d32;">Download Packet</button>
+            <button class="btn" type="button" id="qrEmailPacketBtn" disabled>Email Packet</button>
           </div>
         </div>
         <div style="min-width: 320px;">
@@ -111,6 +112,33 @@
           <div id="qrMsg" class="msg"></div>
           </div>
       </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- Email Packet Modal -->
+<div class="modalOverlay" id="emailPacketOverlay" style="display:none;">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="emailPacketTitle">
+    <div class="modalHeader">
+      <h2 id="emailPacketTitle" style="margin:0;">Email Deployment Packet</h2>
+      <button class="btn" id="emailPacketCloseBtn" type="button">Close</button>
+    </div>
+    <div class="modalBody">
+      <p style="margin-top:0;">
+        Enter recipient email addresses (comma separated).
+      </p>
+      <label style="display:block;">
+        To
+        <textarea id="emailPacketTo" rows="3" placeholder="name@example.com, other@example.com" style="width:100%;"></textarea>
+      </label>
+      <div id="emailPacketMsg" class="msg"></div>
+      <div class="row" style="justify-content:flex-end; gap:10px; margin-top:12px;">
+        <button class="btn" type="button" id="emailPacketSendBtn" style="background:#2e7d32;border-color:#2e7d32;">Send</button>
+      </div>
+      <p style="opacity:0.8; margin-bottom:0;">
+        Note: your configured “always CC” and “always BCC” lists will be applied automatically.
+      </p>
     </div>
   </div>
 </div>
@@ -545,6 +573,7 @@ const qrImg = document.getElementById("qrImg");
 const qrCopyBtn = document.getElementById("qrCopyBtn");
 const qrSaveBtn = document.getElementById("qrSaveBtn");
 const qrPacketBtn = document.getElementById("qrPacketBtn");
+const qrEmailPacketBtn = document.getElementById("qrEmailPacketBtn");
 const qrDetails = document.getElementById("qrDetails");
 const qrMsg = document.getElementById("qrMsg");
 
@@ -560,6 +589,7 @@ function openQrModal(item){
   qrCopyBtn.disabled = true;
   qrSaveBtn.disabled = true;
   if (qrPacketBtn) qrPacketBtn.disabled = true;
+  if (qrEmailPacketBtn) qrEmailPacketBtn.disabled = true;
   qrEnrollUrl = "";
   qrActiveId = item.id;
   qrActiveItem = item;
@@ -578,6 +608,7 @@ function openQrModal(item){
       qrCopyBtn.disabled = false;
       qrSaveBtn.disabled = false;
       if (qrPacketBtn) qrPacketBtn.disabled = false;
+      if (qrEmailPacketBtn) qrEmailPacketBtn.disabled = false;
       setMsg(qrMsg, "QR ready.", true);
     })
     .catch(e => setMsg(qrMsg, e.message || String(e), false));
@@ -600,6 +631,109 @@ qrSaveBtn.onclick = () => {
   document.body.removeChild(a);
   setMsg(qrMsg, "Downloading high-res QR...", true);
 };
+
+
+// ----- Email Packet modal -----
+const emailPacketOverlay = document.getElementById("emailPacketOverlay");
+const emailPacketCloseBtn = document.getElementById("emailPacketCloseBtn");
+const emailPacketSendBtn = document.getElementById("emailPacketSendBtn");
+const emailPacketTo = document.getElementById("emailPacketTo");
+const emailPacketMsg = document.getElementById("emailPacketMsg");
+
+function openEmailPacketModal() {
+  if (!qrActiveItem) return;
+  if (!emailPacketOverlay) return;
+  emailPacketMsg.textContent = "";
+  emailPacketMsg.className = "msg";
+  emailPacketTo.value = "";
+  emailPacketOverlay.style.display = "flex";
+  document.body.classList.add("noScroll");
+}
+
+function closeEmailPacketModal() {
+  if (!emailPacketOverlay) return;
+  emailPacketOverlay.style.display = "none";
+  document.body.classList.remove("noScroll");
+}
+
+if (emailPacketCloseBtn) emailPacketCloseBtn.onclick = closeEmailPacketModal;
+if (emailPacketOverlay) emailPacketOverlay.addEventListener("click", (e) => {
+  if (e.target === emailPacketOverlay) closeEmailPacketModal();
+});
+
+if (qrEmailPacketBtn) {
+  qrEmailPacketBtn.onclick = () => {
+    if (!qrEnrollUrl || !qrImg?.src) {
+      setMsg(qrMsg, "QR not ready yet.", false);
+      return;
+    }
+    openEmailPacketModal();
+  };
+}
+
+async function emailDeploymentPacket() {
+  try {
+    if (!qrEnrollUrl || !qrImg?.src) {
+      setMsg(emailPacketMsg, "QR not ready yet.", false);
+      return;
+    }
+    const rawTo = String(emailPacketTo?.value || "").trim();
+    if (!rawTo) {
+      setMsg(emailPacketMsg, "Please enter at least one email address.", false);
+      return;
+    }
+
+    // Build the PDF exactly like the Download Packet button.
+    const jsPDF = window.jspdf?.jsPDF;
+    if (!jsPDF) throw new Error("PDF library failed to load.");
+    if (typeof window.qrcode !== "function") throw new Error("QR library failed to load.");
+
+    // Reuse the existing builder and just output bytes.
+    const doc = await buildDeploymentPacketPdf();
+    const ab = doc.output("arraybuffer");
+    const b64 = arrayBufferToBase64(ab);
+
+    const filenameSafe = ((qrActiveItem?.username || "deployment-packet")
+      .trim()
+      .replace(/[^a-z0-9_-]+/gi, "-")
+      .replace(/-+/g, "-")
+      .replace(/^[-_]+|[-_]+$/g, "")
+      || "deployment-packet").toLowerCase();
+    const filename = `${filenameSafe}-packet.pdf`;
+
+    emailPacketSendBtn.disabled = true;
+    setMsg(emailPacketMsg, "Sending...", true);
+
+    const res = await fetch(`/api/mutual-aid/${encodeURIComponent(qrActiveId)}/packet/email`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ to: rawTo, pdfBase64: b64, filename })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Send failed");
+
+    setMsg(emailPacketMsg, "Sent!", true);
+    closeEmailPacketModal();
+    setMsg(qrMsg, "Packet emailed.", true);
+  } catch (e) {
+    setMsg(emailPacketMsg, e?.message || String(e), false);
+  } finally {
+    if (emailPacketSendBtn) emailPacketSendBtn.disabled = false;
+  }
+}
+
+if (emailPacketSendBtn) emailPacketSendBtn.onclick = emailDeploymentPacket;
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
 
 // ----- Download Packet (PDF) -----
 // Pull guide definitions from settings.json (server-rendered into the page).
@@ -707,22 +841,19 @@ function drawNumberedList(doc, items, x, y, maxWidth, lineHeight = 16, indent = 
 }
 
 
-async function downloadDeploymentPacket() {
+async function buildDeploymentPacketPdf() {
   try {
     if (!qrEnrollUrl || !qrImg?.src) {
-      setMsg(qrMsg, "QR not ready yet.", false);
-      return;
+      throw new Error("QR not ready yet.");
     }
 
     // jsPDF UMD bundle exposes window.jspdf.jsPDF
     const jsPDF = window.jspdf?.jsPDF;
     if (!jsPDF) {
-      setMsg(qrMsg, "PDF library failed to load.", false);
-      return;
+      throw new Error("PDF library failed to load.");
     }
     if (typeof window.qrcode !== "function") {
-      setMsg(qrMsg, "QR library failed to load.", false);
-      return;
+      throw new Error("QR library failed to load.");
     }
 
     const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "letter" });
@@ -885,14 +1016,31 @@ async function downloadDeploymentPacket() {
       .replace(/-+/g, "-")
       .replace(/^[-_]+|[-_]+$/g, "")
       || "deployment-packet").toLowerCase();
+    return doc;
+  } catch (e) {
+    throw e;
+  }
+
+  function min(a, b) { return a < b ? a : b; }
+}
+
+// Download the same packet built by buildDeploymentPacketPdf().
+async function downloadDeploymentPacket() {
+  try {
+    const doc = await buildDeploymentPacketPdf();
+
+    const filenameSafe = ((qrActiveItem?.username || "deployment-packet")
+      .trim()
+      .replace(/[^a-z0-9_-]+/gi, "-")
+      .replace(/-+/g, "-")
+      .replace(/^[-_]+|[-_]+$/g, "")
+      || "deployment-packet").toLowerCase();
 
     doc.save(`${filenameSafe}-packet.pdf`);
     setMsg(qrMsg, "Packet downloaded.", true);
   } catch (e) {
     setMsg(qrMsg, e?.message || String(e), false);
   }
-
-  function min(a, b) { return a < b ? a : b; }
 }
 
 if (qrPacketBtn) {
@@ -932,9 +1080,9 @@ function openEdit(item){
     } else {
       editExpireAt.value = "";
     }
-  } else {
-    editExpireAt.value = "";
-  }
+	  } else {
+	    editExpireAt.value = "";
+	  }
   updateEditExpireUi();
   setMsg(editMsg, "", true);
 }

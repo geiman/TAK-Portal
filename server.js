@@ -71,7 +71,7 @@ async function checkForUpdates() {
 checkForUpdates();
 setInterval(checkForUpdates, 60 * 60 * 1000);
 
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 app.use("/branding", express.static(path.join(__dirname, "data", "branding")));

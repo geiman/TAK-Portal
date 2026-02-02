@@ -1,5 +1,6 @@
 const router = require("express").Router();
 const mutualAid = require("../services/mutualAid.service");
+const emailSvc = require("../services/email.service");
 
 function toErrorPayload(err) {
   const data = err?.response?.data;
@@ -73,6 +74,71 @@ router.get("/:id/qr/download", async (req, res) => {
     res.send(out.pngBuffer);
   } catch (err) {
     res.status(400).send(toErrorPayload(err));
+  }
+});
+
+
+router.post("/:id/packet/email", async (req, res) => {
+  try {
+    const id = req.params.id;
+    const toRaw = req.body?.to || req.body?.emails || "";
+    const pdfBase64 = req.body?.pdfBase64 || "";
+    const filename = req.body?.filename || "deployment-packet.pdf";
+
+    if (!toRaw || !String(toRaw).trim()) {
+      return res.status(400).json({ error: "Missing recipient email(s)" });
+    }
+    if (!pdfBase64 || !String(pdfBase64).trim()) {
+      return res.status(400).json({ error: "Missing PDF payload" });
+    }
+
+    // Find the mutual aid item for context
+    const items = mutualAid.list();
+    const item = items.find((x) => String(x.id) === String(id));
+
+    const subject = item
+      ? `TAK Deployment Packet — ${item.type} — ${item.title}`
+      : "TAK Deployment Packet";
+
+    const text =
+      (item
+        ? `Deployment packet for ${item.type} — ${item.title}
+Group: ${item.groupName}
+Username: ${item.username}
+
+Attached: ${filename}
+`
+        : `Deployment packet attached: ${filename}
+`) +
+      `
+Sent from TAK Portal.
+`;
+
+    const pdfBuffer = Buffer.from(String(pdfBase64), "base64");
+
+    const out = await emailSvc.sendMail({
+      to: String(toRaw),
+      subject,
+      text,
+      attachments: [
+        {
+          filename,
+          content: pdfBuffer,
+          contentType: "application/pdf",
+        },
+      ],
+    });
+
+    if (!out.sent) {
+      if (out.skipped) {
+        return res.status(400).json({ error: "Email is disabled (EMAIL_ENABLED=false)" });
+      }
+      return res.status(500).json({ error: out.error || "Email send failed" });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(400).json({ error: toErrorPayload(err) });
   }
 });
 
