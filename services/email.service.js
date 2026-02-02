@@ -90,7 +90,7 @@ function getTransport() {
   return _transport;
 }
 
-async function sendMail({ to, subject, text, html, cc, bcc, attachments }) {
+async function sendMail({ to, subject, text, html, cc, bcc }) {
   if (!isEmailEnabled()) {
     return { sent: false, skipped: true };
   }
@@ -104,10 +104,6 @@ async function sendMail({ to, subject, text, html, cc, bcc, attachments }) {
     text,
     html,
   };
-
-  if (attachments && Array.isArray(attachments) && attachments.length) {
-    mail.attachments = attachments;
-  }
 
   // Always-CC list (comma-separated)
   const alwaysCc = parseAddressList(cfg.alwaysCc);
