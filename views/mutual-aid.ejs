@@ -85,6 +85,23 @@
   #editExpireAt {
     color: #fff;
   }
+
+    .btn.qrCopy {
+    background: #6b7280;   /* neutral gray */
+    border-color: #6b7280;
+  }
+  .btn.qrCopy:hover { filter: brightness(0.95); }
+  .btn.qrCopy:disabled { opacity: 0.6; }
+
+  /* Keep Save Image as-is: no class, no overrides */
+
+  .btn.qrEmail {
+    background: #7c3aed;   /* accent purple */
+    border-color: #7c3aed;
+  }
+  .btn.qrEmail:hover { filter: brightness(0.95); }
+  .btn.qrEmail:disabled { opacity: 0.6; }
+
 </style>
 
 
@@ -136,9 +153,6 @@
       <div class="row" style="justify-content:flex-end; gap:10px; margin-top:12px;">
         <button class="btn" type="button" id="emailPacketSendBtn" style="background:#2e7d32;border-color:#2e7d32;">Send</button>
       </div>
-      <p style="opacity:0.8; margin-bottom:0;">
-        Note: your configured “always CC” and “always BCC” lists will be applied automatically.
-      </p>
     </div>
   </div>
 </div>
