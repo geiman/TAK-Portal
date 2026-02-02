@@ -2,7 +2,89 @@
 <%- include("partials/sidebar") %>
 
 <main class="main">
-  <h1>Manage Users</h1>
+  <h1>Users</h1>
+
+  <!-- Create user (stacked above manage tools) -->
+  <div class="card">
+    <h2>Create User</h2>
+
+    <form id="createForm" class="grid2" autocomplete="off">
+      <label>Badge Number
+        <input name="badge" placeholder="Numerics Only" required />
+      </label>
+
+      <label>Agency
+        <select name="agencySuffix" id="createAgencySelect" placeholder="Select Agency" required></select>
+      </label>
+
+      <label>First Name
+        <input name="firstName" placeholder="John" required />
+      </label>
+
+      <label>Last Name
+        <input name="lastName" placeholder="Doe" required />
+      </label>
+
+      <label>Agency Email
+        <input name="email" type="email" placeholder="example@agency.gov" required />
+      </label>
+
+      <label>Password (optional)
+        <div class="passwordWrap">
+          <input
+            id="createPasswordInput"
+            name="password"
+            type="password"
+            placeholder="Min 12 characters: upper, lower, number, and symbol"
+            minlength="12"
+            pattern="^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[^A-Za-z0-9]).{12,}$"
+          />
+          <button
+            type="button"
+            id="createPasswordToggle"
+            class="passwordToggle"
+            aria-label="Show password"
+          >
+            👁
+          </button>
+        </div>
+      </label>
+
+      <label>Template
+        <select name="templateIndex" id="createTemplateSelect"></select>
+      </label>
+
+      <!-- Manual Groups (checkbox picker) -->
+      <div id="createManualGroupsWrap" style="display:none; grid-column: 1 / -1;">
+        <h3 style="margin-top:0;">Manual Groups</h3>
+
+        <label style="display:block;">
+          Groups
+          <input id="createGroupFilter" placeholder="Search groups..." />
+
+          <div class="row" style="gap:10px; margin-top:8px;">
+            <button class="btn" id="createSelectAllBtn" type="button">Select All</button>
+            <button class="btn" id="createClearAllBtn" type="button">Clear</button>
+          </div>
+
+          <!-- OUTER SCROLL BOX + INNER MULTICOL WRAPPER -->
+          <div id="createGroupsBox" class="groupsBox">
+            <div id="createGroupsInner" class="groupsInner"></div>
+          </div>
+        </label>
+      </div>
+
+      <div style="grid-column: 1 / -1; display:flex; align-items:center; gap:10px; flex-wrap: wrap;">
+        <button class="btn">Create New User</button>
+        <button class="btn success" type="button" id="createCsvBtn">Create from CSV</button>
+        <input type="file" id="createCsvFileInput" accept=".csv" style="display:none" />
+        <span id="createMsg" class="msg"></span>
+      </div>
+    </form>
+  </div>
+
+  <hr style="margin: 18px 0; border: none; border-top: 1px solid var(--line);" />
+
 
   <div class="card">
     <h2>Search</h2>
@@ -201,6 +283,454 @@
   </div>
 </div>
 
+
+<script>
+(function(){
+const agencySelect = document.getElementById("createAgencySelect");
+const templateSelect = document.getElementById("createTemplateSelect");
+
+const manualGroupsWrap = document.getElementById("createManualGroupsWrap");
+const groupFilter = document.getElementById("createGroupFilter");
+const groupsBox = document.getElementById("createGroupsBox");
+const selectAllBtn = document.getElementById("createSelectAllBtn");
+const clearAllBtn = document.getElementById("createClearAllBtn");
+const groupsInner = document.getElementById("createGroupsInner"); // NEW inner wrapper
+
+const msg = document.getElementById("createMsg");
+const form = document.getElementById("createForm");
+const csvBtn = document.getElementById("createCsvBtn");
+const csvFileInput = document.getElementById("createCsvFileInput");
+
+let groupsCache = [];
+let templatesCache = [];
+let pickedManualGroupIds = new Set();
+
+// PASSWORD TOGGLE
+const passwordInput = document.getElementById("createPasswordInput");
+const passwordToggle = document.getElementById("createPasswordToggle");
+
+if (passwordInput && passwordToggle) {
+  // Make sure it starts as an eye
+  passwordToggle.textContent = "👁";
+  passwordToggle.setAttribute("aria-label", "Show password");
+  passwordToggle.title = "Show password";
+
+  passwordToggle.addEventListener("click", () => {
+    const isHidden = passwordInput.type === "password";
+    passwordInput.type = isHidden ? "text" : "password";
+
+    // Keep the icon the same, just update labels
+    passwordToggle.setAttribute("aria-label", isHidden ? "Hide password" : "Show password");
+    passwordToggle.title = isHidden ? "Hide password" : "Show password";
+  });
+}
+
+function setMsg(text, ok = true) {
+  msg.textContent = text || "";
+  msg.className = "msg " + (ok ? "ok" : "bad");
+}
+
+function esc(s) {
+  return String(s ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+// ----- Password validator -----
+// Allow blank. If filled, must have: 12+ chars, upper, lower, digit, symbol.
+function isValidPassword(pwd) {
+  if (!pwd) return true;
+  const re = /^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[^A-Za-z0-9]).{12,}$/;
+  return re.test(pwd);
+}
+
+// -------------------- Agencies --------------------
+async function loadAgencies() {
+  const res = await fetch("/api/agencies");
+  const agencies = await res.json();
+  if (!res.ok) throw new Error(agencies.error || "Failed to load agencies");
+
+  agencySelect.innerHTML = agencies
+    .slice()
+    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")))
+    .map(
+      (a) =>
+        `<option value="${esc(a.suffix)}">${esc(a.name)} (${esc(a.suffix)})</option>`
+    )
+    .join("");
+}
+
+// -------------------- Templates --------------------
+async function loadMeta() {
+  const sfx = agencySelect.value || "";
+  const res = await fetch(
+    "/api/users/meta?agencySuffix=" + encodeURIComponent(sfx)
+  );
+  const meta = await res.json();
+  if (!res.ok) throw new Error(meta.error || "Failed to load templates");
+
+  // Router now returns: { groups, templates: [ { key, label, isDefault?, groups? }, ... ] }
+  const raw = Array.isArray(meta.templates) ? meta.templates : [];
+
+  // Normalize to what the rest of the page expects: each template has a .name
+  const all = raw.map((t, idx) => ({
+    ...t,
+    name: t.name || t.label || `Template ${idx + 1}`,
+  }));
+
+  // Keep "manual" at index 0 if the first template looks like it
+  const manual =
+    all[0] && String(all[0].name || "").toLowerCase().includes("manual")
+      ? all[0]
+      : { name: "Manual Group Selection", groups: [] };
+
+  const rest = all
+    .slice(1)
+    .slice()
+    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+
+  templatesCache = [manual, ...rest];
+
+  // Existing behavior: value is the INDEX (templateIndex)
+  templateSelect.innerHTML = templatesCache
+    .map((t, i) => `<option value="${i}">${esc(t.name)}</option>`)
+    .join("");
+
+  // Pick default template index, same as before
+  let defaultIndex = 0;
+  const defaultInRest = rest.findIndex((t) => !!t.isDefault);
+  if (defaultInRest >= 0) {
+    defaultIndex = 1 + defaultInRest;
+  } else if (templatesCache.length > 1) {
+    defaultIndex = 1;
+  }
+
+  templateSelect.value = String(defaultIndex);
+
+  // Fire the existing onchange handler (which shows/hides Manual Groups)
+  if (typeof templateSelect.onchange === "function") {
+    templateSelect.onchange();
+  }
+}
+
+// When agency changes, reload templates for that agency
+agencySelect.addEventListener("change", () => {
+  // Optional: clear manual group picks when switching agencies
+  pickedManualGroupIds.clear();
+  groupFilter.value = "";
+  renderGroupsBox();
+
+  loadMeta().catch((err) => {
+    console.error(err);
+    setMsg(err.message || "Failed to load templates", false);
+  });
+});
+
+
+
+// -------------------- Manual Groups --------------------
+function renderGroupsBox() {
+  const needle = String(groupFilter.value || "").trim().toLowerCase();
+
+  const sorted = groupsCache
+    .slice()
+    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+
+  const filtered = needle
+    ? sorted.filter((g) =>
+        String(g.name || "").toLowerCase().includes(needle)
+      )
+    : sorted;
+
+  // IMPORTANT: render into the INNER wrapper (multicol), not the scroll box
+  groupsInner.innerHTML = filtered
+    .map((g) => {
+      const id = String(g.pk);
+      const rawName = String(g.name || "");
+      const name = rawName.replace(/^tak_/, "");
+      return `
+      <label class="groupItem">
+        <input type="checkbox" value="${esc(id)}" />
+        <span>${esc(name)}</span>
+      </label>
+    `;
+    })
+    .join("");
+
+  Array.from(groupsBox.querySelectorAll('input[type="checkbox"]')).forEach(
+    (cb) => {
+      cb.checked = pickedManualGroupIds.has(String(cb.value));
+    }
+  );
+}
+
+groupsBox.addEventListener("change", (e) => {
+  const cb = e.target;
+  if (!cb || cb.tagName !== "INPUT" || cb.type !== "checkbox") return;
+  const id = String(cb.value);
+  if (cb.checked) pickedManualGroupIds.add(id);
+  else pickedManualGroupIds.delete(id);
+});
+
+groupFilter.oninput = () => renderGroupsBox();
+
+selectAllBtn.onclick = () => {
+  Array.from(groupsBox.querySelectorAll('input[type="checkbox"]')).forEach(
+    (cb) => {
+      cb.checked = true;
+      pickedManualGroupIds.add(String(cb.value));
+    }
+  );
+};
+
+clearAllBtn.onclick = () => {
+  Array.from(groupsBox.querySelectorAll('input[type="checkbox"]')).forEach(
+    (cb) => (cb.checked = false)
+  );
+  pickedManualGroupIds.clear();
+};
+
+function getPickedManualGroupIds() {
+  return Array.from(pickedManualGroupIds);
+}
+
+async function loadGroups() {
+  const res = await fetch("/api/users/groups");
+  const out = await res.json();
+  if (!res.ok) throw new Error(out.error || "Failed to load groups");
+
+  groupsCache = Array.isArray(out) ? out : [];
+  renderGroupsBox();
+}
+
+// -------------------- Template selection behavior --------------------
+templateSelect.onchange = () => {
+  const isManual = templateSelect.value === "0";
+  manualGroupsWrap.style.display = isManual ? "block" : "none";
+};
+
+// -------------------- Submit --------------------
+form.onsubmit = async (e) => {
+  e.preventDefault();
+  setMsg("");
+
+  const fd = new FormData(form);
+  const payload = Object.fromEntries(fd.entries());
+
+  // password client-side check
+  const pwd = String(payload.password || "");
+  if (!isValidPassword(pwd)) {
+    setMsg(
+      "Password must be at least 12 characters and include uppercase, lowercase, number, and symbol, or be left blank.",
+      false
+    );
+    return;
+  }
+
+  if (String(payload.templateIndex) === "0") {
+    const ids = getPickedManualGroupIds();
+    if (!ids.length) {
+      setMsg("Select at least one manual group.", false);
+      return;
+    }
+    payload.manualGroupIds = ids;
+  }
+
+  const res = await fetch("/api/users", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  const out = await res.json();
+  if (!res.ok) {
+    setMsg(out.error || "Create failed", false);
+    return;
+  }
+
+  // Build username from badge + agency suffix
+  const first = payload.firstName || "";
+  const last = payload.lastName || "";
+  const badge = payload.badge || "";
+  const agency = payload.agencySuffix || "";
+  const username = `${badge}${agency}`;
+
+  setMsg(`${username} – ${last}, ${first} created successfully`, true);
+
+  // preserve selected agency after reset
+  const agencyKeep = agencySelect.value;
+
+  form.reset();
+  agencySelect.value = agencyKeep;
+
+  pickedManualGroupIds.clear();
+  groupFilter.value = "";
+  renderGroupsBox();
+
+  await loadMeta();
+};
+
+// -------------------- Init --------------------
+(async () => {
+  try {
+    await loadAgencies();
+    await loadGroups();
+    await loadMeta();
+  } catch (err) {
+    setMsg(err.message || "Failed to load page", false);
+  }
+})();
+
+// -------------------- CSV Import --------------------
+if (csvBtn && csvFileInput) {
+  csvBtn.onclick = () => {
+    setMsg("");
+    csvFileInput.value = "";
+    csvFileInput.click();
+  };
+
+  csvFileInput.onchange = async () => {
+    setMsg("");
+    const file = csvFileInput.files && csvFileInput.files[0];
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith(".csv")) {
+      setMsg("Please select a .csv file", false);
+      csvFileInput.value = "";
+      return;
+    }
+
+    // Progress-reporting import (polling) - lightweight and safe
+    setMsg("Importing CSV… 0%", true);
+    csvBtn.disabled = true;
+
+    const startedAt = Date.now();
+    let pollTimer = null;
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      // Start async job
+      const startRes = await fetch("/api/users/import-csv/start", {
+        method: "POST",
+        body: formData
+      });
+
+      const startOut = await startRes.json();
+      if (!startRes.ok || !startOut.success) {
+        setMsg(startOut.error || "CSV import failed to start", false);
+        return;
+      }
+
+      const jobId = startOut.jobId;
+      if (!jobId) {
+        setMsg("CSV import failed to start (missing job id)", false);
+        return;
+      }
+
+      // Poll status ~1x/sec (low impact)
+      const poll = async () => {
+        const res = await fetch(`/api/users/import-csv/status/${jobId}`);
+        const out = await res.json();
+        if (!res.ok || !out.success) {
+          throw new Error(out.error || "Failed to read import status");
+        }
+
+        const total = Number(out.total || 0);
+        const processed = Number(out.processed || 0);
+        const created = Number(out.created || 0);
+        const skipped = Number(out.skipped || 0);
+        const phase = String(out.phase || "");
+
+        const elapsedMs = Date.now() - startedAt;
+        const elapsedSec = Math.round((elapsedMs / 1000) * 10) / 10;
+
+        let pct = 0;
+        if (total > 0) pct = Math.min(100, Math.round((processed / total) * 100));
+
+        // Live progress message
+        if (out.status === "running") {
+          const label = phase === "validating" ? "Validating" : phase === "creating" ? "Creating" : "Working";
+          setMsg(`${label}… ${pct}% (${processed}/${total || "?"}) • Created ${created} • Skipped ${skipped} • ${elapsedSec}s`, true);
+          return;
+        }
+
+        // Done or failed
+        if (out.status === "failed") {
+          const doneSec = out.durationSeconds != null ? out.durationSeconds : elapsedSec;
+          setMsg((out.error || "CSV import failed") + ` (after ${doneSec}s)`, false);
+          if (pollTimer) clearInterval(pollTimer);
+          pollTimer = null;
+          csvBtn.disabled = false;
+          return;
+        }
+
+        // done
+        const result = out.result || {};
+        const count = Number(result.count || 0);
+        const skippedArr = Array.isArray(result.skipped) ? result.skipped : [];
+        const skippedCount = skippedArr.length;
+
+        let message = "";
+        if (count && skippedCount) {
+          message = `Imported ${count} user${count === 1 ? "" : "s"} from CSV. Skipped ${skippedCount} existing user${skippedCount === 1 ? "" : "s"}.`;
+        } else if (count && !skippedCount) {
+          message = `Imported ${count} user${count === 1 ? "" : "s"} from CSV.`;
+        } else if (!count && skippedCount) {
+          message = `No new users imported. Skipped ${skippedCount} existing user${skippedCount === 1 ? "" : "s"}.`;
+        } else {
+          message = "No users imported from CSV.";
+        }
+
+        const doneSec = out.durationSeconds != null ? out.durationSeconds : elapsedSec;
+        message += ` Completed in ${doneSec}s.`;
+
+        if (skippedCount) {
+          const usernames = skippedArr.map(s => s.username).join(", ");
+          message += ` (Skipped usernames: ${usernames})`;
+        }
+
+        setMsg(message, count > 0);
+        if (skippedArr.length) {
+          console.warn("Skipped users during CSV import:", skippedArr);
+        }
+
+        if (pollTimer) clearInterval(pollTimer);
+        pollTimer = null;
+        csvBtn.disabled = false;
+      };
+
+      // Run immediately, then every second
+      await poll();
+      pollTimer = setInterval(() => {
+        poll().catch(err => {
+          console.error(err);
+          setMsg(err.message || "CSV import failed", false);
+          if (pollTimer) clearInterval(pollTimer);
+          pollTimer = null;
+          csvBtn.disabled = false;
+        });
+      }, 1000);
+    } catch (err) {
+      console.error(err);
+      setMsg(err.message || "CSV import failed", false);
+      if (pollTimer) clearInterval(pollTimer);
+      pollTimer = null;
+      csvBtn.disabled = false;
+    } finally {
+      // Re-enable button after completion/failure. Poll loop clears itself.
+      csvFileInput.value = "";
+      // If the job is still running, keep button disabled until it finishes.
+      // (We re-enable in the poll's completion paths.)
+    }
+  };
+}
+})();
+</script>
 
 <script>
 const msg = document.getElementById("msg");
@@ -1512,6 +2042,38 @@ searchForm.onsubmit = (e) => {
 
 
 <style>
+
+/* Password eye icon */
+.passwordWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.passwordWrap input {
+  width: 100%;
+  padding-right: 2.5rem;
+}
+
+.passwordToggle {
+  position: absolute;
+  right: 8px;
+  background: none;
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.passwordToggle:focus-visible {
+  outline: 2px solid var(--accent, #fff);
+  outline-offset: 2px;
+}
+
 .modalOverlay{
   position: fixed;
   inset: 0;
