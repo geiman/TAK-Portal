@@ -238,7 +238,14 @@ async function getUsersByGroupIdRaw({ groupId, agencyAbbreviation } = {}) {
 
 // ---------------- Group CRUD ----------------
 async function createGroup(name, opts = {}) {
-  const n = ensureTakPrefix(String(name || "").trim());
+  const raw = String(name || "").trim();
+
+  // Do NOT add tak_ for AgencyAdmin groups
+  const isAgencyAdminGroup = /-AgencyAdmin$/i.test(raw);
+
+  const n = isAgencyAdminGroup
+    ? raw
+    : ensureTakPrefix(raw);
   if (!n) throw new Error("Group name is required");
 
   const payload = { name: n };
