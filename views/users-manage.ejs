@@ -549,12 +549,11 @@ form.onsubmit = async (e) => {
     return;
   }
 
-  // Build username from badge + agency suffix
   const first = payload.firstName || "";
   const last = payload.lastName || "";
-  const badge = payload.badge || "";
-  const agency = payload.agencySuffix || "";
-  const username = `${badge}${agency}`;
+
+  // Use the actual username returned from the API (already normalized)
+  const username = out.username || "";
 
   setMsg(`${username} – ${last}, ${first} created successfully`, true);
 
