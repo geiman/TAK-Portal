@@ -635,7 +635,7 @@ async function createUser(
 
   const first = String(firstName || "").trim();
   const last = String(lastName || "").trim();
-  const mail = String(email || "").trim() || null;
+  const mail = String(email || "").trim();
 
   if (!first) throw new Error("First name required");
   if (!last) throw new Error("Last name required");
