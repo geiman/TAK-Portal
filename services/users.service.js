@@ -610,7 +610,13 @@ async function createUser(
   const createdAt = new Date().toISOString();
   let templateNameUsed = null;
 
-  const badgeErr = validateBadgeNumber(badge);
+  // Normalize badge: lowercase + remove all whitespace
+  const normalizedBadge = String(badge || "")
+    .toLowerCase()
+    .replace(/\s+/g, "");
+
+  // Validate normalized badge
+  const badgeErr = validateBadgeNumber(normalizedBadge);
   if (badgeErr) throw new Error(badgeErr);
 
   // Keep server-side password validation consistent with reset-password.
@@ -628,7 +634,7 @@ async function createUser(
   );
   if (!agency) throw new Error("Invalid agency");
 
-  const username = `${badge}${agency.suffix}`;
+  const username = `${normalizedBadge}${agency.suffix}`;
   if (!skipExistenceCheck && await userExists(username)) {
     throw new Error("Username already exists");
   }
@@ -711,7 +717,7 @@ async function createUser(
     agency: agency.suffix,
     agency_name: agency.name,
 
-    badge_number: String(badge || ""),
+    badge_number: normalizedBadge,
     agency_abbreviation: String(agency.groupPrefix || ""),
     agency_color: String(agency.color || ""),
   };
