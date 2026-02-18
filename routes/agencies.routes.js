@@ -68,8 +68,9 @@ async function getGroupByNameUnfiltered(groupName) {
 function normalizeAgency(a) {
   return {
     name: String(a.name || "").trim(),
-    type: String(a.type || "").trim(),            // Fire, EMS, Law, etc
+    type: String(a.type || "").trim(),
     county: String(a.county || "").trim(),
+    state: String(a.state || "").trim().toUpperCase(), 
     suffix: String(a.suffix || "").trim().toLowerCase(),
     groupPrefix: String(a.groupPrefix || "").trim().toUpperCase(),
     color: String(a.color || "").trim(),
@@ -78,6 +79,7 @@ function normalizeAgency(a) {
 
 function validateAgency(a) {
   if (!a.name) return "Name is required";
+  if (!a.state) return "State is required";   // ← ADD THIS
   if (!a.suffix) return "Username suffix is required";
   if (!a.groupPrefix) return "Group prefix is required";
   if (!a.color) return "Agency color is required";
