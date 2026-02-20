@@ -2,27 +2,15 @@
 const { getBool, getString } = require("./env");
 const accessSvc = require("./access.service");
 
-/**
- * Optional Authentik-based access control with role levels.
- *
- * When PORTAL_AUTH_ENABLED is "false":
- *   - authentication is disabled entirely
- *   - everything is wide open
- *   - every visitor is treated as a bootstrap GLOBAL ADMIN
- *
- * When "true":
- *   - for most routes:
- *       - require X-Authentik-Username header (from Caddy + Authentik)
- *       - require membership in at least one configured admin group
- *         if any are configured.
- */
-
 const PUBLIC_PATHS = new Set([
   "/",
   "/dashboard",
   "/setup-my-device",
+
+  // ✅ public request access pages
   "/request-access",
   "/request-access/confirmation",
+
   "/api/setup-my-device/enroll-qr",
   "/api/qr/download",
   "/styles.css",
@@ -38,7 +26,6 @@ function parseGroupList(raw) {
 }
 
 function normalizePath(p) {
-  // remove trailing slashes (except keep "/" as "/")
   const out = String(p || "").replace(/\/+$/, "");
   return out || "/";
 }
@@ -51,7 +38,6 @@ function portalAuthMiddleware(req, res, next) {
   res.locals.isGlobalAdmin = false;
   res.locals.isAgencyAdmin = false;
 
-  // Always allow logout through so users who are blocked can sign out
   if (req.path === "/logout") {
     return next();
   }
@@ -59,15 +45,12 @@ function portalAuthMiddleware(req, res, next) {
   const normalizedPath = normalizePath(req.path);
   const isPublicPath = PUBLIC_PATHS.has(normalizedPath);
 
-  // Allow anonymous submission of access requests without exposing the
-  // admin-only listing endpoint.
+  // ✅ allow anonymous submission only for POST /api/user-requests
   const isPublicAccessRequestSubmit =
     normalizedPath === "/api/user-requests" &&
     String(req.method || "").toUpperCase() === "POST";
 
-  // ============================================================
   // AUTH DISABLED => EVERYTHING WIDE OPEN + BOOTSTRAP ADMIN USER
-  // ============================================================
   if (!authEnabled) {
     const bootstrapUser = {
       username: "bootstrap",
@@ -75,7 +58,7 @@ function portalAuthMiddleware(req, res, next) {
       displayName: "ANONYMOUS",
       groups: [],
       isGlobalAdmin: true,
-      isAgencyAdmin: true, // optional, but helps if any code checks this too
+      isAgencyAdmin: true,
     };
 
     req.authentikUser = bootstrapUser;
@@ -86,10 +69,7 @@ function portalAuthMiddleware(req, res, next) {
     return next();
   }
 
-  // ============================================================
-  // AUTH ENABLED => REQUIRE HEADERS + APPLY GROUP RULES
-  // ============================================================
-
+  // AUTH ENABLED
   const usernameHeader = req.headers["x-authentik-username"];
   const username = (usernameHeader && String(usernameHeader).trim()) || "";
 
@@ -102,7 +82,7 @@ function portalAuthMiddleware(req, res, next) {
 
   const groupsHeader = req.headers["x-authentik-groups"] || "";
 
-  // Allow completely anonymous access to public paths
+  // ✅ Allow anonymous access to public paths & public submit endpoint
   if (!username && (isPublicPath || isPublicAccessRequestSubmit)) {
     return next();
   }
@@ -115,8 +95,6 @@ function portalAuthMiddleware(req, res, next) {
       );
   }
 
-  // Parse groups from header. Authentik commonly uses ';' as a separator,
-  // but we also tolerate ',' and '|' just in case.
   const userGroups = String(groupsHeader)
     .split(/[;|,]/)
     .map((g) => String(g || "").trim())
@@ -124,7 +102,6 @@ function portalAuthMiddleware(req, res, next) {
 
   const userGroupsLower = userGroups.map((g) => g.toLowerCase());
 
-  // Global Admin groups (existing setting)
   const globalGroupsStr = getString("PORTAL_AUTH_REQUIRED_GROUP", "").trim();
   const globalGroups = parseGroupList(globalGroupsStr);
 
@@ -132,9 +109,7 @@ function portalAuthMiddleware(req, res, next) {
     globalGroups.length > 0 &&
     globalGroups.some((needed) => userGroupsLower.includes(needed));
 
-  // Agency admin status now comes purely from the Agencies config. Any
-  // agency that lists one of the user's groups in its "adminGroups"
-  // field will treat this user as an agency admin for that agency.
+  // NOTE: these two calls can throw if access config files are missing/invalid
   const agencySuffixesForUser =
     accessSvc.getAllowedAgencySuffixesForGroups(userGroupsLower);
   const isAgencyAdmin =
@@ -143,17 +118,11 @@ function portalAuthMiddleware(req, res, next) {
   const anyAdminGroupConfigured =
     globalGroups.length > 0 || accessSvc.hasAnyAgencyAdminsConfigured();
 
-  // If no admin groups are configured at all, any authenticated user is allowed.
   const hasAnyRequired =
     !anyAdminGroupConfigured || isGlobalAdmin || isAgencyAdmin;
 
-  // For public paths we only enforce "is logged in" when auth is enabled.
-  // Group membership does not gate access to the Welcome page, etc.
   if (!hasAnyRequired && !isPublicPath) {
-    const safeUsername = username || "";
-    return res.status(403).render("access-denied", {
-      username: safeUsername,
-    });
+    return res.status(403).render("access-denied", { username });
   }
 
   const displayNameHeader =
