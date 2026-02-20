@@ -1,3 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>TAK Portal</title>
+    <link rel="stylesheet" href="/styles.css" />
+
+    <% if (brandLogoUrl) { %>
+      <link rel="icon" href="<%= brandLogoUrl %>" type="image/png" />
+      <link rel="shortcut icon" href="<%= brandLogoUrl %>" type="image/png" />
+    <% } %>
+  </head>
+  <body class="theme-<%= brandTheme || 'dark-blue' %>">
+
+    <div class="app">
+
 <main class="main" style="max-width: 980px; margin: 0 auto;">
   <h1>Request Access</h1>
 
