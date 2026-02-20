@@ -14,7 +14,7 @@ const portalAuth = require("./services/portalAuth.middleware");
 const emailSvc = require("./services/email.service");
 const emailTemplatesSvc = require("./services/emailTemplates.service");
 const qrSvc = require("./services/qr.service");
-const agenciesStore = require("./services/agencies.store");
+const agenciesStore = require("./services/agencies.service");
 const userRequestsSvc = require("./services/userRequests.service");
 
 const app = express();
