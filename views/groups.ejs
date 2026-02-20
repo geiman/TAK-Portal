@@ -529,6 +529,17 @@ async function loadAgencies(){
       const label = `${a.name} (${prefix})`;
       return `<option value="${esc(prefix)}">${esc(label)}</option>`;
     }).join("");
+
+  // 🔹 If NOT global admin, auto-select and lock to their only agency
+  if (!IS_GLOBAL_ADMIN) {
+    const options = Array.from(agencyPrefixSelect.querySelectorAll("option"))
+      .filter(o => o.value);
+
+    if (options.length === 1) {
+      agencyPrefixSelect.value = options[0].value;
+      agencyPrefixSelect.disabled = true;
+    }
+  }
 // --- State dropdown (unique states from agencies) ---
 const stateSet = new Set(
   agenciesCache
