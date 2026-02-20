@@ -728,20 +728,21 @@ function buildGroupNameFromParts({ type, baseName, behavior, prefix, county, sta
 
 function isGroupEditable(name){
   <% if (isGlobalAdmin) { %>
-  // Global admins can always rename/delete groups (subject to action locks).
   return true;
   <% } %>
 
-  const n = String(name || "").trim();
-  // Agency-specific groups are formatted like "<PREFIX> <Title>"
+  const raw = String(name || "").trim();
+  if (!raw) return false;
+
+  // Remove tak_ prefix first
+  const n = stripTakPrefix(raw);
+
+  // Agency groups are formatted as: "<PREFIX> <Title>"
   const spIdx = n.indexOf(" ");
   if (spIdx <= 0) return false;
 
-  // trim, so "CPD " becomes "CPD"
   const prefix = n.slice(0, spIdx).trim().toUpperCase();
 
-  // Agency-specific groups: editable only if the prefix matches one of the
-  // current user's agency groupPrefixes (from agenciesCache).
   return agenciesCache.some(a =>
     String(a.groupPrefix || "").trim().toUpperCase() === prefix
   );
