@@ -171,23 +171,24 @@ function isUsernameInAllowedAgencies(authUser, username) {
 }
 
 /**
- * Compute the agency and county prefixes that the current user is allowed to see.
+ * Compute the agency, county, and state prefixes that the current user is allowed to see.
  *
  * agencyPrefixes: e.g. ["CPD", "CFD"]
  * countyPrefixes: e.g. ["HAMILTON", "BRADLEY"]
+ * statePrefixes: e.g. ["TN", "GA"]
  */
-function getAgencyAndCountyPrefixesForUser(authUser) {
+function getAgencyCountyAndStatePrefixesForUser(authUser) {
   const access = getAgencyAccess(authUser);
   if (access.isGlobalAdmin) {
     // null means "no restriction"
-    return { agencyPrefixes: null, countyPrefixes: null };
+    return { agencyPrefixes: null, countyPrefixes: null, statePrefixes: null };
   }
 
   const allowed = Array.isArray(access.allowedAgencySuffixes)
     ? access.allowedAgencySuffixes.map(normalizeSuffix).filter(Boolean)
     : [];
   if (!allowed.length) {
-    return { agencyPrefixes: [], countyPrefixes: [] };
+    return { agencyPrefixes: [], countyPrefixes: [], statePrefixes: [] };
   }
 
   const allowedSet = new Set(allowed);
@@ -195,6 +196,7 @@ function getAgencyAndCountyPrefixesForUser(authUser) {
 
   const agencyPrefixes = [];
   const countyPrefixes = [];
+  const statePrefixes = [];
 
   for (const agency of agencies) {
     const sfx = normalizeSuffix(agency && agency.suffix);
@@ -209,9 +211,22 @@ function getAgencyAndCountyPrefixesForUser(authUser) {
     if (county && !countyPrefixes.includes(county)) {
       countyPrefixes.push(county);
     }
+
+    // State groups follow the same prefix-before-dash convention as county groups.
+    // Derive the user's allowed state prefixes from their allowed agencies.
+    const state = String(agency.state || "").trim().toUpperCase();
+    if (state && !statePrefixes.includes(state)) {
+      statePrefixes.push(state);
+    }
   }
 
-  return { agencyPrefixes, countyPrefixes };
+  return { agencyPrefixes, countyPrefixes, statePrefixes };
+}
+
+// Backwards-compatible alias (older callers expect this name).
+// It now also returns statePrefixes.
+function getAgencyAndCountyPrefixesForUser(authUser) {
+  return getAgencyCountyAndStatePrefixesForUser(authUser);
 }
 
 /**
@@ -233,13 +248,15 @@ function filterGroupsForUser(authUser, groups) {
     return list;
   }
 
-  const { agencyPrefixes, countyPrefixes } =
-    getAgencyAndCountyPrefixesForUser(authUser);
+  const { agencyPrefixes, countyPrefixes, statePrefixes } =
+    getAgencyCountyAndStatePrefixesForUser(authUser);
 
   const hasAgencyPrefixes =
     Array.isArray(agencyPrefixes) && agencyPrefixes.length > 0;
   const hasCountyPrefixes =
     Array.isArray(countyPrefixes) && countyPrefixes.length > 0;
+  const hasStatePrefixes =
+    Array.isArray(statePrefixes) && statePrefixes.length > 0;
 
   return list.filter((g) => {
     // Hide "private" groups from non-global admins
@@ -248,7 +265,11 @@ function filterGroupsForUser(authUser, groups) {
       return false;
     }
 
-    const name = String(g && g.name ? g.name : "").trim();
+    const rawName = String(g && g.name ? g.name : "").trim();
+    // Groups created via this portal are typically prefixed with "tak_".
+    // Strip it for prefix-based access checks so prefixes like "CPD" or "TN"
+    // match the visible portion of the group name.
+    const name = rawName.toLowerCase().startsWith("tak_") ? rawName.slice(4) : rawName;
     if (!name) return false;
 
     const upper = name.toUpperCase();
@@ -261,6 +282,7 @@ function filterGroupsForUser(authUser, groups) {
 
       if (hasAgencyPrefixes && agencyPrefixes.includes(prefix)) return true;
       if (hasCountyPrefixes && countyPrefixes.includes(prefix)) return true;
+      if (hasStatePrefixes && statePrefixes.includes(prefix)) return true;
 
       // Other agency/county prefixes are hidden for this user.
       return false;
@@ -283,6 +305,8 @@ module.exports = {
   filterAgenciesForUser,
   isSuffixAllowed,
   isUsernameInAllowedAgencies,
+  // Export both names; older routes use getAgencyAndCountyPrefixesForUser.
+  getAgencyCountyAndStatePrefixesForUser,
   getAgencyAndCountyPrefixesForUser,
   filterGroupsForUser,
 };
