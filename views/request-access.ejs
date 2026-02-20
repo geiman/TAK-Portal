@@ -5,7 +5,7 @@
 
   <div class="card">
     <p>
-      Use this form to request access to the TAK Portal. A Global Administrator will review your request.
+      Use this form to request access to TAK Portal. An administrator will review your request and upon review, you will recieve an email notification with instructions to access your account.
     </p>
 
     <% if (typeof error !== "undefined" && error) { %>
@@ -46,22 +46,24 @@
       </label>
 
       <div id="otherWrap" style="grid-column: 1 / -1; display:none;">
-        <div class="card" style="margin: 0;">
-          <h3 style="margin-top: 0;">Other Agency</h3>
 
-          <label>Agency Name
-            <input name="otherAgency" id="otherAgency" value="<%= (form && form.otherAgency) ? form.otherAgency : '' %>" />
-          </label>
+        <label>Agency Name
+          <input 
+            name="otherAgency" 
+            id="otherAgency"
+            value="<%= (form && form.otherAgency) ? form.otherAgency : '' %>" 
+          />
+        </label>
 
-          <label style="display:block; margin-top: 10px;">Reason for requesting access
-            <textarea
-              name="otherReason"
-              id="otherReason"
-              rows="4"
-              style="width: 100%; box-sizing: border-box;"
-            ><%= (form && form.otherReason) ? form.otherReason : '' %></textarea>
-          </label>
-        </div>
+        <label>Reason for requesting access
+          <textarea
+            name="otherReason"
+            id="otherReason"
+            rows="4"
+            style="width: 100%; box-sizing: border-box;"
+          ><%= (form && form.otherReason) ? form.otherReason : '' %></textarea>
+        </label>
+
       </div>
 
       <div style="grid-column: 1 / -1; display:flex; align-items:center; gap:10px; flex-wrap: wrap;">
