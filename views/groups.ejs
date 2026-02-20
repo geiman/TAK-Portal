@@ -14,6 +14,7 @@
         <% if (isGlobalAdmin) { %>
         <option value="county">County-Specific Group</option>
         <option value="state">State-Specific Group</option>
+              <option value="state">State-Specific Group</option>
         <option value="generic">Global Group</option>
         <% } %>
       </select>
@@ -30,15 +31,13 @@
         <option value="">Select County</option>
       </select>
     </label>
+<label id="stateWrap" style="display:none;">Select State
+  <select id="stateSelect">
+    <option value="">Select State</option>
+  </select>
+</label>
 
-    
-
-    <label id="stateWrap" style="display:none;">Select State
-      <select id="stateSelect">
-        <option value="">Select State</option>
-      </select>
-    </label>
-<label style="flex: 1; min-width: 160px;">Group Name
+    <label style="flex: 1; min-width: 160px;">Group Name
       <input
         id="groupName"
         placeholder="Group name"
@@ -149,15 +148,13 @@
               <option value="">Select County</option>
             </select>
           </label>
+<label id="editStateWrap" style="display:none;">Select State
+  <select id="editStateSelect">
+    <option value="">Select State</option>
+  </select>
+</label>
 
-          
-
-        <label id="editStateWrap" style="display:none;">Select State
-          <select id="editStateSelect">
-            <option value="">Select State</option>
-          </select>
-        </label>
-<label style="flex: 1; min-width: 160px;">Group Name
+          <label style="flex: 1; min-width: 160px;">Group Name
             <input
               id="editGroupName"
               placeholder="Group name"
@@ -532,6 +529,25 @@ async function loadAgencies(){
       const label = `${a.name} (${prefix})`;
       return `<option value="${esc(prefix)}">${esc(label)}</option>`;
     }).join("");
+// --- State dropdown (unique states from agencies) ---
+const stateSet = new Set(
+  agenciesCache
+    .map(a => String(a.state || "").trim())
+    .filter(s => s)
+);
+const stateList = Array.from(stateSet).sort((a, b) => a.localeCompare(b));
+
+if (stateSelect) {
+  stateSelect.innerHTML =
+    `<option value="">Select State</option>` +
+    stateList.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
+}
+
+// Mirror options into Edit modal dropdowns
+if (editStateSelect && stateSelect) {
+  editStateSelect.innerHTML = stateSelect.innerHTML;
+}
+
 
   // --- County dropdown (unique counties from agencies) ---
   const countySet = new Set(
@@ -545,29 +561,12 @@ async function loadAgencies(){
     `<option value="">Select County</option>` +
     countyList.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
 
-  
-  // --- State dropdown (unique states from agencies) ---
-  const stateSet = new Set(
-    agenciesCache
-      .map(a => String(a.state || "").trim().toUpperCase())
-      .filter(s => s)
-  );
-  const stateList = Array.from(stateSet).sort((a, b) => a.localeCompare(b));
-
-  if (stateSelect) {
-    stateSelect.innerHTML =
-      `<option value="">Select State</option>` +
-      stateList.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
-  }
-// Mirror options into Edit modal dropdowns
+  // Mirror options into Edit modal dropdowns
   if (editAgencyPrefixSelect) {
     editAgencyPrefixSelect.innerHTML = agencyPrefixSelect.innerHTML;
   }
   if (editCountySelect) {
     editCountySelect.innerHTML = countySelect.innerHTML;
-  }
-  if (editStateSelect && stateSelect) {
-    editStateSelect.innerHTML = stateSelect.innerHTML;
   }
 
   renderAgencyList();
@@ -644,25 +643,22 @@ function parseGroupName(fullName) {
         county = canonical || leftNoCo || left; // keep original case for the dropdown
         baseName = right || "";
       } else {
-        // Try State (compare uppercase abbreviations)
-        const stateSet = new Set(
-          (agenciesCache || [])
-            .map(a => String(a.state || "").trim())
-            .filter(Boolean)
-            .map(s => s.toUpperCase())
-        );
-        if (stateSet.has(leftUpper) || stateSet.has(leftNoCoUpper)) {
-          type = "state";
-          const canonical = (agenciesCache || [])
-            .map(a => String(a.state || "").trim())
-            .filter(Boolean)
-            .find(s => s.toUpperCase() === leftUpper);
-          state = (canonical || left).toUpperCase();
-          baseName = right || "";
-        } else {
-          // Fallback: treat everything as base name
-          baseName = name;
-        }
+  // Try State (compare uppercase; only allow states that exist in agenciesCache)
+  const stateSet = new Set(
+    (agenciesCache || [])
+      .map(a => String(a.state || "").trim())
+      .filter(Boolean)
+      .map(s => s.toUpperCase())
+  );
+  if (stateSet.has(leftUpper) || stateSet.has(leftNoCoUpper)) {
+    type = "state";
+    state = leftUpper; // store as uppercase abbreviation
+    baseName = right || "";
+  } else {
+
+        // Fallback: treat everything as base name
+        baseName = name;
+      }
       }
     }
   } else {
@@ -686,24 +682,7 @@ function parseGroupName(fullName) {
     }
   }
 
-  
-  // State: "<STATE> <Title>" (when saved without " - ")
-  if (type === "generic") {
-    const upperName = name.toUpperCase();
-    const states = Array.from(new Set(
-      (agenciesCache || [])
-        .map(a => String(a.state || "").trim().toUpperCase())
-        .filter(Boolean)
-    )).sort((a,b)=>b.length - a.length);
-    const hitState = states.find(st => upperName.startsWith(st + " "));
-    if (hitState) {
-      type = "state";
-      state = hitState;
-      baseName = name.slice(hitState.length + 1).trim();
-    }
-  }
-
-// County: "<County> Co <Title>"
+  // County: "<County> Co <Title>"
   if (type === "generic") {
     const counties = Array.from(new Set(
       (agenciesCache || [])
@@ -738,8 +717,7 @@ function buildGroupNameFromParts({ type, baseName, behavior, prefix, county, sta
     const c = String(county || "").trim();
     if (!c) return "";
     name = `${c} Co ${name}`;
-  }
-  else if (type === "state") {
+  } else if (type === "state") {
     const s = String(state || "").trim().toUpperCase();
     if (!s) return "";
     name = `${s} - ${name}`;
@@ -795,7 +773,6 @@ createType.onchange = () => {
   const v = createType.value;
   const isAgency = v === "agency";
   const isCounty = v === "county";
-    const isState = v === "state";
   const isState = v === "state";
 
   if (agencyPrefixWrap) agencyPrefixWrap.style.display = isAgency ? "flex" : "none";
@@ -809,7 +786,7 @@ if (editType) {
     const v = editType.value;
     const isAgency = v === "agency";
     const isCounty = v === "county";
-  const isState = v === "state";
+    const isState = v === "state";
 
     if (editAgencyPrefixWrap) editAgencyPrefixWrap.style.display = isAgency ? "flex" : "none";
     if (editCountyWrap) editCountyWrap.style.display = isCounty ? "flex" : "none";
@@ -910,9 +887,9 @@ createBtn.onclick = async () => {
     if (!county) return setMsg(createMsg, "Select a county.", false);
     name = `${county} Co ${name}`;
   } else if (type === "state") {
-    const st = String(stateSelect?.value || "").trim().toUpperCase();
-    if (!st) return setMsg(createMsg, "Select a state.", false);
-    name = `${st} - ${name}`;
+    const state = String(stateSelect?.value || "").trim().toUpperCase();
+    if (!state) return setMsg(createMsg, "Select a state.", false);
+    name = `${state} - ${name}`;
   }
   // type === "generic" just uses the base name + behavior suffix
 
@@ -945,9 +922,9 @@ createBtn.onclick = async () => {
     }
   } else if (type === "state") {
     groupType = "State";
-    const st = String(stateSelect?.value || "").trim().toUpperCase();
-    if (st) {
-      groupTypeDetail = st;
+    const state = String(stateSelect?.value || "").trim().toUpperCase();
+    if (state) {
+      groupTypeDetail = state;
     }
   }
 
@@ -1038,7 +1015,7 @@ window.editGroupName = async (groupId) => {
     editCountySelect.value = parsed.county || "";
   }
   if (editStateSelect) {
-    editStateSelect.value = (parsed.state || "").toUpperCase();
+    editStateSelect.value = parsed.state || "";
   }
 
   // Base name (no prefix, no behavior suffix)
@@ -1337,7 +1314,6 @@ editGroupSaveBtn.onclick = async () => {
 
   let prefix = "";
   let county = "";
-  let state = "";
   let state = "";
 
   if (!baseName) {
