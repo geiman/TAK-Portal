@@ -241,6 +241,7 @@
             <select id="permissionsSelect">
               <option value="user">User</option>
               <option value="agency_admin">Agency Admin</option>
+              <option value="global_admin">Global Admin</option>
             </select>
 
             <button class="btn" id="applyPermissionsBtn" type="button">
@@ -1519,6 +1520,8 @@ if (applyPermissionsBtn) applyPermissionsBtn.addEventListener("click", async () 
   setMsgEl(actionMsg, "");
 
   const desired = (permissionsSelect && permissionsSelect.value) || "user";
+  const isAgencyAdmin = desired === "agency_admin";
+  const isGlobalAdmin = desired === "global_admin";
   const adminGroupName = getAgencyAdminGroupNameForUser(selectedUser);
 
   if (!adminGroupName) {
@@ -1537,7 +1540,7 @@ if (applyPermissionsBtn) applyPermissionsBtn.addEventListener("click", async () 
   // Keep behavior simple and predictable:
   // - Selecting Agency Admin adds the group
   // - Selecting User removes the group (if present)
-  const shouldHaveAdmin = desired === "agency_admin";
+  const shouldHaveAdmin = isAgencyAdmin;
 
   if (shouldHaveAdmin === currentlyHasAdmin) {
     setMsgEl(actionMsg, shouldHaveAdmin ? "Already an Agency Admin." : "Already a User.", true);
@@ -1582,7 +1585,7 @@ if (applyPermissionsBtn) applyPermissionsBtn.addEventListener("click", async () 
   const updatedVisible = (window.__lastUsers || []).map(patch);
   applySortAndRender(updatedVisible);
 
-  setMsgEl(actionMsg, shouldHaveAdmin ? "Permissions updated: Agency Admin." : "Permissions updated: User.", true);
+  setMsgEl(actionMsg, isGlobalAdmin ? "Permissions updated: Global Admin." : (shouldHaveAdmin ? "Permissions updated: Agency Admin." : "Permissions updated: User."), true);
 });
 
 window.toggleUserFromTable = async (userPk) => {
