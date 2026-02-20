@@ -586,7 +586,7 @@ router.post("/enroll-qr", async (req, res) => {
 
 
 
-// -------------------- Set Role (User / Agency Admin / Global Admin) --------------------
+// -------------------- Set Role --------------------
 router.post("/:id/set-role", async (req, res) => {
   try {
     const userId = req.params.id;
@@ -595,26 +595,23 @@ router.post("/:id/set-role", async (req, res) => {
     const user = await users.getUserById(userId);
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    const settings = require("../services/settings.service");
-    const portalSettings = settings.load();
+    const settingsSvc = require("../services/settings.service");
+    const agenciesSvc = require("../services/agencies.service");
+    const groupsSvc = require("../services/groups.service");
 
-    const globalGroupsRaw = portalSettings.PORTAL_AUTH_REQUIRED_GROUP || "";
-    const globalGroupNames = String(globalGroupsRaw)
+    const settings = settingsSvc.load();
+    const globalGroupNames = String(settings.PORTAL_AUTH_REQUIRED_GROUP || "")
       .split(/[;,]/)
       .map(g => g.trim())
       .filter(Boolean);
 
-    const agencies = require("../services/agencies.service").load();
+    const agencies = agenciesSvc.load();
     const agencyAdminGroups = agencies
       .map(a => a.groupPrefix ? `authentik-${a.groupPrefix}-AgencyAdmin` : null)
       .filter(Boolean);
 
-    const groupsSvc = require("../services/groups.service");
-
-    // Remove all admin-related groups first
-    const allAdminGroups = [...globalGroupNames, ...agencyAdminGroups];
-
-    for (const name of allAdminGroups) {
+    // Remove all admin groups first
+    for (const name of [...globalGroupNames, ...agencyAdminGroups]) {
       const group = await groupsSvc.findByName(name);
       if (group && user.groups.includes(group.pk)) {
         await groupsSvc.removeUsersFromGroup(group.pk, [userId]);
@@ -623,23 +620,19 @@ router.post("/:id/set-role", async (req, res) => {
 
     // Add based on role
     if (role === "agency_admin") {
-      const suffix = user.agencySuffix;
-      const agency = agencies.find(a => String(a.suffix).toLowerCase() === String(suffix).toLowerCase());
+      const agency = agencies.find(a =>
+        String(a.suffix).toLowerCase() === String(user.agencySuffix).toLowerCase()
+      );
       if (agency && agency.groupPrefix) {
-        const groupName = `authentik-${agency.groupPrefix}-AgencyAdmin`;
-        const group = await groupsSvc.findByName(groupName);
-        if (group) {
-          await groupsSvc.addUsersToGroup(group.pk, [userId]);
-        }
+        const group = await groupsSvc.findByName(`authentik-${agency.groupPrefix}-AgencyAdmin`);
+        if (group) await groupsSvc.addUsersToGroup(group.pk, [userId]);
       }
     }
 
     if (role === "global_admin") {
       for (const name of globalGroupNames) {
         const group = await groupsSvc.findByName(name);
-        if (group) {
-          await groupsSvc.addUsersToGroup(group.pk, [userId]);
-        }
+        if (group) await groupsSvc.addUsersToGroup(group.pk, [userId]);
       }
     }
 

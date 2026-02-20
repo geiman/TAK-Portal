@@ -1493,57 +1493,38 @@ window.editUser = async (userPk) => {
         : false;
       permissionsSelect.value = hasAdmin ? "agency_admin" : "user";
       permissionsSelect.disabled = false;
-      if (applyPermissionsBtn) {
-  applyPermissionsBtn.addEventListener("click", async () => {
-    if (!selectedUser) return;
+      if (applyPermissionsBtn) applyPermissionsBtn.addEventListener("click", async () => {
+  if (!selectedUser) return;
 
-    setMsgEl(actionMsg, "");
-    const desired = (permissionsSelect && permissionsSelect.value) || "user";
+  setMsgEl(actionMsg, "");
 
-    setMsgEl(actionMsg, "Updating permissions...", true);
+  const desired = (permissionsSelect && permissionsSelect.value) || "user";
 
-    try {
-      const res = await fetch(`/api/users/${selectedUser.pk}/set-role`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: desired }),
-      });
+  setMsgEl(actionMsg, "Updating permissions...", true);
 
-      const out = await res.json();
+  try {
+    const res = await fetch(`/api/users/${selectedUser.pk}/set-role`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role: desired }),
+    });
 
-      if (!res.ok) {
-        setMsgEl(actionMsg, out.error || "Failed to update permissions.", false);
-        return;
-      }
+    const out = await res.json();
 
-      selectedUser.groups = Array.isArray(out.groups)
-        ? out.groups
-        : selectedUser.groups;
-
-      setMsgEl(
-        actionMsg,
-        "Permissions updated successfully.",
-        true
-      );
-    } catch (err) {
-      setMsgEl(actionMsg, "Network error while updating permissions.", false);
+    if (!res.ok) {
+      setMsgEl(actionMsg, out.error || "Failed to update permissions.", false);
+      return;
     }
-  });
-}
+
+    selectedUser.groups = Array.isArray(out.groups)
+      ? out.groups
+      : selectedUser.groups;
+
+    setMsgEl(actionMsg, "Permissions updated successfully.", true);
+
   } catch (err) {
     setMsgEl(actionMsg, "Network error while updating permissions.", false);
-    return;
   }
-
-  const out = await res.json();
-  if (!res.ok) {
-    setMsgEl(actionMsg, out.error || "Failed to update permissions.", false);
-    return;
-  }
-
-  selectedUser.groups = Array.isArray(out.groups) ? out.groups : selectedUser.groups;
-
-  setMsgEl(actionMsg, `Permissions updated: ${desired.replace("_", " ").toUpperCase()}.`, true);
 });
   } catch (err) {
     setMsgEl(actionMsg, "Network error while updating permissions.", false);
@@ -1570,7 +1551,7 @@ window.editUser = async (userPk) => {
   const updatedVisible = (window.__lastUsers || []).map(patch);
   applySortAndRender(updatedVisible);
 
-  setMsgEl(actionMsg, isGlobalAdmin ? "Permissions updated: Global Admin." : (shouldHaveAdmin ? "Permissions updated: Agency Admin." : "Permissions updated: User."), true);
+  setMsgEl(actionMsg, shouldHaveAdmin ? "Permissions updated: Agency Admin." : "Permissions updated: User.", true);
 });
 
 window.toggleUserFromTable = async (userPk) => {
