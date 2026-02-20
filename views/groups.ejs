@@ -9,14 +9,18 @@
 
   <div class="row">
     <label>Group Type
-      <select id="createType">
-        <option value="agency" selected>Agency-Specific Group</option>
-        <% if (isGlobalAdmin) { %>
-        <option value="county">County-Specific Group</option>
-        <option value="state">State-Specific Group</option>
-        <option value="generic">Global Group</option>
-        <% } %>
-      </select>
+      <% if (isGlobalAdmin) { %>
+        <select id="createType">
+          <option value="agency" selected>Agency-Specific Group</option>
+          <option value="county">County-Specific Group</option>
+          <option value="state">State-Specific Group</option>
+          <option value="generic">Global Group</option>
+        </select>
+      <% } else { %>
+        <select id="createType" disabled>
+          <option value="agency" selected>Agency-Specific Group</option>
+        </select>
+      <% } %>
     </label>
 
     <label id="agencyPrefixWrap" style="display:none;">Select Agency
