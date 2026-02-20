@@ -707,6 +707,24 @@ function parseGroupName(fullName) {
       baseName = name.slice((hitCounty + " Co ").length).trim();
     }
   }
+  // State: "<State> <Title>"
+  if (type === "generic") {
+    const states = Array.from(new Set(
+      (agenciesCache || [])
+        .map(a => String(a.state || "").trim())
+        .filter(Boolean)
+    )).sort((a,b)=>b.length - a.length); // longest first
+
+    const hitState = states.find(st =>
+      name.toUpperCase().startsWith(st.toUpperCase() + " ")
+    );
+
+    if (hitState) {
+      type = "state";
+      state = hitState.toUpperCase();
+      baseName = name.slice(hitState.length + 1).trim();
+    }
+  }
 
   return { type, agencyPrefix, county, state, baseName, behavior };
 }
@@ -731,7 +749,7 @@ function buildGroupNameFromParts({ type, baseName, behavior, prefix, county, sta
   } else if (type === "state") {
     const s = String(state || "").trim().toUpperCase();
     if (!s) return "";
-    name = `${s} - ${name}`;
+    name = `${s} ${name}`;
   }
 
   return ensureTakPrefix(name);
@@ -1010,12 +1028,14 @@ window.editGroupName = async (groupId) => {
 
   // Type
   if (editType) {
-    // If not global admin and this is an agency group, force type=agency
-    if (!IS_GLOBAL_ADMIN && editGroupOriginalType === "agency") {
+    if (!IS_GLOBAL_ADMIN) {
       editType.value = "agency";
+      editType.disabled = true;
     } else {
       editType.value = parsed.type || "generic";
+      editType.disabled = false;
     }
+
     if (editType.onchange) editType.onchange();
   }
 
@@ -1023,6 +1043,9 @@ window.editGroupName = async (groupId) => {
   if (editAgencyPrefixSelect) {
     editAgencyPrefixSelect.value = parsed.agencyPrefix || "";
   }
+  if (!IS_GLOBAL_ADMIN && editAgencyPrefixSelect) {
+  editAgencyPrefixSelect.disabled = true;
+}
   if (editCountySelect) {
     editCountySelect.value = parsed.county || "";
   }
