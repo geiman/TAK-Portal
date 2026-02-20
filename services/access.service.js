@@ -226,7 +226,47 @@ function getAgencyCountyAndStatePrefixesForUser(authUser) {
 // Backwards-compatible alias (older callers expect this name).
 // It now also returns statePrefixes.
 function getAgencyAndCountyPrefixesForUser(authUser) {
-  return getAgencyCountyAndStatePrefixesForUser(authUser);
+  const access = getAgencyAccess(authUser);
+  if (access.isGlobalAdmin) {
+    return { agencyPrefixes: null, countyPrefixes: null, statePrefixes: null };
+  }
+
+  const allowed = Array.isArray(access.allowedAgencySuffixes)
+    ? access.allowedAgencySuffixes.map(normalizeSuffix).filter(Boolean)
+    : [];
+
+  if (!allowed.length) {
+    return { agencyPrefixes: [], countyPrefixes: [], statePrefixes: [] };
+  }
+
+  const allowedSet = new Set(allowed);
+  const agencies = agenciesStore.load();
+
+  const agencyPrefixes = [];
+  const countyPrefixes = [];
+  const statePrefixes = [];
+
+  for (const agency of agencies) {
+    const sfx = normalizeSuffix(agency?.suffix);
+    if (!sfx || !allowedSet.has(sfx)) continue;
+
+    const gp = String(agency.groupPrefix || "").trim().toUpperCase();
+    if (gp && !agencyPrefixes.includes(gp)) {
+      agencyPrefixes.push(gp);
+    }
+
+    const county = String(agency.county || "").trim().toUpperCase();
+    if (county && !countyPrefixes.includes(county)) {
+      countyPrefixes.push(county);
+    }
+
+    const state = String(agency.state || "").trim().toUpperCase();
+    if (state && !statePrefixes.includes(state)) {
+      statePrefixes.push(state);
+    }
+  }
+
+  return { agencyPrefixes, countyPrefixes, statePrefixes };
 }
 
 /**
@@ -249,7 +289,7 @@ function filterGroupsForUser(authUser, groups) {
   }
 
   const { agencyPrefixes, countyPrefixes, statePrefixes } =
-    getAgencyCountyAndStatePrefixesForUser(authUser);
+    getAgencyAndCountyPrefixesForUser(authUser);
 
   const hasAgencyPrefixes =
     Array.isArray(agencyPrefixes) && agencyPrefixes.length > 0;
@@ -259,39 +299,35 @@ function filterGroupsForUser(authUser, groups) {
     Array.isArray(statePrefixes) && statePrefixes.length > 0;
 
   return list.filter((g) => {
-    // Hide "private" groups from non-global admins
-    const privateFlag = String(g?.attributes?.private || "").trim().toLowerCase();
+    const privateFlag = String(g?.attributes?.private || "")
+      .trim()
+      .toLowerCase();
+
     if (privateFlag === "yes" || privateFlag === "true" || privateFlag === "1") {
       return false;
     }
 
-    const rawName = String(g && g.name ? g.name : "").trim();
-    // Groups created via this portal are typically prefixed with "tak_".
-    // Strip it for prefix-based access checks so prefixes like "CPD" or "TN"
-    // match the visible portion of the group name.
-    const name = rawName.toLowerCase().startsWith("tak_") ? rawName.slice(4) : rawName;
+    let name = String(g?.name || "").trim();
     if (!name) return false;
 
-    const upper = name.toUpperCase();
-    const dashIdx = upper.indexOf("-");
-    if (dashIdx > 0) {
-      // IMPORTANT:
-      // Support both "CPD-GROUP" and "CPD - GROUP" by trimming the prefix segment.
-      const rawPrefix = upper.slice(0, dashIdx);
-      const prefix = rawPrefix.trim();
-
-      if (hasAgencyPrefixes && agencyPrefixes.includes(prefix)) return true;
-      if (hasCountyPrefixes && countyPrefixes.includes(prefix)) return true;
-      if (hasStatePrefixes && statePrefixes.includes(prefix)) return true;
-
-      // Other agency/county prefixes are hidden for this user.
-      return false;
+    // Remove tak_ prefix before parsing
+    if (name.toLowerCase().startsWith("tak_")) {
+      name = name.slice(4);
     }
 
-    // No dash: treat as global/unprefixed.
-    // Whether it is visible at all is already controlled by GROUPS_HIDDEN_PREFIXES
-    // in groups.service.getAllGroups; here we keep such groups.
-    return true;
+    const upper = name.toUpperCase();
+    const spaceIdx = upper.indexOf(" ");
+
+    // If no space → treat as global group
+    if (spaceIdx <= 0) return true;
+
+    const prefix = upper.slice(0, spaceIdx).trim();
+
+    if (hasAgencyPrefixes && agencyPrefixes.includes(prefix)) return true;
+    if (hasCountyPrefixes && countyPrefixes.includes(prefix)) return true;
+    if (hasStatePrefixes && statePrefixes.includes(prefix)) return true;
+
+    return false;
   });
 }
 

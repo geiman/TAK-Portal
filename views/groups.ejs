@@ -890,7 +890,7 @@ createBtn.onclick = async () => {
   } else if (type === "state") {
     const state = String(stateSelect?.value || "").trim().toUpperCase();
     if (!state) return setMsg(createMsg, "Select a state.", false);
-    name = `${state} - ${name}`;
+    name = `${state} ${name}`;
   }
   // type === "generic" just uses the base name + behavior suffix
 
