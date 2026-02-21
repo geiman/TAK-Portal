@@ -1534,3 +1534,12 @@ module.exports = {
   addUserGroups,
   removeUserGroups,
 };
+
+    if (permission === 'global_admin') {
+        const globalGroup = settings.PORTAL_AUTH_REQUIRED_GROUP;
+        const agencyGroup = settings.AGENCY_ADMIN_GROUP;
+        await addUserToGroup(userId, globalGroup);
+        if (agencyGroup) {
+            await removeUserFromGroup(userId, agencyGroup);
+        }
+    }
