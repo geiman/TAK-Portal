@@ -4,6 +4,15 @@
 <main class="main">
   <h1>Users</h1>
 
+  <% if (typeof pendingUserRequestsCount !== "undefined" && pendingUserRequestsCount > 1) { %>
+    <a href="/pending-user-requests" style="text-decoration:none;">
+      <div class="userReqBanner" style="margin: 10px 0 14px 0;">
+        <%= pendingUserRequestsCount %> User Requests Pending
+      </div>
+    </a>
+  <% } %>
+
+
   <!-- Create user (stacked above manage tools) -->
   <div class="card">
     <h2>Create User</h2>
@@ -2350,5 +2359,16 @@ tr.row-disabled td {
   border: 1px solid rgba(255, 255, 255, 0.06);
   opacity: 0.9;
   font-size: 12px;
+}
+</style>
+
+<style>
+.userReqBanner{
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-weight: 800;
+  color: #ffffff;
+  background: #2563eb;
+  display:block;
 }
 </style>
