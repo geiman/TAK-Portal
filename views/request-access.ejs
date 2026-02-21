@@ -13,10 +13,10 @@
   </head>
   <body class="theme-<%= brandTheme || 'dark-blue' %>">
 
-    <div class="app">
+<div class="app">
 
 <main class="main" style="max-width: 980px; margin: 0 auto;">
-  <h1>Request Access</h1>
+  <h1>Request TAK Portal Access</h1>
 
   <div class="card">
     <p>
@@ -63,34 +63,30 @@
 
       <div id="otherWrap" style="grid-column: 1 / -1; display:none;">
         <label>Agency Name
-          <input 
-            name="otherAgency" 
-            id="otherAgency"
-            value="<%= (form && form.otherAgency) ? form.otherAgency : '' %>" 
-          />
+          <input name="otherAgency" id="otherAgency"
+            value="<%= (form && form.otherAgency) ? form.otherAgency : '' %>" />
         </label>
 
         <label>Reason for requesting access
-          <textarea
-            name="otherReason"
-            id="otherReason"
-            rows="4"
-            style="width: 100%; box-sizing: border-box;"
-          ><%= (form && form.otherReason) ? form.otherReason : '' %></textarea>
+          <textarea name="otherReason" id="otherReason"
+            rows="4" style="width: 100%; box-sizing: border-box;"><%= (form && form.otherReason) ? form.otherReason : '' %></textarea>
         </label>
       </div>
 
       <% if (hcaptchaEnabled && hcaptchaSiteKey) { %>
-        <div style="grid-column: 1 / -1; margin-top: 10px;">
-          <div id="hcaptchaWidget"></div>
-          <div class="msg bad" id="hcaptchaError" style="margin-top: 8px; display:none;">
-            Please complete the captcha before submitting.
-          </div>
+      <div style="grid-column: 1 / -1; margin-top: 10px;">
+        <div id="hcaptchaWidget"></div>
+        <div class="msg bad" id="hcaptchaError"
+             style="margin-top: 8px; display:none;">
+          Please complete the captcha before submitting.
         </div>
+      </div>
       <% } %>
 
       <div style="grid-column: 1 / -1; display:flex; align-items:center; gap:10px; flex-wrap: wrap;">
-        <button class="btn" id="submitRequestBtn" type="submit">Submit Request</button>
+        <button class="btn" id="submitRequestBtn" type="submit">
+          Submit Request
+        </button>
       </div>
 
     </form>
@@ -120,13 +116,10 @@
 <script>
 (function(){
   var form = document.querySelector('form[action="/request-access"]');
-  var submitBtn = document.getElementById('submitRequestBtn');
   var errorBox = document.getElementById('hcaptchaError');
   var captchaCompleted = false;
 
-  if (!form || !submitBtn) return;
-
-  submitBtn.disabled = true;
+  if (!form) return;
 
   window.hcaptchaOnLoad = function() {
     try {
@@ -134,20 +127,17 @@
         sitekey: "<%= hcaptchaSiteKey %>",
         callback: function() {
           captchaCompleted = true;
-          submitBtn.disabled = false;
           if (errorBox) errorBox.style.display = 'none';
         },
         'expired-callback': function() {
           captchaCompleted = false;
-          submitBtn.disabled = true;
         },
         'error-callback': function() {
           captchaCompleted = false;
-          submitBtn.disabled = true;
         }
       });
     } catch (e) {
-      submitBtn.disabled = true;
+      captchaCompleted = false;
     }
   };
 
@@ -155,12 +145,18 @@
     if (!captchaCompleted) {
       e.preventDefault();
       e.stopPropagation();
-      if (errorBox) errorBox.style.display = 'block';
+
+      if (errorBox) {
+        errorBox.style.display = 'block';
+        errorBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+
       return false;
     }
   });
 })();
 </script>
+
 <script src="https://js.hcaptcha.com/1/api.js?onload=hcaptchaOnLoad&render=explicit" async defer></script>
 <% } %>
 
