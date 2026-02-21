@@ -615,9 +615,9 @@
             <% renderField("PORTAL_AUTH_ENABLED","DANGER!! Require Authentik login","Requires Authentik forward_auth / Caddy."); %>
             <% renderField("AUTHENTIK_PUBLIC_URL","Authentik Public URL","Used for logout redirects."); %>
             <% renderField("TAK_PORTAL_PUBLIC_URL","TAK Portal Public URL","Public base URL of this portal (used in email links), e.g. https://portal.example.gov"); %>
-            <% renderField("HCAPTCHA_SITE_KEY","hCaptcha Site Key","Public site key for the Request Access form. Leave blank to disable."); %>
-            <% renderField("HCAPTCHA_SECRET_KEY","hCaptcha Secret Key","Secret key for server-side verification. Leave blank to disable."); %>
             <% renderField("PORTAL_AUTH_REQUIRED_GROUP","Global Admin group(s)","Groups with full global access."); %>
+            <% renderField("HCAPTCHA_SITE_KEY","hCaptcha Site Key","Visit hcaptcha.com for a free public site key for the Request Access form. Leave blank to disable."); %>
+            <% renderField("HCAPTCHA_SECRET_KEY","hCaptcha Secret Key","Visit hcaptcha.com for a free secret key for server-side verification. Leave blank to disable."); %>
           </div>
         </div>
       </details>

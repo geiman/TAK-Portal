@@ -28,6 +28,7 @@
     <% } %>
 
     <form method="POST" action="/request-access" class="grid2" autocomplete="off">
+
       <label>First Name
         <input name="firstName" required value="<%= (form && form.firstName) ? form.firstName : '' %>" />
       </label>
@@ -61,7 +62,6 @@
       </label>
 
       <div id="otherWrap" style="grid-column: 1 / -1; display:none;">
-
         <label>Agency Name
           <input 
             name="otherAgency" 
@@ -78,21 +78,21 @@
             style="width: 100%; box-sizing: border-box;"
           ><%= (form && form.otherReason) ? form.otherReason : '' %></textarea>
         </label>
-
       </div>
+
+      <% if (hcaptchaEnabled && hcaptchaSiteKey) { %>
+        <div style="grid-column: 1 / -1; margin-top: 10px;">
+          <div id="hcaptchaWidget"></div>
+          <div class="msg bad" id="hcaptchaError" style="margin-top: 8px; display:none;">
+            Please complete the captcha before submitting.
+          </div>
+        </div>
+      <% } %>
 
       <div style="grid-column: 1 / -1; display:flex; align-items:center; gap:10px; flex-wrap: wrap;">
         <button class="btn" id="submitRequestBtn" type="submit">Submit Request</button>
       </div>
 
-      <% if (hcaptchaEnabled && hcaptchaSiteKey) { %>
-        <div style="grid-column: 1 / -1;">
-          <div id="hcaptchaWidget"></div>
-          <div class="msg" id="hcaptchaHelp" style="margin-top: 8px;">
-            Please complete the captcha to enable submission.
-          </div>
-        </div>
-      <% } %>
     </form>
   </div>
 </main>
@@ -114,20 +114,18 @@
   if (sel) sel.addEventListener('change', update);
   update();
 })();
-
 </script>
-
 
 <% if (hcaptchaEnabled && hcaptchaSiteKey) { %>
 <script>
 (function(){
   var form = document.querySelector('form[action="/request-access"]');
   var submitBtn = document.getElementById('submitRequestBtn');
-  var help = document.getElementById('hcaptchaHelp');
+  var errorBox = document.getElementById('hcaptchaError');
+  var captchaCompleted = false;
 
   if (!form || !submitBtn) return;
 
-  // lock submission until hCaptcha callback fires
   submitBtn.disabled = true;
 
   window.hcaptchaOnLoad = function() {
@@ -135,28 +133,29 @@
       hcaptcha.render('hcaptchaWidget', {
         sitekey: "<%= hcaptchaSiteKey %>",
         callback: function() {
+          captchaCompleted = true;
           submitBtn.disabled = false;
-          if (help) help.style.display = 'none';
+          if (errorBox) errorBox.style.display = 'none';
         },
         'expired-callback': function() {
+          captchaCompleted = false;
           submitBtn.disabled = true;
-          if (help) help.style.display = 'block';
         },
         'error-callback': function() {
+          captchaCompleted = false;
           submitBtn.disabled = true;
-          if (help) help.style.display = 'block';
         }
       });
     } catch (e) {
-      // If rendering fails, keep the form locked.
       submitBtn.disabled = true;
     }
   };
 
   form.addEventListener('submit', function(e) {
-    if (submitBtn.disabled) {
+    if (!captchaCompleted) {
       e.preventDefault();
       e.stopPropagation();
+      if (errorBox) errorBox.style.display = 'block';
       return false;
     }
   });
@@ -165,4 +164,6 @@
 <script src="https://js.hcaptcha.com/1/api.js?onload=hcaptchaOnLoad&render=explicit" async defer></script>
 <% } %>
 
-</div></body></html>
+</div>
+</body>
+</html>
