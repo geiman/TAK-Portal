@@ -407,6 +407,8 @@ textarea {
     padding: 10px;
     border-radius: 10px;
     outline: none;
+    font-family: inherit;
+    font-size: 14px;
 }
 
 input:focus,
