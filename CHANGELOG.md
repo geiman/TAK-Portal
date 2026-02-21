@@ -12,6 +12,10 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.5 - 2/20/26
+🎉 `New Feature` - Added a "Request Access" page and handling (More enhancements on this to come soon)<br>
+✨ `Enhancement` - Made Dashboard Mutual Aid Banners Clickable for Global Admins <br>
+
 ### v1.2.4 - 2/20/26
 ✨ `Enhancement` - Adds State Wide Group creation for Global Admins with the ability for Agency Admins to assign the group
 
