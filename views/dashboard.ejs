@@ -8,7 +8,7 @@
     <div style="margin: 10px 0 14px 0;">
 
       <% if (mutualAid.activeIncidents > 0) { %>
-        <% if (isAgencyAdmin) { %>
+        <% if (isGlobalAdmin) { %>
           <a href="/mutual-aid" style="text-decoration:none;">
         <% } %>
 
@@ -16,13 +16,13 @@
           <%= mutualAid.activeIncidents %> Mutual Aid Incident<%= mutualAid.activeIncidents === 1 ? "" : "s" %> <%= mutualAid.activeIncidents === 1 ? "Is" : "Are" %> Active
         </div>
 
-        <% if (isAgencyAdmin) { %>
+        <% if (isGlobalAdmin) { %>
           </a>
         <% } %>
       <% } %>
 
       <% if (mutualAid.activeEvents > 0) { %>
-        <% if (isAgencyAdmin) { %>
+        <% if (isGlobalAdmin) { %>
           <a href="/mutual-aid" style="text-decoration:none;">
         <% } %>
 
@@ -30,7 +30,7 @@
           <%= mutualAid.activeEvents %> Mutual Aid Event<%= mutualAid.activeEvents === 1 ? "" : "s" %> <%= mutualAid.activeEvents === 1 ? "is" : "Are" %> Active
         </div>
 
-        <% if (isAgencyAdmin) { %>
+        <% if (isGlobalAdmin) { %>
           </a>
         <% } %>
       <% } %>
