@@ -2,6 +2,9 @@ const crypto = require("crypto");
 const agenciesStore = require("./agencies.service");
 const accessSvc = require("./access.service");
 const store = require("./userRequests.store");
+const emailSvc = require("./email.service");
+const settingsSvc = require("./settings.service");
+const authentik = require("./authentik");
 
 function genId() {
   if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
@@ -87,7 +90,8 @@ function countRequestsForUser(authUser) {
   return listRequestsForUser(authUser).length;
 }
 
-function createRequest(input) {
+
+async function createRequest(input) {
   const v = validateCreate(input || {});
   const agencies = agenciesStore.load();
   const agency = agencies.find(
@@ -111,8 +115,61 @@ function createRequest(input) {
   const all = store.load();
   all.push(reqObj);
   store.save(all);
+
+  // === Email Notification Logic ===
+  try {
+    let recipients = [];
+
+    if (v.agencySuffix !== "__other__" && agency) {
+      const groupName = require("./access.service").getAgencyAdminGroupName(agency);
+      if (groupName) {
+        const groupResp = await authentik.get(`/core/groups/?name=${encodeURIComponent(groupName)}`);
+        const group = groupResp.data?.results?.[0];
+        if (group) {
+          const usersResp = await authentik.get(`/core/users/?groups=${group.pk}`);
+          recipients = (usersResp.data?.results || [])
+            .map(u => u.email)
+            .filter(Boolean);
+        }
+      }
+    }
+
+    // Fallback to global admins
+    if (!recipients.length) {
+      const settings = settingsSvc.getSettings();
+      const globalGroup = settings.PORTAL_AUTH_REQUIRED_GROUP;
+      if (globalGroup) {
+        const groupResp = await authentik.get(`/core/groups/?name=${encodeURIComponent(globalGroup)}`);
+        const group = groupResp.data?.results?.[0];
+        if (group) {
+          const usersResp = await authentik.get(`/core/users/?groups=${group.pk}`);
+          recipients = (usersResp.data?.results || [])
+            .map(u => u.email)
+            .filter(Boolean);
+        }
+      }
+    }
+
+    if (recipients.length) {
+      await emailSvc.sendMail({
+        to: recipients.join(","),
+        subject: "New TAK Portal Access Request",
+        text: `A new user has requested access:
+
+Name: ${reqObj.firstName} ${reqObj.lastName}
+Email: ${reqObj.email}
+Badge: ${reqObj.badgeNumber}
+Agency: ${reqObj.agencyName || reqObj.otherAgency || reqObj.agencySuffix}
+`
+      });
+    }
+  } catch (err) {
+    console.error("Failed to send access request notification:", err?.message || err);
+  }
+
   return reqObj;
 }
+
 
 
 function deleteRequestForUser(id, authUser) {

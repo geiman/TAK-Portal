@@ -12,9 +12,9 @@ function requireAnyAdmin(req, res, next) {
 
 
 // Public: create a new access request
-router.post("/", (req, res) => {
+router.post("/", async (req, res) => {
   try {
-    const created = userRequestsSvc.createRequest(req.body || {});
+    const created = await userRequestsSvc.createRequest(req.body || {});
     return res.json({ success: true, request: created });
   } catch (err) {
     return res.status(400).json({ error: err?.message || "Invalid request" });
