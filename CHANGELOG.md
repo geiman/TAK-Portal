@@ -12,6 +12,9 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.9 - 2/21/26
+🐛 `Bug Fix` - Fixes issue with updater service not performing all functions for a proper docker update
+
 ### v1.2.8 - 2/21/26
 ✨ `Enhancement` - Modified CSS to improve the UI Updater Functionality
 
