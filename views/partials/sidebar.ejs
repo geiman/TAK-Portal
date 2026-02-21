@@ -191,8 +191,8 @@
                 setStatus('Updating…');
                 setHelp('');
               } else if (s.exitCode === 0 && s.finishedAt) {
-                setStatus('Update complete. Restarting…');
-                setHelp('Waiting for server to come back online…');
+                setStatus('Update complete.');
+                setHelp('Server restarted. Reloading page in 15 seconds…');
 
                 // Start reload flow once per finishedAt
                 if (!waitingForRestart || lastFinishedAt !== s.finishedAt) {
@@ -252,14 +252,18 @@
                 // If the server is responding again and the updater isn't running,
                 // we can safely reload. Prefer to reload when current==latest, but
                 // don't block forever if versions aren't reported.
-                if (!running && (!updateAvailable || (current && latest && current === latest))) {
+              if (!running && (!updateAvailable || (current && latest && current === latest))) {
+                setTimeout(function () {
                   window.location.reload();
-                  return;
-                }
-                if (!running) {
+                }, 15000);
+                return;
+              }
+              if (!running) {
+                setTimeout(function () {
                   window.location.reload();
-                  return;
-                }
+                }, 15000);
+                return;
+              }
                 setTimeout(tick, 2000);
               })
               .catch(function () {
