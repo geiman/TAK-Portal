@@ -84,7 +84,7 @@
       <div style="grid-column: 1 / -1; display:flex; align-items:center; gap:10px; flex-wrap: wrap;">
         
 <% if (hcaptchaSiteKey) { %>
-  
+  <script src="https://js.hcaptcha.com/1/api.js" async defer></script>
   <div class="h-captcha" data-sitekey="<%= hcaptchaSiteKey %>"></div>
 <% } %>
 
@@ -114,28 +114,4 @@
 
 </script>
 
-</div>
-<% if (hcaptchaSiteKey) { %>
-<script>
-  document.addEventListener('DOMContentLoaded', function() {
-    const form = document.querySelector('form');
-    const submitBtn = form.querySelector('button[type="submit"]');
-    submitBtn.disabled = true;
-
-    window.hcaptchaOnLoad = function() {
-      hcaptcha.render(document.querySelector('.h-captcha'), {
-        sitekey: "<%= hcaptchaSiteKey %>",
-        callback: function() {
-          submitBtn.disabled = false;
-        },
-        'expired-callback': function() {
-          submitBtn.disabled = true;
-        }
-      });
-    };
-  });
-</script>
-<script src="https://js.hcaptcha.com/1/api.js?onload=hcaptchaOnLoad&render=explicit" async defer></script>
-<% } %>
-
-</body></html>
+</div></body></html>
