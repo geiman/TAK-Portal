@@ -12,6 +12,9 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.10 - 2/21/26
+✨ `Enhancement` - Added hCaptcha to the request access page.  A free account can be created at hCaptcha.com and the site/secret keys can be placed in the TAK Portal settings.
+
 ### v1.2.9 - 2/21/26
 🐛 `Bug Fix` - Fixes issue with updater service not performing all functions for a proper docker update
 

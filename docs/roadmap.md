@@ -5,7 +5,6 @@ Below you will find a comprehensive list of items planned for implementation in 
 ***If you have suggestions for how to make TAK Portal better, please reach out to me directly or by opening an "Issue" on Github! I always want to know how this can better serve you and your agency.***
 
 ## High
-- Better implement "Request Access" page - Setup reCAPTCHA or similar
 - Add "Global Admin" toggle to user management page to bump user permissions to global admin
 
 ## Medium
