@@ -4,21 +4,16 @@
 <main class="main">
   <h1>Users</h1>
 
-  <% if (typeof pendingUserRequestsCount !== "undefined" && pendingUserRequestsCount > 0) { %>
-  <% if (isGlobalAdmin) { %>
+  <% if (typeof pendingUserRequestsCount !== "undefined" && pendingUserRequestsCount > 1) { %>
     <a href="/pending-user-requests" style="text-decoration:none;">
-  <% } %>
-
-  <div class="userReqBanner" style="margin: 10px 0 14px 0;">
-    <%= pendingUserRequestsCount %> Pending User Request<%= pendingUserRequestsCount === 1 ? "" : "s" %>
-  </div>
-
-  <% if (isGlobalAdmin) { %>
+      <div class="userReqBanner" style="margin: 10px 0 14px 0;">
+        <%= pendingUserRequestsCount %> User Requests Pending
+      </div>
     </a>
   <% } %>
-<% } %>
 
-<!-- Create user (stacked above manage tools) -->
+
+  <!-- Create user (stacked above manage tools) -->
   <div class="card">
     <h2>Create User</h2>
 

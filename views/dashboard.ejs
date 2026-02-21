@@ -14,7 +14,7 @@
 
       <!-- Mutual Aid Incident -->
       <% if (mutualAid && mutualAid.activeIncidents > 0) { %>
-        <% if (isGlobalAdmin) { %>
+        <% if (isGlobalAdmin || isAgencyAdmin) { %>
           <a href="/mutual-aid" style="text-decoration:none;">
         <% } %>
 
@@ -23,14 +23,14 @@
           <%= mutualAid.activeIncidents === 1 ? "Is" : "Are" %> Active
         </div>
 
-        <% if (isGlobalAdmin) { %>
+        <% if (isGlobalAdmin || isAgencyAdmin) { %>
           </a>
         <% } %>
       <% } %>
 
       <!-- Mutual Aid Event -->
       <% if (mutualAid && mutualAid.activeEvents > 0) { %>
-        <% if (isGlobalAdmin) { %>
+        <% if (isGlobalAdmin || isAgencyAdmin) { %>
           <a href="/mutual-aid" style="text-decoration:none;">
         <% } %>
 
@@ -39,14 +39,14 @@
           <%= mutualAid.activeEvents === 1 ? "is" : "Are" %> Active
         </div>
 
-        <% if (isGlobalAdmin) { %>
+        <% if (isGlobalAdmin || isAgencyAdmin) { %>
           </a>
         <% } %>
       <% } %>
 
       <!-- Pending User Requests -->
       <% if (hasUserRequests) { %>
-        <% if (isGlobalAdmin) { %>
+        <% if (isGlobalAdmin || isAgencyAdmin) { %>
           <a href="/pending-user-requests" style="text-decoration:none;">
         <% } %>
 
@@ -54,7 +54,7 @@
           <%= pendingUserRequestsCount %> Pending User Request<%= pendingUserRequestsCount === 1 ? "" : "s" %>
         </div>
 
-        <% if (isGlobalAdmin) { %>
+        <% if (isGlobalAdmin || isAgencyAdmin) { %>
           </a>
         <% } %>
       <% } %>
@@ -127,7 +127,7 @@
     </div>
   </div>
 
-  <% if (isGlobalAdmin) { %>
+  <% if (isGlobalAdmin || isAgencyAdmin) { %>
     <div class="card" style="margin-top:8px;">
       <h2>Bookmarks</h2>
       <div class="row" style="flex-wrap:wrap; gap:10px;">
