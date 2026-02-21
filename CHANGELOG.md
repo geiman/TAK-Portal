@@ -12,6 +12,9 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.8 - 2/21/26
+✨ `Enhancement` - Modified CSS to improve the UI Updater Functionality
+
 ### v1.2.7 - 2/21/26
 ✨ `Enhancement` - User Request form notifies Agency Admins upon user requests for each agency via email, if no Agency Admin is set or if the agency does not exist, email gets sent to the Global Admin. <br>
 🐛 `Bug Fix` - Fixes formatting issues on Request Access page
