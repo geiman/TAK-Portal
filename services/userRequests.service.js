@@ -121,30 +121,47 @@ async function createRequest(input) {
     let recipients = [];
 
     if (v.agencySuffix !== "__other__" && agency) {
-      const groupName = require("./access.service").getAgencyAdminGroupName(agency);
+      const accessSvc = require("./access.service");
+      const groupName = accessSvc.getAgencyAdminGroupName(agency);
+
       if (groupName) {
-        const groupResp = await authentik.get(`/core/groups/?name=${encodeURIComponent(groupName)}`);
+        const groupResp = await authentik.get(
+          `/core/groups/?name=${encodeURIComponent(groupName)}`
+        );
+
         const group = groupResp.data?.results?.[0];
+
         if (group) {
-          const usersResp = await authentik.get(`/core/users/?groups=${group.pk}`);
+          const usersResp = await authentik.get(
+            `/core/groups/${group.pk}/users/`
+          );
+
           recipients = (usersResp.data?.results || [])
-            .map(u => u.email)
+            .map((u) => u.email)
             .filter(Boolean);
         }
       }
     }
 
-    // Fallback to global admins
+    // Fallback to global admins if none found
     if (!recipients.length) {
       const settings = settingsSvc.getSettings();
       const globalGroup = settings.PORTAL_AUTH_REQUIRED_GROUP;
+
       if (globalGroup) {
-        const groupResp = await authentik.get(`/core/groups/?name=${encodeURIComponent(globalGroup)}`);
+        const groupResp = await authentik.get(
+          `/core/groups/?name=${encodeURIComponent(globalGroup)}`
+        );
+
         const group = groupResp.data?.results?.[0];
+
         if (group) {
-          const usersResp = await authentik.get(`/core/users/?groups=${group.pk}`);
+          const usersResp = await authentik.get(
+            `/core/groups/${group.pk}/users/`
+          );
+
           recipients = (usersResp.data?.results || [])
-            .map(u => u.email)
+            .map((u) => u.email)
             .filter(Boolean);
         }
       }
@@ -160,11 +177,11 @@ Name: ${reqObj.firstName} ${reqObj.lastName}
 Email: ${reqObj.email}
 Badge: ${reqObj.badgeNumber}
 Agency: ${reqObj.agencyName || reqObj.otherAgency || reqObj.agencySuffix}
-`
+`,
       });
     }
   } catch (err) {
-    console.error("Failed to send access request notification:", err?.message || err);
+    console.error("Failed to send access request notification:", err);
   }
 
   return reqObj;
