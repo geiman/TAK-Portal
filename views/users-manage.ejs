@@ -4,10 +4,10 @@
 <main class="main">
   <h1>Users</h1>
 
-  <% if (typeof pendingUserRequestsCount !== "undefined" && pendingUserRequestsCount > 1) { %>
+  <% if (typeof pendingUserRequestsCount !== "undefined" && pendingUserRequestsCount > 0) { %>
     <a href="/pending-user-requests" style="text-decoration:none;">
       <div class="userReqBanner" style="margin: 10px 0 14px 0;">
-        <%= pendingUserRequestsCount %> User Requests Pending
+        <%= pendingUserRequestsCount %> Pending User Requests
       </div>
     </a>
   <% } %>
@@ -2368,7 +2368,7 @@ tr.row-disabled td {
   border-radius: 12px;
   font-weight: 800;
   color: #ffffff;
-  background: #2563eb;
+  background: #1a49af;
   display:block;
 }
 </style>
