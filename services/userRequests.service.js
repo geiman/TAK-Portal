@@ -5,6 +5,7 @@ const store = require("./userRequests.store");
 
 function genId() {
   if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  // Fallback for older Node versions
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
@@ -28,6 +29,7 @@ function validateCreate(input) {
   if (!firstName) throw new Error("First Name is required");
   if (!lastName) throw new Error("Last Name is required");
   if (!email) throw new Error("Email Address is required");
+  // Simple sanity check; not a full RFC validator
   if (!/^\S+@\S+\.[A-Za-z]{2,}$/.test(email)) {
     throw new Error("Email Address must be valid");
   }
@@ -36,10 +38,15 @@ function validateCreate(input) {
 
   const isOther = agencySuffix === "__other__";
   if (isOther) {
-    if (!otherAgency) throw new Error("Please enter your agency name");
-    if (!otherReason) throw new Error("Please enter your reason for requesting access");
+    if (!otherAgency) {
+      throw new Error("Please enter your agency name");
+    }
+    if (!otherReason) {
+      throw new Error("Please enter your reason for requesting access");
+    }
   }
 
+  // If they selected a known agency, validate it exists.
   if (!isOther) {
     const agencies = agenciesStore.load();
     const ok = agencies.some(
@@ -53,6 +60,7 @@ function validateCreate(input) {
 
 function listRequests() {
   const all = store.load();
+  // Newest first
   return all
     .slice()
     .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
@@ -60,20 +68,18 @@ function listRequests() {
 
 function listRequestsForUser(authUser) {
   const user = authUser || null;
-  if (!user) return [];
+  // Global admins can see everything.
+  if (user && user.isGlobalAdmin) return listRequests();
 
-  const access = accessSvc.getAgencyAccess(user);
-
-  if (access.isGlobalAdmin) {
-    return listRequests();
-  }
-
-  if (access.isAgencyAdmin) {
-    return listRequests().filter((r) =>
+  // Agency admins can see only their own agency requests.
+  if (user && user.isAgencyAdmin) {
+    const allowed = listRequests().filter((r) =>
       accessSvc.isSuffixAllowed(user, r && r.agencySuffix)
     );
+    return allowed;
   }
 
+  // Everyone else sees nothing.
   return [];
 }
 
@@ -108,17 +114,13 @@ function createRequest(input) {
   return reqObj;
 }
 
+
 function deleteRequestForUser(id, authUser) {
   const user = authUser || null;
-  if (!user) return false;
+  if (user && user.isGlobalAdmin) return deleteRequest(id);
 
-  const access = accessSvc.getAgencyAccess(user);
-
-  if (access.isGlobalAdmin) {
-    return deleteRequest(id);
-  }
-
-  if (access.isAgencyAdmin) {
+  // Agency admins can delete only requests in agencies they manage.
+  if (user && user.isAgencyAdmin) {
     const reqObj = getById(id);
     if (!reqObj) return false;
     if (!accessSvc.isSuffixAllowed(user, reqObj.agencySuffix)) return false;
