@@ -13,7 +13,7 @@ Planned features can be accessed [here](docs/roadmap.md)
 ## Version History
 
 ### v1.2.5 - 2/20/26
-🎉 `New Feature` - Added a "Request Access" page and handling (More enhancements on this to come soon)<br>
+🎉 `New Feature` - Added a "Request Access" page and handling for Global and Agency Admins - Agency Admins can manage their own agency's requests. (More enhancements on this to come soon)<br>
 ✨ `Enhancement` - Made Dashboard Mutual Aid Banners Clickable for Global Admins <br>
 
 ### v1.2.4 - 2/20/26

@@ -151,10 +151,13 @@ app.use(portalAuth);
 // Helper: only allow Global Admins to access certain routes (e.g. settings, templates)
 function requireGlobalAdmin(req, res, next) {
   const user = req.authentikUser;
-  if (!user || !user.isGlobalAdmin) {
+
+  // Allow both Global Admins and Agency Admins
+  if (!user || (!user.isGlobalAdmin && !user.isAgencyAdmin)) {
     const username = user && user.username ? user.username : "";
     return res.status(403).render("access-denied", { username });
   }
+
   next();
 }
 
