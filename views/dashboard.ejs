@@ -6,25 +6,46 @@
 
   <% if (mutualAid && (mutualAid.activeIncidents > 0 || mutualAid.activeEvents > 0)) { %>
     <div style="margin: 10px 0 14px 0;">
-      <% if (mutualAid.activeIncidents > 0) { %>
-        <a href="/mutual-aid" style="text-decoration:none;"><div class="maBanner maBannerIncident">
-          <%= mutualAid.activeIncidents %> Mutual Aid Incident<%= mutualAid.activeIncidents === 1 ? "" : "s" %> <%= mutualAid.activeIncidents === 1 ? "Is" : "Are" %> Active
-        </div></a>
+      <% if (isAgencyAdmin) { %>
+        <a href="/mutual-aid" style="text-decoration:none;">
+      <% } %>
+
+      <div class="maBanner maBannerIncident">
+        <%= mutualAid.activeIncidents %> Mutual Aid Incident<%= mutualAid.activeIncidents === 1 ? "" : "s" %> <%= mutualAid.activeIncidents === 1 ? "Is" : "Are" %> Active
+      </div>
+
+      <% if (isAgencyAdmin) { %>
+        </a>
+      <% } %>
       <% } %>
       <% if (mutualAid.activeEvents > 0) { %>
-        <a href="/mutual-aid" style="text-decoration:none;"><div class="maBanner maBannerEvent">
-          <%= mutualAid.activeEvents %> Mutual Aid Event<%= mutualAid.activeEvents === 1 ? "" : "s" %> <%= mutualAid.activeEvents === 1 ? "is" : "Are" %> Active
-        </div></a>
+    <% if (isAgencyAdmin) { %>
+      <a href="/mutual-aid" style="text-decoration:none;">
+    <% } %>
+
+    <div class="maBanner maBannerEvent">
+      <%= mutualAid.activeEvents %> Mutual Aid Event<%= mutualAid.activeEvents === 1 ? "" : "s" %> <%= mutualAid.activeEvents === 1 ? "is" : "Are" %> Active
+    </div>
+
+    <% if (isAgencyAdmin) { %>
+      </a>
+    <% } %>
       <% } %>
     </div>
   <% } %>
 
   <% if (typeof pendingUserRequestsCount !== "undefined" && pendingUserRequestsCount > 0) { %>
-    <a href="/pending-user-requests" style="text-decoration:none;">
-      <div class="userReqBanner" style="margin: 0 0 14px 0;">
-        <%= pendingUserRequestsCount %> User Request<%= pendingUserRequestsCount === 1 ? "" : "s" %> Pending
-      </div>
-    </a>
+    <% if (isAgencyAdmin) { %>
+      <a href="/pending-user-requests" style="text-decoration:none;">
+    <% } %>
+
+    <div class="userReqBanner" style="margin: 0 0 14px 0;">
+      <%= pendingUserRequestsCount %> User Request<%= pendingUserRequestsCount === 1 ? "" : "s" %> Pending
+    </div>
+
+    <% if (isAgencyAdmin) { %>
+      </a>
+    <% } %>
   <% } %>
 
   <% if (typeof error !== "undefined" && error) { %>
