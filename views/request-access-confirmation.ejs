@@ -1,14 +1,28 @@
-<%- include("partials/header") %>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>TAK Portal</title>
+    <link rel="stylesheet" href="/styles.css" />
+
+    <% if (brandLogoUrl) { %>
+      <link rel="icon" href="<%= brandLogoUrl %>" type="image/png" />
+      <link rel="shortcut icon" href="<%= brandLogoUrl %>" type="image/png" />
+    <% } %>
+  </head>
+  <body class="theme-<%= brandTheme || 'dark-blue' %>">
+
+    <div class="app">
 
 <main class="main" style="max-width: 980px; margin: 0 auto;">
   <h1>Request Submitted</h1>
 
   <div class="card">
     <p>
-      Your request has been submitted. A Global Administrator will review it and follow up via email.
+      Your request to access TAK Portal has been successfully submitted. An administrator will review your request shortly. Once it has been approved, you will receive an email with instructions on how to access your account.
     </p>
     <div style="margin-top: 14px; display:flex; gap: 10px; flex-wrap:wrap;">
-      <a class="btn" href="/setup-my-device" style="text-decoration:none;">Return</a>
       <a class="btn" href="/request-access" style="text-decoration:none;">Submit another request</a>
     </div>
   </div>
