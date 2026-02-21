@@ -86,73 +86,86 @@
 
   <% /* Only admins get the update modal + script */ %>
   <% if (isAdmin && typeof APP_UPDATE_AVAILABLE !== "undefined" && APP_UPDATE_AVAILABLE) { %>
-    <div id="update-modal" class="update-modal">
-      <div class="update-modal-backdrop update-modal-close"></div>
-      <div class="update-modal-dialog">
-        <h3 class="update-modal-title">Update Available</h3>
+    <!-- Update Modal (uses the same modal system as the rest of the app) -->
+    <div class="modalOverlay updateOverlay" id="updateOverlay" style="display:none;">
+      <div class="modal updateModal" role="dialog" aria-modal="true" aria-labelledby="updateTitle">
+        <div class="modalHeader">
+          <div class="modalHeaderLeft">
+            <h2 id="updateTitle" style="margin:0;">Update Available</h2>
+            <span class="msg modalStatus" id="update-status">Idle</span>
+          </div>
+          <button class="btn update-modal-close" type="button" id="updateCloseBtn">Close</button>
+        </div>
 
-        <p class="update-meta">
-          Current: <strong>v<%= APP_VERSION %></strong>
-          <% if (typeof APP_LATEST_VERSION !== "undefined" && APP_LATEST_VERSION) { %>
-            &nbsp;•&nbsp;Latest: <strong>v<%= APP_LATEST_VERSION %></strong>
-          <% } %>
-        </p>
-
-        <% if (_isGlobalAdmin) { %>
-          <p>
-            You can update right from the Web UI. The server will pull the latest code,
-            install dependencies, then restart.
+        <div class="modalBody">
+          <p class="update-meta" style="margin-top:0;">
+            Current: <strong>v<%= APP_VERSION %></strong>
+            <% if (typeof APP_LATEST_VERSION !== "undefined" && APP_LATEST_VERSION) { %>
+              &nbsp;•&nbsp;Latest: <strong>v<%= APP_LATEST_VERSION %></strong>
+            <% } %>
           </p>
 
-          <div class="update-actions">
-            <button type="button" class="update-primary-btn" id="update-start-btn">
-              Update Now
-            </button>
-            <span class="update-status" id="update-status">Idle</span>
-          </div>
+          <% if (_isGlobalAdmin) { %>
+            <p>
+              You can update right from the Web UI. The server will pull the latest code,
+              install dependencies, then restart.
+            </p>
 
-          <div class="update-log-wrap">
-            <div class="update-log" id="update-log"></div>
-          </div>
-        <% } else { %>
-          <p>Please contact your Global Administrator to update TAK Portal.</p>
-        <% } %>
+            <div class="row" style="gap:10px; align-items:center; margin: 10px 0 12px;">
+              <button type="button" class="btn" id="update-start-btn">Update Now</button>
+              <span class="update-inline-help" id="update-inline-help"></span>
+            </div>
 
-        <p>
-          To see what changed, view the
-          <a
-            href="https://github.com/AdventureSeeker423/TAK-Portal/blob/main/CHANGELOG.md"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            changelog
-          </a>.
-        </p>
+            <div class="update-log-wrap">
+              <div class="update-log" id="update-log"></div>
+            </div>
+          <% } else { %>
+            <p>Please contact your Global Administrator to update TAK Portal.</p>
+          <% } %>
 
-        <button type="button" class="update-modal-close-btn update-modal-close">
-          Close
-        </button>
+          <p style="margin-bottom:0;">
+            To see what changed, view the
+            <a
+              href="https://github.com/AdventureSeeker423/TAK-Portal/blob/main/CHANGELOG.md"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              changelog
+            </a>.
+          </p>
+        </div>
       </div>
+
+      <!-- Click backdrop to close -->
+      <div class="updateOverlayBackdrop update-modal-close" aria-hidden="true"></div>
     </div>
 
     <script>
       (function () {
         var pill = document.getElementById('update-pill');
-        var modal = document.getElementById('update-modal');
+        var overlay = document.getElementById('updateOverlay');
         var startBtn = document.getElementById('update-start-btn');
         var statusEl = document.getElementById('update-status');
         var logEl = document.getElementById('update-log');
+        var helpEl = document.getElementById('update-inline-help');
 
         var es = null;
         var isRunning = false;
+        var waitingForRestart = false;
+        var lastFinishedAt = null;
 
-        if (!pill || !modal) return;
+        if (!pill || !overlay) return;
 
-        var closers = modal.querySelectorAll('.update-modal-close');
+        var closers = overlay.querySelectorAll('.update-modal-close');
 
         function setStatus(text) {
           if (!statusEl) return;
           statusEl.textContent = text;
+        }
+
+        function setHelp(text) {
+          if (!helpEl) return;
+          helpEl.textContent = text || '';
         }
 
         function appendLog(line) {
@@ -175,12 +188,23 @@
               if (startBtn) startBtn.disabled = isRunning;
               if (isRunning) {
                 setStatus('Updating…');
+                setHelp('');
               } else if (s.exitCode === 0 && s.finishedAt) {
                 setStatus('Update complete. Restarting…');
+                setHelp('Waiting for server to come back online…');
+
+                // Start reload flow once per finishedAt
+                if (!waitingForRestart || lastFinishedAt !== s.finishedAt) {
+                  waitingForRestart = true;
+                  lastFinishedAt = s.finishedAt;
+                  waitForServerThenReload();
+                }
               } else if (s.exitCode && s.exitCode !== 0) {
                 setStatus('Update failed');
+                setHelp('');
               } else {
                 setStatus('Idle');
+                setHelp('');
               }
             } catch (e) {}
           });
@@ -196,23 +220,75 @@
           es.onerror = function () {
             // Connection may drop during restart; that's expected.
             // Keep UI friendly.
-            if (isRunning) setStatus('Updating… (connection lost; server may be restarting)');
+            if (waitingForRestart) {
+              setStatus('Restarting…');
+              setHelp('Waiting for server to come back online…');
+            } else if (isRunning) {
+              setStatus('Updating… (connection lost; server may be restarting)');
+            }
           };
         }
 
+        function waitForServerThenReload() {
+          // Poll for the server to return after restart, then reload the page.
+          // We avoid relying solely on SSE because the stream will drop during restart.
+          var attempts = 0;
+          var maxAttempts = 300; // ~10 minutes at 2s
+
+          function tick() {
+            attempts++;
+            fetch('/api/update/status', { cache: 'no-store' })
+              .then(function (r) {
+                if (!r.ok) throw new Error('status not ok');
+                return r.json();
+              })
+              .then(function (st) {
+                var current = st && st.currentVersion;
+                var latest = st && st.latestVersion;
+                var running = !!(st && st.running);
+                var updateAvailable = !!(st && st.updateAvailable);
+
+                // If the server is responding again and the updater isn't running,
+                // we can safely reload. Prefer to reload when current==latest, but
+                // don't block forever if versions aren't reported.
+                if (!running && (!updateAvailable || (current && latest && current === latest))) {
+                  window.location.reload();
+                  return;
+                }
+                if (!running) {
+                  window.location.reload();
+                  return;
+                }
+                setTimeout(tick, 2000);
+              })
+              .catch(function () {
+                if (attempts < maxAttempts) return setTimeout(tick, 2000);
+                setHelp('Server is taking longer than expected. Please refresh the page.');
+              });
+          }
+
+          tick();
+        }
+
         function openModal() {
-          modal.classList.add('is-open');
+          overlay.style.display = 'flex';
+          document.body.classList.add('noScroll');
           if (logEl) logEl.innerHTML = '';
           setStatus('Idle');
+          setHelp('');
+          waitingForRestart = false;
           connectStream();
         }
 
         function closeModal() {
-          modal.classList.remove('is-open');
+          overlay.style.display = 'none';
+          document.body.classList.remove('noScroll');
           if (es) {
             es.close();
             es = null;
           }
+          waitingForRestart = false;
+          setHelp('');
         }
 
         pill.addEventListener('click', openModal);
@@ -228,6 +304,7 @@
             if (startBtn.disabled) return;
             startBtn.disabled = true;
             setStatus('Starting…');
+            setHelp('');
             appendLog('Starting update…');
 
             fetch('/api/update/start', {
@@ -241,14 +318,17 @@
                   var msg = (payload.json && (payload.json.error || payload.json.code)) ? (payload.json.error || payload.json.code) : 'Update failed to start';
                   appendLog('ERROR: ' + msg);
                   setStatus('Update failed');
+                  setHelp('');
                   startBtn.disabled = false;
                   return;
                 }
                 setStatus('Updating…');
+                setHelp('');
               })
               .catch(function (err) {
                 appendLog('ERROR: ' + (err && err.message ? err.message : String(err)));
                 setStatus('Update failed');
+                setHelp('');
                 startBtn.disabled = false;
               });
           });
