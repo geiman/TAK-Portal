@@ -250,6 +250,9 @@
             <select id="permissionsSelect">
               <option value="user">User</option>
               <option value="agency_admin">Agency Admin</option>
+              <% if (isGlobalAdmin) { %>
+                <option value="global_admin">Global Admin</option>
+              <% } %>
             </select>
 
             <button class="btn" id="applyPermissionsBtn" type="button">
@@ -807,6 +810,17 @@ const USERS_ACTIONS_HIDDEN_PREFIXES_RAW = "<%= (process.env.USERS_ACTIONS_HIDDEN
 const USERS_ACTIONS_HIDDEN_PREFIXES = String(USERS_ACTIONS_HIDDEN_PREFIXES_RAW || "")
   .split(",")
   .map(p => String(p || "").trim().toLowerCase())
+  .filter(Boolean);
+
+// Current viewer permissions (passed from server via Authentik middleware)
+const IS_GLOBAL_ADMIN = <%- JSON.stringify(!!isGlobalAdmin) %>;
+
+// Global admin groups (same config used by portal auth middleware)
+// Comma-separated Authentik group names.
+const PORTAL_GLOBAL_ADMIN_GROUPS_RAW = "<%= (process.env.PORTAL_AUTH_REQUIRED_GROUP) %>";
+const PORTAL_GLOBAL_ADMIN_GROUP_NAMES = String(PORTAL_GLOBAL_ADMIN_GROUPS_RAW || "")
+  .split(",")
+  .map(s => String(s || "").trim())
   .filter(Boolean);
 
 function userActionsLocked(username) {
@@ -1444,6 +1458,31 @@ async function resolveGroupIdByName(name){
   }
 }
 
+// Resolve configured global-admin group IDs (AuthentiK group names from PORTAL_AUTH_REQUIRED_GROUP).
+// Only meaningful for viewers who are already global admins (they can access /api/users/group-lookup).
+let globalAdminGroupIdsCache = null;
+async function getGlobalAdminGroupIds(){
+  if (!IS_GLOBAL_ADMIN) return [];
+  if (globalAdminGroupIdsCache) return globalAdminGroupIdsCache.slice();
+  const names = PORTAL_GLOBAL_ADMIN_GROUP_NAMES.slice();
+  if (!names.length) {
+    globalAdminGroupIdsCache = [];
+    return [];
+  }
+  const ids = [];
+  for (const nm of names) {
+    const id = await resolveGroupIdByName(nm);
+    if (id) ids.push(String(id));
+  }
+  globalAdminGroupIdsCache = ids;
+  return ids.slice();
+}
+
+function userHasAnyGroupId(user, ids){
+  const gs = Array.isArray(user && user.groups) ? user.groups.map(x => String(x)) : [];
+  return (ids || []).some(id => gs.includes(String(id)));
+}
+
 window.editUser = async (userPk) => {
   const pkStr = String(userPk);
   const sourceLists = [
@@ -1495,17 +1534,37 @@ window.editUser = async (userPk) => {
 
   // Default permissions = User; if user is in their agency admin group, reflect that.
   if (permissionsSelect) {
+    // If the viewer is a global admin and the dropdown includes it, reflect global-admin status.
+    // (Global admin groups are configured by PORTAL_AUTH_REQUIRED_GROUP in the server.)
+    const globalOptionExists = !!permissionsSelect.querySelector('option[value="global_admin"]');
+    if (IS_GLOBAL_ADMIN && globalOptionExists) {
+      const globalIds = await getGlobalAdminGroupIds();
+      const hasGlobal = userHasAnyGroupId(selectedUser, globalIds);
+      if (hasGlobal) {
+        permissionsSelect.value = "global_admin";
+        permissionsSelect.disabled = false;
+        if (applyPermissionsBtn) applyPermissionsBtn.disabled = false;
+      }
+    }
+
     if (adminGroupName) {
       const hasAdmin = adminGroupId
         ? (selectedUser.groups || []).some(gid => String(gid) === String(adminGroupId))
         : false;
-      permissionsSelect.value = hasAdmin ? "agency_admin" : "user";
+      // Only overwrite selection if not already set to global_admin above.
+      if (permissionsSelect.value !== "global_admin") {
+        permissionsSelect.value = hasAdmin ? "agency_admin" : "user";
+      }
       permissionsSelect.disabled = false;
       if (applyPermissionsBtn) applyPermissionsBtn.disabled = false;
     } else {
-      permissionsSelect.value = "user";
-      permissionsSelect.disabled = true;
-      if (applyPermissionsBtn) applyPermissionsBtn.disabled = true;
+      // If no agency abbreviation, only global admins can still manage global-admin status.
+      if (permissionsSelect.value !== "global_admin") {
+        permissionsSelect.value = "user";
+      }
+      const canUse = IS_GLOBAL_ADMIN && !!permissionsSelect.querySelector('option[value="global_admin"]');
+      permissionsSelect.disabled = !canUse;
+      if (applyPermissionsBtn) applyPermissionsBtn.disabled = !canUse;
     }
   }
 
@@ -1528,58 +1587,105 @@ if (applyPermissionsBtn) applyPermissionsBtn.addEventListener("click", async () 
   setMsgEl(actionMsg, "");
 
   const desired = (permissionsSelect && permissionsSelect.value) || "user";
+
+  // Safety: never allow a non-global-admin viewer to attempt global-admin changes.
+  if (desired === "global_admin" && !IS_GLOBAL_ADMIN) {
+    setMsgEl(actionMsg, "You do not have permission to grant Global Admin.", false);
+    return;
+  }
+
+  const currentIds = new Set((selectedUser.groups || []).map(x => String(x)));
+
+  // Agency Admin group (per-user, derived from agency abbreviation)
   const adminGroupName = getAgencyAdminGroupNameForUser(selectedUser);
+  const adminGroupId = adminGroupName ? await resolveGroupIdByName(adminGroupName) : null;
 
-  if (!adminGroupName) {
-    setMsgEl(actionMsg, "Cannot set permissions: user has no agency abbreviation.", false);
-    return;
+  // Global Admin group(s) (portal-wide)
+  const globalIds = await getGlobalAdminGroupIds();
+
+  // Build desired add/remove set
+  const toAdd = new Set();
+  const toRemove = new Set();
+
+  if (desired === "agency_admin" || desired === "user") {
+    // Agency-admin changes require a resolvable agency admin group.
+    if (!adminGroupName || !adminGroupId) {
+      setMsgEl(actionMsg, "Cannot set Agency Admin/User: user has no agency abbreviation (or group missing).", false);
+      return;
+    }
   }
 
-  const adminGroupId = await resolveGroupIdByName(adminGroupName);
-  if (!adminGroupId) {
-    setMsgEl(actionMsg, `Cannot find group: ${adminGroupName}.`, false);
-    return;
+  if (desired === "user") {
+    if (adminGroupId) toRemove.add(String(adminGroupId));
+    globalIds.forEach(id => toRemove.add(String(id)));
+  } else if (desired === "agency_admin") {
+    if (adminGroupId) toAdd.add(String(adminGroupId));
+    globalIds.forEach(id => toRemove.add(String(id)));
+  } else if (desired === "global_admin") {
+    if (!globalIds.length) {
+      setMsgEl(actionMsg, "Global admin groups are not configured on the server.", false);
+      return;
+    }
+    globalIds.forEach(id => toAdd.add(String(id)));
+    // Do not force-remove agency admin; leave it as-is.
   }
 
-  const currentlyHasAdmin = (selectedUser.groups || []).some(gid => String(gid) === String(adminGroupId));
-
-  // Keep behavior simple and predictable:
-  // - Selecting Agency Admin adds the group
-  // - Selecting User removes the group (if present)
-  const shouldHaveAdmin = desired === "agency_admin";
-
-  if (shouldHaveAdmin === currentlyHasAdmin) {
-    setMsgEl(actionMsg, shouldHaveAdmin ? "Already an Agency Admin." : "Already a User.", true);
-    return;
+  // Remove anything already satisfied
+  for (const id of Array.from(toAdd)) {
+    if (currentIds.has(String(id))) toAdd.delete(id);
+  }
+  for (const id of Array.from(toRemove)) {
+    if (!currentIds.has(String(id))) toRemove.delete(id);
   }
 
-  const url = shouldHaveAdmin
-    ? `/api/users/${selectedUser.pk}/groups/add`
-    : `/api/users/${selectedUser.pk}/groups/remove`;
+  if (!toAdd.size && !toRemove.size) {
+    const label = desired === "global_admin" ? "Already a Global Admin." : desired === "agency_admin" ? "Already an Agency Admin." : "Already a User.";
+    setMsgEl(actionMsg, label, true);
+    return;
+  }
 
   setMsgEl(actionMsg, "Updating permissions...", true);
 
-  let res;
-  try {
-    res = await fetch(url, {
+  // Apply adds first, then removes (so you don't accidentally lock yourself out mid-change).
+  const applyDelta = async (kind, idsArr) => {
+    const url = kind === "add"
+      ? `/api/users/${selectedUser.pk}/groups/add`
+      : `/api/users/${selectedUser.pk}/groups/remove`;
+
+    const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ groupIds: [String(adminGroupId)] }),
+      body: JSON.stringify({ groupIds: idsArr.map(String) }),
     });
+
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(out.error || "Failed to update permissions.");
+    return Array.isArray(out.groups) ? out.groups : null;
+  };
+
+  try {
+    let latestGroups = null;
+    if (toAdd.size) {
+      latestGroups = await applyDelta("add", Array.from(toAdd));
+    }
+    if (toRemove.size) {
+      latestGroups = await applyDelta("remove", Array.from(toRemove));
+    }
+
+    if (latestGroups) {
+      selectedUser.groups = latestGroups;
+    } else {
+      // Fallback (shouldn't happen): patch local set
+      Array.from(toAdd).forEach(id => currentIds.add(String(id)));
+      Array.from(toRemove).forEach(id => currentIds.delete(String(id)));
+      selectedUser.groups = Array.from(currentIds);
+    }
   } catch (err) {
-    setMsgEl(actionMsg, "Network error while updating permissions.", false);
+    setMsgEl(actionMsg, err?.message || "Failed to update permissions.", false);
     return;
   }
 
-  const out = await res.json();
-  if (!res.ok) {
-    setMsgEl(actionMsg, out.error || "Failed to update permissions.", false);
-    return;
-  }
-
-  const newGroups = Array.isArray(out.groups) ? out.groups : (selectedUser.groups || []);
-  selectedUser.groups = newGroups;
-  pickedGroupIds = new Set((newGroups || []).map(x => String(x)));
+  pickedGroupIds = new Set((selectedUser.groups || []).map(x => String(x)));
 
   selectedUser.__role = roleForUser(selectedUser);
   renderGroupChips(selectedUser);
@@ -1591,7 +1697,8 @@ if (applyPermissionsBtn) applyPermissionsBtn.addEventListener("click", async () 
   const updatedVisible = (window.__lastUsers || []).map(patch);
   applySortAndRender(updatedVisible);
 
-  setMsgEl(actionMsg, shouldHaveAdmin ? "Permissions updated: Agency Admin." : "Permissions updated: User.", true);
+  const doneLabel = desired === "global_admin" ? "Permissions updated: Global Admin." : desired === "agency_admin" ? "Permissions updated: Agency Admin." : "Permissions updated: User.";
+  setMsgEl(actionMsg, doneLabel, true);
 });
 
 window.toggleUserFromTable = async (userPk) => {
