@@ -250,7 +250,7 @@
             <select id="permissionsSelect">
               <option value="user">User</option>
               <option value="agency_admin">Agency Admin</option>
-              <option value="global_admin" <%= (isGlobalAdmin ? "" : "disabled") %>>Global Admin</option>
+                <option value="global admin">Global Admin</option>
             </select>
 
             <button class="btn" id="applyPermissionsBtn" type="button">
@@ -294,10 +294,6 @@
 
 <script>
 (function(){
-// Current viewer context + settings we need client-side
-const CURRENT_IS_GLOBAL_ADMIN = <%= (isGlobalAdmin ? "true" : "false") %>;
-const PORTAL_AUTH_REQUIRED_GROUP = <%- JSON.stringify(String((settings && settings.PORTAL_AUTH_REQUIRED_GROUP) || "")) %>;
-
 const agencySelect = document.getElementById("createAgencySelect");
 const templateSelect = document.getElementById("createTemplateSelect");
 
@@ -1268,41 +1264,6 @@ function getAgencyAdminGroupNameForUser(user){
 // Cache agency admin group ids per abbreviation so we can show a Role column in the results table
 const agencyAdminGroupIdByAbbr = new Map();
 
-// Cache global admin group ids (from PORTAL_AUTH_REQUIRED_GROUP)
-let globalAdminGroupIds = null; // null=uninitialized, []=no groups configured
-
-function parseGroupListLoose(raw){
-  if (!raw) return [];
-  return String(raw)
-    .split(/[;|,]/)
-    .map(s => String(s || "").trim())
-    .filter(Boolean);
-}
-
-async function ensureGlobalAdminGroupIds(){
-  if (globalAdminGroupIds !== null) return globalAdminGroupIds;
-
-  // Only global admins can resolve arbitrary hidden groups.
-  if (!CURRENT_IS_GLOBAL_ADMIN) {
-    globalAdminGroupIds = [];
-    return globalAdminGroupIds;
-  }
-
-  const names = parseGroupListLoose(PORTAL_AUTH_REQUIRED_GROUP);
-  if (!names.length) {
-    globalAdminGroupIds = [];
-    return globalAdminGroupIds;
-  }
-
-  const ids = [];
-  for (const name of names){
-    const id = await resolveGroupIdByName(name);
-    if (id) ids.push(String(id));
-  }
-  globalAdminGroupIds = ids;
-  return globalAdminGroupIds;
-}
-
 async function ensureAgencyAdminIdsForUsers(users){
   const uniq = new Set();
   (users || []).forEach(u => {
@@ -1322,14 +1283,7 @@ function roleForUser(user){
   const abbr = String(getUserAgencyAbbreviation(user) || '').trim().toUpperCase();
   const adminId = abbr ? agencyAdminGroupIdByAbbr.get(abbr) : null;
   const groups = Array.isArray(user && user.groups) ? user.groups.map(x => String(x)) : [];
-
-  // Global admins: any membership in the configured global admin group(s)
-  if (Array.isArray(globalAdminGroupIds) && globalAdminGroupIds.length) {
-    const hasGlobal = globalAdminGroupIds.some(gid => groups.includes(String(gid)));
-    if (hasGlobal) return 'Global Admin';
-  }
-
-  return (adminId && groups.includes(String(adminId))) ? 'Agency Admin' : 'User';
+  return (adminId && groups.includes(String(adminId))) ? 'Admin' : 'User';
 }
 
 async function loadGroups(){
@@ -1540,31 +1494,19 @@ window.editUser = async (userPk) => {
   pickedGroupIds = new Set((selectedUser.groups || []).map(x => String(x)));
   renderGroupsBox();
 
-  // Default permissions = User; if user is in global/agency admin group(s), reflect that.
+  // Default permissions = User; if user is in their agency admin group, reflect that.
   if (permissionsSelect) {
-    const groups = Array.isArray(selectedUser.groups) ? selectedUser.groups.map(x => String(x)) : [];
-
-    // Prefer Global Admin if present
-    const gIds = await ensureGlobalAdminGroupIds();
-    const hasGlobal = Array.isArray(gIds) && gIds.length && gIds.some(gid => groups.includes(String(gid)));
-
-    if (hasGlobal) {
-      permissionsSelect.value = "global_admin";
-      permissionsSelect.disabled = false;
-      if (applyPermissionsBtn) applyPermissionsBtn.disabled = false;
-    } else if (adminGroupName) {
-      const hasAgencyAdmin = adminGroupId
-        ? groups.some(gid => String(gid) === String(adminGroupId))
+    if (adminGroupName) {
+      const hasAdmin = adminGroupId
+        ? (selectedUser.groups || []).some(gid => String(gid) === String(adminGroupId))
         : false;
-      permissionsSelect.value = hasAgencyAdmin ? "agency_admin" : "user";
+      permissionsSelect.value = hasAdmin ? "agency_admin" : "user";
       permissionsSelect.disabled = false;
       if (applyPermissionsBtn) applyPermissionsBtn.disabled = false;
     } else {
-      // If the user has no agency abbreviation, we still allow toggling back to User.
-      // (Global Admin selection is gated by CURRENT_IS_GLOBAL_ADMIN anyway.)
       permissionsSelect.value = "user";
-      permissionsSelect.disabled = false;
-      if (applyPermissionsBtn) applyPermissionsBtn.disabled = false;
+      permissionsSelect.disabled = true;
+      if (applyPermissionsBtn) applyPermissionsBtn.disabled = true;
     }
   }
 
@@ -1587,140 +1529,70 @@ if (applyPermissionsBtn) applyPermissionsBtn.addEventListener("click", async () 
   setMsgEl(actionMsg, "");
 
   const desired = (permissionsSelect && permissionsSelect.value) || "user";
-
-  // Gate global-admin changes to global admins only.
-  if (desired === "global_admin" && !CURRENT_IS_GLOBAL_ADMIN) {
-    setMsgEl(actionMsg, "Only Global Admins can grant Global Admin permissions.", false);
-    return;
-  }
-
-  const groups = Array.isArray(selectedUser.groups) ? selectedUser.groups.map(x => String(x)) : [];
-
-  // Resolve group IDs we may need
   const adminGroupName = getAgencyAdminGroupNameForUser(selectedUser);
-  const adminGroupId = adminGroupName ? await resolveGroupIdByName(adminGroupName) : null;
 
-  const globalGroupNames = parseGroupListLoose(PORTAL_AUTH_REQUIRED_GROUP);
-  const globalGroupIds = await ensureGlobalAdminGroupIds();
-
-  if (desired === "global_admin") {
-    if (!globalGroupNames.length) {
-      setMsgEl(actionMsg, "Global Admin group is not configured. Set PORTAL_AUTH_REQUIRED_GROUP in Settings.", false);
-      return;
-    }
-    // If none of the configured group names resolved, treat as error.
-    if (!Array.isArray(globalGroupIds) || globalGroupIds.length === 0) {
-      setMsgEl(actionMsg, "Could not resolve the Global Admin group(s) from PORTAL_AUTH_REQUIRED_GROUP.", false);
-      return;
-    }
-  }
-
-  // Desired state (mutually exclusive roles)
-  const wantGlobal = desired === "global_admin";
-  const wantAgency = desired === "agency_admin";
-
-  const hasGlobal = Array.isArray(globalGroupIds) && globalGroupIds.length
-    ? globalGroupIds.some(gid => groups.includes(String(gid)))
-    : false;
-  const hasAgency = adminGroupId ? groups.includes(String(adminGroupId)) : false;
-
-  const addIds = [];
-  const removeIds = [];
-
-  if (wantGlobal) {
-    // Add all global groups (idempotent)
-    for (const gid of globalGroupIds) {
-      if (!groups.includes(String(gid))) addIds.push(String(gid));
-    }
-    // Remove agency admin (if present)
-    if (adminGroupId && hasAgency) removeIds.push(String(adminGroupId));
-  } else if (wantAgency) {
-    // Add agency admin
-    if (!adminGroupName) {
-      setMsgEl(actionMsg, "Cannot set Agency Admin: user has no agency abbreviation.", false);
-      return;
-    }
-    if (!adminGroupId) {
-      setMsgEl(actionMsg, `Cannot find group: ${adminGroupName}.`, false);
-      return;
-    }
-    if (!hasAgency) addIds.push(String(adminGroupId));
-    // Remove global groups
-    for (const gid of (globalGroupIds || [])) {
-      if (groups.includes(String(gid))) removeIds.push(String(gid));
-    }
-  } else {
-    // User: remove both
-    if (adminGroupId && hasAgency) removeIds.push(String(adminGroupId));
-    for (const gid of (globalGroupIds || [])) {
-      if (groups.includes(String(gid))) removeIds.push(String(gid));
-    }
-  }
-
-  if (!addIds.length && !removeIds.length) {
-    const label = wantGlobal ? "Global Admin" : (wantAgency ? "Agency Admin" : "User");
-    setMsgEl(actionMsg, `Already ${label}.`, true);
+  if (!adminGroupName) {
+    setMsgEl(actionMsg, "Cannot set permissions: user has no agency abbreviation.", false);
     return;
   }
+
+  const adminGroupId = await resolveGroupIdByName(adminGroupName);
+  if (!adminGroupId) {
+    setMsgEl(actionMsg, `Cannot find group: ${adminGroupName}.`, false);
+    return;
+  }
+
+  const currentlyHasAdmin = (selectedUser.groups || []).some(gid => String(gid) === String(adminGroupId));
+
+  // Keep behavior simple and predictable:
+  // - Selecting Agency Admin adds the group
+  // - Selecting User removes the group (if present)
+  const shouldHaveAdmin = desired === "agency_admin";
+
+  if (shouldHaveAdmin === currentlyHasAdmin) {
+    setMsgEl(actionMsg, shouldHaveAdmin ? "Already an Agency Admin." : "Already a User.", true);
+    return;
+  }
+
+  const url = shouldHaveAdmin
+    ? `/api/users/${selectedUser.pk}/groups/add`
+    : `/api/users/${selectedUser.pk}/groups/remove`;
 
   setMsgEl(actionMsg, "Updating permissions...", true);
 
-  async function postGroups(url, groupIds){
-    const res = await fetch(url, {
+  let res;
+  try {
+    res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ groupIds: groupIds.map(String) }),
+      body: JSON.stringify({ groupIds: [String(adminGroupId)] }),
     });
-    const out = await res.json().catch(()=> ({}));
-    if (!res.ok) {
-      const errMsg = out.error || "Failed to update permissions.";
-      const e = new Error(errMsg);
-      e.__payload = out;
-      throw e;
-    }
-    return out;
-  }
-
-  try {
-    // Remove first so switching roles is deterministic
-    if (removeIds.length) {
-      await postGroups(`/api/users/${selectedUser.pk}/groups/remove`, removeIds);
-    }
-    if (addIds.length) {
-      await postGroups(`/api/users/${selectedUser.pk}/groups/add`, addIds);
-    }
-
-    // Update local groups array deterministically
-    let nextGroups = groups.slice();
-    if (removeIds.length) {
-      const rm = new Set(removeIds.map(String));
-      nextGroups = nextGroups.filter(gid => !rm.has(String(gid)));
-    }
-    if (addIds.length) {
-      const set = new Set(nextGroups.map(String));
-      addIds.forEach(gid => set.add(String(gid)));
-      nextGroups = Array.from(set);
-    }
-
-    selectedUser.groups = nextGroups;
-    pickedGroupIds = new Set((nextGroups || []).map(x => String(x)));
-
-    selectedUser.__role = roleForUser(selectedUser);
-    renderGroupChips(selectedUser);
-    renderGroupsBox();
-
-    const patch = (u) =>
-      String(u.pk) === String(selectedUser.pk) ? { ...u, groups: selectedUser.groups, __role: selectedUser.__role } : u;
-    allUsers = (allUsers || []).map(patch);
-    const updatedVisible = (window.__lastUsers || []).map(patch);
-    applySortAndRender(updatedVisible);
-
-    const label = wantGlobal ? "Global Admin" : (wantAgency ? "Agency Admin" : "User");
-    setMsgEl(actionMsg, `Permissions updated: ${label}.`, true);
   } catch (err) {
-    setMsgEl(actionMsg, err?.message || "Failed to update permissions.", false);
+    setMsgEl(actionMsg, "Network error while updating permissions.", false);
     return;
   }
+
+  const out = await res.json();
+  if (!res.ok) {
+    setMsgEl(actionMsg, out.error || "Failed to update permissions.", false);
+    return;
+  }
+
+  const newGroups = Array.isArray(out.groups) ? out.groups : (selectedUser.groups || []);
+  selectedUser.groups = newGroups;
+  pickedGroupIds = new Set((newGroups || []).map(x => String(x)));
+
+  selectedUser.__role = roleForUser(selectedUser);
+  renderGroupChips(selectedUser);
+  renderGroupsBox();
+
+  const patch = (u) =>
+    String(u.pk) === String(selectedUser.pk) ? { ...u, groups: selectedUser.groups, __role: selectedUser.__role } : u;
+  allUsers = (allUsers || []).map(patch);
+  const updatedVisible = (window.__lastUsers || []).map(patch);
+  applySortAndRender(updatedVisible);
+
+  setMsgEl(actionMsg, shouldHaveAdmin ? "Permissions updated: Agency Admin." : "Permissions updated: User.", true);
 });
 
 window.toggleUserFromTable = async (userPk) => {
@@ -2153,7 +2025,6 @@ async function loadAllUsers(){
   allUsers = users.slice();
 
   // Compute per-row role (User/Admin) for the results table
-  await ensureGlobalAdminGroupIds();
   await ensureAgencyAdminIdsForUsers(users);
   currentPageUsers = currentPageUsers.map(u => ({ ...u, __role: roleForUser(u) }));
   allUsers = allUsers.map(u => ({ ...u, __role: roleForUser(u) }));
