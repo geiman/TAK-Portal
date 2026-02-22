@@ -815,14 +815,15 @@ const USERS_ACTIONS_HIDDEN_PREFIXES = String(USERS_ACTIONS_HIDDEN_PREFIXES_RAW |
 // Current viewer permissions (passed from server via Authentik middleware)
 const IS_GLOBAL_ADMIN = <%- JSON.stringify(!!isGlobalAdmin) %>;
 
-// Global admin groups (same config used by portal auth middleware)
-// Comma-separated Authentik group names.
-const PORTAL_GLOBAL_ADMIN_GROUPS_RAW = "<%= (process.env.PORTAL_AUTH_REQUIRED_GROUP) %>";
+// Global admin groups (loaded from settings.json via server render)
+const PORTAL_GLOBAL_ADMIN_GROUPS_RAW = <%- JSON.stringify(
+  (settings && settings.PORTAL_AUTH_REQUIRED_GROUP) || ""
+) %>;
+
 const PORTAL_GLOBAL_ADMIN_GROUP_NAMES = String(PORTAL_GLOBAL_ADMIN_GROUPS_RAW || "")
   .split(",")
   .map(s => String(s || "").trim())
   .filter(Boolean);
-
 function userActionsLocked(username) {
   const u = String(username || "").trim().toLowerCase();
   if (!u) return false;
