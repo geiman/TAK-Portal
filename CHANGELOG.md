@@ -12,6 +12,9 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.12 - 2/21/26
+🐛 `Bug Fix` - More fixes for updater script
+
 ### v1.2.11 - 2/21/26
 🐛 `Bug Fix` - Attempts to fix issues with Web UI Updater Failing <br>
 ✨ `Enhancement` - Request Access page now uses agency abbreviation rather than suffix
