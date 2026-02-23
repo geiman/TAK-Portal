@@ -12,6 +12,9 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.13 - 2/22/26
+✨ `Enhancement` - Adds an additional dropdown option on the edit user page for converting existing users to global admins. This also in turn hides the global admins from agency admins to protect permission overrides from a lower level.
+
 ### v1.2.12 - 2/21/26
 🐛 `Bug Fix` - More fixes for updater script
 
