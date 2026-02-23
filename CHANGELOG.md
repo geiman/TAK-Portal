@@ -12,6 +12,10 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.15 - 2/22/26
+✨ `Enhancement` - Adds sortable columns to Pending User Requests <br>
+✨ `Enhancement` - Changes display of Other / Not Listed agency info on Pending User Requests page and modifies "Approve" button to be a "Review Request" button for "Other"<br>
+
 ### v1.2.14 - 2/22/26
 ✨ `Enhancement` - Modified Pending User Requests page to accept requests inline rather than at the bottom of the page. <br>
 🐛 `Bug Fix` - Fixes issue with password field on the pending user requests page not displaying as full width <br>
