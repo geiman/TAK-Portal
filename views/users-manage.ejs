@@ -2160,8 +2160,11 @@ async function loadAllUsers(){
   currentPageUsers = users.slice();
   allUsers = users.slice();
 
-  // Compute per-row role (User/Admin) for the results table
+  // Preload role-related group IDs
   await ensureAgencyAdminIdsForUsers(users);
+  await getGlobalAdminGroupIds(); // <-- ADD THIS LINE
+
+  // Compute per-row role (User/Admin/Global Admin) for the results table
   currentPageUsers = currentPageUsers.map(u => ({ ...u, __role: roleForUser(u) }));
   allUsers = allUsers.map(u => ({ ...u, __role: roleForUser(u) }));
 
