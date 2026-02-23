@@ -57,11 +57,41 @@
               <span class="badge"><%= log.action || '-' %></span>
             </td>
 
-            <!-- Target (Now human readable) -->
-            <td>
-              <strong><%= log.targetType || '-' %></strong><br>
-              <span class="muted"><%= log.targetDisplay || '-' %></span>
-            </td>
+          <!-- Target (Parsed from details) -->
+          <td>
+            <%
+              const type = String(log.targetType || '').toLowerCase();
+              const details = log.details || {};
+
+              let display = log.targetDisplay || '-';
+
+              if (type === 'user') {
+                const username = details.username || details.userUsername || '';
+                const name =
+                  details.name ||
+                  details.displayName ||
+                  [details.firstName, details.lastName].filter(Boolean).join(' ');
+
+                if (username && name) {
+                  display = `${username} - ${name}`;
+                } else if (username) {
+                  display = username;
+                } else if (name) {
+                  display = name;
+                }
+              }
+
+              if (type === 'group') {
+                const groupName = details.name || details.groupName;
+                if (groupName) {
+                  display = groupName;
+                }
+              }
+            %>
+
+            <strong><%= log.targetType || '-' %></strong><br>
+            <span class="muted"><%= display %></span>
+          </td>
 
             <!-- Agency (Now PREFIX, not suffix) -->
             <td>
