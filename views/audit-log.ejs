@@ -1,3 +1,8 @@
+<%
+  const safeLogs = Array.isArray(logs) ? logs : [];
+  const safeFilters = filters || {};
+%>
+
 <div class="page-header">
   <h1>Audit Log</h1>
 </div>
@@ -8,42 +13,60 @@
 
       <div class="col-md-3">
         <label class="form-label">Search</label>
-        <input type="text" name="search" value="<%= filters.search || '' %>" class="form-control" placeholder="User, action, target..." />
+        <input type="text" name="search"
+               value="<%= safeFilters.search || '' %>"
+               class="form-control"
+               placeholder="User, action, target..." />
       </div>
 
       <div class="col-md-2">
         <label class="form-label">Actor</label>
-        <input type="text" name="actor" value="<%= filters.actor || '' %>" class="form-control" />
+        <input type="text" name="actor"
+               value="<%= safeFilters.actor || '' %>"
+               class="form-control" />
       </div>
 
       <div class="col-md-2">
         <label class="form-label">Agency</label>
-        <input type="text" name="agency" value="<%= filters.agency || '' %>" class="form-control" />
+        <input type="text" name="agency"
+               value="<%= safeFilters.agency || '' %>"
+               class="form-control" />
       </div>
 
       <div class="col-md-2">
         <label class="form-label">Action</label>
-        <input type="text" name="action" value="<%= filters.action || '' %>" class="form-control" />
+        <input type="text" name="action"
+               value="<%= safeFilters.action || '' %>"
+               class="form-control" />
       </div>
 
       <div class="col-md-2">
         <label class="form-label">Target Type</label>
-        <input type="text" name="targetType" value="<%= filters.targetType || '' %>" class="form-control" />
+        <input type="text" name="targetType"
+               value="<%= safeFilters.targetType || '' %>"
+               class="form-control" />
       </div>
 
       <div class="col-md-2">
         <label class="form-label">From</label>
-        <input type="date" name="from" value="<%= filters.from || '' %>" class="form-control" />
+        <input type="date" name="from"
+               value="<%= safeFilters.from || '' %>"
+               class="form-control" />
       </div>
 
       <div class="col-md-2">
         <label class="form-label">To</label>
-        <input type="date" name="to" value="<%= filters.to || '' %>" class="form-control" />
+        <input type="date" name="to"
+               value="<%= safeFilters.to || '' %>"
+               class="form-control" />
       </div>
 
       <div class="col-md-1">
         <label class="form-label">Size</label>
-        <input type="number" name="limit" value="<%= filters.limit || 50 %>" class="form-control" min="10" max="500" />
+        <input type="number" name="limit"
+               value="<%= safeFilters.limit || 50 %>"
+               class="form-control"
+               min="10" max="500" />
       </div>
 
       <div class="col-md-2">
@@ -58,7 +81,6 @@
 
 <div class="card">
   <div class="card-body p-0">
-
     <div class="table-responsive">
       <table class="table table-striped table-hover mb-0">
         <thead>
@@ -72,7 +94,8 @@
           </tr>
         </thead>
         <tbody>
-          <% if (!logs.length) { %>
+
+          <% if (!safeLogs.length) { %>
             <tr>
               <td colspan="6" class="text-center p-4">
                 No audit entries found.
@@ -80,15 +103,15 @@
             </tr>
           <% } %>
 
-          <% logs.forEach(log => { %>
+          <% safeLogs.forEach(log => { %>
             <tr>
               <td>
-                <%= new Date(log.timestamp).toLocaleString() %>
+                <%= log.timestamp ? new Date(log.timestamp).toLocaleString() : '' %>
               </td>
 
               <td>
-                <strong><%= log.displayName || log.user %></strong>
-                <div class="text-muted small"><%= log.user %></div>
+                <strong><%= log.displayName || log.user || '-' %></strong>
+                <div class="text-muted small"><%= log.user || '' %></div>
               </td>
 
               <td>
@@ -97,13 +120,13 @@
 
               <td>
                 <span class="badge bg-secondary">
-                  <%= log.action %>
+                  <%= log.action || '-' %>
                 </span>
               </td>
 
               <td>
-                <strong><%= log.targetType %></strong><br/>
-                <span class="text-muted small"><%= log.targetId %></span>
+                <strong><%= log.targetType || '-' %></strong><br/>
+                <span class="text-muted small"><%= log.targetId || '' %></span>
               </td>
 
               <td>
@@ -113,9 +136,9 @@
               </td>
             </tr>
           <% }) %>
+
         </tbody>
       </table>
     </div>
-
   </div>
 </div>
