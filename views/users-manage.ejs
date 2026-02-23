@@ -2162,11 +2162,17 @@ async function loadAllUsers(){
 
   // Preload role-related group IDs
   await ensureAgencyAdminIdsForUsers(users);
-  await getGlobalAdminGroupIds(); // <-- ADD THIS LINE
+  await getGlobalAdminGroupIds();
 
   // Compute per-row role (User/Admin/Global Admin) for the results table
   currentPageUsers = currentPageUsers.map(u => ({ ...u, __role: roleForUser(u) }));
   allUsers = allUsers.map(u => ({ ...u, __role: roleForUser(u) }));
+
+  // If viewer is NOT a Global Admin, hide Global Admin users entirely
+  if (!IS_GLOBAL_ADMIN) {
+    currentPageUsers = currentPageUsers.filter(u => u.__role !== "Global Admin");
+    allUsers = allUsers.filter(u => u.__role !== "Global Admin");
+  }
 
   renderCurrentPage();
 
