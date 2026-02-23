@@ -1,161 +1,121 @@
-<div class="pageHeader">
+<div class="page-header">
   <h1>Audit Log</h1>
-  <p class="muted" style="margin-top:6px;">Track admin actions across users, groups, agencies, templates, mutual aid, and server settings.</p>
 </div>
 
-<form method="GET" action="/audit-log" class="card" style="margin-bottom:14px;">
-  <div class="row" style="gap:12px; flex-wrap:wrap; align-items:flex-end;">
-    <div class="field" style="min-width:220px; flex:1;">
-      <label for="q">Search</label>
-      <input id="q" name="q" type="text" value="<%= filters.q || '' %>" placeholder="username, action, group, path…" />
-    </div>
+<div class="card mb-3">
+  <div class="card-body">
+    <form method="GET" action="/audit-log" class="row g-2 align-items-end">
 
-    <div class="field" style="min-width:180px;">
-      <label for="actor">Actor</label>
-      <input id="actor" name="actor" type="text" value="<%= filters.actor || '' %>" placeholder="admin username…" />
-    </div>
+      <div class="col-md-3">
+        <label class="form-label">Search</label>
+        <input type="text" name="search" value="<%= filters.search || '' %>" class="form-control" placeholder="User, action, target..." />
+      </div>
 
-    <div class="field" style="min-width:180px;">
-      <label for="agencySuffix">Agency</label>
-      <select id="agencySuffix" name="agencySuffix">
-        <option value="">All</option>
-        <% (agencyOptions || []).forEach(a => { %>
-          <option value="<%= a.value %>" <%= (filters.agencySuffix || '').toLowerCase() === (a.value || '').toLowerCase() ? 'selected' : '' %>>
-            <%= a.label %>
-          </option>
-        <% }) %>
-      </select>
-    </div>
+      <div class="col-md-2">
+        <label class="form-label">Actor</label>
+        <input type="text" name="actor" value="<%= filters.actor || '' %>" class="form-control" />
+      </div>
 
-    <div class="field" style="min-width:190px;">
-      <label for="action">Action</label>
-      <select id="action" name="action">
-        <option value="">All</option>
-        <% (actionOptions || []).forEach(a => { %>
-          <option value="<%= a %>" <%= (filters.action || '') === a ? 'selected' : '' %>><%= a %></option>
-        <% }) %>
-      </select>
-    </div>
+      <div class="col-md-2">
+        <label class="form-label">Agency</label>
+        <input type="text" name="agency" value="<%= filters.agency || '' %>" class="form-control" />
+      </div>
 
-    <div class="field" style="min-width:190px;">
-      <label for="targetType">Target Type</label>
-      <select id="targetType" name="targetType">
-        <option value="">All</option>
-        <% (targetTypeOptions || []).forEach(t => { %>
-          <option value="<%= t %>" <%= (filters.targetType || '') === t ? 'selected' : '' %>><%= t %></option>
-        <% }) %>
-      </select>
-    </div>
+      <div class="col-md-2">
+        <label class="form-label">Action</label>
+        <input type="text" name="action" value="<%= filters.action || '' %>" class="form-control" />
+      </div>
 
-    <div class="field" style="min-width:170px;">
-      <label for="from">From (ISO)</label>
-      <input id="from" name="from" type="text" value="<%= filters.from || '' %>" placeholder="2026-02-01" />
-    </div>
+      <div class="col-md-2">
+        <label class="form-label">Target Type</label>
+        <input type="text" name="targetType" value="<%= filters.targetType || '' %>" class="form-control" />
+      </div>
 
-    <div class="field" style="min-width:170px;">
-      <label for="to">To (ISO)</label>
-      <input id="to" name="to" type="text" value="<%= filters.to || '' %>" placeholder="2026-02-22" />
-    </div>
+      <div class="col-md-2">
+        <label class="form-label">From</label>
+        <input type="date" name="from" value="<%= filters.from || '' %>" class="form-control" />
+      </div>
 
-    <div class="field" style="min-width:130px;">
-      <label for="pageSize">Page Size</label>
-      <select id="pageSize" name="pageSize">
-        <% [25,50,100,200].forEach(n => { %>
-          <option value="<%= n %>" <%= String(filters.pageSize || '') === String(n) ? 'selected' : '' %>><%= n %></option>
-        <% }) %>
-      </select>
-    </div>
+      <div class="col-md-2">
+        <label class="form-label">To</label>
+        <input type="date" name="to" value="<%= filters.to || '' %>" class="form-control" />
+      </div>
 
-    <div class="row" style="gap:10px;">
-      <button class="btn btnPrimary" type="submit">Apply</button>
-      <a class="btn" href="/audit-log">Reset</a>
-    </div>
+      <div class="col-md-1">
+        <label class="form-label">Size</label>
+        <input type="number" name="limit" value="<%= filters.limit || 50 %>" class="form-control" min="10" max="500" />
+      </div>
+
+      <div class="col-md-2">
+        <button type="submit" class="btn btn-primary w-100">
+          Apply Filters
+        </button>
+      </div>
+
+    </form>
   </div>
-</form>
+</div>
 
 <div class="card">
-  <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:10px;">
-    <div class="muted">
-      Showing <strong><%= (result.items || []).length %></strong> of <strong><%= result.total %></strong> events
-      <% if (result.pageCount > 1) { %>
-        &nbsp;•&nbsp;Page <strong><%= result.page %></strong> of <strong><%= result.pageCount %></strong>
-      <% } %>
-    </div>
-  </div>
+  <div class="card-body p-0">
 
-  <div style="overflow:auto;">
-    <table class="table" style="min-width:1000px;">
-      <thead>
-        <tr>
-          <th style="white-space:nowrap;">Time (UTC)</th>
-          <th>Actor</th>
-          <th>Action</th>
-          <th>Target</th>
-          <th>Agency</th>
-          <th>Request</th>
-          <th>Details</th>
-        </tr>
-      </thead>
-      <tbody>
-        <% if (!(result.items || []).length) { %>
-          <tr><td colspan="7" class="muted">No audit events match your filters.</td></tr>
-        <% } %>
-
-        <% (result.items || []).forEach(ev => { %>
+    <div class="table-responsive">
+      <table class="table table-striped table-hover mb-0">
+        <thead>
           <tr>
-            <td style="white-space:nowrap;"><%= ev.timestamp %></td>
-            <td>
-              <% if (ev.actor) { %>
-                <div><strong><%= ev.actor.displayName || ev.actor.username %></strong></div>
-                <div class="muted" style="font-size:12px;"><%= ev.actor.username %></div>
-              <% } else { %>
-                <span class="muted">unknown</span>
-              <% } %>
-            </td>
-            <td style="white-space:nowrap;"><code><%= ev.action %></code></td>
-            <td>
-              <div><strong><%= ev.targetType %></strong></div>
-              <div class="muted" style="font-size:12px;"><%= ev.targetId %></div>
-            </td>
-            <td>
-              <% if (ev.agencySuffix || ev.agencyName || ev.agencyPrefix) { %>
-                <div><strong><%= ev.agencyName || ev.agencyPrefix || ev.agencySuffix %></strong></div>
-                <div class="muted" style="font-size:12px;"><%= ev.agencySuffix || '' %></div>
-              <% } else { %>
-                <span class="muted">—</span>
-              <% } %>
-            </td>
-            <td>
-              <% if (ev.request) { %>
-                <div><code><%= ev.request.method %></code> <span class="muted"><%= ev.request.path %></span></div>
-                <% if (ev.request.ip) { %>
-                  <div class="muted" style="font-size:12px;">IP: <%= ev.request.ip %></div>
-                <% } %>
-              <% } else { %>
-                <span class="muted">—</span>
-              <% } %>
-            </td>
-            <td>
-              <% if (ev.details) { %>
-                <pre style="margin:0; white-space:pre-wrap; font-size:12px;"><%= JSON.stringify(ev.details, null, 2) %></pre>
-              <% } else { %>
-                <span class="muted">—</span>
-              <% } %>
-            </td>
+            <th style="width: 180px;">Time</th>
+            <th>Actor</th>
+            <th>Agency</th>
+            <th>Action</th>
+            <th>Target</th>
+            <th>Details</th>
           </tr>
-        <% }) %>
-      </tbody>
-    </table>
-  </div>
+        </thead>
+        <tbody>
+          <% if (!logs.length) { %>
+            <tr>
+              <td colspan="6" class="text-center p-4">
+                No audit entries found.
+              </td>
+            </tr>
+          <% } %>
 
-  <% if (result.pageCount > 1) { %>
-    <div class="row" style="gap:10px; margin-top:12px; align-items:center; justify-content:flex-end; flex-wrap:wrap;">
-      <% if (result.page > 1) { %>
-        <a class="btn" href="<%= pageLinks.prev %>">Previous</a>
-      <% } %>
-      <% if (result.page < result.pageCount) { %>
-        <a class="btn" href="<%= pageLinks.next %>">Next</a>
-      <% } %>
+          <% logs.forEach(log => { %>
+            <tr>
+              <td>
+                <%= new Date(log.timestamp).toLocaleString() %>
+              </td>
+
+              <td>
+                <strong><%= log.displayName || log.user %></strong>
+                <div class="text-muted small"><%= log.user %></div>
+              </td>
+
+              <td>
+                <%= log.agency || '-' %>
+              </td>
+
+              <td>
+                <span class="badge bg-secondary">
+                  <%= log.action %>
+                </span>
+              </td>
+
+              <td>
+                <strong><%= log.targetType %></strong><br/>
+                <span class="text-muted small"><%= log.targetId %></span>
+              </td>
+
+              <td>
+                <% if (log.details) { %>
+                  <pre class="small mb-0"><%= JSON.stringify(log.details, null, 2) %></pre>
+                <% } %>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
     </div>
-  <% } %>
+
+  </div>
 </div>
