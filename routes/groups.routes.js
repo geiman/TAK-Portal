@@ -4,6 +4,7 @@ const mutualAid = require("../services/mutualAid.service");
 const agencies = require("../services/agencies.service");
 const accessSvc = require("../services/access.service");
 const usersService = require("../services/users.service");
+const auditSvc = require("../services/auditLog.service");
 
 
 function ensureTakPrefix(name) {
@@ -162,6 +163,22 @@ attributes.CN = nameWithoutTak;
 delete attributes.cn;
 
     const out = await groups.createGroup(name, { attributes });
+
+    auditSvc.logEvent({
+      actor: authUser,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "CREATE_GROUP",
+      targetType: "group",
+      targetId: String(out?.pk || out?.id || ""),
+      details: {
+        name: out?.name || name,
+        description: description || null,
+        private: attributes?.private,
+        created_type: groupType,
+        created_type_detail: groupTypeDetail || null,
+      },
+    });
+
     res.json({ success: true, group: out });
   } catch (err) {
     res.status(400).json({ error: toErrorPayload(err) });
@@ -198,11 +215,27 @@ router.patch("/:groupId", async (req, res) => {
     const hasDescription = Object.prototype.hasOwnProperty.call(req.body || {}, "description");
     const description = hasDescription ? String(req.body.description || "").trim() : undefined;
 
+    const before = await groups.getGroupById(req.params.groupId).catch(() => null);
     const out = await groups.renameGroup(req.params.groupId, name, {
       description,
       private: access.isGlobalAdmin ? privateStatus : undefined,
       CN: nameWithoutTak,
     });
+
+    auditSvc.logEvent({
+      actor: authUser,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "UPDATE_GROUP",
+      targetType: "group",
+      targetId: String(req.params.groupId),
+      details: {
+        beforeName: before?.name || null,
+        name: out?.name || name,
+        description: description,
+        private: access.isGlobalAdmin ? privateStatus : undefined,
+      },
+    });
+
     res.json({ success: true, group: out });
   } catch (err) {
     res.status(400).json({ error: toErrorPayload(err) });
@@ -222,7 +255,19 @@ router.get("/:groupId/impact", async (req, res) => {
 // Delete now cleans up users + templates
 router.delete("/:groupId", async (req, res) => {
   try {
+    const authUser = req.authentikUser || null;
+    const before = await groups.getGroupById(req.params.groupId).catch(() => null);
     const out = await groups.deleteGroupWithCleanup(req.params.groupId);
+
+    auditSvc.logEvent({
+      actor: authUser,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "DELETE_GROUP",
+      targetType: "group",
+      targetId: String(req.params.groupId),
+      details: { name: before?.name || null },
+    });
+
     res.json(out);
   } catch (err) {
     res.status(400).json({ error: toErrorPayload(err) });
@@ -231,6 +276,7 @@ router.delete("/:groupId", async (req, res) => {
 
 router.post("/mass-assign", async (req, res) => {
   try {
+    const authUser = req.authentikUser || null;
     const out = await groups.massAssignUsersToGroup({
       groupId: req.body?.groupId,
       suffixes: req.body?.suffixes,
@@ -238,6 +284,20 @@ router.post("/mass-assign", async (req, res) => {
       sourceGroupIds: req.body?.sourceGroupIds ?? req.body?.sourceGroupId,
       userIds: req.body?.userIds,
     });
+
+    auditSvc.logEvent({
+      actor: authUser,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "MASS_ASSIGN_USERS_TO_GROUP",
+      targetType: "group",
+      targetId: String(req.body?.groupId || ""),
+      details: {
+        suffixes: req.body?.suffixes,
+        userIdsCount: Array.isArray(req.body?.userIds) ? req.body.userIds.length : undefined,
+        sourceGroupIds: req.body?.sourceGroupIds ?? req.body?.sourceGroupId,
+      },
+    });
+
     res.json({ success: true, ...out });
   } catch (err) {
     res.status(400).json({ error: toErrorPayload(err) });
@@ -247,6 +307,7 @@ router.post("/mass-assign", async (req, res) => {
 // Mass unassign users from a group
 router.post("/mass-unassign", async (req, res) => {
   try {
+    const authUser = req.authentikUser || null;
     const out = await groups.massUnassignUsersFromGroup({
       groupId: req.body?.groupId,
       suffixes: req.body?.suffixes,
@@ -254,6 +315,20 @@ router.post("/mass-unassign", async (req, res) => {
       sourceGroupIds: req.body?.sourceGroupIds ?? req.body?.sourceGroupId,
       userIds: req.body?.userIds,
     });
+
+    auditSvc.logEvent({
+      actor: authUser,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "MASS_UNASSIGN_USERS_FROM_GROUP",
+      targetType: "group",
+      targetId: String(req.body?.groupId || ""),
+      details: {
+        suffixes: req.body?.suffixes,
+        userIdsCount: Array.isArray(req.body?.userIds) ? req.body.userIds.length : undefined,
+        sourceGroupIds: req.body?.sourceGroupIds ?? req.body?.sourceGroupId,
+      },
+    });
+
     res.json({ success: true, ...out });
   } catch (err) {
     res.status(400).json({ error: toErrorPayload(err) });

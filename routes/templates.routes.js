@@ -1,6 +1,7 @@
 const router = require("express").Router();
 const store = require("../services/templates.service");
 const accessSvc = require("../services/access.service");
+const auditSvc = require("../services/auditLog.service");
 
 const ALLOWED_COLORS = new Set([
   "Blue",
@@ -87,6 +88,22 @@ router.post("/", (req, res) => {
 
   templates.push(t);
   store.save(templates);
+
+  auditSvc.logEvent({
+    actor: authUser,
+    request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+    action: "CREATE_TEMPLATE",
+    targetType: "template",
+    targetId: String(templates.length - 1),
+    details: {
+      name: t.name,
+      agencySuffix: t.agencySuffix,
+      isDefault: !!t.isDefault,
+      groupsCount: t.groups.length,
+      colorOverride: t.colorOverride || "",
+    },
+  });
+
   res.json({ success: true });
 });
 
@@ -132,6 +149,23 @@ router.put("/:index", (req, res) => {
   };
 
   store.save(templates);
+
+  auditSvc.logEvent({
+    actor: authUser,
+    request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+    action: "UPDATE_TEMPLATE",
+    targetType: "template",
+    targetId: String(idx),
+    details: {
+      beforeName: String(existing?.name || ""),
+      name: templates[idx]?.name,
+      agencySuffix: templates[idx]?.agencySuffix,
+      isDefault: !!templates[idx]?.isDefault,
+      groupsCount: Array.isArray(templates[idx]?.groups) ? templates[idx].groups.length : 0,
+      colorOverride: templates[idx]?.colorOverride || "",
+    },
+  });
+
   res.json({ success: true });
 });
 
@@ -149,6 +183,19 @@ router.delete("/:index", (req, res) => {
 
   templates.splice(idx, 1);
   store.save(templates);
+
+  auditSvc.logEvent({
+    actor: authUser,
+    request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+    action: "DELETE_TEMPLATE",
+    targetType: "template",
+    targetId: String(idx),
+    details: {
+      name: String(existing?.name || ""),
+      agencySuffix: String(existing?.agencySuffix || "").trim().toLowerCase(),
+    },
+  });
+
   res.json({ success: true });
 });
 

@@ -8,6 +8,7 @@ const userRequestsSvc = require("../services/userRequests.service");
 const qrSvc = require("../services/qr.service");
 const tokensSvc = require("../services/authentikTokens.service");
 const { getString } = require("../services/env");
+const auditSvc = require("../services/auditLog.service");
 
 // Cache resolved Global Admin group PKs (from PORTAL_AUTH_REQUIRED_GROUP)
 // so we can cheaply hide global-admin users from agency-admin views.
@@ -208,6 +209,24 @@ router.post("/", async (req, res) => {
       createdBy,
       creationMethod: "manual",
     });
+
+    auditSvc.logEvent({
+      actor: authUser,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "CREATE_USER",
+      targetType: "user",
+      targetId: String(result?.user?.pk || ""),
+      details: {
+        username: result?.user?.username,
+        email: result?.user?.email,
+        name: result?.user?.name,
+        groups: Array.isArray(result?.groups)
+          ? result.groups.map((g) => g?.name).filter(Boolean)
+          : [],
+        created_method: "manual",
+      },
+    });
+
     res.json({ success: true, ...result });
   } catch (err) {
     res.status(400).json({ error: toErrorPayload(err) });
@@ -238,6 +257,20 @@ router.post("/import-csv", upload.single("file"), async (req, res) => {
       creationMethod: "csv",
     });
     const durationMs = Date.now() - startedAt;
+
+    auditSvc.logEvent({
+      actor: authUser,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "IMPORT_USERS_CSV",
+      targetType: "user",
+      targetId: "bulk",
+      details: {
+        created: Array.isArray(result?.created) ? result.created.length : result?.created || 0,
+        skipped: Array.isArray(result?.skipped) ? result.skipped.length : result?.skipped || 0,
+        durationMs,
+      },
+    });
+
     res.json({
       success: true,
       ...result,
@@ -287,6 +320,15 @@ router.post("/import-csv/start", upload.single("file"), async (req, res) => {
       result: null,
     });
 
+    auditSvc.logEvent({
+      actor: authUser,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "IMPORT_USERS_CSV_STARTED",
+      targetType: "user",
+      targetId: "bulk",
+      details: { jobId },
+    });
+
     // Kick off the import without blocking the HTTP response
     (async () => {
       try {
@@ -319,6 +361,20 @@ router.post("/import-csv/start", upload.single("file"), async (req, res) => {
           job.processed = job.total;
           job.created = Number(result?.created?.length || 0);
           job.skipped = Number(result?.skipped?.length || 0);
+
+          auditSvc.logEvent({
+            actor: authUser,
+            request: { method: "JOB", path: "/api/users/import-csv/start", ip: req.ip },
+            action: "IMPORT_USERS_CSV_COMPLETED",
+            targetType: "user",
+            targetId: "bulk",
+            details: {
+              jobId,
+              created: job.created,
+              skipped: job.skipped,
+              durationMs,
+            },
+          });
         }
       } catch (e) {
         const finishedAt = Date.now();
@@ -332,6 +388,15 @@ router.post("/import-csv/start", upload.single("file"), async (req, res) => {
           job.durationSeconds = Math.round((durationMs / 1000) * 10) / 10;
           job.error = toErrorPayload(e);
         }
+
+        auditSvc.logEvent({
+          actor: authUser,
+          request: { method: "JOB", path: "/api/users/import-csv/start", ip: req.ip },
+          action: "IMPORT_USERS_CSV_FAILED",
+          targetType: "user",
+          targetId: "bulk",
+          details: { jobId, error: toErrorPayload(e) },
+        });
       }
     })();
 
@@ -471,7 +536,17 @@ return res.json({
 
 router.post("/:userId/reset-password", async (req, res) => {
   try {
-    await users.resetPassword(req.params.userId, req.body?.password);
+    const authUser = req.authentikUser || null;
+    const user = await users.resetPassword(req.params.userId, req.body?.password);
+
+    auditSvc.logEvent({
+      actor: authUser,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "RESET_USER_PASSWORD",
+      targetType: "user",
+      targetId: String(req.params.userId),
+      details: { username: user?.username || null },
+    });
     res.json({ success: true });
   } catch (err) {
     res.status(400).json({ error: toErrorPayload(err) });
@@ -480,7 +555,17 @@ router.post("/:userId/reset-password", async (req, res) => {
 
 router.put("/:userId/email", async (req, res) => {
   try {
-    await users.updateEmail(req.params.userId, req.body?.email);
+    const authUser = req.authentikUser || null;
+    const user = await users.updateEmail(req.params.userId, req.body?.email);
+
+    auditSvc.logEvent({
+      actor: authUser,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "UPDATE_USER_EMAIL",
+      targetType: "user",
+      targetId: String(req.params.userId),
+      details: { username: user?.username || null, email: user?.email || null },
+    });
     res.json({ success: true });
   } catch (err) {
     res.status(400).json({ error: toErrorPayload(err) });
@@ -490,7 +575,16 @@ router.put("/:userId/email", async (req, res) => {
 // NEW: update name
 router.put("/:userId/name", async (req, res) => {
   try {
-    await users.updateName(req.params.userId, req.body?.name);
+    const authUser = req.authentikUser || null;
+    const user = await users.updateName(req.params.userId, req.body?.name);
+    auditSvc.logEvent({
+      actor: authUser,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "UPDATE_USER_NAME",
+      targetType: "user",
+      targetId: String(req.params.userId),
+      details: { username: user?.username || null, name: user?.name || null },
+    });
     res.json({ success: true });
   } catch (err) {
     res.status(400).json({ error: toErrorPayload(err) });
@@ -501,7 +595,22 @@ router.put("/:userId/name", async (req, res) => {
 router.put("/:userId/groups", async (req, res) => {
   try {
     const groupIds = Array.isArray(req.body?.groupIds) ? req.body.groupIds : [];
-    await users.setUserGroups(req.params.userId, groupIds);
+    const authUser = req.authentikUser || null;
+    const result = await users.setUserGroups(req.params.userId, groupIds);
+
+    auditSvc.logEvent({
+      actor: authUser,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "SET_USER_GROUPS",
+      targetType: "user",
+      targetId: String(req.params.userId),
+      details: {
+        username: result?.user?.username || null,
+        groups: Array.isArray(result?.groups)
+          ? result.groups.map((g) => g?.name).filter(Boolean)
+          : groupIds,
+      },
+    });
     res.json({ success: true, groups: groupIds });
   } catch (err) {
     res.status(400).json({ error: toErrorPayload(err) });
@@ -511,7 +620,21 @@ router.put("/:userId/groups", async (req, res) => {
 router.post("/:userId/groups", async (req, res) => {
   try {
     const groupIds = Array.isArray(req.body?.groupIds) ? req.body.groupIds : [];
-    await users.setUserGroups(req.params.userId, groupIds);
+    const authUser = req.authentikUser || null;
+    const result = await users.setUserGroups(req.params.userId, groupIds);
+    auditSvc.logEvent({
+      actor: authUser,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "SET_USER_GROUPS",
+      targetType: "user",
+      targetId: String(req.params.userId),
+      details: {
+        username: result?.user?.username || null,
+        groups: Array.isArray(result?.groups)
+          ? result.groups.map((g) => g?.name).filter(Boolean)
+          : groupIds,
+      },
+    });
     res.json({ success: true, groups: groupIds });
   } catch (err) {
     res.status(400).json({ error: toErrorPayload(err) });
@@ -522,7 +645,20 @@ router.post("/:userId/groups", async (req, res) => {
 router.post("/:userId/groups/add", async (req, res) => {
   try {
     const groupIds = Array.isArray(req.body?.groupIds) ? req.body.groupIds : [];
+    const authUser = req.authentikUser || null;
     const out = await users.addUserGroups(req.params.userId, groupIds);
+
+    auditSvc.logEvent({
+      actor: authUser,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "ADD_USER_GROUPS",
+      targetType: "user",
+      targetId: String(req.params.userId),
+      details: {
+        username: out?.user?.username || null,
+        groups: Array.isArray(out?.groups) ? out.groups.map((g) => g?.name).filter(Boolean) : groupIds,
+      },
+    });
     res.json({ success: true, groups: out });
   } catch (err) {
     res.status(400).json({ error: toErrorPayload(err) });
@@ -533,7 +669,20 @@ router.post("/:userId/groups/add", async (req, res) => {
 router.post("/:userId/groups/remove", async (req, res) => {
   try {
     const groupIds = Array.isArray(req.body?.groupIds) ? req.body.groupIds : [];
+    const authUser = req.authentikUser || null;
     const out = await users.removeUserGroups(req.params.userId, groupIds);
+
+    auditSvc.logEvent({
+      actor: authUser,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "REMOVE_USER_GROUPS",
+      targetType: "user",
+      targetId: String(req.params.userId),
+      details: {
+        username: out?.user?.username || null,
+        groups: Array.isArray(out?.groups) ? out.groups.map((g) => g?.name).filter(Boolean) : groupIds,
+      },
+    });
     res.json({ success: true, groups: out });
   } catch (err) {
     res.status(400).json({ error: toErrorPayload(err) });
@@ -543,7 +692,17 @@ router.post("/:userId/groups/remove", async (req, res) => {
 router.put("/:userId/active", async (req, res) => {
   try {
     const isActive = !!req.body?.is_active;
-    await users.toggleUserActive(req.params.userId, isActive);
+    const authUser = req.authentikUser || null;
+    const user = await users.toggleUserActive(req.params.userId, isActive);
+
+    auditSvc.logEvent({
+      actor: authUser,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "SET_USER_ACTIVE",
+      targetType: "user",
+      targetId: String(req.params.userId),
+      details: { username: user?.username || null, is_active: !!user?.is_active },
+    });
     res.json({ success: true });
   } catch (err) {
     res.status(400).json({ error: toErrorPayload(err) });
@@ -552,7 +711,18 @@ router.put("/:userId/active", async (req, res) => {
 
 router.delete("/:userId", async (req, res) => {
   try {
+    const authUser = req.authentikUser || null;
+    const before = await users.getUserById(req.params.userId).catch(() => null);
     await users.deleteUser(req.params.userId);
+
+    auditSvc.logEvent({
+      actor: authUser,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "DELETE_USER",
+      targetType: "user",
+      targetId: String(req.params.userId),
+      details: { username: before?.username || null },
+    });
     res.json({ success: true });
   } catch (err) {
     res.status(400).json({ error: toErrorPayload(err) });
@@ -600,6 +770,16 @@ router.post("/enroll-qr", async (req, res) => {
 
     const enrollUrl = qrSvc.buildEnrollUrl({ username, token: key });
     const qrCode = await qrSvc.generateDisplayQrDataUrl(enrollUrl);
+
+    // Audit (never store token/key)
+    auditSvc.logEvent({
+      actor: authUser,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "GENERATE_ENROLLMENT_QR",
+      targetType: "user",
+      targetId: String(userId),
+      details: { username, tokenIdentifier: identifier, expiresAt },
+    });
 
     return res.json({
       ok: true,

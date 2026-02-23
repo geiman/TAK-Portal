@@ -1,6 +1,7 @@
 const router = require("express").Router();
 const mutualAid = require("../services/mutualAid.service");
 const emailSvc = require("../services/email.service");
+const auditSvc = require("../services/auditLog.service");
 
 function toErrorPayload(err) {
   const data = err?.response?.data;
@@ -27,6 +28,24 @@ router.post("/", async (req, res) => {
       groupMode: req.body?.groupMode,
       existingGroupId: req.body?.existingGroupId,
     });
+
+    auditSvc.logEvent({
+      actor: req.authentikUser || null,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "CREATE_MUTUAL_AID",
+      targetType: "mutual_aid",
+      targetId: String(out?.id || ""),
+      details: {
+        type: out?.type,
+        title: out?.title,
+        expireEnabled: !!out?.expireEnabled,
+        expireAt: out?.expireAt || null,
+        groupMode: out?.groupMode,
+        existingGroupId: out?.existingGroupId,
+        groupName: out?.groupName,
+      },
+    });
+
     res.json({ success: true, item: out });
   } catch (err) {
     res.status(400).json({ error: toErrorPayload(err) });
@@ -35,6 +54,7 @@ router.post("/", async (req, res) => {
 
 router.patch("/:id", async (req, res) => {
   try {
+    const before = mutualAid.list().find((x) => String(x?.id) === String(req.params.id)) || null;
     const out = await mutualAid.update({
       id: req.params.id,
       type: req.body?.type,
@@ -42,6 +62,16 @@ router.patch("/:id", async (req, res) => {
       expireEnabled: req.body?.expireEnabled,
       expireAt: req.body?.expireAt,
     });
+
+    auditSvc.logEvent({
+      actor: req.authentikUser || null,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "UPDATE_MUTUAL_AID",
+      targetType: "mutual_aid",
+      targetId: String(req.params.id),
+      details: { before, after: out },
+    });
+
     res.json({ success: true, item: out });
   } catch (err) {
     res.status(400).json({ error: toErrorPayload(err) });
@@ -50,7 +80,18 @@ router.patch("/:id", async (req, res) => {
 
 router.delete("/:id", async (req, res) => {
   try {
+    const before = mutualAid.list().find((x) => String(x?.id) === String(req.params.id)) || null;
     const out = await mutualAid.remove({ id: req.params.id });
+
+    auditSvc.logEvent({
+      actor: req.authentikUser || null,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "DELETE_MUTUAL_AID",
+      targetType: "mutual_aid",
+      targetId: String(req.params.id),
+      details: before,
+    });
+
     res.json(out);
   } catch (err) {
     res.status(400).json({ error: toErrorPayload(err) });
@@ -135,6 +176,15 @@ Sent from TAK Portal.
       }
       return res.status(500).json({ error: out.error || "Email send failed" });
     }
+
+    auditSvc.logEvent({
+      actor: req.authentikUser || null,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "EMAIL_MUTUAL_AID_PACKET",
+      targetType: "mutual_aid",
+      targetId: String(id),
+      details: { to: String(toRaw), filename: String(filename) },
+    });
 
     res.json({ success: true });
   } catch (err) {

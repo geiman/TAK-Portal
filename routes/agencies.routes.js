@@ -4,6 +4,7 @@ const accessSvc = require("../services/access.service");
 const usersService = require("../services/users.service");
 const groupsService = require("../services/groups.service");
 const api = require("../services/authentik");
+const auditSvc = require("../services/auditLog.service");
 
 function getAgencyAdminGroupName(groupPrefix) {
   const abbr = String(groupPrefix || "").trim().toUpperCase();
@@ -153,6 +154,16 @@ router.post("/", async (req, res) => {
 
   agencies.push(a);
   store.save(agencies);
+
+  auditSvc.logEvent({
+    actor: req.authentikUser || null,
+    request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+    action: "CREATE_AGENCY",
+    targetType: "agency",
+    targetId: String(a?.suffix || ""),
+    details: a,
+  });
+
   res.json({ success: true });
 });
 
@@ -181,8 +192,19 @@ router.put("/:index", async (req, res) => {
     });
   }
 
+  const before = agencies[idx];
   agencies[idx] = a;
   store.save(agencies);
+
+  auditSvc.logEvent({
+    actor: req.authentikUser || null,
+    request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+    action: "UPDATE_AGENCY",
+    targetType: "agency",
+    targetId: String(a?.suffix || before?.suffix || ""),
+    details: { before, after: a },
+  });
+
   res.json({ success: true });
 });
 
@@ -212,6 +234,16 @@ router.delete("/:index", async (req, res) => {
 
     agencies.splice(idx, 1);
     store.save(agencies);
+
+    auditSvc.logEvent({
+      actor: req.authentikUser || null,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "DELETE_AGENCY",
+      targetType: "agency",
+      targetId: String(a?.suffix || ""),
+      details: a,
+    });
+
     return res.json({ success: true });
   } catch (err) {
     return res.status(500).json({ error: err?.response?.data || err?.message || "Failed to delete agency" });
