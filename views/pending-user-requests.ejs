@@ -388,7 +388,11 @@ tr.row-disabled td {
           <td>${esc(agencyLabel)}</td>
           <td>
             <div class="row" style="gap:8px; flex-wrap:wrap;">
-              <button class="btn success" type="button" data-action="approve" data-id="${esc(r.id)}">Approve</button>
+              ${
+                r.agencySuffix === '__other__'
+                  ? `<button class="btn" type="button" data-action="approve" data-id="${esc(r.id)}">Review Request</button>`
+                  : `<button class="btn success" type="button" data-action="approve" data-id="${esc(r.id)}">Approve</button>`
+              }
               <button class="btn danger" type="button" data-action="reject" data-id="${esc(r.id)}">Reject</button>
             </div>
           </td>
