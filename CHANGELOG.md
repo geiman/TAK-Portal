@@ -12,6 +12,9 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.16 - 2/22/26
+🎉 `New Feature` - Added an Audit Log viewable only by Global Administrators.  This is in ***BETA*** and there are many known issues to be addressed in the near future.
+
 ### v1.2.15 - 2/22/26
 ✨ `Enhancement` - Adds sortable columns to Pending User Requests <br>
 ✨ `Enhancement` - Changes display of Other / Not Listed agency info on Pending User Requests page and modifies "Approve" button to be a "Review Request" button for "Other"<br>
