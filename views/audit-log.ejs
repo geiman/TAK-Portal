@@ -1,6 +1,7 @@
 <%
-  const safeLogs = Array.isArray(logs) ? logs : [];
-  const safeFilters = filters || {};
+  const safeResult = typeof result !== "undefined" ? result : { items: [], page: 1, pageCount: 1 };
+  const safeFilters = typeof filters !== "undefined" ? filters : {};
+  const items = Array.isArray(safeResult.items) ? safeResult.items : [];
 %>
 
 <div class="page-header">
@@ -13,8 +14,8 @@
 
       <div class="col-md-3">
         <label class="form-label">Search</label>
-        <input type="text" name="search"
-               value="<%= safeFilters.search || '' %>"
+        <input type="text" name="q"
+               value="<%= safeFilters.q || '' %>"
                class="form-control"
                placeholder="User, action, target..." />
       </div>
@@ -23,13 +24,6 @@
         <label class="form-label">Actor</label>
         <input type="text" name="actor"
                value="<%= safeFilters.actor || '' %>"
-               class="form-control" />
-      </div>
-
-      <div class="col-md-2">
-        <label class="form-label">Agency</label>
-        <input type="text" name="agency"
-               value="<%= safeFilters.agency || '' %>"
                class="form-control" />
       </div>
 
@@ -48,30 +42,23 @@
       </div>
 
       <div class="col-md-2">
-        <label class="form-label">From</label>
-        <input type="date" name="from"
-               value="<%= safeFilters.from || '' %>"
-               class="form-control" />
-      </div>
-
-      <div class="col-md-2">
-        <label class="form-label">To</label>
-        <input type="date" name="to"
-               value="<%= safeFilters.to || '' %>"
+        <label class="form-label">Agency</label>
+        <input type="text" name="agencySuffix"
+               value="<%= safeFilters.agencySuffix || '' %>"
                class="form-control" />
       </div>
 
       <div class="col-md-1">
         <label class="form-label">Size</label>
-        <input type="number" name="limit"
-               value="<%= safeFilters.limit || 50 %>"
+        <input type="number" name="pageSize"
+               value="<%= safeFilters.pageSize || 50 %>"
                class="form-control"
                min="10" max="500" />
       </div>
 
       <div class="col-md-2">
         <button type="submit" class="btn btn-primary w-100">
-          Apply Filters
+          Apply
         </button>
       </div>
 
@@ -85,7 +72,7 @@
       <table class="table table-striped table-hover mb-0">
         <thead>
           <tr>
-            <th style="width: 180px;">Time</th>
+            <th style="width:180px;">Time</th>
             <th>Actor</th>
             <th>Agency</th>
             <th>Action</th>
@@ -95,7 +82,7 @@
         </thead>
         <tbody>
 
-          <% if (!safeLogs.length) { %>
+          <% if (!items.length) { %>
             <tr>
               <td colspan="6" class="text-center p-4">
                 No audit entries found.
@@ -103,19 +90,19 @@
             </tr>
           <% } %>
 
-          <% safeLogs.forEach(log => { %>
+          <% items.forEach(log => { %>
             <tr>
               <td>
                 <%= log.timestamp ? new Date(log.timestamp).toLocaleString() : '' %>
               </td>
 
               <td>
-                <strong><%= log.displayName || log.user || '-' %></strong>
-                <div class="text-muted small"><%= log.user || '' %></div>
+                <strong><%= log.actorDisplayName || log.actorUsername || '-' %></strong>
+                <div class="text-muted small"><%= log.actorUsername || '' %></div>
               </td>
 
               <td>
-                <%= log.agency || '-' %>
+                <%= log.agencySuffix || '-' %>
               </td>
 
               <td>
@@ -141,4 +128,20 @@
       </table>
     </div>
   </div>
+</div>
+
+<div class="d-flex justify-content-between mt-3">
+  <% if (safeResult.page > 1) { %>
+    <a class="btn btn-outline-secondary btn-sm" href="<%= pageLinks.prev %>">Previous</a>
+  <% } else { %>
+    <span></span>
+  <% } %>
+
+  <span class="text-muted small align-self-center">
+    Page <%= safeResult.page %> of <%= safeResult.pageCount %>
+  </span>
+
+  <% if (safeResult.page < safeResult.pageCount) { %>
+    <a class="btn btn-outline-secondary btn-sm" href="<%= pageLinks.next %>">Next</a>
+  <% } %>
 </div>
