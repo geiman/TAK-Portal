@@ -385,15 +385,14 @@ app.get("/audit-log", requireGlobalAdmin, (req, res) => {
     next: buildLink(Math.min(result.pageCount, result.page + 1)),
   };
 
-  return res.render("audit-log", {
-    filters,
-    result,
-    pageLinks,
-    agencyOptions,
-    actionOptions,
-    targetTypeOptions,
-  });
+res.render("audit-log", {
+  logs: auditLog.getAll(),
+  filters: req.query || {},
+  user: res.locals.user,
+  isGlobalAdmin: res.locals.isGlobalAdmin,
+  isAgencyAdmin: res.locals.isAgencyAdmin
 });
+
 app.get("/qr-generator", (req, res) => res.render("qr-generator"));
 
 app.get("/setup-my-device", (req, res) => {
