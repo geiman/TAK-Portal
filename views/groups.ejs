@@ -353,7 +353,7 @@ function getSortValue(group, key){
   if (!group) return "";
   if (key === "name") return normalizeSortValue(group.name);
   if (key === "private") {
-    const isPriv = normalizeSortValue(group && attributes && private) === "yes";
+    const isPriv = normalizeSortValue(group?.attributes?.private) === "yes";
     // Sort as 0/1 so non-private comes first in ascending order
     return isPriv ? "1" : "0";
   }
@@ -477,7 +477,7 @@ function setMsg(el, text, ok=true){
 }
 
 function esc(s){
-  return String((s == null ? "" : s))
+  return String(s ?? "")
     .replaceAll("&","&amp;")
     .replaceAll("<","&lt;")
     .replaceAll(">","&gt;")
@@ -834,7 +834,7 @@ function renderGroups(){
   const filteredRaw = needle
     ? groupsCache.filter(g => {
         const name = String(g.name || "").toLowerCase();
-        const desc = String(g && attributes && description || "").toLowerCase();
+        const desc = String(g?.attributes?.description || "").toLowerCase();
         return name.includes(needle) || desc.includes(needle);
       })
     : groupsCache;
@@ -844,8 +844,8 @@ function renderGroups(){
   tbody.innerHTML = filtered.map(g => {
     const locked = groupActionsLocked(g.name);
     const editable = !locked && isGroupEditable(g.name);
-    const desc = String(g && attributes && description || "").trim();
-    const isPrivate = String(g && attributes && private || "").trim().toLowerCase() === "yes";
+    const desc = String(g?.attributes?.description || "").trim();
+    const isPrivate = String(g?.attributes?.private || "").trim().toLowerCase() === "yes";
 
     return `
     <tr>
@@ -921,7 +921,7 @@ createBtn.onclick = async () => {
     if (!county) return setMsg(createMsg, "Select a county.", false);
     name = `${county} Co ${name}`;
   } else if (type === "state") {
-    const state = String(stateSelect && value || "").trim().toUpperCase();
+    const state = String(stateSelect?.value || "").trim().toUpperCase();
     if (!state) return setMsg(createMsg, "Select a state.", false);
     name = `${state} ${name}`;
   }
@@ -956,7 +956,7 @@ createBtn.onclick = async () => {
     }
   } else if (type === "state") {
     groupType = "State";
-    const state = String(stateSelect && value || "").trim().toUpperCase();
+    const state = String(stateSelect?.value || "").trim().toUpperCase();
     if (state) {
       groupTypeDetail = state;
     }
@@ -1009,9 +1009,9 @@ window.editGroupName = async (groupId) => {
   setMsg(listMsg, "");
 
   const g = (groupsCache || []).find(x => String(x.pk) === String(groupId));
-  const currentName = String(g && name || "").trim();
-  const currentDescription = String(g && attributes && description || "").trim();
-	  const currentPrivateRaw = String(g && attributes && private || "no").trim().toLowerCase();
+  const currentName = String(g?.name || "").trim();
+  const currentDescription = String(g?.attributes?.description || "").trim();
+	  const currentPrivateRaw = String(g?.attributes?.private || "no").trim().toLowerCase();
 	  const currentPrivate = (currentPrivateRaw === "yes" || currentPrivateRaw === "true" || currentPrivateRaw === "1")
 	    ? "yes"
 	    : "no";
@@ -1083,7 +1083,7 @@ window.deleteGroup = async (groupId) => {
   setMsg(listMsg, "Calculating delete impact...", true);
 
   const g = (groupsCache || []).find(x => String(x.pk) === String(groupId));
-  const name = String(g && name || "").trim();
+  const name = String(g?.name || "").trim();
   if (name && groupActionsLocked(name)) {
     setMsg(listMsg, `Actions are locked for group ${name}`, false);
     return;
@@ -1255,7 +1255,7 @@ window.openGroupMembers = async (groupId) => {
   setMsg(listMsg, "");
 
   const g = (groupsCache || []).find(x => String(x.pk) === String(groupId));
-  activeMembersGroupName = String(g && name || "");
+  activeMembersGroupName = String(g?.name || "");
   activeMembersGroupId = String(groupId || "");
 
   membersSummary.textContent = "Loading members...";
@@ -1263,17 +1263,6 @@ window.openGroupMembers = async (groupId) => {
   membersList.innerHTML = "";
   membersHint.textContent = "";
   membersFilter.value = "";
-  const btn = document.getElementById("exportMembersBtn");
-  if (!btn) {
-    const newBtn = document.createElement("button");
-    newBtn.id = "exportMembersBtn";
-    newBtn.className = "btn";
-    newBtn.type = "button";
-    newBtn.textContent = "Export CSV";
-    newBtn.style.marginLeft = "10px";
-    membersSummary.parentNode.insertBefore(newBtn, membersSummary.nextSibling);
-  }
-
 
   showMembersModal(true);
 
@@ -1291,17 +1280,11 @@ window.openGroupMembers = async (groupId) => {
       ? out.memberCount
       : activeMembers.length;
 
-    const groupLabel = activeMembersGroupName || out.group && name || groupId;
+    const groupLabel = activeMembersGroupName || out.group?.name || groupId;
 
     membersSummary.textContent = `${memberCount} member${memberCount === 1 ? "" : "s"} in group "${groupLabel}".`;
     membersSummary.className = "msg ok";
     membersHint.textContent = memberCount
-  const exportBtn = document.getElementById("exportMembersBtn");
-  if (exportBtn) {
-    exportBtn.onclick = exportGroupMembersCsv;
-    exportBtn.style.display = memberCount ? "inline-block" : "none";
-  }
-
       ? "Showing current members of this group. Use Remove to strip this group from individual users."
       : "No users are currently assigned to this group.";
 
@@ -1345,12 +1328,6 @@ window.removeUserFromGroup = async (userPk) => {
     membersSummary.className = "msg ok";
 
     membersHint.textContent = memberCount
-  const exportBtn = document.getElementById("exportMembersBtn");
-  if (exportBtn) {
-    exportBtn.onclick = exportGroupMembersCsv;
-    exportBtn.style.display = memberCount ? "inline-block" : "none";
-  }
-
       ? "Showing current members of this group. Use Remove to strip this group from individual users."
       : "No users are currently assigned to this group.";
 
@@ -1390,19 +1367,19 @@ editGroupSaveBtn.onclick = async () => {
   }
 
   if (type === "agency") {
-    prefix = String(editAgencyPrefixSelect && value || "").trim().toUpperCase();
+    prefix = String(editAgencyPrefixSelect?.value || "").trim().toUpperCase();
     if (!prefix) {
       setMsg(editGroupMsg, "Select an agency prefix.", false);
       return;
     }
   } else if (type === "county") {
-    county = String(editCountySelect && value || "").trim();
+    county = String(editCountySelect?.value || "").trim();
     if (!county) {
       setMsg(editGroupMsg, "Select a county.", false);
       return;
     }
   } else if (type === "state") {
-    state = String(editStateSelect && value || "").trim().toUpperCase();
+    state = String(editStateSelect?.value || "").trim().toUpperCase();
     if (!state) {
       setMsg(editGroupMsg, "Select a state.", false);
       return;
@@ -1476,134 +1453,6 @@ window.addEventListener("keydown", (e) => {
   }
 });
 
-
-
-
-
-window.exportGroupMembersCsv = function() {
-  if (!activeMembers || !activeMembers.length) return;
-
-  var needle = String(membersFilter.value || "").trim().toLowerCase();
-
-  var items = activeMembers.slice();
-
-  items.sort(function(a, b) {
-    var ak = String(a[membersSortKey] || "").toLowerCase();
-    var bk = String(b[membersSortKey] || "").toLowerCase();
-    if (ak < bk) return membersSortDir === "asc" ? -1 : 1;
-    if (ak > bk) return membersSortDir === "asc" ? 1 : -1;
-    return 0;
-  });
-
-  var filtered = [];
-  if (needle) {
-    for (var i = 0; i < items.length; i++) {
-      var u = items[i];
-      var uName = String(u.username || "").toLowerCase();
-      var n = String(u.name || "").toLowerCase();
-      var em = String(u.email || "").toLowerCase();
-      if (uName.indexOf(needle) !== -1 ||
-          n.indexOf(needle) !== -1 ||
-          em.indexOf(needle) !== -1) {
-        filtered.push(u);
-      }
-    }
-  } else {
-    filtered = items;
-  }
-
-  if (!filtered.length) return;
-
-  function escapeCsv(val) {
-    var s = String(val || "");
-    if (s.indexOf('"') !== -1 || s.indexOf(',') !== -1 || s.indexOf('\n') !== -1) {
-      return '"' + s.replace(/"/g, '""') + '"';
-    }
-    return s;
-  }
-
-  var headers = ["username", "last_name", "first_name", "agency_abbreviation", "email"];
-  var rows = [];
-
-  for (var j = 0; j < filtered.length; j++) {
-    var user = filtered[j];
-    var fullName = String(user.name || "").trim();
-    var firstName = "";
-    var lastName = "";
-
-    if (fullName) {
-      var parts = fullName.split(" ");
-      if (parts.length > 1) {
-        lastName = parts[parts.length - 1];
-        firstName = parts.slice(0, parts.length - 1).join(" ");
-      } else {
-        firstName = parts[0];
-      }
-    }
-
-    var agencyAbbr = "";
-    if (user.attributes && user.attributes.agency_abbreviation) {
-      agencyAbbr = user.attributes.agency_abbreviation;
-    }
-
-    rows.push(
-      escapeCsv(user.username) + "," +
-      escapeCsv(lastName) + "," +
-      escapeCsv(firstName) + "," +
-      escapeCsv(agencyAbbr) + "," +
-      escapeCsv(user.email)
-    );
-  }
-
-  var csv = headers.join(",") + "\n" + rows.join("\n");
-
-  var blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  var url = URL.createObjectURL(blob);
-  var a = document.createElement("a");
-  a.href = url;
-  a.download = (activeMembersGroupName || "group") + "_members_filtered.csv";
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-};
-
-
-  const headers = ["username", "last_name", "first_name", "agency_abbreviation", "email"];
-
-  const rows = filtered.map(u => {
-    const fullName = String(u.name || "").trim();
-    let firstName = "";
-    let lastName = "";
-    if (fullName) {
-      const parts = fullName.split(" ");
-      firstName = parts.slice(0, -1).join(" ") || parts[0] || "";
-      lastName = parts.length > 1 ? parts[parts.length - 1] : "";
-    }
-    const agencyAbbr = String((u.attributes && u.attributes.agency_abbreviation) || "");
-    return [
-      escapeCsv(u.username),
-      escapeCsv(lastName),
-      escapeCsv(firstName),
-      escapeCsv(agencyAbbr),
-      escapeCsv(u.email),
-    ].join(",");
-  });
-
-  const csv = [headers.join(","), ...rows].join("\n");
-
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = (activeMembersGroupName || "group") + "_members_filtered.csv";
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-};
-
-
 membersCloseBtn.onclick = () => showMembersModal(false);
 membersOverlay.addEventListener("click", (e) => {
   if (e.target === membersOverlay) showMembersModal(false);
@@ -1617,7 +1466,7 @@ window.openMassAssign = async (groupId) => {
     return;
   }
   activeMassGroupId = String(groupId);
-  activeMassGroupName = String(g && name || "");
+  activeMassGroupName = String(g?.name || "");
   setMassAction("assign");
 
   agencySearch.value = "";
@@ -1642,7 +1491,7 @@ window.openMassUnassign = async (groupId) => {
     return;
   }
   activeMassGroupId = String(groupId);
-  activeMassGroupName = String(g && name || "");
+  activeMassGroupName = String(g?.name || "");
   setMassAction("unassign");
 
   agencySearch.value = "";
@@ -1747,7 +1596,7 @@ userClearAll.onclick = () => {
 };
 
 function renderSourceGroupList(){
-  const needle = String(sourceGroupSearch && value || "").trim().toLowerCase();
+  const needle = String(sourceGroupSearch?.value || "").trim().toLowerCase();
   const items = (groupsCache || [])
     .filter(g => String(g.pk) !== String(activeMassGroupId))
     .slice()
