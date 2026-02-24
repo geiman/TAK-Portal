@@ -43,7 +43,7 @@
 
             <!-- Time -->
             <td>
-              <%= log.timestamp ? new Date(log.timestamp).toLocaleString() : '' %>
+              <span class="ts" data-ts="<%= log.timestamp || '' %>"></span>
             </td>
 
             <!-- Actor -->
@@ -204,5 +204,22 @@
     document.body.appendChild(overlay);
   });
 
+})();
+</script>
+<script>
+(function() {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+  document.querySelectorAll(".ts").forEach(el => {
+    const raw = el.getAttribute("data-ts");
+    if (!raw) return;
+
+    try {
+      const d = new Date(raw);
+      el.textContent = d.toLocaleString(undefined, { timeZone: tz });
+    } catch (e) {
+      el.textContent = raw;
+    }
+  });
 })();
 </script>
