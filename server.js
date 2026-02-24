@@ -315,6 +315,8 @@ app.get("/audit-log", requireOnlyGlobalAdmin, (req, res) => {
     next: buildLink(Math.min(result.pageCount, result.page + 1)),
   };
 
+const serverTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
   return res.render("audit-log", {
     filters,
     result,
@@ -322,11 +324,10 @@ app.get("/audit-log", requireOnlyGlobalAdmin, (req, res) => {
     agencyOptions,
     actionOptions,
     targetTypeOptions,
-    agencyMap
+    agencyMap,
+    serverTimeZone
   });
 });
-
-app.get("/qr-generator", (req, res) => res.render("qr-generator"));
 
 app.get("/setup-my-device", (req, res) => {
   // Used by the Setup My Device page to display the correct TAK server hostname.

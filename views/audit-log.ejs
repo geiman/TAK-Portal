@@ -44,12 +44,20 @@
             <!-- Time -->           
             <td>
               <%
-                const tz = serverTimeZone || Intl.DateTimeFormat().resolvedOptions().timeZone;
                 let formatted = '';
-                if (log.timestamp) {
-                  try {
-                    formatted = new Date(log.timestamp).toLocaleString(undefined, { timeZone: tz });
-                  } catch (_) {
+                try {
+                  const tz =
+                    typeof serverTimeZone !== 'undefined' && serverTimeZone
+                      ? serverTimeZone
+                      : Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+                  if (log.timestamp) {
+                    formatted = new Date(log.timestamp).toLocaleString(undefined, {
+                      timeZone: tz
+                    });
+                  }
+                } catch (err) {
+                  if (log.timestamp) {
                     formatted = new Date(log.timestamp).toLocaleString();
                   }
                 }
