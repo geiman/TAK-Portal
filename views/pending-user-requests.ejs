@@ -396,10 +396,10 @@ th.sortable:hover{
   }
 
   function agencyLabelForSort(req) {
-    const sfx = String(req?.agencySuffix || "").trim();
-    if (sfx === "__other__") return normalizeSortValue("Other / Not Listed");
+    const prefix = String(req?.groupPrefix || "").trim();
+    if (prefix === "__other__") return normalizeSortValue("Other / Not Listed");
     const nm = String(req?.agencyName || "").trim();
-    return normalizeSortValue(nm ? `${nm} (${sfx})` : sfx);
+    return normalizeSortValue(nm ? `${nm} (${prefix})` : prefix);
   }
 
   function getSortValue(req, key) {
@@ -486,9 +486,9 @@ th.sortable:hover{
     const sorted = stableSortedCopy(requestsCache.slice(), sortState.key, sortState.dir);
 
     tbody.innerHTML = sorted.map(r => {
-      const agencyLabel = r.agencySuffix === '__other__'
-        ? 'Other / Not Listed'
-        : (r.agencyName ? `${r.agencyName} (${r.agencySuffix})` : r.agencySuffix);
+    const agencyLabel = r.groupPrefix === '__other__'
+      ? 'Other / Not Listed'
+      : (r.agencyName ? `${r.agencyName} (${r.groupPrefix})` : r.groupPrefix);
       return `
         <tr data-request-row="1" data-request-id="${esc(r.id)}">
           <td>${esc(fmtDate(r.createdAt))}</td>
@@ -499,7 +499,7 @@ th.sortable:hover{
           <td>
             <div class="row" style="gap:8px; flex-wrap:wrap;">
               ${
-                r.agencySuffix === '__other__'
+                r.groupPrefix === '__other__'
                   ? `<button class="btn" type="button" data-action="approve" data-id="${esc(r.id)}">Review Request</button>`
                   : `<button class="btn success" type="button" data-action="approve" data-id="${esc(r.id)}">Approve</button>`
               }
