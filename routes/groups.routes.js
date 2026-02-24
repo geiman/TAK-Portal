@@ -370,14 +370,53 @@ router.get("/:groupId/members", async (req, res) => {
     });
 
 
-// Export members of a group as CSV
+  }
+});
+
+    let mutual = [];
+    try {
+      const items = mutualAid.list() || [];
+      const groupName = String(group?.name || "").trim();
+      mutual = items.filter((it) => {
+        const idMatch = String(it.groupId || "") === String(groupId);
+        const nameMatch =
+          groupName && String(it.groupName || "").trim() === groupName;
+        return idMatch || nameMatch;
+      });
+    } catch (e) {
+      mutual = [];
+    }
+
+    res.json({
+      group,
+      users,
+      mutualAid: mutual,
+      memberCount: Array.isArray(users) ? users.length : 0,
+    });
+  } catch (err) {
+    res.status(400).json({ error: toErrorPayload(err) });
+  }
+});
+
+
+// Export members of a group as CSV (respects simple search filter via ?search=)
 router.get("/:groupId/members/export-csv", async (req, res) => {
   try {
     const groupId = req.params.groupId;
     const group = await groups.getGroupById(groupId);
     const authUser = req.authentikUser || null;
 
-    const users = await groups.getGroupMembers(groupId, { authUser });
+    let users = await groups.getGroupMembers(groupId, { authUser });
+
+    const search = String(req.query.search || "").toLowerCase().trim();
+    if (search) {
+      users = (users || []).filter(u => {
+        const full = String(u.name || "").toLowerCase();
+        const username = String(u.username || "").toLowerCase();
+        const email = String(u.email || "").toLowerCase();
+        return full.includes(search) || username.includes(search) || email.includes(search);
+      });
+    }
 
     const headers = ["username", "last_name", "first_name", "agency_abbreviation", "email"];
 
@@ -416,31 +455,6 @@ router.get("/:groupId/members/export-csv", async (req, res) => {
       `attachment; filename="${String(group?.name || "group")}_members.csv"`
     );
     res.send(csv);
-  } catch (err) {
-    res.status(400).json({ error: toErrorPayload(err) });
-  }
-});
-
-    let mutual = [];
-    try {
-      const items = mutualAid.list() || [];
-      const groupName = String(group?.name || "").trim();
-      mutual = items.filter((it) => {
-        const idMatch = String(it.groupId || "") === String(groupId);
-        const nameMatch =
-          groupName && String(it.groupName || "").trim() === groupName;
-        return idMatch || nameMatch;
-      });
-    } catch (e) {
-      mutual = [];
-    }
-
-    res.json({
-      group,
-      users,
-      mutualAid: mutual,
-      memberCount: Array.isArray(users) ? users.length : 0,
-    });
   } catch (err) {
     res.status(400).json({ error: toErrorPayload(err) });
   }
