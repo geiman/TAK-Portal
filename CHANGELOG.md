@@ -12,6 +12,10 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.17 - 2/23/26
+✨ `Enhancement` - Changes Pending User Request page to display agency abbreviation, rather than suffix<br>
+
+
 ### v1.2.16 - 2/22/26
 🎉 `New Feature` - Added an Audit Log viewable only by Global Administrators.  This is in ***BETA*** and there are many known issues to be addressed in the near future.
 
