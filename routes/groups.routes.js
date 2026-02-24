@@ -335,15 +335,39 @@ router.post("/mass-unassign", async (req, res) => {
   }
 });
 
-
 // Fetch members of a single group, plus related mutual-aid entries
 router.get("/:groupId/members", async (req, res) => {
   try {
     const groupId = req.params.groupId;
     const group = await groups.getGroupById(groupId);
     const authUser = req.authentikUser || null;
+    const access = accessSvc.getAgencyAccess(authUser);
 
-    const users = await groups.getGroupMembers(groupId, { authUser });
+    // For agency admins, try to use their agency_abbreviation attribute
+    // to allow Authentik to filter members server-side.
+    let agencyAbbreviation = null;
+    if (!access.isGlobalAdmin && authUser?.uid) {
+      try {
+        // Only use attribute-based filtering when the user appears to be a
+        // single-agency admin; otherwise fall back to legacy suffix gate.
+        const allowed = access.allowedAgencySuffixes || [];
+        if (allowed.length === 1) {
+          const me = await usersService.getUserById(authUser.uid);
+          const attrs = me?.attributes || {};
+          const abbr = String(attrs.agency_abbreviation || "").trim();
+          if (abbr) {
+            agencyAbbreviation = abbr;
+          }
+        }
+      } catch (e) {
+        agencyAbbreviation = null;
+      }
+    }
+
+    const users = await groups.getGroupMembers(groupId, {
+      authUser,
+      agencyAbbreviation,
+    });
 
     let mutual = [];
     try {
@@ -365,67 +389,6 @@ router.get("/:groupId/members", async (req, res) => {
       mutualAid: mutual,
       memberCount: Array.isArray(users) ? users.length : 0,
     });
-  } catch (err) {
-    res.status(400).json({ error: toErrorPayload(err) });
-  }
-});
-
-// Export members of a group as CSV
-router.get("/:groupId/members/export-csv", async (req, res) => {
-  try {
-    const groupId = req.params.groupId;
-    const group = await groups.getGroupById(groupId);
-    const authUser = req.authentikUser || null;
-
-    let users = await groups.getGroupMembers(groupId, { authUser });
-
-    const search = String(req.query.search || "").toLowerCase().trim();
-    if (search) {
-      users = (users || []).filter(u => {
-        const full = String(u.name || "").toLowerCase();
-        const username = String(u.username || "").toLowerCase();
-        const email = String(u.email || "").toLowerCase();
-        return full.includes(search) || username.includes(search) || email.includes(search);
-      });
-    }
-
-    const headers = ["username", "last_name", "first_name", "agency_abbreviation", "email"];
-
-    const escapeCsv = (val) => {
-      const s = String(val ?? "");
-      if (s.includes('"') || s.includes(',') || s.includes('\n')) {
-        return '"' + s.replace(/"/g, '""') + '"';
-      }
-      return s;
-    };
-
-    const rows = (users || []).map(u => {
-      const fullName = String(u.name || "").trim();
-      let firstName = "";
-      let lastName = "";
-      if (fullName) {
-        const parts = fullName.split(" ");
-        firstName = parts.slice(0, -1).join(" ") || parts[0] || "";
-        lastName = parts.length > 1 ? parts[parts.length - 1] : "";
-      }
-      const agencyAbbr = String(u.attributes?.agency_abbreviation || "");
-      return [
-        escapeCsv(u.username),
-        escapeCsv(lastName),
-        escapeCsv(firstName),
-        escapeCsv(agencyAbbr),
-        escapeCsv(u.email),
-      ].join(",");
-    });
-
-    const csv = [headers.join(","), ...rows].join("\n");
-
-    res.setHeader("Content-Type", "text/csv");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="${String(group?.name || "group")}_members.csv"`
-    );
-    res.send(csv);
   } catch (err) {
     res.status(400).json({ error: toErrorPayload(err) });
   }

@@ -198,8 +198,6 @@
           <button class="btn success" id="editGroupSaveBtn" type="button">Save Changes</button>
           <span id="editGroupMsg" class="msg"></span>
         </div>
-            <div class="modal-footer">
-        <a id="exportMembersBtn" class="btn btn-success" target="_blank">Export CSV</a>
       </div>
     </div>
   </div>
@@ -275,8 +273,6 @@
       <div class="row" style="margin-top:16px; align-items:center;">
         <button class="btn success" id="massApplyBtn" type="button">Mass Assign</button>
         <span id="massMsg" class="msg"></span>
-            <div class="modal-footer">
-        <a id="exportMembersBtn" class="btn btn-success" target="_blank">Export CSV</a>
       </div>
     </div>
   </div>
@@ -1708,23 +1704,4 @@ if (reloadBtn) reloadBtn.onclick = loadGroups;
 })();
 </script>
 
-</div>
-<script>
-document.addEventListener("click", function(e) {
-  if (e.target && e.target.matches(".view-members-btn")) {
-    const groupId = e.target.getAttribute("data-group-id");
-    const searchParams = new URLSearchParams(window.location.search);
-    const search = searchParams.get("search") || "";
-    const btn = document.getElementById("exportMembersBtn");
-    if (btn && groupId) {
-      let url = `/groups/${groupId}/members/export-csv`;
-      if (search) {
-        url += `?search=${encodeURIComponent(search)}`;
-      }
-      btn.href = url;
-    }
-  }
-});
-</script>
-
-</body></html>
+</div></body></html>
