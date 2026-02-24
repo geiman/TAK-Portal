@@ -391,34 +391,38 @@ async function loadMeta() {
     name: t.name || t.label || `Template ${idx + 1}`,
   }));
 
-  // Keep "manual" at index 0 if the first template looks like it
-  const manual =
-    all[0] && String(all[0].name || "").toLowerCase().includes("manual")
-      ? all[0]
-      : { name: "Manual Group Selection", groups: [] };
+  // Ensure Manual Group Selection exists and is first (stable behavior)
+  const manual = { name: "Manual Group Selection", groups: [] };
 
+  // Sort everything else by name (display only)
   const rest = all
-    .slice(1)
+    .filter(t => String(t.name || "").trim().toLowerCase() !== "manual group selection")
     .slice()
     .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
 
   templatesCache = [manual, ...rest];
 
-  // Existing behavior: value is the INDEX (templateIndex)
+  // NEW behavior: value is the TEMPLATE NAME (stable), not an index
   templateSelect.innerHTML = templatesCache
-    .map((t, i) => `<option value="${i}">${esc(t.name)}</option>`)
+    .map((t) => `<option value="${esc(t.name)}">${esc(t.name)}</option>`)
     .join("");
 
-  // Pick default template index, same as before
-  let defaultIndex = 0;
-  const defaultInRest = rest.findIndex((t) => !!t.isDefault);
-  if (defaultInRest >= 0) {
-    defaultIndex = 1 + defaultInRest;
-  } else if (templatesCache.length > 1) {
-    defaultIndex = 1;
+  // Pick default template by flag, else first non-manual, else manual
+  let defaultName = "Manual Group Selection";
+
+  // Prefer explicitly-marked default
+  const defaultTpl = templatesCache.find(t => !!t.isDefault && String(t.name || "").trim());
+  if (defaultTpl) {
+    defaultName = String(defaultTpl.name).trim();
+  } else {
+    // Otherwise pick first non-manual template if it exists
+    const firstNonManual = templatesCache.find(t =>
+      String(t.name || "").trim().toLowerCase() !== "manual group selection"
+    );
+    if (firstNonManual) defaultName = String(firstNonManual.name).trim();
   }
 
-  templateSelect.value = String(defaultIndex);
+  templateSelect.value = defaultName;
 
   // Fire the existing onchange handler (which shows/hides Manual Groups)
   if (typeof templateSelect.onchange === "function") {
@@ -518,7 +522,8 @@ async function loadGroups() {
 
 // -------------------- Template selection behavior --------------------
 templateSelect.onchange = () => {
-  const isManual = templateSelect.value === "0";
+  const isManual =
+    String(templateSelect.value || "").trim().toLowerCase() === "manual group selection";
   manualGroupsWrap.style.display = isManual ? "block" : "none";
 };
 
@@ -540,7 +545,7 @@ form.onsubmit = async (e) => {
     return;
   }
 
-  if (String(payload.templateIndex) === "0") {
+  if (String(payload.templateIndex || "").trim().toLowerCase() === "manual group selection") {
     const ids = getPickedManualGroupIds();
     if (!ids.length) {
       setMsg("Select at least one manual group.", false);

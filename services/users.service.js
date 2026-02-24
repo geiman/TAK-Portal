@@ -661,72 +661,52 @@ async function createUser(
 
   // Determine selected groups from template/manual
   let selectedGroups = [];
-  const tIdx = Number(templateIndex);
 
-  console.log("---- CREATE USER DEBUG ----");
-  console.log("Incoming templateIndex:", templateIndex);
-  console.log("Parsed templateIndex (Number):", tIdx);
-  console.log("Agency suffix:", agency.suffix);
+  const templateNameRaw = String(templateIndex || "").trim();
+  const dynTemplates = getTemplatesForAgency(agency.suffix);
 
-  // Index 0 = Manual Group Selection
-  if (Number.isInteger(tIdx) && tIdx === 0) {
+  // Manual Group Selection
+  if (templateNameRaw === "Manual Group Selection") {
     templateNameUsed = "Manual Group Selection";
+
     const raw = Array.isArray(manualGroupIds) ? manualGroupIds : [];
 
-    // Allow UI to send either PKs or names
     selectedGroups = raw
       .map(x => String(x).trim())
       .filter(Boolean)
       .map(v => {
-        // try pk match first
         const g1 = byPk.get(v);
         if (g1) return g1;
-
-        // then try numeric-string pk match
         const g2 = byPk.get(String(Number(v)));
         if (g2) return g2;
-
-        // then try name match
         return byNameLower.get(v.toLowerCase()) || null;
       })
       .filter(Boolean);
-
-      console.log("Manual selection group IDs (raw):", raw);
-      console.log(
-        "Manual resolved groups:",
-        selectedGroups.map(g => ({ name: g.name, pk: g.pk }))
-      );
 
     if (!selectedGroups.length) {
       throw new Error(
         "Manual group selection did not match any Authentik groups."
       );
     }
+
   } else {
-    // Dynamic templates start at index 1 in the UI
-    const dynTemplates = getTemplatesForAgency(agency.suffix);
-    const selectedTemplate = dynTemplates[tIdx - 1]; // subtract 1 because index 0 is manual
+    const selectedTemplate = dynTemplates.find(t =>
+      String(t.name || "").trim().toLowerCase() ===
+      templateNameRaw.toLowerCase()
+    );
 
-    if (selectedTemplate) {
-    templateNameUsed = String(selectedTemplate.name || "") || null;
+    if (!selectedTemplate) {
+      throw new Error(`Template "${templateNameRaw}" not found for agency.`);
+    }
 
-    console.log("Selected template:", selectedTemplate.name);
-    console.log("Template groups (names from template):", selectedTemplate.groups);
+    templateNameUsed = String(selectedTemplate.name || "").trim();
 
     selectedGroups = (selectedTemplate.groups || [])
       .map(n =>
         byNameLower.get(String(n).trim().toLowerCase())
       )
       .filter(Boolean);
-
-    console.log(
-      "Resolved template groups:",
-      selectedGroups.map(g => ({ name: g.name, pk: g.pk }))
-    );
-  } else {
-    console.log("No template resolved for index:", tIdx);
   }
-}
   // Merge + dedupe by PK (selected groups only)
   const finalGroups = [
     ...new Map(selectedGroups.map(g => [g.pk, g])).values(),
@@ -1047,12 +1027,14 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
   await runWithConcurrencyLimit(rows, importConcurrency, async row => {
     try {
       const dyn = getTemplatesForAgency(row.agencySuffix);
-      const idx = dyn.findIndex(
+
+      const selectedTemplate = dyn.find(
         t =>
           String(t.name || "").trim().toLowerCase() ===
           String(row.templateName || "").trim().toLowerCase()
       );
-      if (idx < 0) {
+
+      if (!selectedTemplate) {
         // Should not happen due to earlier validation, but keep defensive.
         throw new Error(
           `Template "${row.templateName}" not found during creation`
@@ -1071,8 +1053,8 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
         return;
       }
 
-      // Dynamic templates are offset by +1 (0 = Manual Group Selection)
-      const templateIndex = 1 + idx;
+      // Use template name directly (no index math)
+      const templateIndex = selectedTemplate.name;
 
       const result = await createUser(
         {
