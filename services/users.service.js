@@ -726,7 +726,7 @@ async function createUser(
   } else {
     console.log("No template resolved for index:", tIdx);
   }
-
+}
   // Merge + dedupe by PK (selected groups only)
   const finalGroups = [
     ...new Map(selectedGroups.map(g => [g.pk, g])).values(),
