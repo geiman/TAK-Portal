@@ -12,6 +12,12 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.19 - 2/27/26
+✨ `Enhancement` - Modifies email verbiage prompting the user to set a password
+
+### v1.2.18 - 2/24/26
+🐛 `Bug Fix` - Fixes issue with the wrong template being applied to user creations from manual creation and from pending users. Changed from index based to name based.
+
 ### v1.2.17 - 2/23/26
 ✨ `Enhancement` - Changes Pending User Request page to display agency abbreviation, rather than suffix<br>
 ✨ `Enhancement` - Audit Log now displays time based off local web browser, rather than UTC
