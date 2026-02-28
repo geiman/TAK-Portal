@@ -147,78 +147,83 @@ function portalAuthMiddleware(req, res, next) {
   const hasAnyRequired =
     !anyAdminGroupConfigured || isGlobalAdmin || isAgencyAdmin;
 
-  // ============================================================
-  // ROLE-BASED ROUTE ENFORCEMENT
-  // ============================================================
+// ============================================================
+// ROLE-BASED ROUTE ENFORCEMENT
+// ============================================================
 
-  if (!isPublicPath) {
+function deny() {
+  if (normalizedPath.startsWith("/api/")) {
+    return res.status(403).json({ error: "Access denied" });
+  }
+  return res.status(403).render("access-denied", { username });
+}
 
-    // Must be authenticated
-    if (!username) {
-      return res
-        .status(401)
-        .send(
-          "Authentication required. This portal expects to be behind an Authentik forward_auth proxy."
-        );
+if (!isPublicPath) {
+
+  // Must be authenticated
+  if (!username) {
+    if (normalizedPath.startsWith("/api/")) {
+      return res.status(401).json({ error: "Authentication required" });
     }
 
-    // If admin groups exist, user must be at least agency admin
-    if (!hasAnyRequired) {
-      return res.status(403).render("access-denied", {
-        username,
-      });
-    }
-
-    // GLOBAL ADMINS can access everything
-    if (isGlobalAdmin) {
-      // allow
-    }
-
-    // AGENCY ADMINS limited routes
-    else if (isAgencyAdmin) {
-
-      const allowedAgencyAdminPrefixes = [
-        "/dashboard",
-        "/users",
-        "/groups",
-        "/templates",
-        "/setup-my-device",
-        "/api/users",
-        "/api/groups",
-        "/api/templates",
-        "/api/setup-my-device",
-      ];
-
-      const allowed = allowedAgencyAdminPrefixes.some(prefix =>
-        normalizedPath === prefix || normalizedPath.startsWith(prefix + "/")
+    return res
+      .status(401)
+      .send(
+        "Authentication required. This portal expects to be behind an Authentik forward_auth proxy."
       );
+  }
 
-      if (!allowed) {
-        return res.status(403).render("access-denied", {
-          username,
-        });
-      }
-    }
+  // If admin groups exist, user must be at least agency admin
+  if (!hasAnyRequired) {
+    return deny();
+  }
 
-    // NORMAL USERS: only setup-my-device
-    else {
+  // GLOBAL ADMINS can access everything
+  if (isGlobalAdmin) {
+    // allow
+  }
 
-      const allowedUserPrefixes = [
-        "/setup-my-device",
-        "/api/setup-my-device",
-      ];
+  // AGENCY ADMINS limited routes
+  else if (isAgencyAdmin) {
 
-      const allowed = allowedUserPrefixes.some(prefix =>
-        normalizedPath === prefix || normalizedPath.startsWith(prefix + "/")
-      );
+    const allowedAgencyAdminPrefixes = [
+      "/dashboard",
+      "/users",
+      "/groups",
+      "/templates",
+      "/setup-my-device",
+      "/api/users",
+      "/api/groups",
+      "/api/templates",
+      "/api/setup-my-device",
+    ];
 
-      if (!allowed) {
-        return res.status(403).render("access-denied", {
-          username,
-        });
-      }
+    const allowed = allowedAgencyAdminPrefixes.some(prefix =>
+      normalizedPath === prefix || normalizedPath.startsWith(prefix + "/")
+    );
+
+    if (!allowed) {
+      return deny();
     }
   }
+
+  // NORMAL USERS: only setup-my-device
+  else {
+
+    const allowedUserPrefixes = [
+      "/setup-my-device",
+      "/api/setup-my-device",
+    ];
+
+    const allowed = allowedUserPrefixes.some(prefix =>
+      normalizedPath === prefix || normalizedPath.startsWith(prefix + "/")
+    );
+
+    if (!allowed) {
+      return deny();
+    }
+  }
+}
 
   const displayNameHeader =
     req.headers["x-authentik-name"] || req.headers["x-authentik-display-name"];
