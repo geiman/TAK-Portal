@@ -16,7 +16,6 @@ const emailTemplatesSvc = require("./services/emailTemplates.service");
 const qrSvc = require("./services/qr.service");
 const agenciesStore = require("./services/agencies.service");
 const userRequestsSvc = require("./services/userRequests.service");
-const updaterSvc = require("./services/updater.service");
 const auditSvc = require("./services/auditLog.service");
 const accessSvc = require("./services/access.service");
 
@@ -179,17 +178,6 @@ function requireGlobalAdmin(req, res, next) {
 
   next();
 }
-
-// Helper: ONLY allow Global Admins to run server update actions
-function requireOnlyGlobalAdmin(req, res, next) {
-  const user = req.authentikUser;
-  if (!user || !user.isGlobalAdmin) {
-    const username = user && user.username ? user.username : "";
-    return res.status(403).render("access-denied", { username });
-  }
-  next();
-}
-
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
 
@@ -241,11 +229,6 @@ app.use("/api/mutual-aid", require("./routes/mutualAid.routes"));
 app.use("/api/tak", require("./routes/takMetrics.routes"));
 app.use("/api/user-requests", require("./routes/userRequests.routes"));
 app.use("/api/audit-log", requireOnlyGlobalAdmin, require("./routes/auditLog.routes"));
-app.use(
-  "/api/update",
-  requireOnlyGlobalAdmin,
-  require("./routes/update.routes")
-);
 app.use("/dashboard", require("./routes/dashboard.routes"));
 
 // UI Routes

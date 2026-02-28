@@ -71,8 +71,9 @@ cd ~/TAK-Portal && ./takportal start
 ## Getting Started
 
 1. Navigate to `Manage Agencies` and create your first agency.
-2. Navigate to `Agency Templates` and begin creating templates for your users (You may need to visit `Manage Groups` if there are no existing groups.)
-3. Navigate to `Create Users` and create your first user
+2. Navigate to `Groups` and create groups for your state, county, or agency.
+3. Navigate to `Agency Templates` and begin creating templates for your users.
+4. Navigate to `Create Users` and create your first user
 
 ---
 
