@@ -147,7 +147,6 @@ app.use((req, res, next) => {
   }
   next();
 });
-
 // Helper: only allow Global Admins to access certain routes (e.g. settings, templates)
 function requireGlobalAdmin(req, res, next) {
   const user = req.authentikUser;
@@ -227,16 +226,7 @@ app.use(
   requireOnlyGlobalAdmin,
   require("./routes/update.routes")
 );
-app.use("/dashboard", require("./routes/dashboard.routes"));
-
 // UI Routes
-
-app.get("/", (req, res) => {
-  const user = req.authentikUser;
-  const isAdmin = !!(user && (user.isGlobalAdmin || user.isAgencyAdmin));
-  if (!isAdmin) return res.redirect("setup-my-device");
-  return res.redirect("dashboard");
-});
 
 app.get("/users/create", (req, res) => res.render("users-create"));
 app.get("/users/manage", (req, res) => {
@@ -328,6 +318,7 @@ app.get("/setup-my-device", (req, res) => {
   const takHost = qrSvc.getTakHost();
   return res.render("setup-my-device", { takHost });
 });
+
 
 // Public: account lookup (must remain reachable by non-authenticated users)
 app.get("/lookup", (req, res) => {
@@ -559,10 +550,25 @@ app.post("/request-access", async (req, res) => {
 
 app.get("/request-access/confirmation", (req, res) => {
   return res.render("request-access-confirmation");
-});
+
 
 // >>> Enforce optional Authentik/group access control <<<
+// Everything below this line requires Authentik forward_auth (except static assets above).
+// Public routes like /lookup and /request-access are defined ABOVE this middleware.
 app.use(portalAuth);
+
+
+app.get("/", (req, res) => {
+  const user = req.authentikUser;
+  const isAdmin = !!(user && (user.isGlobalAdmin || user.isAgencyAdmin));
+  if (!isAdmin) return res.redirect("setup-my-device");
+  return res.redirect("dashboard");
+});
+
+
+app.use("/dashboard", require("./routes/dashboard.routes"));
+
+});
 
 // Admin: review pending access requests
 app.get("/pending-user-requests", requireGlobalAdmin, (req, res) => {
