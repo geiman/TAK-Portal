@@ -228,7 +228,7 @@ app.use("/api/setup-my-device", require("./routes/setupDevice.routes"));
 app.use("/api/mutual-aid", require("./routes/mutualAid.routes"));
 app.use("/api/tak", require("./routes/takMetrics.routes"));
 app.use("/api/user-requests", require("./routes/userRequests.routes"));
-app.use("/api/audit-log", requireOnlyGlobalAdmin, require("./routes/auditLog.routes"));
+app.use("/api/audit-log", requireGlobalAdmin, require("./routes/auditLog.routes"));
 app.use("/dashboard", require("./routes/dashboard.routes"));
 
 // UI Routes
