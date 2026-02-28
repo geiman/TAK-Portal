@@ -12,6 +12,9 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.23 - 2/28/26
+✨ `Enhancement` - Removes (failed) auto-updater to make way for a special project with AJ. Reverts to previous update instructions.
+
 ### v1.2.22 - 2/28/26
 🐛 `Bug Fix` - Fixes issue with authentication introduced by 1.2.21.  Agency admins and users had unrestricted access to protected pages.
 
