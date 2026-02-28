@@ -479,7 +479,7 @@ app.post("/lookup", async (req, res) => {
     return res.render("lookup", {
       form: {},
       error: null,
-      success: "If the account was found, a QR code has been emailed.",
+      success: "Your account has been found and a QR code has been sent to your email address. Please note that this QR code is valid only for 15 minutes.",
       hcaptchaEnabled,
       hcaptchaSiteKey: hcaptchaEnabled ? hcaptchaSiteKey : ""
     });
