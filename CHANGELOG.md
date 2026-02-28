@@ -12,6 +12,9 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.20 - 2/28/26
+🐛 `Bug Fix` - Fixes issue with groups not appearing in TAK Portal due to changes in Authentik API 2025.12 and 2026.2.  It is recommended that all users update Authentik to version 2026.2.
+
 ### v1.2.19 - 2/27/26
 ✨ `Enhancement` - Modifies email verbiage prompting the user with better instructions to set a password
 
