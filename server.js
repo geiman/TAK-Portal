@@ -372,7 +372,9 @@ app.post("/lookup", async (req, res) => {
   try {
     const body = req.body || {};
     const email = String(body.email || "").trim().toLowerCase();
-    const username = String(body.username || "").trim();
+    const username = String(body.username || "")
+      .trim()
+      .toLowerCase();
 
     const settings = (res.locals && res.locals.settings)
       ? res.locals.settings
@@ -438,7 +440,9 @@ app.post("/lookup", async (req, res) => {
     const allUsers = await usersSvc.getAllUsers({ forceRefresh: true });
 
     const user = allUsers.find(u =>
-      String(u.username || "").trim() === username &&
+      String(u.username || "")
+        .trim()
+        .toLowerCase() === username &&
       (!u.email || !String(u.email).trim())
     );
 

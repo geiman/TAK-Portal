@@ -12,6 +12,9 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.21 - 2/28/26
+🎉 `New Feature` - Added a /lookup page to better cater to agencies who have shared/apparatus accounts.  If enabled on the agencies page by a global admin, users can go to takportal.agency.gov/lookup and enter their email address and requested username.  If their email matches the domain provided by the admin and the requested username exists without an email address listed, that QR code gets emailed to the requesting user.
+
 ### v1.2.20 - 2/28/26
 🐛 `Bug Fix` - Fixes issue with groups not appearing in TAK Portal due to changes in Authentik API 2025.12 and 2026.2.  It is recommended that all users update Authentik to version 2026.2.
 
