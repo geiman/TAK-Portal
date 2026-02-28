@@ -148,9 +148,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// >>> Enforce optional Authentik/group access control <<<
-app.use(portalAuth);
-
 // Helper: only allow Global Admins to access certain routes (e.g. settings, templates)
 function requireGlobalAdmin(req, res, next) {
   const user = req.authentikUser;
@@ -331,98 +328,6 @@ app.get("/setup-my-device", (req, res) => {
   const takHost = qrSvc.getTakHost();
   return res.render("setup-my-device", { takHost });
 });
-
-
-// Public: account lookup (must remain reachable by non-authenticated users)
-app.get("/lookup", (req, res) => {
-  const settings = (res.locals && res.locals.settings) ? res.locals.settings : (settingsSvc.getSettings() || {});
-  const hcaptchaSiteKey = String(settings.HCAPTCHA_SITE_KEY || "").trim();
-  const hcaptchaSecretKey = String(settings.HCAPTCHA_SECRET_KEY || "").trim();
-  const hcaptchaEnabled = !!(hcaptchaSiteKey && hcaptchaSecretKey);
-
-  return res.render("lookup", {
-    form: {},
-    error: null,
-    success: null,
-    hcaptchaEnabled,
-    hcaptchaSiteKey: hcaptchaEnabled ? hcaptchaSiteKey : ""
-  });
-});
-
-app.post("/lookup", async (req, res) => {
-  try {
-    const body = req.body || {};
-    const email = String(body.email || "").trim().toLowerCase();
-    const username = String(body.username || "").trim();
-
-    if (!email || !username) {
-      throw new Error("Email address or Username Not Found");
-    }
-
-    const domain = email.split("@")[1] || "";
-    const agencies = agenciesStore.load() || [];
-    const agency = agencies.find(a =>
-      String(a.domain || a.suffix || "").toLowerCase() === domain.toLowerCase() &&
-      a.lookupEnabled === true
-    );
-
-    if (!agency) {
-      throw new Error("Email address or Username Not Found");
-    }
-
-    const usersSvc = require("./services/users.service");
-    const allUsers = await usersSvc.getAllUsers({ forceRefresh: true });
-    const user = allUsers.find(u =>
-      String(u.username || "") === username &&
-      (!u.email || !String(u.email).trim())
-    );
-
-    if (!user) {
-      throw new Error("Email address or Username Not Found");
-    }
-
-    const tokensSvc = require("./services/authentikTokens.service");
-    const qrSvc = require("./services/qr.service");
-
-    const { key } = await tokensSvc.getOrCreateEnrollmentAppPassword({
-      username: user.username,
-      userId: user.pk || user.id
-    });
-
-    const enrollUrl = qrSvc.buildEnrollUrl({ username: user.username, token: key });
-    const pngBuffer = await qrSvc.generateDownloadPng(enrollUrl, user.username);
-
-    await emailSvc.sendMail({
-      to: email,
-      subject: "Your TAK Enrollment QR Code",
-      text: "Attached is your TAK enrollment QR code.",
-      attachments: [
-        {
-          filename: `tak-${user.username}-enrollment-qr.png`,
-          content: pngBuffer
-        }
-      ]
-    });
-
-    return res.render("lookup", {
-      form: {},
-      error: null,
-      success: "If the account was found, a QR code has been emailed.",
-      hcaptchaEnabled: false,
-      hcaptchaSiteKey: ""
-    });
-
-  } catch (err) {
-    return res.status(400).render("lookup", {
-      form: req.body || {},
-      error: "Email address or Username Not Found",
-      success: null,
-      hcaptchaEnabled: false,
-      hcaptchaSiteKey: ""
-    });
-  }
-});
-
 
 // Public: account lookup (must remain reachable by non-authenticated users)
 app.get("/lookup", (req, res) => {
@@ -655,6 +560,9 @@ app.post("/request-access", async (req, res) => {
 app.get("/request-access/confirmation", (req, res) => {
   return res.render("request-access-confirmation");
 });
+
+// >>> Enforce optional Authentik/group access control <<<
+app.use(portalAuth);
 
 // Admin: review pending access requests
 app.get("/pending-user-requests", requireGlobalAdmin, (req, res) => {
