@@ -97,15 +97,12 @@ router.get("/", (req, res) => {
 // Agencies (no user counts anymore)
 router.get("/with-counts", async (req, res) => {
   try {
-    const all = store.load();
-    const visible = accessSvc.filterAgenciesForUser(req.authentikUser, all);
+    const agencies = store.load();
+    const visible = accessSvc.filterAgenciesForUser(req.authentikUser, agencies);
 
-    const result = visible.map((a) => {
-      const originalIndex = all.findIndex(x =>
-        String(x.suffix || "").toLowerCase() === String(a.suffix || "").toLowerCase()
-      );
-
-      return { ...a, id: originalIndex, _id: originalIndex };
+    const result = visible.map((a, index) => {
+      const id = index;
+      return { ...a, id, _id: id };
     });
 
     res.json(result);
