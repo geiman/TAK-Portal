@@ -1182,13 +1182,21 @@ function renderResults(users){
 }
 
 function renderGroupChips(user){
-  const ids = Array.isArray(user.groups) ? user.groups.map(x => String(x)) : [];
-  const names = ids
-    .map(id => groupIndex.get(id) || ("Group " + id))
+  const ids = Array.isArray(user.groups)
+    ? user.groups.map(x => String(x))
+    : [];
+
+  // Only show groups that are visible in this portal
+  const visibleNames = ids
+    .filter(id => visibleGroupIds.has(String(id)))   // <-- key change
+    .map(id => groupIndex.get(id))
+    .filter(Boolean)
     .sort((a,b)=>String(a).localeCompare(String(b)));
 
-  groupChips.innerHTML = names.length
-    ? names.map(n => `<span class="chip">${escapeHtml(stripTakPrefix(n))}</span>`).join("")
+  groupChips.innerHTML = visibleNames.length
+    ? visibleNames.map(n =>
+        `<span class="chip">${escapeHtml(stripTakPrefix(n))}</span>`
+      ).join("")
     : `<span class="muted">None</span>`;
 }
 
