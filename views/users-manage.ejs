@@ -1858,8 +1858,7 @@ function updatePaginationControls() {
   if (haveTop) paginationTop.style.display = "flex";
   if (haveBottom) paginationBottom.style.display = "flex";
 
-  const shown = currentPageUsers.length;
-  const infoText = `Page ${currentPage} of ${totalPages} — showing ${shown} of ${total} users`;
+  const infoText = `Page ${currentPage} of ${totalPages}`;
 
   if (pageInfoTop) pageInfoTop.textContent = infoText;
   if (pageInfoBottom) pageInfoBottom.textContent = infoText;
