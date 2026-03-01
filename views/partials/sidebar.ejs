@@ -68,7 +68,12 @@
 
       <% if (isAdmin && typeof APP_UPDATE_AVAILABLE !== "undefined" && APP_UPDATE_AVAILABLE) { %>
         <div class="update-available-form">
-          <button type="button" class="update-available-pill" id="update-pill">
+          <button
+            type="button"
+            class="update-available-pill"
+            id="update-pill"
+            <% if (!_isGlobalAdmin) { %> disabled style="opacity:.6; cursor:not-allowed;" <% } %>
+          >
             Update Available
             <% if (typeof APP_LATEST_VERSION !== "undefined" && APP_LATEST_VERSION) { %>
               &nbsp;(v<%= APP_LATEST_VERSION %>)
@@ -81,7 +86,7 @@
 </aside>
 
 <% /* Modal OUTSIDE sidebar so layout never interferes */ %>
-<% if (isAdmin && typeof APP_UPDATE_AVAILABLE !== "undefined" && APP_UPDATE_AVAILABLE) { %>
+<% if (_isGlobalAdmin && typeof APP_UPDATE_AVAILABLE !== "undefined" && APP_UPDATE_AVAILABLE) { %>
   <div id="update-modal" class="modalOverlay" style="display:none;">
     <div class="modal updateModal">
       <div class="modalHeader">
