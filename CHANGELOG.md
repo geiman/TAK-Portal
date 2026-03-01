@@ -12,6 +12,11 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.24 - 3/1/26
+🐛 `Bug Fix` - Fixes issue with incorrect user totals on User paging system (removed the count but left "Page 1 of x")
+🐛 `Bug Fix` - Fixes issue with hidden groups appearing as UIDs
+🐛 `Bug Fix` - Fixes issue with count of groups shown on dashboard including hidden groups
+
 ### v1.2.23 - 2/28/26
 ✨ `Enhancement` - Removes (failed) auto-updater to make way for a special project with AJ. Reverts to previous update instructions.
 

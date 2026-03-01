@@ -1,22 +1,7 @@
 const settingsSvc = require("./settings.service");
 const usersService = require("./users.service");
+const groupsService = require("./groups.service");
 const agenciesStore = require("./agencies.service");
-
-/**
- * Dashboard Authentik Stats Cache
- *
- * Purpose:
- * - Keep the Dashboard fast even with many users/groups.
- * - Refresh Authentik-derived stats in the background on a fixed interval.
- *
- * Scope:
- * - ONLY used by the dashboard route. Other routes remain live/uncached.
- *
- * Note:
- * - Refresh interval is read from settings.json:
- *   DASHBOARD_AUTHENTIK_STATS_REFRESH_SECONDS (default 300)
- * - Historically changes required restart; we now support restart after import.
- */
 
 const DEFAULT_REFRESH_SECONDS = 300;
 const MIN_REFRESH_SECONDS = 30;
@@ -130,7 +115,7 @@ async function refreshNow() {
     // Authentik data
     const [users, groups] = await Promise.all([
       usersService.getAllUsers(),
-      usersService.getAllGroups(),
+      groupsService.getAllGroups(), // <-- use portal logic
     ]);
 
     // Local data (agencies)
