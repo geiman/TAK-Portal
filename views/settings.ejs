@@ -156,12 +156,6 @@
             <% } %>
           </span>
 
-          <% if (settings.TAK_API_P12_PATH) { %>
-            <small class="settings-help">
-              Current file: <code><%= settings.TAK_API_P12_PATH.split('/').pop() %></code>
-            </small>
-          <% } %>
-
           <input type="file" name="TAK_API_P12_UPLOAD" accept=".p12,.pfx,application/x-pkcs12" />
           <small class="settings-help">
             Upload a new file to replace the existing certificate.
@@ -179,12 +173,6 @@
               <span class="cert-status missing">Not Installed</span>
             <% } %>
           </span>
-
-          <% if (settings.TAK_CA_PATH) { %>
-            <small class="settings-help">
-              Current file: <code><%= settings.TAK_CA_PATH.split('/').pop() %></code>
-            </small>
-          <% } %>
 
           <input type="file" name="TAK_CA_UPLOAD" accept=".pem,.crt,.cer,.der" />
           <small class="settings-help">
