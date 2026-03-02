@@ -149,7 +149,7 @@
         <label class="settings-field">
           <span class="settings-label">
             Client P12 Certificate
-            <% if (settings.TAK_API_P12_PATH) { %>
+            <% if (p12Exists) { %>
               <span class="cert-status installed">Installed</span>
             <% } else { %>
               <span class="cert-status missing">Not Installed</span>
@@ -167,7 +167,7 @@
         <label class="settings-field">
           <span class="settings-label">
             TAK Server CA Certificate
-            <% if (settings.TAK_CA_PATH) { %>
+            <% if (caExists) { %>
               <span class="cert-status installed">Installed</span>
             <% } else { %>
               <span class="cert-status missing">Not Installed</span>

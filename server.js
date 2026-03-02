@@ -577,6 +577,16 @@ app.get("/settings", requireGlobalAdmin, (req, res) => {
   const settings = settingsSvc.getSettings();
   const keys = Object.keys(settings).sort();
 
+  // --- REAL FILE EXISTENCE CHECKS ---
+  function fileExistsSafe(relPath) {
+    if (!relPath || typeof relPath !== "string") return false;
+    const abs = path.resolve(process.cwd(), relPath);
+    return fs.existsSync(abs);
+  }
+
+  const p12Exists = fileExistsSafe(settings.TAK_API_P12_PATH);
+  const caExists = fileExistsSafe(settings.TAK_CA_PATH);
+
   // Discover available email HTML templates (for admin editing).
   let emailTemplates = [];
   try {
@@ -621,7 +631,15 @@ app.get("/settings", requireGlobalAdmin, (req, res) => {
     emailTemplates = [];
   }
 
-  res.render("settings", { settings, keys, emailTemplates, importStatus: req.query.import, importError: req.query.error });
+  res.render("settings", {
+  settings,
+  keys,
+  emailTemplates,
+  importStatus: req.query.import,
+  importError: req.query.error,
+  p12Exists,
+  caExists
+  });
 });
 
 
