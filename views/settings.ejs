@@ -148,24 +148,44 @@
 
             <label class="settings-field">
               <span class="settings-label">Client P12 Certificate</span>
-              <input type="file" name="TAK_API_P12_UPLOAD" accept=".p12,.pfx,application/x-pkcs12" />
+
               <% if (settings.TAK_API_P12_PATH) { %>
-                <small class="settings-help">Currently stored at: <code><%= settings.TAK_API_P12_PATH %></code></small>
+                <div style="margin-bottom:6px;">
+                  <strong style="color:green;">Certificate Installed</strong><br/>
+                  <small class="settings-help">
+                    Current file: <code><%= settings.TAK_API_P12_PATH.split('/').pop() %></code>
+                  </small>
+                </div>
               <% } else { %>
-                <small class="settings-help">Stored under <code>data/certs/</code> inside the container.</small>
+                <div style="margin-bottom:6px;">
+                  <strong style="color:#b91c1c;">No Certificate Uploaded</strong>
+                </div>
               <% } %>
+
+              <input type="file" name="TAK_API_P12_UPLOAD" accept=".p12,.pfx,application/x-pkcs12" />
+              <small class="settings-help">Upload a new file to replace the existing certificate.</small>
             </label>
 
             <% renderField("TAK_API_P12_PASSPHRASE","Client P12 Passphrase","Passphrase for the client .p12 file (may be empty)."); %>
 
             <label class="settings-field">
               <span class="settings-label">TAK Server CA Certificate</span>
-              <input type="file" name="TAK_CA_UPLOAD" accept=".pem,.crt,.cer,.der" />
+
               <% if (settings.TAK_CA_PATH) { %>
-                <small class="settings-help">Currently stored at: <code><%= settings.TAK_CA_PATH %></code></small>
+                <div style="margin-bottom:6px;">
+                  <strong style="color:green;">CA Certificate Installed</strong><br/>
+                  <small class="settings-help">
+                    Current file: <code><%= settings.TAK_CA_PATH.split('/').pop() %></code>
+                  </small>
+                </div>
               <% } else { %>
-                <small class="settings-help">Stored under <code>data/certs/</code>.</small>
+                <div style="margin-bottom:6px;">
+                  <strong style="color:#b91c1c;">No CA Certificate Uploaded</strong>
+                </div>
               <% } %>
+
+              <input type="file" name="TAK_CA_UPLOAD" accept=".pem,.crt,.cer,.der" />
+              <small class="settings-help">Upload a new file to replace the existing CA certificate.</small>
             </label>
 
             <% renderField("TAK_REVOKE_ON_DISABLE","Revoke on Disable","If true, revokes TAK certs when a user is disabled."); %>
