@@ -12,6 +12,9 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.27 - 3/2/26
+✨ `Enhancement` - Updated Server Settings to display a "Installed" or "Not Installed" chip beside the TAK Server Client and Certificate upload fields to indicate if a file has been uploaded
+
 ### v1.2.26 - 3/1/26
 ✨ `Enhancement` - Make agency dropdown sort alphabetically on the Templates Page<br>
 ✨ `Enhancement` - Remove "TWRA" from Agency Type (sorry Tennessee) and replace with "Game Warden" on Agencies Page <br>
