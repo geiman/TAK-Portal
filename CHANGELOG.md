@@ -12,6 +12,9 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.28 - 3/2/26
+✨ `Enhancement` - Added eyeball toggle in Server Settings to hide Authentik API Token and Client P12 Password by default
+
 ### v1.2.27 - 3/2/26
 ✨ `Enhancement` - Updated Server Settings to display a "Installed" or "Not Installed" chip beside the TAK Server Client and Certificate upload fields to indicate if a file has been uploaded
 
