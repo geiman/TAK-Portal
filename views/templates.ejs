@@ -224,10 +224,21 @@ const selectAllBtn = document.getElementById("selectAllBtn");
 const clearAllBtn = document.getElementById("clearAllBtn");
 const groupsInner = document.getElementById("groupsInner");
 
+groupsBox.addEventListener("change", (e) => {
+  const cb = e.target;
+  if (!cb || cb.tagName !== "INPUT" || cb.type !== "checkbox") return;
+
+  const name = String(cb.value);
+
+  if (cb.checked) pickedGroupNames.add(name);
+  else pickedGroupNames.delete(name);
+});
+
 let allGroups = [];
 let allTemplates = [];
 let allAgencies = [];
 let editingIndex = null;
+let pickedGroupNames = new Set();
 
 function setMsg(text, ok=true){
   msg.textContent = text || "";
@@ -243,18 +254,6 @@ function esc(s){
     .replaceAll("'","&#39;");
 }
 
-function getCheckedGroupNames(){
-  return Array.from(groupsBox.querySelectorAll('input[type="checkbox"]:checked'))
-    .map(cb => cb.value);
-}
-
-function setCheckedGroupNames(names){
-  const set = new Set((names || []).map(String));
-  Array.from(groupsBox.querySelectorAll('input[type="checkbox"]')).forEach(cb => {
-    cb.checked = set.has(cb.value);
-  });
-}
-
 function renderGroups(filterText = ""){
   const q = String(filterText || "").trim().toLowerCase();
 
@@ -268,18 +267,15 @@ function renderGroups(filterText = ""){
       return raw.includes(q) || disp.includes(q);
     });
 
-  groupsInner.innerHTML = list.map(rawName => `
-    <label class="groupItem">
-      <input type="checkbox" value="${esc(rawName)}" />
-      <span>${esc(displayGroupName(rawName))}</span>
-    </label>
-  `).join("");
-
-
-  if (editingIndex !== null) {
-    const t = allTemplates[editingIndex];
-    setCheckedGroupNames(t?.groups || []);
-  }
+  groupsInner.innerHTML = list.map(rawName => {
+    const checked = pickedGroupNames.has(rawName) ? "checked" : "";
+    return `
+      <label class="groupItem">
+        <input type="checkbox" value="${esc(rawName)}" ${checked} />
+        <span>${esc(displayGroupName(rawName))}</span>
+      </label>
+    `;
+  }).join("");
 }
 
 async function loadAgencies(){
@@ -353,8 +349,8 @@ function setCreateMode(){
   colorOverrideEl.value = "";
   isDefaultEl.value = "no";
   groupSearch.value = "";
+  pickedGroupNames.clear();
   renderGroups("");
-  setCheckedGroupNames([]);
 }
 
 function setEditMode(idx){
@@ -371,8 +367,8 @@ function setEditMode(idx){
   colorOverrideEl.value = t.colorOverride || "";
   isDefaultEl.value = t.isDefault ? "yes" : "no";
   groupSearch.value = "";
+  pickedGroupNames = new Set(t.groups || []);
   renderGroups("");
-  setCheckedGroupNames(t.groups || []);
 
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -403,11 +399,17 @@ groupSearch.oninput = () => {
 };
 
 selectAllBtn.onclick = () => {
-  Array.from(groupsBox.querySelectorAll('input[type="checkbox"]')).forEach(cb => cb.checked = true);
+  Array.from(groupsBox.querySelectorAll('input[type="checkbox"]')).forEach(cb => {
+    cb.checked = true;
+    pickedGroupNames.add(cb.value);
+  });
 };
 
 clearAllBtn.onclick = () => {
-  Array.from(groupsBox.querySelectorAll('input[type="checkbox"]')).forEach(cb => cb.checked = false);
+  Array.from(groupsBox.querySelectorAll('input[type="checkbox"]')).forEach(cb => {
+    cb.checked = false;
+  });
+  pickedGroupNames.clear();
 };
 
 cancelEditBtn.onclick = () => setCreateMode();
@@ -420,7 +422,7 @@ form.onsubmit = async (e) => {
     name: nameEl.value.trim(),
     agencySuffix: agencyEl.value,
     colorOverride: (colorOverrideEl.value || ""),
-    groups: getCheckedGroupNames(),
+    groups: Array.from(pickedGroupNames),
     isDefault: isDefaultEl.value === "yes"
   };
 
