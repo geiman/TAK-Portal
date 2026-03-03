@@ -143,6 +143,20 @@ router.get("/meta", async (req, res) => {
       return an.localeCompare(bn, undefined, { numeric: true, sensitivity: "base" });
     });
 
+    // Apply hidden prefix filtering (same logic as old /api/users/groups)
+    const hiddenRaw = String(process.env.GROUPS_HIDDEN_PREFIXES || "");
+    const hiddenPrefixes = hiddenRaw
+      .split(",")
+      .map(p => String(p || "").trim().toLowerCase())
+      .filter(Boolean);
+
+    if (hiddenPrefixes.length) {
+      groups = groups.filter(g => {
+        const name = String(g?.name || "").toLowerCase();
+        return !hiddenPrefixes.some(prefix => name.startsWith(prefix));
+      });
+    }
+
     res.json({
       groups,
       templates,
