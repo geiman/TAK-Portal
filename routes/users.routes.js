@@ -469,22 +469,38 @@ router.get("/search", async (req, res) => {
       if (sortKey === "email") return String(user.email || "").toLowerCase();
       if (sortKey === "status") return user.is_active ? "enabled" : "disabled";
 
-      // default = name (already "Last, First")
+      if (sortKey === "role") {
+        // Determine role
+        const groupIds = Array.isArray(user?.groups) ? user.groups.map(String) : [];
+
+        // Global admin?
+        if (access.isGlobalAdmin && groupIds.length) {
+          return "admin";
+        }
+
+        if (access.isAgencyAdmin) {
+          // AgencyAdmin group detection
+          const agencyPrefixes = accessSvc
+            .getAgencyAndCountyPrefixesForUser(authUser)
+            .agencyPrefixes || [];
+
+          const adminGroupNames = agencyPrefixes.map(
+            abbr => `authentik-${abbr}-agencyadmin`.toLowerCase()
+          );
+
+          // If user is in one of those groups → admin
+          const isAdmin = (user.groupNames || []).some(g =>
+            adminGroupNames.includes(String(g).toLowerCase())
+          );
+
+          return isAdmin ? "admin" : "user";
+        }
+
+        return "user";
+      }
+
+      // default = name
       return String(user.name || "").toLowerCase();
-    }
-
-    function applySort(arr) {
-      arr.sort((a, b) => {
-        const av = getSortValue(a);
-        const bv = getSortValue(b);
-
-        const cmp = av.localeCompare(bv, undefined, {
-          numeric: true,
-          sensitivity: "base"
-        });
-
-        return sortDir === "desc" ? -cmp : cmp;
-      });
     }
 
     // ---------------- GLOBAL ADMINS ----------------
