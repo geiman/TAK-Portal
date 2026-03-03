@@ -33,7 +33,29 @@ router.get("/", async (req, res) => {
     const authUser = req.authentikUser || null;
 
     // First apply normal access filtering
+    const access = accessSvc.getAgencyAccess(authUser);
+
+    // Start with normal agency filtering
     let filtered = accessSvc.filterGroupsForUser(authUser, all);
+
+    // If NOT global admin, allow non-private global groups to be visible
+    if (!access.isGlobalAdmin) {
+      const globalVisible = (all || []).filter(g => {
+        const attrs = g?.attributes || {};
+        const createdType = String(attrs.created_type || "").toLowerCase();
+        const isPrivate = String(attrs.private || "no").toLowerCase() === "yes";
+
+        return createdType === "global" && !isPrivate;
+      });
+
+      const existing = new Set(filtered.map(g => String(g.pk)));
+
+      for (const g of globalVisible) {
+        if (!existing.has(String(g.pk))) {
+          filtered.push(g);
+        }
+      }
+    }
 
     // Then apply hidden prefix filtering
     const hiddenPrefixes = String(getString("GROUPS_HIDDEN_PREFIXES", "") || "")
