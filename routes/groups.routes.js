@@ -30,7 +30,27 @@ router.get("/", async (req, res) => {
     const forceRefresh = req.query.forceRefresh === "true";
     const all = await groups.getAllGroups({ forceRefresh });
     const authUser = req.authentikUser || null;
-    const filtered = accessSvc.filterGroupsForUser(authUser, all);
+
+    // First apply normal access filtering
+    let filtered = accessSvc.filterGroupsForUser(authUser, all);
+
+    // Then apply hidden prefix filtering
+    const hiddenPrefixes = String(process.env.GROUPS_HIDDEN_PREFIXES || "")
+      .split(",")
+      .map(p => String(p || "").trim().toLowerCase())
+      .filter(Boolean);
+
+    if (hiddenPrefixes.length) {
+      filtered = filtered.filter(g => {
+        const raw = String(g.name || "").trim().toLowerCase();
+        const withoutTak = raw.startsWith("tak_") ? raw.slice(4) : raw;
+
+        return !hiddenPrefixes.some(prefix =>
+          raw.startsWith(prefix) || withoutTak.startsWith(prefix)
+        );
+      });
+    }
+
     res.json(filtered);
   } catch (err) {
     res.status(500).json({ error: toErrorPayload(err) });
