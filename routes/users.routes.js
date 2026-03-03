@@ -137,6 +137,11 @@ router.get("/meta", async (req, res) => {
         isDefault: t.isDefault,
       })),
     ];
+    groups.sort((a, b) => {
+      const an = String(a?.name || "").toLowerCase();
+      const bn = String(b?.name || "").toLowerCase();
+      return an.localeCompare(bn, undefined, { numeric: true, sensitivity: "base" });
+    });
 
     res.json({
       groups,
