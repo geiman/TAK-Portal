@@ -144,7 +144,7 @@ router.get("/meta", async (req, res) => {
     });
 
     // Apply hidden prefix filtering (same logic as old /api/users/groups)
-    const hiddenRaw = String(process.env.GROUPS_HIDDEN_PREFIXES || "");
+    const hiddenRaw = String(getString("GROUPS_HIDDEN_PREFIXES", "") || "");
     const hiddenPrefixes = hiddenRaw
       .split(",")
       .map(p => String(p || "").trim().toLowerCase())
