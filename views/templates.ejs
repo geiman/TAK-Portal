@@ -305,10 +305,14 @@ async function loadAgencies(){
 }
 
 async function loadGroups(){
-  const res = await fetch("/api/users/groups");
-  const groups = await res.json();
-  if (!res.ok) throw new Error(groups.error || "Failed to load groups");
-  allGroups = groups;
+  const sfx = agencyEl.value || "";
+  const res = await fetch(
+    "/api/users/meta?agencySuffix=" + encodeURIComponent(sfx)
+  );
+  const meta = await res.json();
+  if (!res.ok) throw new Error(meta.error || "Failed to load groups");
+
+  allGroups = Array.isArray(meta.groups) ? meta.groups : [];
   renderGroups("");
 }
 
