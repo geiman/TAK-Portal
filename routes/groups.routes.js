@@ -5,6 +5,7 @@ const agencies = require("../services/agencies.service");
 const accessSvc = require("../services/access.service");
 const usersService = require("../services/users.service");
 const auditSvc = require("../services/auditLog.service");
+const { getString } = require("../services/env");
 
 
 function ensureTakPrefix(name) {
@@ -35,7 +36,7 @@ router.get("/", async (req, res) => {
     let filtered = accessSvc.filterGroupsForUser(authUser, all);
 
     // Then apply hidden prefix filtering
-    const hiddenPrefixes = String(process.env.GROUPS_HIDDEN_PREFIXES || "")
+    const hiddenPrefixes = String(getString("GROUPS_HIDDEN_PREFIXES", "") || "")
       .split(",")
       .map(p => String(p || "").trim().toLowerCase())
       .filter(Boolean);
