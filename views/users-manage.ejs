@@ -1114,28 +1114,6 @@ function getSortValue(user, key){
   return "";
 }
 
-function stableSortedCopy(arr, key, dir){
-  const sign = dir === "desc" ? -1 : 1;
-
-  return arr
-    .map((item, idx) => ({ item, idx }))
-    .sort((a, b) => {
-      const av = getSortValue(a.item, key);
-      const bv = getSortValue(b.item, key);
-
-      const aBlank = !String(av || "").trim();
-      const bBlank = !String(bv || "").trim();
-      if (aBlank && !bBlank) return 1 * sign;
-      if (!aBlank && bBlank) return -1 * sign;
-
-      const cmp = String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: "base" });
-      if (cmp !== 0) return cmp * sign;
-
-      return (a.idx - b.idx);
-    })
-    .map(x => x.item);
-}
-
 function updateSortIndicators(){
   const ths = Array.from(thead ? thead.querySelectorAll("th.sortable") : []);
   ths.forEach(th => {
@@ -1854,9 +1832,8 @@ q.addEventListener("keydown", (e) => {
 });
 
 function renderCurrentPage() {
-  const sorted = stableSortedCopy(currentPageUsers.slice(), sortState.key, sortState.dir);
-  window.__lastUsers = sorted;
-  renderResults(sorted);
+  window.__lastUsers = currentPageUsers.slice();
+  renderResults(currentPageUsers);
   updatePaginationControls();
 }
 
@@ -1914,18 +1891,6 @@ function updatePaginationControls() {
   });
 });
 
-function applySortAndRender(users){
-  const base = Array.isArray(users) ? users.slice() : currentPageUsers.slice();
-  const sorted = stableSortedCopy(base, sortState.key, sortState.dir);
-
-  window.__lastUsers = sorted;
-  currentPageUsers = sorted;
-  allUsers = sorted;
-
-  renderCurrentPage();
-  updateSortIndicators();
-}
-
 thead.addEventListener("click", (e) => {
   const th = e.target && e.target.closest ? e.target.closest("th.sortable") : null;
   if (!th) return;
@@ -1940,7 +1905,8 @@ thead.addEventListener("click", (e) => {
     sortState.dir = "asc";
   }
 
-  applySortAndRender(window.__lastUsers || currentPageUsers || []);
+  currentPage = 1;
+  loadAllUsers();
 });
 
 // ---------- Update name ----------
@@ -2165,6 +2131,8 @@ if (applyTemplateBtn) applyTemplateBtn.addEventListener("click", async () => {
   const params = new URLSearchParams({
     page: String(currentPage),
     pageSize: String(PAGE_SIZE),
+    sortKey: sortState.key,
+    sortDir: sortState.dir
   });
 
   // If agency admin, force their agency suffix

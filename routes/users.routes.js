@@ -454,6 +454,11 @@ router.get("/search", async (req, res) => {
     const requestedPage = parseInt(req.query.page, 10) || 1;
     const pageSize = parseInt(req.query.pageSize, 10) || 50;
 
+    const sortKey = String(req.query.sortKey || "name");
+    const sortDir = String(req.query.sortDir || "asc").toLowerCase() === "desc"
+      ? "desc"
+      : "asc";
+
     const authUser = req.authentikUser || null;
     const access = accessSvc.getAgencyAccess(authUser);
 
@@ -499,6 +504,38 @@ if (access.isAgencyAdmin) {
     });
   }
 }
+
+// ----- SERVER-SIDE SORT -----
+function getSortValue(user, key) {
+  if (!user) return "";
+
+  if (key === "username") return String(user.username || "").toLowerCase();
+  if (key === "email") return String(user.email || "").toLowerCase();
+  if (key === "status") return user.is_active ? "enabled" : "disabled";
+
+  // default = name
+  const raw = String(user.name || "").trim();
+
+  // Handle "Last, First"
+  if (raw.includes(",")) {
+    const [last, first] = raw.split(",").map(s => s.trim());
+    return `${last} ${first}`.toLowerCase();
+  }
+
+  return raw.toLowerCase();
+}
+
+visible.sort((a, b) => {
+  const av = getSortValue(a, sortKey);
+  const bv = getSortValue(b, sortKey);
+
+  const cmp = av.localeCompare(bv, undefined, {
+    numeric: true,
+    sensitivity: "base"
+  });
+
+  return sortDir === "desc" ? -cmp : cmp;
+});
 
 const total = visible.length;
 
