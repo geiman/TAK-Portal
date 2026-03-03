@@ -462,109 +462,99 @@ router.get("/search", async (req, res) => {
     const authUser = req.authentikUser || null;
     const access = accessSvc.getAgencyAccess(authUser);
 
-    // Global admins use the original Authentik-backed pagination unchanged.
+    function getSortValue(user) {
+      if (!user) return "";
+
+      if (sortKey === "username") return String(user.username || "").toLowerCase();
+      if (sortKey === "email") return String(user.email || "").toLowerCase();
+      if (sortKey === "status") return user.is_active ? "enabled" : "disabled";
+
+      // default = name (already "Last, First")
+      return String(user.name || "").toLowerCase();
+    }
+
+    function applySort(arr) {
+      arr.sort((a, b) => {
+        const av = getSortValue(a);
+        const bv = getSortValue(b);
+
+        const cmp = av.localeCompare(bv, undefined, {
+          numeric: true,
+          sensitivity: "base"
+        });
+
+        return sortDir === "desc" ? -cmp : cmp;
+      });
+    }
+
+    // ---------------- GLOBAL ADMINS ----------------
     if (access.isGlobalAdmin) {
       const result = await users.searchUsersPaged({
         q,
         page: requestedPage,
         pageSize,
       });
-      return res.json(result);
+
+      const usersList = Array.isArray(result.users) ? result.users.slice() : [];
+      applySort(usersList);
+
+      return res.json({
+        ...result,
+        users: usersList,
+      });
     }
 
-// ---------------- Non-global admins ----------------
-// Agency admins can only see their allowed agencies. Additionally, if the viewer is an
-// agency admin (non-global), hide anyone who is in a configured Global Admin group
-// (PORTAL_AUTH_REQUIRED_GROUP).
-//
-// We intentionally do deterministic in-memory paging for agency admins when global
-// admin groups are configured, so the returned totals/pagination stay correct after
-// removing global-admin users.
+    // ---------------- AGENCY ADMINS ----------------
 
-const currentPageRequested = requestedPage < 1 ? 1 : requestedPage;
+    const currentPageRequested = requestedPage < 1 ? 1 : requestedPage;
 
-// 1) Get all matching users (path + hidden-prefix filters already applied inside findUsers)
-const allMatching = await users.findUsers({ q, forceRefresh: false });
+    const allMatching = await users.findUsers({ q, forceRefresh: false });
 
-// 2) Filter to only the users in allowed agencies for this authUser
-let visible = allMatching.filter((u) =>
-  accessSvc.isUsernameInAllowedAgencies(authUser, u.username)
-);
+    let visible = allMatching.filter((u) =>
+      accessSvc.isUsernameInAllowedAgencies(authUser, u.username)
+    );
 
-// 3) If the viewer is an agency admin (non-global), remove global-admin users
-// from their list. Global admins already take the fast path above.
-if (access.isAgencyAdmin) {
-  const globalAdminGroupPks = await getGlobalAdminGroupPks();
-  if (globalAdminGroupPks.length) {
-    const pkSet = new Set(globalAdminGroupPks.map(String));
-    visible = visible.filter((u) => {
-      const gs = Array.isArray(u?.groups) ? u.groups.map((x) => String(x)) : [];
-      // keep the user only if they are NOT in any global-admin group
-      return !gs.some((gid) => pkSet.has(String(gid)));
+    if (access.isAgencyAdmin) {
+      const globalAdminGroupPks = await getGlobalAdminGroupPks();
+      if (globalAdminGroupPks.length) {
+        const pkSet = new Set(globalAdminGroupPks.map(String));
+        visible = visible.filter((u) => {
+          const gs = Array.isArray(u?.groups) ? u.groups.map(String) : [];
+          return !gs.some((gid) => pkSet.has(gid));
+        });
+      }
+    }
+
+    applySort(visible);
+
+    const total = visible.length;
+
+    if (total === 0) {
+      return res.json({
+        users: [],
+        total: 0,
+        page: 1,
+        pageSize,
+        hasNext: false,
+        hasPrev: false,
+      });
+    }
+
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const page = Math.min(currentPageRequested, totalPages);
+
+    const start = (page - 1) * pageSize;
+    const end = start + pageSize;
+    const pageItems = visible.slice(start, end);
+
+    return res.json({
+      users: pageItems,
+      total,
+      page,
+      pageSize,
+      hasNext: page < totalPages,
+      hasPrev: page > 1,
     });
-  }
-}
-
-// ----- SERVER-SIDE SORT -----
-function getSortValue(user, key) {
-  if (!user) return "";
-
-  if (key === "username") return String(user.username || "").toLowerCase();
-  if (key === "email") return String(user.email || "").toLowerCase();
-  if (key === "status") return user.is_active ? "enabled" : "disabled";
-
-  // default = name
-  const raw = String(user.name || "").trim();
-
-  // Handle "Last, First"
-  if (raw.includes(",")) {
-    const [last, first] = raw.split(",").map(s => s.trim());
-    return `${last} ${first}`.toLowerCase();
-  }
-
-  return raw.toLowerCase();
-}
-
-visible.sort((a, b) => {
-  const av = getSortValue(a, sortKey);
-  const bv = getSortValue(b, sortKey);
-
-  const cmp = av.localeCompare(bv, undefined, {
-    numeric: true,
-    sensitivity: "base"
-  });
-
-  return sortDir === "desc" ? -cmp : cmp;
-});
-
-const total = visible.length;
-
-if (total === 0) {
-  return res.json({
-    users: [],
-    total: 0,
-    page: 1,
-    pageSize,
-    hasNext: false,
-    hasPrev: false,
-  });
-}
-
-const totalPages = Math.max(1, Math.ceil(total / pageSize));
-const page = Math.min(currentPageRequested, totalPages);
-
-const start = (page - 1) * pageSize;
-const end = start + pageSize;
-const pageItems = visible.slice(start, end);
-
-return res.json({
-  users: pageItems,
-  total,
-  page,
-  pageSize,
-  hasNext: page < totalPages,
-  hasPrev: page > 1,
-});
 
   } catch (err) {
     res.status(500).json({ error: toErrorPayload(err) });
