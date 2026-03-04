@@ -121,7 +121,7 @@ router.get("/:index/available-groups", async (req,res)=>{
 
   const agency = agencies[idx];
 
-  const groups = await groupsService.getGroups();
+  const groups = await groupsService.listGroups();
 
   const filtered = groups.filter(g => {
 
