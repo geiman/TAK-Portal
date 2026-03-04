@@ -1363,6 +1363,37 @@ async function resetPassword(userId, password) {
   return true;
 }
 
+async function resendOnboardingEmail(userId) {
+  const user = await getUserById(userId);
+
+  if (!user) {
+    throw new Error("User not found");
+  }
+
+  // Resolve the user's current groups
+  const groupIds = Array.isArray(user.groups)
+    ? user.groups.map(x => String(x))
+    : [];
+
+  const allGroups = await getAllGroups({ includeHidden: true });
+  const byPk = new Map(allGroups.map(g => [String(g.pk), g]));
+
+  const groups = groupIds
+    .map(id => byPk.get(String(id)))
+    .filter(Boolean);
+
+  // Determine whether the user already has a password
+  const hasPassword = !!user.password_set;
+
+  await emailUserCreated({
+    user,
+    groups,
+    hasPassword,
+  });
+
+  return user;
+}
+
 async function updateEmail(userId, email) {
   await assertUserNotActionLocked(userId);
   const mail = String(email || "").trim();
@@ -1542,6 +1573,7 @@ module.exports = {
   searchUsersPaged,
   searchUsersByAgencyAbbreviationPaged,
   resetPassword,
+  resendOnboardingEmail,
   updateEmail,
   updateName,
   setUserGroups,

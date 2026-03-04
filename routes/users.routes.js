@@ -682,6 +682,30 @@ router.post("/:userId/reset-password", async (req, res) => {
   }
 });
 
+router.post("/:userId/resend-onboarding", async (req, res) => {
+  try {
+    const authUser = req.authentikUser || null;
+
+    const result = await users.resendOnboardingEmail(req.params.userId);
+
+    auditSvc.logEvent({
+      actor: authUser,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "RESEND_ONBOARDING_EMAIL",
+      targetType: "user",
+      targetId: String(req.params.userId),
+      details: {
+        username: result?.username || null,
+        email: result?.email || null
+      },
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(400).json({ error: toErrorPayload(err) });
+  }
+});
+
 router.put("/:userId/email", async (req, res) => {
   try {
     const authUser = req.authentikUser || null;
