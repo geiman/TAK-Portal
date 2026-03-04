@@ -14,7 +14,7 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ### v1.2.31 - 3/3/26
 ✨ `Enhancement` - Adds a "Resend Onboarding" Button to the Users Edit page<br>
-🐛 `Bug Fix` - Fixes issue with Users Edit page not giving proper feedback or reloading changes when names, email, etc is
+🐛 `Bug Fix` - Fixes issue with Users Edit page not giving proper feedback or reloading changes when names, email, etc are updated
 
 ### v1.2.30 - 3/3/26
 🐛 `Bug Fix` - Fixes issue with Agency Admins not being able to see global groups<br>
