@@ -804,21 +804,47 @@ async function createUser(
 
 const INTEGRATION_PREFIX = "nodered-";
 
-/**
- * Create an integration user (username prefix "nodered-") with a single group.
- * Used by the Integrations page. Does not use agency/template; creates user directly.
- */
-async function createIntegrationUser({ title, groupId }, opts = {}) {
-  const createdBy = opts.createdBy || null;
-
-  const slug = String(title || "")
+function toSlug(s) {
+  return String(s || "")
     .trim()
     .toLowerCase()
     .replace(/\s+/g, "-")
     .replace(/[^a-z0-9-]/g, "");
-  const username = slug
-    ? `${INTEGRATION_PREFIX}${slug}`
-    : `${INTEGRATION_PREFIX}integration`;
+}
+
+/**
+ * Create an integration user (username prefix "nodered-") with a single group.
+ * type: "global" | "state" | "county" | "agency". Scope values (state, county, agencySuffix) required when type matches.
+ * Username is always lowercase, no spaces: e.g. nodered-state-ca-weather-api, nodered-agency-abc-myapi.
+ */
+async function createIntegrationUser(
+  { type, title, groupId, state, county, agencySuffix },
+  opts = {}
+) {
+  const createdBy = opts.createdBy || null;
+
+  const integrationType = String(type || "global").toLowerCase();
+  const titleSlug = toSlug(title) || "integration";
+
+  let scopeSlug = "";
+  if (integrationType === "agency") {
+    const raw = String(agencySuffix || "").trim();
+    if (!raw) throw new Error("Agency is required for agency integrations.");
+    scopeSlug = toSlug(raw);
+  } else if (integrationType === "county") {
+    const raw = String(county || "").trim();
+    if (!raw) throw new Error("County is required for county integrations.");
+    scopeSlug = toSlug(raw);
+  } else if (integrationType === "state") {
+    const raw = String(state || "").trim();
+    if (!raw) throw new Error("State is required for state integrations.");
+    scopeSlug = toSlug(raw);
+  }
+
+  const username =
+    integrationType === "global"
+      ? `${INTEGRATION_PREFIX}global-${titleSlug}`
+      : `${INTEGRATION_PREFIX}${integrationType}-${scopeSlug}-${titleSlug}`;
 
   if (await userExists(username)) {
     throw new Error(`Integration user "${username}" already exists.`);
@@ -833,6 +859,7 @@ async function createIntegrationUser({ title, groupId }, opts = {}) {
   const name = `Node-RED Integration, ${String(title || "").trim() || username}`;
   const attributes = {
     integration_type: "nodered",
+    integration_scope: integrationType,
     integration_title: String(title || "").trim() || username,
   };
   if (createdBy && createdBy.username) {

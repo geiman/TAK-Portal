@@ -7,9 +7,36 @@
   <div class="card">
     <h2>Create Integration</h2>
 
-    <form id="createForm" class="grid2" autocomplete="off" style="max-width: 640px;">
-      <label>Title
-        <input type="text" name="title" placeholder="e.g. Weather API" required />
+    <form id="createForm" class="grid2" autocomplete="off" style="max-width: 900px;">
+      <label>Integration Type
+        <select id="integrationType" name="type">
+          <option value="global">Global</option>
+          <option value="state">State-Specific</option>
+          <option value="county">County-Specific</option>
+          <option value="agency">Agency-Specific</option>
+        </select>
+      </label>
+
+      <label id="agencyWrap" style="display: none;">Select Agency
+        <select id="agencySelect" name="agencySuffix">
+          <option value="">Select Agency</option>
+        </select>
+      </label>
+
+      <label id="countyWrap" style="display: none;">Select County
+        <select id="countySelect" name="county">
+          <option value="">Select County</option>
+        </select>
+      </label>
+
+      <label id="stateWrap" style="display: none;">Select State
+        <select id="stateSelect" name="state">
+          <option value="">Select State</option>
+        </select>
+      </label>
+
+      <label style="min-width: 180px;">Title
+        <input type="text" name="title" placeholder="e.g. weather-api" required />
       </label>
 
       <label>Group
@@ -47,10 +74,19 @@
 <script>
 (function () {
   const createForm = document.getElementById("createForm");
+  const integrationType = document.getElementById("integrationType");
+  const agencyWrap = document.getElementById("agencyWrap");
+  const countyWrap = document.getElementById("countyWrap");
+  const stateWrap = document.getElementById("stateWrap");
+  const agencySelect = document.getElementById("agencySelect");
+  const countySelect = document.getElementById("countySelect");
+  const stateSelect = document.getElementById("stateSelect");
   const groupSelect = document.getElementById("groupSelect");
   const createMsg = document.getElementById("createMsg");
   const tableMsg = document.getElementById("tableMsg");
   const tbody = document.getElementById("tbody");
+
+  let agenciesCache = [];
 
   function setCreateMsg(text, ok) {
     createMsg.textContent = text || "";
@@ -69,16 +105,64 @@
     return div.innerHTML;
   }
 
+  integrationType.addEventListener("change", function () {
+    const v = integrationType.value;
+    agencyWrap.style.display = v === "agency" ? "flex" : "none";
+    countyWrap.style.display = v === "county" ? "flex" : "none";
+    stateWrap.style.display = v === "state" ? "flex" : "none";
+  });
+
+  async function loadAgencies() {
+    const res = await fetch("/api/agencies");
+    const out = await res.json();
+    if (!res.ok) {
+      agenciesCache = [];
+      agencySelect.innerHTML = "<option value=\"\">No agencies loaded</option>";
+      countySelect.innerHTML = "<option value=\"\">No counties loaded</option>";
+      stateSelect.innerHTML = "<option value=\"\">No states loaded</option>";
+      return;
+    }
+    agenciesCache = Array.isArray(out) ? out : [];
+
+    const prefixList = agenciesCache
+      .filter(function (a) { return String(a.groupPrefix || "").trim(); })
+      .slice()
+      .sort(function (a, b) { return String(a.name || "").localeCompare(String(b.name || "")); });
+    agencySelect.innerHTML =
+      "<option value=\"\">Select Agency</option>" +
+      prefixList.map(function (a) {
+        const prefix = String(a.groupPrefix || "").trim().toUpperCase();
+        const label = (a.name || "") + " (" + prefix + ")";
+        return "<option value=\"" + esc(prefix) + "\">" + esc(label) + "</option>";
+      }).join("");
+
+    const stateSet = new Set(
+      agenciesCache.map(function (a) { return String(a.state || "").trim(); }).filter(Boolean)
+    );
+    const stateList = Array.from(stateSet).sort(function (a, b) { return a.localeCompare(b); });
+    stateSelect.innerHTML =
+      "<option value=\"\">Select State</option>" +
+      stateList.map(function (s) { return "<option value=\"" + esc(s) + "\">" + esc(s) + "</option>"; }).join("");
+
+    const countySet = new Set(
+      agenciesCache.map(function (a) { return String(a.county || "").trim(); }).filter(Boolean)
+    );
+    const countyList = Array.from(countySet).sort(function (a, b) { return a.localeCompare(b); });
+    countySelect.innerHTML =
+      "<option value=\"\">Select County</option>" +
+      countyList.map(function (c) { return "<option value=\"" + esc(c) + "\">" + esc(c) + "</option>"; }).join("");
+  }
+
   async function loadGroups() {
     const res = await fetch("/api/groups");
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Failed to load groups");
     const groups = Array.isArray(data) ? data : (data.groups || []);
     groupSelect.innerHTML =
-      '<option value="">Select a group</option>' +
-      groups
-        .map((g) => `<option value="${esc(g.pk)}">${esc(g.name || g.pk)}</option>`)
-        .join("");
+      "<option value=\"\">Select a group</option>" +
+      groups.map(function (g) {
+        return "<option value=\"" + esc(g.pk) + "\">" + esc(g.name || g.pk) + "</option>";
+      }).join("");
   }
 
   async function loadIntegrations() {
@@ -91,17 +175,14 @@
       if (users.length === 0) {
         tbody.innerHTML = "<tr><td colspan=\"4\">No integration users found.</td></tr>";
       } else {
-        tbody.innerHTML = users
-          .map(
-            (u) =>
-              "<tr>" +
-              "<td>" + esc(u.username) + "</td>" +
-              "<td>" + esc(u.name) + "</td>" +
-              "<td>" + esc((u.groupNames || []).join(", ") || "—") + "</td>" +
-              "<td>" + (u.is_active ? "Active" : "Inactive") + "</td>" +
-              "</tr>"
-          )
-          .join("");
+        tbody.innerHTML = users.map(function (u) {
+          return "<tr>" +
+            "<td>" + esc(u.username) + "</td>" +
+            "<td>" + esc(u.name) + "</td>" +
+            "<td>" + esc((u.groupNames || []).join(", ") || "—") + "</td>" +
+            "<td>" + (u.is_active ? "Active" : "Inactive") + "</td>" +
+            "</tr>";
+        }).join("");
       }
       setTableMsg("");
     } catch (err) {
@@ -110,20 +191,41 @@
     }
   }
 
-  createForm.addEventListener("submit", async (e) => {
+  createForm.addEventListener("submit", async function (e) {
     e.preventDefault();
     setCreateMsg("");
+    const type = integrationType.value || "global";
     const title = createForm.title.value.trim();
     const groupId = groupSelect.value;
     if (!groupId) {
       setCreateMsg("Please select a group.", false);
       return;
     }
+    if (type === "agency" && !agencySelect.value) {
+      setCreateMsg("Please select an agency.", false);
+      return;
+    }
+    if (type === "county" && !countySelect.value) {
+      setCreateMsg("Please select a county.", false);
+      return;
+    }
+    if (type === "state" && !stateSelect.value) {
+      setCreateMsg("Please select a state.", false);
+      return;
+    }
+    const payload = {
+      type: type,
+      title: title,
+      groupId: groupId,
+    };
+    if (type === "agency") payload.agencySuffix = agencySelect.value;
+    if (type === "county") payload.county = countySelect.value;
+    if (type === "state") payload.state = stateSelect.value;
     try {
       const res = await fetch("/api/integrations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, groupId }),
+        body: JSON.stringify(payload),
       });
       const out = await res.json();
       if (!res.ok) {
@@ -134,6 +236,8 @@
       setCreateMsg("Integration \"" + username + "\" created successfully.", true);
       createForm.reset();
       groupSelect.value = "";
+      integrationType.value = "global";
+      integrationType.dispatchEvent(new Event("change"));
       await loadGroups();
       await loadIntegrations();
     } catch (err) {
@@ -143,8 +247,10 @@
 
   (async function init() {
     try {
+      await loadAgencies();
       await loadGroups();
       await loadIntegrations();
+      integrationType.dispatchEvent(new Event("change"));
     } catch (err) {
       setTableMsg(err.message || "Failed to load page", false);
     }

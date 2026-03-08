@@ -51,7 +51,7 @@ router.get("/", async (req, res) => {
  */
 router.post("/", async (req, res) => {
   try {
-    const { title, groupId } = req.body || {};
+    const { type, title, groupId, state, county, agencySuffix } = req.body || {};
     const authUser = req.authentikUser || null;
     const createdBy = authUser
       ? {
@@ -61,7 +61,14 @@ router.post("/", async (req, res) => {
       : null;
 
     const result = await users.createIntegrationUser(
-      { title: String(title || "").trim(), groupId },
+      {
+        type: type || "global",
+        title: String(title || "").trim(),
+        groupId,
+        state: state ? String(state).trim() : undefined,
+        county: county ? String(county).trim() : undefined,
+        agencySuffix: agencySuffix ? String(agencySuffix).trim() : undefined,
+      },
       { createdBy }
     );
 
