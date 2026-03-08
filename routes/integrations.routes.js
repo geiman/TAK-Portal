@@ -9,6 +9,12 @@ function toErrorPayload(err) {
   return err?.message || "Unknown error";
 }
 
+function stripTakPrefix(name) {
+  const n = String(name || "").trim();
+  if (!n) return "";
+  return n.toLowerCase().startsWith("tak_") ? n.slice(4) : n;
+}
+
 /**
  * GET /api/integrations
  * List all users whose username starts with "nodered-".
@@ -25,7 +31,10 @@ router.get("/", async (req, res) => {
     const usersWithGroupNames = list.map((u) => {
       const groupPks = Array.isArray(u.groups) ? u.groups : [];
       const groupNames = groupPks
-        .map((pk) => groupByPk.get(String(pk))?.name)
+        .map((pk) => {
+          const name = groupByPk.get(String(pk))?.name;
+          return name ? stripTakPrefix(name) : null;
+        })
         .filter(Boolean);
       return {
         pk: u.pk,
@@ -87,6 +96,65 @@ router.post("/", async (req, res) => {
     });
 
     res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(400).json({ error: toErrorPayload(err) });
+  }
+});
+
+/**
+ * PUT /api/integrations/:userId/group
+ * Set the integration user's group (replaces current). Only for nodered- users; bypasses action lock.
+ */
+router.put("/:userId/group", async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const { groupId } = req.body || {};
+    const user = await users.getUserById(userId);
+    const username = String(user?.username || "").toLowerCase();
+    if (!username.startsWith("nodered-")) {
+      return res.status(403).json({ error: "Not an integration user." });
+    }
+    const groupIdStr = String(groupId || "").trim();
+    if (!groupIdStr) return res.status(400).json({ error: "groupId required." });
+    await users.setUserGroups(userId, [groupIdStr], { ignoreLocks: true });
+    const authUser = req.authentikUser || null;
+    auditSvc.logEvent({
+      actor: authUser,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "SET_INTEGRATION_GROUP",
+      targetType: "user",
+      targetId: String(userId),
+      details: { username: user?.username, groupId: groupIdStr },
+    });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(400).json({ error: toErrorPayload(err) });
+  }
+});
+
+/**
+ * DELETE /api/integrations/:userId
+ * Delete the integration user. Only for nodered- users; bypasses action lock.
+ */
+router.delete("/:userId", async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const user = await users.getUserById(userId);
+    const username = String(user?.username || "").toLowerCase();
+    if (!username.startsWith("nodered-")) {
+      return res.status(403).json({ error: "Not an integration user." });
+    }
+    await users.deleteUser(userId, { ignoreLocks: true });
+    const authUser = req.authentikUser || null;
+    auditSvc.logEvent({
+      actor: authUser,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "DELETE_INTEGRATION_USER",
+      targetType: "user",
+      targetId: String(userId),
+      details: { username: user?.username },
+    });
+    res.json({ success: true });
   } catch (err) {
     res.status(400).json({ error: toErrorPayload(err) });
   }

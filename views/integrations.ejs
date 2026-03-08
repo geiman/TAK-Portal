@@ -65,12 +65,42 @@
           <th>Username</th>
           <th>Name</th>
           <th>Group</th>
+          <th>Actions</th>
         </tr>
       </thead>
       <tbody id="tbody"></tbody>
     </table>
   </div>
 </main>
+
+<!-- Edit Integration (Group assignment only) -->
+<div class="modalOverlay" id="editIntegrationOverlay" style="display: none;">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="editIntegrationTitle">
+    <div class="modalHeader">
+      <h2 id="editIntegrationTitle" style="margin: 0;">Edit Integration</h2>
+      <button class="btn" id="editIntegrationCloseBtn" type="button">Close</button>
+    </div>
+    <div class="modalBody">
+      <div class="card" style="margin: 0;">
+        <h2 style="margin-top: 0;">Edit Group Assignment</h2>
+        <div class="row">
+          <label style="flex: 1; min-width: 0;">Integration (read-only)
+            <input type="text" id="editIntegrationUsername" readonly style="width: 100%;" />
+          </label>
+        </div>
+        <div class="row" style="margin-top: 12px;">
+          <label style="min-width: 200px;">Group
+            <select id="editGroupSelect" style="min-width: 200px;"></select>
+          </label>
+        </div>
+        <div class="row" style="margin-top: 16px; align-items: center;">
+          <button class="btn success" id="editIntegrationSaveBtn" type="button">Save Changes</button>
+          <span id="editIntegrationMsg" class="msg"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
 <script>
 (function () {
@@ -88,6 +118,15 @@
   const tbody = document.getElementById("tbody");
 
   let agenciesCache = [];
+  let groupsCache = [];
+  let usersCache = [];
+
+  function stripTakPrefix(name) {
+    if (name == null || name === undefined) return "";
+    var n = String(name).trim();
+    if (!n) return "";
+    return n.toLowerCase().indexOf("tak_") === 0 ? n.slice(4) : n;
+  }
 
   function setCreateMsg(text, ok) {
     createMsg.textContent = text || "";
@@ -158,12 +197,15 @@
     const res = await fetch("/api/groups");
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Failed to load groups");
-    const groups = Array.isArray(data) ? data : (data.groups || []);
-    groupSelect.innerHTML =
+    groupsCache = Array.isArray(data) ? data : (data.groups || []);
+    var optionsHtml =
       "<option value=\"\">Select a group</option>" +
-      groups.map(function (g) {
-        return "<option value=\"" + esc(g.pk) + "\">" + esc(g.name || g.pk) + "</option>";
+      groupsCache.map(function (g) {
+        var displayName = stripTakPrefix(g.name) || g.pk;
+        return "<option value=\"" + esc(g.pk) + "\">" + esc(displayName) + "</option>";
       }).join("");
+    groupSelect.innerHTML = optionsHtml;
+    if (editGroupSelect) editGroupSelect.innerHTML = optionsHtml;
   }
 
   async function loadIntegrations() {
@@ -172,23 +214,129 @@
       const res = await fetch("/api/integrations");
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to load integrations");
-      const users = data.users || [];
-      if (users.length === 0) {
-        tbody.innerHTML = "<tr><td colspan=\"3\">No integration users found.</td></tr>";
+      usersCache = data.users || [];
+      if (usersCache.length === 0) {
+        tbody.innerHTML = "<tr><td colspan=\"4\">No integration users found.</td></tr>";
       } else {
-        tbody.innerHTML = users.map(function (u) {
+        tbody.innerHTML = usersCache.map(function (u) {
+          var groupDisplay = (u.groupNames || []).join(", ") || "—";
+          var currentGroupPk = (u.groups && u.groups[0]) ? String(u.groups[0]) : "";
           return "<tr>" +
             "<td>" + esc(u.username) + "</td>" +
             "<td>" + esc(u.name) + "</td>" +
-            "<td>" + esc((u.groupNames || []).join(", ") || "—") + "</td>" +
+            "<td>" + esc(groupDisplay) + "</td>" +
+            "<td><div class=\"row\" style=\"gap:8px; flex-wrap:wrap;\">" +
+            "<button class=\"btn\" type=\"button\" data-action=\"edit\" data-pk=\"" + esc(u.pk) + "\" data-username=\"" + esc(u.username) + "\" data-group=\"" + esc(currentGroupPk) + "\">Edit Group</button>" +
+            "<button class=\"btn danger\" type=\"button\" data-action=\"delete\" data-pk=\"" + esc(u.pk) + "\" data-username=\"" + esc(u.username) + "\">Delete</button>" +
+            "</div></td>" +
             "</tr>";
         }).join("");
       }
       setTableMsg("");
+      bindTableActions();
     } catch (err) {
       setTableMsg(err.message || "Failed to load integrations", false);
       tbody.innerHTML = "";
     }
+  }
+
+  var editIntegrationOverlay = document.getElementById("editIntegrationOverlay");
+  var editIntegrationCloseBtn = document.getElementById("editIntegrationCloseBtn");
+  var editIntegrationUsername = document.getElementById("editIntegrationUsername");
+  var editGroupSelect = document.getElementById("editGroupSelect");
+  var editIntegrationSaveBtn = document.getElementById("editIntegrationSaveBtn");
+  var editIntegrationMsg = document.getElementById("editIntegrationMsg");
+
+  var editCurrentPk = null;
+
+  function setEditMsg(text, ok) {
+    editIntegrationMsg.textContent = text || "";
+    editIntegrationMsg.style.color = ok ? "" : "var(--error, #c00)";
+  }
+
+  function openEditModal(pk, username, currentGroupPk) {
+    editCurrentPk = pk;
+    editIntegrationUsername.value = username || "";
+    editGroupSelect.innerHTML =
+      "<option value=\"\">Select a group</option>" +
+      groupsCache.map(function (g) {
+        var displayName = stripTakPrefix(g.name) || g.pk;
+        return "<option value=\"" + esc(g.pk) + "\">" + esc(displayName) + "</option>";
+      }).join("");
+    editGroupSelect.value = currentGroupPk || "";
+    setEditMsg("");
+    editIntegrationOverlay.style.display = "flex";
+  }
+
+  function closeEditModal() {
+    editIntegrationOverlay.style.display = "none";
+    editCurrentPk = null;
+  }
+
+  function bindTableActions() {
+    tbody.querySelectorAll("button[data-action=\"edit\"]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var pk = btn.getAttribute("data-pk");
+        var username = btn.getAttribute("data-username");
+        var groupPk = btn.getAttribute("data-group");
+        openEditModal(pk, username, groupPk);
+      });
+    });
+    tbody.querySelectorAll("button[data-action=\"delete\"]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var pk = btn.getAttribute("data-pk");
+        var username = btn.getAttribute("data-username");
+        if (!confirm("Delete integration user \"" + (username || pk) + "\"? This cannot be undone.")) return;
+        fetch("/api/integrations/" + encodeURIComponent(pk), { method: "DELETE" })
+          .then(function (res) { return res.json(); })
+          .then(function (out) {
+            if (!out.error) {
+              loadIntegrations();
+            } else {
+              setTableMsg(out.error || "Delete failed", false);
+            }
+          })
+          .catch(function (err) {
+            setTableMsg(err.message || "Delete failed", false);
+          });
+      });
+    });
+  }
+
+  if (editIntegrationCloseBtn) {
+    editIntegrationCloseBtn.addEventListener("click", closeEditModal);
+  }
+  if (editIntegrationOverlay) {
+    editIntegrationOverlay.addEventListener("click", function (e) {
+      if (e.target === editIntegrationOverlay) closeEditModal();
+    });
+  }
+  if (editIntegrationSaveBtn) {
+    editIntegrationSaveBtn.addEventListener("click", function () {
+      var groupId = editGroupSelect.value;
+      if (!editCurrentPk || !groupId) {
+        setEditMsg("Please select a group.", false);
+        return;
+      }
+      setEditMsg("");
+      fetch("/api/integrations/" + encodeURIComponent(editCurrentPk) + "/group", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ groupId: groupId }),
+      })
+        .then(function (res) { return res.json(); })
+        .then(function (out) {
+          if (out.error) {
+            setEditMsg(out.error, false);
+            return;
+          }
+          closeEditModal();
+          loadIntegrations();
+        })
+        .catch(function (err) {
+          setEditMsg(err.message || "Save failed", false);
+        });
+    });
   }
 
   createForm.addEventListener("submit", async function (e) {

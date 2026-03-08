@@ -1520,8 +1520,8 @@ async function updateEmail(userId, email) {
   return true;
 }
 
-async function setUserGroups(userId, groupIds) {
-  const userBefore = await assertUserNotActionLocked(userId);
+async function setUserGroups(userId, groupIds, opts = {}) {
+  const userBefore = await assertUserNotActionLocked(userId, opts);
   const ids = Array.isArray(groupIds)
     ? groupIds.map(x => String(x).trim()).filter(Boolean)
     : [];
