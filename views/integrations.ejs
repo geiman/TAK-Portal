@@ -7,48 +7,50 @@
   <div class="card">
     <h2>Create Integration</h2>
 
-    <form id="createForm" class="grid2" autocomplete="off" style="max-width: 900px;">
-      <label>Integration Type
-        <select id="integrationType" name="type">
-          <option value="global">Global</option>
-          <option value="state">State-Specific</option>
-          <option value="county">County-Specific</option>
-          <option value="agency">Agency-Specific</option>
-        </select>
-      </label>
+    <form id="createForm" autocomplete="off">
+      <div class="row">
+        <label>Integration Type
+          <select id="integrationType" name="type" style="min-width: 160px;">
+            <option value="global">Global</option>
+            <option value="state">State-Specific</option>
+            <option value="county">County-Specific</option>
+            <option value="agency">Agency-Specific</option>
+          </select>
+        </label>
 
-      <label id="agencyWrap" style="display: none;">Select Agency
-        <select id="agencySelect" name="agencySuffix">
-          <option value="">Select Agency</option>
-        </select>
-      </label>
+        <label id="agencyWrap" style="display: none;">Select Agency
+          <select id="agencySelect" name="agencySuffix" style="min-width: 140px;">
+            <option value="">Select Agency</option>
+          </select>
+        </label>
 
-      <label id="countyWrap" style="display: none;">Select County
-        <select id="countySelect" name="county">
-          <option value="">Select County</option>
-        </select>
-      </label>
+        <label id="countyWrap" style="display: none;">Select County
+          <select id="countySelect" name="county" style="min-width: 140px;">
+            <option value="">Select County</option>
+          </select>
+        </label>
 
-      <label id="stateWrap" style="display: none;">Select State
-        <select id="stateSelect" name="state">
-          <option value="">Select State</option>
-        </select>
-      </label>
+        <label id="stateWrap" style="display: none;">Select State
+          <select id="stateSelect" name="state" style="min-width: 120px;">
+            <option value="">Select State</option>
+          </select>
+        </label>
 
-      <label style="min-width: 180px;">Title
-        <input type="text" name="title" placeholder="e.g. weather-api" required />
-      </label>
+        <label style="flex: 1; min-width: 160px;">Title
+          <input type="text" name="title" placeholder="e.g. Weather API" style="width: 100%;" required />
+        </label>
 
-      <label>Group
-        <select name="groupId" id="groupSelect" required>
-          <option value="">Select a group</option>
-        </select>
-      </label>
+        <label style="min-width: 200px;">Group
+          <select name="groupId" id="groupSelect" style="min-width: 160px;" required>
+            <option value="">Select a group</option>
+          </select>
+        </label>
 
-      <div style="grid-column: 1 / -1; display: flex; align-items: center; gap: 10px;">
-        <button class="btn" type="submit">Create Integration</button>
-        <span id="createMsg" class="msg"></span>
+        <label>&nbsp;
+          <button class="btn" type="submit">Create Integration</button>
+        </label>
       </div>
+      <div id="createMsg" class="msg"></div>
     </form>
   </div>
 
@@ -63,7 +65,6 @@
           <th>Username</th>
           <th>Name</th>
           <th>Group</th>
-          <th>Status</th>
         </tr>
       </thead>
       <tbody id="tbody"></tbody>
@@ -173,14 +174,13 @@
       if (!res.ok) throw new Error(data.error || "Failed to load integrations");
       const users = data.users || [];
       if (users.length === 0) {
-        tbody.innerHTML = "<tr><td colspan=\"4\">No integration users found.</td></tr>";
+        tbody.innerHTML = "<tr><td colspan=\"3\">No integration users found.</td></tr>";
       } else {
         tbody.innerHTML = users.map(function (u) {
           return "<tr>" +
             "<td>" + esc(u.username) + "</td>" +
             "<td>" + esc(u.name) + "</td>" +
             "<td>" + esc((u.groupNames || []).join(", ") || "—") + "</td>" +
-            "<td>" + (u.is_active ? "Active" : "Inactive") + "</td>" +
             "</tr>";
         }).join("");
       }

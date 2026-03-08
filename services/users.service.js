@@ -812,6 +812,15 @@ function toSlug(s) {
     .replace(/[^a-z0-9-]/g, "");
 }
 
+/** Title slug: combine words to one, no dash (e.g. "Weather API" → "weatherapi"). */
+function toTitleSlug(s) {
+  return String(s || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
 /**
  * Create an integration user (username prefix "nodered-") with a single group.
  * type: "global" | "state" | "county" | "agency". Scope values (state, county, agencySuffix) required when type matches.
@@ -824,7 +833,7 @@ async function createIntegrationUser(
   const createdBy = opts.createdBy || null;
 
   const integrationType = String(type || "global").toLowerCase();
-  const titleSlug = toSlug(title) || "integration";
+  const titleSlug = toTitleSlug(title) || "integration";
 
   let scopeSlug = "";
   if (integrationType === "agency") {
