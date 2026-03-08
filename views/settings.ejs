@@ -90,11 +90,6 @@
         "TAK_REVOKE_ON_DISABLE",
         "TAK_DEBUG",
         "TAK_BYPASS_ENABLED",
-        "TAK_SSH_HOST",
-        "TAK_SSH_PORT",
-        "TAK_SSH_USER",
-        "TAK_SSH_PRIVATE_KEY_PATH",
-        "TAK_SSH_PASSPHRASE",
         "CLOUDTAK_URL",
 
         "PORTAL_AUTH_ENABLED",
@@ -240,28 +235,6 @@
             <% renderField("TAK_REVOKE_ON_DISABLE","Revoke on Disable","If true, revokes TAK certs when a user is disabled."); %>
             <% renderField("TAK_DEBUG","TAK Debug","If true, enables verbose TAK debug logging."); %>
             <% renderField("TAK_BYPASS_ENABLED","Bypass TAK","If true, disables all outbound TAK calls (for testing)."); %>
-
-            <h3 style="margin-top: 1.2em;">Integration cert creation (SSH)</h3>
-            <small class="settings-help" style="display: block; margin-bottom: 8px;">
-              When creating an integration user (nodered-*), the portal can run <code>makeCert.sh client &lt;username&gt;</code> on the TAK server via SSH so the integration gets a client cert. Optional; if not configured, integration creation still succeeds without creating a TAK cert.
-            </small>
-            <% renderField("TAK_SSH_HOST","SSH Host","Optional. Defaults to the hostname from TAK URL."); %>
-            <% renderField("TAK_SSH_PORT","SSH Port","Default 22."); %>
-            <% renderField("TAK_SSH_USER","SSH User","User that can run: sudo -u tak bash -c 'cd /opt/tak/certs && ./makeCert.sh client &lt;name&gt;'"); %>
-            <label class="settings-field">
-              <span class="settings-label">
-                SSH Private Key
-                <% if (typeof sshKeyExists !== "undefined" && sshKeyExists) { %>
-                  <span class="cert-status installed">Installed</span>
-                <% } else { %>
-                  <span class="cert-status missing">Not Installed</span>
-                <% } %>
-              </span>
-              <input type="file" name="TAK_SSH_KEY_UPLOAD" accept=".pem,.key,application/x-pem-file,application/pgp-keys" />
-              <small class="settings-help">PEM format private key for SSH auth. Stored in data/certs/tak-ssh.key.</small>
-            </label>
-            <% renderField("TAK_SSH_PASSPHRASE","SSH Key Passphrase","Optional. Passphrase for the SSH private key if encrypted."); %>
-
             <% renderField("CLOUDTAK_URL","CloudTAK URL","Optional. Base URL for CloudTAK web (e.g. https://cloudtak.example.gov)."); %>
           </div>
         </div>
