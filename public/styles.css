@@ -267,7 +267,16 @@ body {
 }
 
 .sidebar a:hover {
-    background: rgba(255,255,255,.06);
+  background: rgba(255,255,255,.06);
+}
+
+.sidebar a.active {
+  background: rgba(255,255,255,.12);
+  border-radius: 8px;
+  font-weight: 600;
+}
+.sidebar a.active:hover {
+  background: rgba(255,255,255,.14);
 }
 
 /* ======================

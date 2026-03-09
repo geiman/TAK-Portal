@@ -12,6 +12,13 @@
       : "";
 
   const canSeeSettings = _isGlobalAdmin;
+
+  const _path = (typeof currentPath !== "undefined" && currentPath) ? String(currentPath).replace(/\/+$/, "") || "/" : "/";
+  function isActive(href) {
+    const h = (href || "/").replace(/\/+$/, "") || "/";
+    if (h === "/") return _path === "/" || _path === "/dashboard";
+    return _path === h || _path.startsWith(h + "/");
+  }
 %>
 
 <aside class="sidebar" id="sidebar">
@@ -25,21 +32,21 @@
   <nav class="sidebar-nav">
     <div class="nav-top">
       <% if (!isAdmin) { %>
-        <a href="/setup-my-device">Setup My Device</a>
+        <a href="/setup-my-device" class="<%= isActive('/setup-my-device') ? 'active' : '' %>">Setup My Device</a>
       <% } else { %>
-        <a href="/">Dashboard</a>
-        <a href="/users/manage">Users</a>
-        <a href="/groups">Groups</a>
-        <a href="/templates">Templates</a>
+        <a href="/" class="<%= isActive('/') ? 'active' : '' %>">Dashboard</a>
+        <a href="/users/manage" class="<%= isActive('/users/manage') ? 'active' : '' %>">Users</a>
+        <a href="/groups" class="<%= isActive('/groups') ? 'active' : '' %>">Groups</a>
+        <a href="/templates" class="<%= isActive('/templates') ? 'active' : '' %>">Templates</a>
 
         <% if (canSeeSettings) { %>
-          <a href="/agencies">Agencies</a>
-          <a href="/mutual-aid">Mutual Aid</a>
-          <a href="/integrations">Integrations</a>
-          <a href="/audit-log">Audit Log (BETA)</a>
+          <a href="/agencies" class="<%= isActive('/agencies') ? 'active' : '' %>">Agencies</a>
+          <a href="/mutual-aid" class="<%= isActive('/mutual-aid') ? 'active' : '' %>">Mutual Aid</a>
+          <a href="/integrations" class="<%= isActive('/integrations') ? 'active' : '' %>">Integrations</a>
+          <a href="/audit-log" class="<%= isActive('/audit-log') ? 'active' : '' %>">Audit Log (BETA)</a>
         <% } %>
 
-        <a href="/setup-my-device">Setup My Device</a>
+        <a href="/setup-my-device" class="<%= isActive('/setup-my-device') ? 'active' : '' %>">Setup My Device</a>
       <% } %>
     </div>
 
@@ -47,7 +54,7 @@
       <a href="/logout" class="logout-link">Log Out</a>
 
       <% if (canSeeSettings) { %>
-        <a href="/settings">Server Settings</a>
+        <a href="/settings" class="<%= isActive('/settings') ? 'active' : '' %>">Server Settings</a>
       <% } %>
 
       <small class="version-text">

@@ -131,18 +131,20 @@ const uploadStorage = multer.diskStorage({
 
 const upload = multer({ storage: uploadStorage });
 
-// Expose settings + theme/logo to all views
+// Expose settings + theme/logo + current path to all views (for sidebar active state)
 app.use((req, res, next) => {
   try {
     const settings = settingsSvc.getSettings();
     res.locals.settings = settings || {};
     res.locals.brandTheme = settings.BRAND_THEME || "dark-blue";
     res.locals.brandLogoUrl = settings.BRAND_LOGO_URL || "";
+    res.locals.currentPath = (req.path || "/").replace(/\/+$/, "") || "/";
   } catch (err) {
     console.warn("Failed to load settings for request:", err?.message || err);
     res.locals.settings = {};
     res.locals.brandTheme = "dark-blue";
     res.locals.brandLogoUrl = "";
+    res.locals.currentPath = (req.path || "/").replace(/\/+$/, "") || "/";
   }
   next();
 });
