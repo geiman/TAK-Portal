@@ -742,13 +742,12 @@ function getGroupPrefix(groupName) {
   return withoutTak.slice(0, spaceIdx).trim().toUpperCase();
 }
 
+// Exclude only this agency's own groups (prefix = agency abbreviation). Include global, state, and county.
 function isGroupRelatedToAgency(groupName, agency) {
   const prefix = getGroupPrefix(groupName);
   if (!prefix) return false;
   const gp = String(agency?.groupPrefix || "").trim().toUpperCase();
-  const county = String(agency?.county || "").trim().toUpperCase();
-  const state = String(agency?.state || "").trim().toUpperCase();
-  return prefix === gp || prefix === county || prefix === state;
+  return prefix === gp;
 }
 
 function renderAccessGroupsGrid(filterText) {
