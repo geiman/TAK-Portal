@@ -12,6 +12,11 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.32 - 3/8/26
+🎉 `New Feature` - Adds an Integrations page to create and assign the group for integration LDAP users for nodered or other integrations.  A cert will still need to be manually created on the TAK server and uploaded to NodeRed or similar for authentication.  This will likely be implemented in future releases <br>
+✨ `Enhancement` - Removes unused QR code page which has been depreciated and unused since early releases.
+
+
 ### v1.2.31 - 3/3/26
 ✨ `Enhancement` - Adds a "Resend Onboarding" Button to the Users Edit page<br>
 🐛 `Bug Fix` - Fixes issue with Users Edit page not giving proper feedback or reloading changes when names, email, etc are updated
