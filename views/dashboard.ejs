@@ -285,8 +285,15 @@
     .grid2{ grid-template-columns: 1fr; }
   }
 
-  /* Reduce vertical spacing between separate grid rows */
-  .gridTight{ margin-top: 8px !important; }
+  /* Remove card margin inside grids so row spacing is controlled below */
+  .main .grid3 .card,
+  .main .grid4 .card,
+  .main .grid2 .card{
+    margin: 0;
+  }
+
+  /* Tighter vertical spacing between dashboard rows */
+  .main .gridTight{ margin-top: 6px !important; }
 
   /* Slightly refreshed card feel */
   .card{
