@@ -12,6 +12,11 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.33 - 3/8/26
+🎉 `New Feature` - Adds a Manage Access button to the Agencies page, allowing Global Admins to customize what groups, Agency Administrators have access to assign/unassign.<br>
+🐛 `Bug Fix` - Adds better rules for Agency Admins to Assign/Unassign groups when using the "Users With Existing Groups" modal.  Agency Admins can't edit users outside of their own agency.
+
+
 ### v1.2.32 - 3/8/26
 🎉 `New Feature` - Adds an Integrations page to create and assign the group for integration LDAP users for nodered or other integrations.  A cert will still need to be manually created on the TAK server and uploaded to NodeRed or similar for authentication.  This will likely be implemented in future releases <br>
 ✨ `Enhancement` - Removes unused QR code page which has been depreciated and unused since early releases.
