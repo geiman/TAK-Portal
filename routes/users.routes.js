@@ -515,10 +515,18 @@ router.get("/search", async (req, res) => {
       return "2-user";
     }
 
+    function getAgencyAbbr(user) {
+      const attrs = user?.attributes || {};
+      const raw = attrs.agency_abbreviation || attrs.agencyAbbreviation || attrs.agencyAbbr || attrs.agencyabbr || "";
+      return String(raw || "").trim().toLowerCase();
+    }
+
     function getSortValue(user) {
       if (!user) return "";
 
       if (sortKey === "username") return String(user.username || "").toLowerCase();
+      if (sortKey === "agency") return getAgencyAbbr(user);
+      if (sortKey === "name") return String(user.name || "").toLowerCase();
       if (sortKey === "email") return String(user.email || "").toLowerCase();
       if (sortKey === "status") return user.is_active ? "enabled" : "disabled";
       if (sortKey === "role") return computeRole(user) + "-" + String(user.name || "").toLowerCase();

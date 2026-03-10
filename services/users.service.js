@@ -1239,10 +1239,19 @@ async function findUsers({ q, forceRefresh = false } = {}) {
     const username = String(u.username || "").toLowerCase();
     const email = String(u.email || "").toLowerCase();
     const name = String(u.name || "").toLowerCase();
+    const attrs = u?.attributes || {};
+    const agencyAbbr = String(
+      attrs.agency_abbreviation ||
+      attrs.agencyAbbreviation ||
+      attrs.agencyAbbr ||
+      attrs.agencyabbr ||
+      ""
+    ).trim().toLowerCase();
     return (
       username.includes(needle) ||
       email.includes(needle) ||
-      name.includes(needle)
+      name.includes(needle) ||
+      agencyAbbr.includes(needle)
     );
   });
 }
