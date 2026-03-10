@@ -123,6 +123,9 @@
           <th class="sortable" data-key="username">
             Username <span class="sortIndicator" aria-hidden="true"></span>
           </th>
+          <th class="sortable" data-key="agency">
+            Agency <span class="sortIndicator" aria-hidden="true"></span>
+          </th>
           <th class="sortable" data-key="name">
             Name <span class="sortIndicator" aria-hidden="true"></span>
           </th>
@@ -1121,6 +1124,7 @@ function getSortValue(user, key){
   if (!user) return "";
 
   if (key === "username") return normalizeSortValue(user.username);
+  if (key === "agency") return normalizeSortValue(getUserAgencyAbbreviation(user));
   if (key === "email") return normalizeSortValue(user.email);
   if (key === "name") return normalizeSortValue(lastNameForSort(user.name));
   if (key === "status") return user.is_active ? "enabled" : "disabled";
@@ -1151,6 +1155,7 @@ function renderResults(users){
     return `
       <tr class="${u.is_active ? "" : "row-disabled"}">
         <td>${escapeHtml(u.username)}</td>
+        <td>${escapeHtml(getUserAgencyAbbreviation(u) || "—")}</td>
         <td>${escapeHtml(u.name || "")}</td>
         <td>${escapeHtml(u.email || "")}</td>
         <td>${escapeHtml(u.__role || "User")}</td>
@@ -2477,16 +2482,18 @@ th.sortable:hover{
 }
 
 
-/* Hide Status/Email column on small screens */
+/* Hide Agency, Email, Status columns on small screens */
 @media (max-width: 640px){
-  .table th:nth-child(5),
-  .table td:nth-child(5){
+  .table th:nth-child(2),
+  .table td:nth-child(2){
     display: none;
   }
-}
-@media (max-width: 640px){
-  .table th:nth-child(3),
-  .table td:nth-child(3){
+  .table th:nth-child(4),
+  .table td:nth-child(4){
+    display: none;
+  }
+  .table th:nth-child(6),
+  .table td:nth-child(6){
     display: none;
   }
 }
