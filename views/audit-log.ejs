@@ -60,16 +60,18 @@
               <span class="badge"><%= log.action || '—' %></span>
             </td>
 
-          <!-- Target (parsed from details, fallback to targetId) -->
+          <!-- Target (names from details or userMap/groupMap, fallback to ID) -->
           <td>
             <%
               const type = String(log.targetType || '').toLowerCase();
               const details = log.details || {};
               const targetId = String(log.targetId || '').trim();
+              const uMap = typeof userMap !== 'undefined' ? userMap : {};
+              const gMap = typeof groupMap !== 'undefined' ? groupMap : {};
 
               let display = log.targetDisplay || '';
 
-              if (type === 'user') {
+              if (type === 'user' || type === 'authentik_user') {
                 const username = details.username || details.userUsername || '';
                 const name =
                   details.name ||
@@ -83,12 +85,19 @@
                 } else if (name) {
                   display = name;
                 }
+                if (!display && targetId && uMap[targetId]) {
+                  const u = uMap[targetId];
+                  if (u && (u.username || u.name)) {
+                    display = u.username && u.name ? `${u.username} - ${u.name}` : (u.username || u.name);
+                  }
+                }
                 if (!display && targetId) display = targetId;
               }
 
-              if (type === 'group') {
+              if (type === 'group' || type === 'authentik_group') {
                 const groupName = details.name || details.groupName;
                 if (groupName) display = groupName;
+                else if (targetId && gMap[targetId]) display = gMap[targetId] || targetId;
                 else if (targetId) display = targetId;
               }
 
@@ -155,6 +164,11 @@
 
 </main>
 
+<script>
+  window.AUDIT_USER_MAP = <%- JSON.stringify(typeof userMap !== 'undefined' ? userMap : {}) %>;
+  window.AUDIT_GROUP_MAP = <%- JSON.stringify(typeof groupMap !== 'undefined' ? groupMap : {}) %>;
+</script>
+
 <style>
 .modalOverlay{
   position: fixed;
@@ -209,6 +223,9 @@
   const tbody = document.getElementById('auditTbody');
   const tpl = document.getElementById('detailsTemplate');
 
+  const USER_MAP = window.AUDIT_USER_MAP || {};
+  const GROUP_MAP = window.AUDIT_GROUP_MAP || {};
+
   const FRIENDLY_LABELS = {
     username: 'Username',
     userUsername: 'Username',
@@ -218,6 +235,10 @@
     is_active: 'Active status',
     groups: 'Groups',
     groupIds: 'Group IDs',
+    groupId: 'Group',
+    GroupId: 'Group',
+    userId: 'User',
+    UserId: 'User',
     jobId: 'Job ID',
     created: 'Created count',
     skipped: 'Skipped count',
@@ -237,23 +258,52 @@
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s.trim());
   }
 
-  function formatValue(val) {
-    if (val == null) return { text: '—', empty: true };
+  function resolveUserName(id) {
+    if (id == null || id === '') return null;
+    var key = String(id);
+    var u = USER_MAP[key];
+    if (!u) return null;
+    if (u.username && u.name) return u.username + ' - ' + u.name;
+    return u.username || u.name || null;
+  }
+
+  function resolveGroupName(uuid) {
+    if (uuid == null || uuid === '') return null;
+    return GROUP_MAP[String(uuid)] || null;
+  }
+
+  function formatValue(val, key) {
+    if (val == null && key !== 'username' && key !== 'name') return { text: '—', empty: true };
     if (typeof val === 'boolean') return { text: val ? 'Yes' : 'No', empty: false };
+    if (typeof val === 'number' && (key === 'userId' || key === 'UserId')) {
+      var name = resolveUserName(val);
+      return { text: name || ('User ID: ' + val), empty: !name };
+    }
     if (typeof val === 'number') return { text: String(val), empty: false };
     if (Array.isArray(val)) {
       if (val.length === 0) return { text: '—', empty: true };
-      const allUuid = val.every(function (x) { return isUuid(String(x)); });
-      const list = val.map(function (x) {
-        if (allUuid) return 'Group ID: ' + String(x);
-        return String(x);
+      var list = val.map(function (x) {
+        var id = String(x);
+        if (isUuid(id)) {
+          var gName = resolveGroupName(id);
+          return gName ? gName + ' (' + id + ')' : id;
+        }
+        return id;
       });
       return { text: list.join(', '), list: list, empty: false };
+    }
+    if (typeof val === 'string' && (key === 'groupId' || key === 'GroupId') && isUuid(val)) {
+      var gn = resolveGroupName(val);
+      return { text: gn || val, empty: !gn };
+    }
+    if (typeof val === 'string' && (key === 'userId' || key === 'UserId') && !isUuid(val)) {
+      var un = resolveUserName(val);
+      return { text: un || val, empty: !un };
     }
     if (typeof val === 'object') {
       try { return { text: JSON.stringify(val, null, 2), empty: false, pre: true }; } catch (_) { return { text: '—', empty: true }; }
     }
-    const s = String(val).trim();
+    var s = String(val).trim();
     return { text: s || '—', empty: !s };
   }
 
@@ -266,7 +316,7 @@
     if (keys.length === 0) return '<p class="muted">No additional details recorded.</p>';
     var html = '';
     keys.forEach(function(key) {
-      var v = formatValue(details[key]);
+      var v = formatValue(details[key], key);
       html += '<div class="detailItem">';
       html += '<span class="detailKey">' + escapeHtml(labelForKey(key)) + '</span>';
       html += '<span class="detailVal' + (v.empty ? ' empty' : '') + '">';
@@ -309,6 +359,14 @@
     let details = {};
     try { details = JSON.parse(raw || '{}'); } catch {}
 
+    var targetDisplay = targetId;
+    if (targetType.toLowerCase() === 'user' && targetId && USER_MAP[targetId]) {
+      var u = USER_MAP[targetId];
+      targetDisplay = (u.username && u.name) ? (u.username + ' - ' + u.name) : (u.username || u.name || targetId);
+    } else if (targetType.toLowerCase() === 'group' && targetId && GROUP_MAP[targetId]) {
+      targetDisplay = GROUP_MAP[targetId];
+    }
+
     const frag = tpl.content.cloneNode(true);
     const overlay = frag.querySelector('.modalOverlay');
     const summaryEl = frag.querySelector('.auditDetailsSummary');
@@ -319,7 +377,7 @@
     summaryEl.innerHTML =
       '<div class="detailRow"><span class="detailLabel">Action</span><span>' + escapeHtml(action) + '</span></div>' +
       '<div class="detailRow"><span class="detailLabel">Target type</span><span>' + escapeHtml(targetType) + '</span></div>' +
-      '<div class="detailRow"><span class="detailLabel">Target ID</span><span>' + escapeHtml(targetId) + '</span></div>';
+      '<div class="detailRow"><span class="detailLabel">Target</span><span>' + escapeHtml(targetDisplay) + '</span></div>';
 
     formattedEl.innerHTML = '<div class="detailBlock">' + buildFormattedHtml(details) + '</div>';
     pre.textContent = JSON.stringify(details, null, 2);

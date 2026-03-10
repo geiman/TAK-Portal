@@ -18,6 +18,8 @@ const agenciesStore = require("./services/agencies.service");
 const userRequestsSvc = require("./services/userRequests.service");
 const auditSvc = require("./services/auditLog.service");
 const accessSvc = require("./services/access.service");
+const usersSvc = require("./services/users.service");
+const groupsSvc = require("./services/groups.service");
 
 const app = express();
 
@@ -265,25 +267,68 @@ app.get("/integrations", requireGlobalAdmin, (req, res) =>
 );
 
 // Admin: audit log (GLOBAL ADMINS ONLY)
-app.get("/audit-log", requireGlobalAdmin, (req, res) => {
-  const raw = req.query || {};
+app.get("/audit-log", requireGlobalAdmin, async (req, res) => {
+  try {
+    const raw = req.query || {};
 
-  const filters = {
-    q: raw.q || "",
-    actor: raw.actor || "",
-    action: raw.action || "",
-    targetType: raw.targetType || "",
-    agencySuffix: raw.agencySuffix || "",
-    from: raw.from || "",
-    to: raw.to || "",
-    page: raw.page || "1",
-    pageSize: raw.pageSize || "50",
-  };
+    const filters = {
+      q: raw.q || "",
+      actor: raw.actor || "",
+      action: raw.action || "",
+      targetType: raw.targetType || "",
+      agencySuffix: raw.agencySuffix || "",
+      from: raw.from || "",
+      to: raw.to || "",
+      page: raw.page || "1",
+      pageSize: raw.pageSize || "50",
+    };
 
-  const result = auditSvc.queryLogs(filters);
-  const agencies = agenciesStore.load();
+    const result = auditSvc.queryLogs(filters);
+    const agencies = agenciesStore.load();
 
-  // Build agency lookup map by suffix
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const isUuid = (s) => typeof s === "string" && uuidRegex.test(s.trim());
+    const userIds = new Set();
+    const groupIds = new Set();
+    (result.items || []).forEach((log) => {
+      const t = String(log.targetType || "").toLowerCase();
+      const tid = log.targetId != null ? String(log.targetId).trim() : "";
+      if ((t === "user" || t === "authentik_user") && tid && !isUuid(tid)) userIds.add(tid);
+      const d = log.details || {};
+      if (d.userId != null) userIds.add(String(d.userId));
+      if (d.UserId != null) userIds.add(String(d.UserId));
+      if (Array.isArray(d.groups)) {
+        d.groups.forEach((g) => {
+          const id = g != null ? String(g).trim() : "";
+          if (id && isUuid(id)) groupIds.add(id);
+        });
+      }
+      if (d.groupId != null && isUuid(String(d.groupId))) groupIds.add(String(d.groupId));
+      if (d.GroupId != null && isUuid(String(d.GroupId))) groupIds.add(String(d.GroupId));
+    });
+
+    const userMap = {};
+    const groupMap = {};
+    await Promise.all([
+      ...Array.from(userIds).map(async (id) => {
+        try {
+          const u = await usersSvc.getUserById(id);
+          userMap[id] = { username: u?.username ?? null, name: u?.name ?? null };
+        } catch {
+          userMap[id] = { username: null, name: null };
+        }
+      }),
+      ...Array.from(groupIds).map(async (uuid) => {
+        try {
+          const g = await groupsSvc.getGroupById(uuid);
+          groupMap[uuid] = g?.name ?? null;
+        } catch {
+          groupMap[uuid] = null;
+        }
+      }),
+    ]);
+
+    // Build agency lookup map by suffix
   const agencyMap = {};
   (Array.isArray(agencies) ? agencies : []).forEach(a => {
     const sfx = String(a?.suffix || "").trim().toLowerCase();
@@ -327,8 +372,14 @@ app.get("/audit-log", requireGlobalAdmin, (req, res) => {
     agencyOptions,
     actionOptions,
     targetTypeOptions,
-    agencyMap
+    agencyMap,
+    userMap: userMap || {},
+    groupMap: groupMap || {},
   });
+  } catch (err) {
+    console.error("[audit-log]", err?.message || err);
+    res.status(500).send("Failed to load audit log.");
+  }
 });
 
 app.get("/setup-my-device", (req, res) => {
