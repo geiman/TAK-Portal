@@ -7,10 +7,10 @@ Below you will find a comprehensive list of items planned for implementation in 
 ## High / In Progress
 - Add an audit log for Global Admins to audit actions
 - Control what channels agency admins get
+- Addition of an "Integrations" page that will include user creations for integrations (users starting with "nodered-")
 
 ## Medium
 - Create a beta mode toggle so code testing does not effect normal users
-- Addition of an "Integrations" page that will include user creations for integrations (users starting with "nodered-")
 - Expand Mutual Aid to allow Agency Admins to access the page and create events for their agency channels only
 
 ## Food For Thought / Unassigned
