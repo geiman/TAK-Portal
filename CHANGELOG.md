@@ -12,6 +12,10 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.37 - 3/10/26
+✨ `Enhancement` - Adds Agency column to the users page<br>
+🐛 `Bug Fix` - Improves loading time on users and groups page<br>
+
 ### v1.2.36 - 3/8/26
 ✨ `Enhancement` - Added an indicator in the sidebar to highlight/bold the current page to assist with easier navigation
 

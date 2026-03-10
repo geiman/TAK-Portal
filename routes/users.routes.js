@@ -540,10 +540,17 @@ router.get("/search", async (req, res) => {
         const av = getSortValue(a);
         const bv = getSortValue(b);
 
-        const cmp = String(av).localeCompare(String(bv), undefined, {
+        let cmp = String(av).localeCompare(String(bv), undefined, {
           numeric: true,
           sensitivity: "base"
         });
+
+        // When sorting by agency, tiebreak by name (not username)
+        if (cmp === 0 && sortKey === "agency") {
+          const aName = String(a?.name || "").toLowerCase();
+          const bName = String(b?.name || "").toLowerCase();
+          cmp = aName.localeCompare(bName, undefined, { numeric: true, sensitivity: "base" });
+        }
 
         return sortDir === "desc" ? -cmp : cmp;
       });
