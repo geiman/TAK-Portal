@@ -133,7 +133,26 @@ function logEvent(payload) {
     const targetId = safeStr(payload && payload.targetId).trim() || "";
     const details = pruneDetails(payload && payload.details);
 
-    const agency = inferAgency({ targetType, targetId, details });
+    let agency;
+    const explicitSuffix = payload && payload.agencySuffix != null && String(payload.agencySuffix).trim() !== "";
+    if (explicitSuffix) {
+      const sfx = normalizeSuffix(payload.agencySuffix);
+      const { bySuffix } = getAgenciesIndex();
+      const a = bySuffix.get(sfx);
+      agency = a
+        ? {
+            agencySuffix: normalizeSuffix(a.suffix) || null,
+            agencyName: safeStr(a.name) || null,
+            agencyPrefix: safeStr(a.groupPrefix).trim().toUpperCase() || null,
+          }
+        : {
+            agencySuffix: sfx,
+            agencyName: safeStr(payload.agencyName) || null,
+            agencyPrefix: null,
+          };
+    } else {
+      agency = inferAgency({ targetType, targetId, details });
+    }
 
     logs.unshift({
       id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,

@@ -389,6 +389,8 @@ router.post("/import-csv/start", upload.single("file"), async (req, res) => {
           const createdDetails = (result && result.created) ? result.created.map((c) => ({ username: c.username, templateName: c.templateName || "" })) : [];
           const templatesUsed = [...new Set(createdDetails.map((d) => d.templateName).filter(Boolean))];
           const skippedUsernames = (result && result.skipped) ? result.skipped.map((s) => s.username).filter(Boolean) : [];
+          const firstUsername = usernamesCreated[0] || null;
+          const bulkAgency = firstUsername ? auditSvc.inferAgencyFromUsername(firstUsername) : null;
 
           auditSvc.logEvent({
             actor: authUser,
@@ -396,6 +398,8 @@ router.post("/import-csv/start", upload.single("file"), async (req, res) => {
             action: "IMPORT_USERS_CSV_COMPLETED",
             targetType: "user",
             targetId: "bulk",
+            agencySuffix: bulkAgency?.agencySuffix || undefined,
+            agencyName: bulkAgency?.agencyName || undefined,
             details: {
               jobId,
               created: job.created,
@@ -665,7 +669,8 @@ router.get("/search", async (req, res) => {
 router.post("/:userId/reset-password", async (req, res) => {
   try {
     const authUser = req.authentikUser || null;
-    const user = await users.resetPassword(req.params.userId, req.body?.password);
+    await users.resetPassword(req.params.userId, req.body?.password);
+    const user = await users.getUserById(req.params.userId).catch(() => null);
 
     auditSvc.logEvent({
       actor: authUser,
@@ -673,7 +678,7 @@ router.post("/:userId/reset-password", async (req, res) => {
       action: "RESET_USER_PASSWORD",
       targetType: "user",
       targetId: String(req.params.userId),
-      details: { username: user?.username || null },
+      details: { username: user?.username ?? null },
     });
     res.json({ success: true });
   } catch (err) {
@@ -708,7 +713,8 @@ router.post("/:userId/resend-onboarding", async (req, res) => {
 router.put("/:userId/email", async (req, res) => {
   try {
     const authUser = req.authentikUser || null;
-    const user = await users.updateEmail(req.params.userId, req.body?.email);
+    await users.updateEmail(req.params.userId, req.body?.email);
+    const user = await users.getUserById(req.params.userId).catch(() => null);
 
     auditSvc.logEvent({
       actor: authUser,
@@ -716,7 +722,7 @@ router.put("/:userId/email", async (req, res) => {
       action: "UPDATE_USER_EMAIL",
       targetType: "user",
       targetId: String(req.params.userId),
-      details: { username: user?.username || null, email: user?.email || null },
+      details: { username: user?.username ?? null, email: user?.email ?? null },
     });
     res.json({ success: true });
   } catch (err) {
@@ -728,14 +734,15 @@ router.put("/:userId/email", async (req, res) => {
 router.put("/:userId/name", async (req, res) => {
   try {
     const authUser = req.authentikUser || null;
-    const user = await users.updateName(req.params.userId, req.body?.name);
+    await users.updateName(req.params.userId, req.body?.name);
+    const user = await users.getUserById(req.params.userId).catch(() => null);
     auditSvc.logEvent({
       actor: authUser,
       request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
       action: "UPDATE_USER_NAME",
       targetType: "user",
       targetId: String(req.params.userId),
-      details: { username: user?.username || null, name: user?.name || null },
+      details: { username: user?.username ?? null, name: user?.name ?? null },
     });
     res.json({ success: true });
   } catch (err) {
@@ -748,7 +755,8 @@ router.put("/:userId/groups", async (req, res) => {
   try {
     const groupIds = Array.isArray(req.body?.groupIds) ? req.body.groupIds : [];
     const authUser = req.authentikUser || null;
-    const result = await users.setUserGroups(req.params.userId, groupIds);
+    await users.setUserGroups(req.params.userId, groupIds);
+    const user = await users.getUserById(req.params.userId).catch(() => null);
 
     auditSvc.logEvent({
       actor: authUser,
@@ -757,10 +765,8 @@ router.put("/:userId/groups", async (req, res) => {
       targetType: "user",
       targetId: String(req.params.userId),
       details: {
-        username: result?.user?.username || null,
-        groups: Array.isArray(result?.groups)
-          ? result.groups.map((g) => g?.name).filter(Boolean)
-          : groupIds,
+        username: user?.username ?? null,
+        groups: groupIds,
       },
     });
     res.json({ success: true, groups: groupIds });
@@ -773,7 +779,8 @@ router.post("/:userId/groups", async (req, res) => {
   try {
     const groupIds = Array.isArray(req.body?.groupIds) ? req.body.groupIds : [];
     const authUser = req.authentikUser || null;
-    const result = await users.setUserGroups(req.params.userId, groupIds);
+    await users.setUserGroups(req.params.userId, groupIds);
+    const user = await users.getUserById(req.params.userId).catch(() => null);
     auditSvc.logEvent({
       actor: authUser,
       request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
@@ -781,10 +788,8 @@ router.post("/:userId/groups", async (req, res) => {
       targetType: "user",
       targetId: String(req.params.userId),
       details: {
-        username: result?.user?.username || null,
-        groups: Array.isArray(result?.groups)
-          ? result.groups.map((g) => g?.name).filter(Boolean)
-          : groupIds,
+        username: user?.username ?? null,
+        groups: groupIds,
       },
     });
     res.json({ success: true, groups: groupIds });
@@ -799,6 +804,7 @@ router.post("/:userId/groups/add", async (req, res) => {
     const groupIds = Array.isArray(req.body?.groupIds) ? req.body.groupIds : [];
     const authUser = req.authentikUser || null;
     const out = await users.addUserGroups(req.params.userId, groupIds);
+    const user = await users.getUserById(req.params.userId).catch(() => null);
 
     auditSvc.logEvent({
       actor: authUser,
@@ -807,8 +813,8 @@ router.post("/:userId/groups/add", async (req, res) => {
       targetType: "user",
       targetId: String(req.params.userId),
       details: {
-        username: out?.user?.username || null,
-        groups: Array.isArray(out?.groups) ? out.groups.map((g) => g?.name).filter(Boolean) : groupIds,
+        username: user?.username ?? null,
+        groups: Array.isArray(out) ? out : groupIds,
       },
     });
     res.json({ success: true, groups: out });
@@ -823,6 +829,7 @@ router.post("/:userId/groups/remove", async (req, res) => {
     const groupIds = Array.isArray(req.body?.groupIds) ? req.body.groupIds : [];
     const authUser = req.authentikUser || null;
     const out = await users.removeUserGroups(req.params.userId, groupIds);
+    const user = await users.getUserById(req.params.userId).catch(() => null);
 
     auditSvc.logEvent({
       actor: authUser,
@@ -831,8 +838,8 @@ router.post("/:userId/groups/remove", async (req, res) => {
       targetType: "user",
       targetId: String(req.params.userId),
       details: {
-        username: out?.user?.username || null,
-        groups: Array.isArray(out?.groups) ? out.groups.map((g) => g?.name).filter(Boolean) : groupIds,
+        username: user?.username ?? null,
+        groups: Array.isArray(out) ? out : groupIds,
       },
     });
     res.json({ success: true, groups: out });
@@ -845,7 +852,8 @@ router.put("/:userId/active", async (req, res) => {
   try {
     const isActive = !!req.body?.is_active;
     const authUser = req.authentikUser || null;
-    const user = await users.toggleUserActive(req.params.userId, isActive);
+    await users.toggleUserActive(req.params.userId, isActive);
+    const user = await users.getUserById(req.params.userId).catch(() => null);
 
     auditSvc.logEvent({
       actor: authUser,
@@ -853,7 +861,7 @@ router.put("/:userId/active", async (req, res) => {
       action: "SET_USER_ACTIVE",
       targetType: "user",
       targetId: String(req.params.userId),
-      details: { username: user?.username || null, is_active: !!user?.is_active },
+      details: { username: user?.username ?? null, is_active: !!isActive },
     });
     res.json({ success: true });
   } catch (err) {
