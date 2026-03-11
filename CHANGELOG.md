@@ -12,6 +12,9 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.39 - 3/10/26
+🐛 `Bug Fix` - Fixes issue with Agency Admins getting blocked from accessing the pending user requests page
+
 ### v1.2.38 - 3/10/26
 🐛 `Bug Fix` - Fixes email template issue with incorrect coloring in Microsoft email clients
 
