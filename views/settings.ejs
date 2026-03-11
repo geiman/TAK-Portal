@@ -459,13 +459,14 @@
               if (!list || !input || !preview || !addFieldBtn || !addTextBtn) return;
 
               var FIELD_OPTIONS = [
-                { value: "agencyAbbreviation", label: "Agency" },
-                { value: "_dash", label: "— (dash)" },
                 { value: "stateAbbreviation", label: "State" },
+                { value: "county", label: "County" },
+                { value: "agencyAbbreviation", label: "Agency" },
                 { value: "firstName", label: "First" },
                 { value: "lastNameUpper", label: "Last (UPPER)" },
                 { value: "lastName", label: "Last" },
-                { value: "badgeNumber", label: "Badge" }
+                { value: "badgeNumber", label: "Badge" },
+                { value: "_dash", label: "— (dash)" }
               ];
 
               function getDragAfterElement(container, x) {
@@ -519,6 +520,7 @@
                 var exampleCtx = {
                   agencyAbbreviation: "AGENCY",
                   stateAbbreviation: "TN",
+                  county: "Hamilton",
                   firstName: "FIRST",
                   lastName: "Last",
                   lastNameUpper: "LAST",

@@ -18,5 +18,6 @@
 {{agencyAbbreviation}} - The user's agency formatted as `ABCD` <br>
 {{agencyColor}} - The user's agency color formatted as `Color` <br>
 {{stateAbbreviation}} - The two-letter state abbreviation for the user's agency (from Agencies config) <br>
+{{county}} - The county name for the user's agency (from Agencies config) <br>
 {{callsign}} - The user's callsign string, built from the configured Callsign Format in Server Settings <br>
 {{takPortalPublicUrl}} - The TAK Portal Public URL <br>

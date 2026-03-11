@@ -121,6 +121,7 @@ function buildCallsign({
   agencyAbbreviation,
   agencyColor,
   stateAbbreviation,
+  county,
 } = {}) {
   let settings = {};
   try {
@@ -142,6 +143,7 @@ function buildCallsign({
     agencyAbbreviation: agencyAbbreviation || "",
     agencyColor: agencyColor || "",
     stateAbbreviation: stateAbbreviation || "",
+    county: county || "",
   };
 
   return expr.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (match, key) => {
@@ -295,6 +297,7 @@ async function emailUserCreated({ user, groups, hasPassword }) {
       ""
     );
   const stateAbbreviation = String(agency?.state || attrs.state || "").toUpperCase();
+  const county = String(agency?.county || attrs.county || "").trim();
 
   // For user-created emails only: if the user was created from an agency template,
   // prefer that template's color override (when present). Otherwise fall back to
@@ -352,6 +355,7 @@ async function emailUserCreated({ user, groups, hasPassword }) {
     agencyAbbreviation,
     agencyColor: agencyColorEffective,
     stateAbbreviation,
+    county,
   });
 
   const html = renderTemplate(templateKey, {
@@ -366,6 +370,7 @@ async function emailUserCreated({ user, groups, hasPassword }) {
     agencyAbbreviation,
     agencyColor: agencyColorEffective,
     stateAbbreviation,
+    county,
     callsign,
     takPortalPublicUrl, // keep available if any template uses it elsewhere
     takPortalBlock,     // NEW: injected HTML block used by {{{takPortalBlock}}}
@@ -402,6 +407,8 @@ async function emailPasswordChanged(user) {
       attrs.agency_color ||
       ""
     );
+  const stateAbbreviation = String(agency?.state || attrs.state || "").toUpperCase();
+  const county = String(agency?.county || attrs.county || "").trim();
 
   const subject = "TAK Password Updated";
   const displayName = String(user?.name || "").trim() || "there";
@@ -425,6 +432,7 @@ async function emailPasswordChanged(user) {
     agencyAbbreviation,
     agencyColor,
     stateAbbreviation,
+    county,
   });
 
   const html = renderTemplate("password_changed.html", {
@@ -438,6 +446,7 @@ async function emailPasswordChanged(user) {
     agencyColor,
     takPortalPublicUrl,
     stateAbbreviation,
+    county,
     callsign,
     takPortalBlock,
   });
@@ -478,6 +487,8 @@ async function emailGroupsUpdated({ user, beforeIds, afterIds }) {
       attrs.agency_color ||
       ""
     );
+  const stateAbbreviation = String(agency?.state || attrs.state || "").toUpperCase();
+  const county = String(agency?.county || attrs.county || "").trim();
 
   const subject = "TAK Groups Updated";
   const displayName = String(user?.name || "").trim() || "there";
@@ -503,6 +514,7 @@ async function emailGroupsUpdated({ user, beforeIds, afterIds }) {
     agencyAbbreviation,
     agencyColor,
     stateAbbreviation,
+    county,
   });
 
   const html = renderTemplate("groups_updated.html", {
@@ -517,6 +529,7 @@ async function emailGroupsUpdated({ user, beforeIds, afterIds }) {
     agencyAbbreviation,
     agencyColor,
     stateAbbreviation,
+    county,
     callsign,
     takPortalPublicUrl,
     takPortalBlock,
