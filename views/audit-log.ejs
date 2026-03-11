@@ -26,9 +26,12 @@
                 <span>All actors</span>
               </label>
               <% (actorOptions || []).forEach(function(a) { %>
+                <%
+                  const actorLabel = (a.displayName && a.username) ? (a.displayName + ' - ' + a.username) : (a.displayName || a.username || '');
+                %>
                 <label class="filter-option">
-                  <input type="checkbox" value="<%= a %>" data-filter-value="<%= a %>">
-                  <span><%= a %></span>
+                  <input type="checkbox" value="<%= a.username %>" data-filter-value="<%= a.username %>">
+                  <span><%= actorLabel %></span>
                 </label>
               <% }); %>
             </div>

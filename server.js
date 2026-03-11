@@ -344,7 +344,7 @@ app.get("/audit-log", requireGlobalAdmin, async (req, res) => {
 
   const actionOptions = auditSvc.listDistinctValues({ field: "actions" });
   const targetTypeOptions = auditSvc.listDistinctValues({ field: "targetTypes" });
-  const actorOptions = auditSvc.listDistinctValues({ field: "actors" });
+  const actorOptions = auditSvc.listDistinctActors();
 
   function buildLink(newPage) {
     const u = new URL(`${req.protocol}://${req.get("host")}${req.path}`);

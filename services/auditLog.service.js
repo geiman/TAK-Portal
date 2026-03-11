@@ -304,10 +304,35 @@ function listDistinctValues({ field, limit = 250 } = {}) {
     .sort((a, b) => a.localeCompare(b));
 }
 
+function listDistinctActors({ limit = 250 } = {}) {
+  const logs = store.load();
+  const byUsername = new Map();
+
+  for (const log of logs) {
+    if (!log || !log.actor) continue;
+    const username = safeStr(log.actor.username);
+    if (!username) continue;
+    if (byUsername.has(username)) continue;
+    byUsername.set(username, {
+      username,
+      displayName: safeStr(log.actor.displayName) || null,
+    });
+    if (byUsername.size >= limit) break;
+  }
+
+  return Array.from(byUsername.values())
+    .sort((a, b) => {
+      const labelA = (a.displayName || a.username).toLowerCase();
+      const labelB = (b.displayName || b.username).toLowerCase();
+      return labelA.localeCompare(labelB);
+    });
+}
+
 module.exports = {
   logEvent,
   queryLogs,
   listDistinctValues,
+  listDistinctActors,
   inferAgencyFromUsername,
   inferAgencyFromGroupName,
 };
