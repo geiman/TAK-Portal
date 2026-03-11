@@ -385,6 +385,11 @@ router.post("/import-csv/start", upload.single("file"), async (req, res) => {
           job.created = Number(result?.created?.length || 0);
           job.skipped = Number(result?.skipped?.length || 0);
 
+          const usernamesCreated = (result && result.created) ? result.created.map((c) => c.username).filter(Boolean) : [];
+          const createdDetails = (result && result.created) ? result.created.map((c) => ({ username: c.username, templateName: c.templateName || "" })) : [];
+          const templatesUsed = [...new Set(createdDetails.map((d) => d.templateName).filter(Boolean))];
+          const skippedUsernames = (result && result.skipped) ? result.skipped.map((s) => s.username).filter(Boolean) : [];
+
           auditSvc.logEvent({
             actor: authUser,
             request: { method: "JOB", path: "/api/users/import-csv/start", ip: req.ip },
@@ -396,6 +401,10 @@ router.post("/import-csv/start", upload.single("file"), async (req, res) => {
               created: job.created,
               skipped: job.skipped,
               durationMs,
+              usernamesCreated,
+              createdDetails,
+              templatesUsed,
+              skippedUsernames,
             },
           });
         }

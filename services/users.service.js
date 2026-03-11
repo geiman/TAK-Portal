@@ -1207,7 +1207,10 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
 
       const createdUsername =
         (result && result.user && result.user.username) || username;
-      created.push({ username: createdUsername });
+      created.push({
+        username: createdUsername,
+        templateName: selectedTemplate ? String(selectedTemplate.name || row.templateName || "").trim() : (row.templateName || ""),
+      });
     } finally {
       processed += 1;
       reportProgress({

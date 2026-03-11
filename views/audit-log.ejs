@@ -366,6 +366,10 @@
     phase: 'Phase',
     total: 'Total',
     processed: 'Processed',
+    usernamesCreated: 'Usernames created',
+    createdDetails: 'Created (username + template)',
+    templatesUsed: 'Templates used',
+    skippedUsernames: 'Skipped usernames',
   };
 
   function isUuid(s) {
@@ -398,6 +402,11 @@
     if (Array.isArray(val)) {
       if (val.length === 0) return { text: '—', empty: true };
       var list = val.map(function (x) {
+        if (x && typeof x === 'object' && ('username' in x || 'templateName' in x)) {
+          var u = x.username != null ? String(x.username) : '';
+          var t = x.templateName != null ? String(x.templateName) : '';
+          return t ? u + ' → ' + t : u;
+        }
         var id = String(x);
         if (isUuid(id)) {
           var gName = resolveGroupName(id);
