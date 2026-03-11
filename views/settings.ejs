@@ -493,29 +493,16 @@
                 return btn;
               }
 
-              function makeMoveHandle(onStartDrag) {
+              function makeMoveHandle() {
                 var handle = document.createElement("span");
                 handle.className = "callsign-chip-move";
                 handle.textContent = "⋮⋮";
                 handle.title = "Drag to move";
-                handle.addEventListener("mousedown", function (e) {
-                  onStartDrag(e);
-                });
-                handle.addEventListener("touchstart", function (e) {
-                  onStartDrag(e);
-                }, { passive: true });
                 return handle;
               }
 
               function attachDragHandlers(chip, handle) {
-                chip.draggable = false;
-                if (!handle) return;
-
-                handle.addEventListener("dragstart", function (e) {
-                  // prevent default drag on text selection
-                  e.preventDefault();
-                });
-
+                chip.draggable = true;
                 chip.addEventListener("dragstart", function (e) {
                   chip.classList.add("dragging");
                   if (e.dataTransfer) {
@@ -526,13 +513,6 @@
                   chip.classList.remove("dragging");
                   serialize();
                 });
-
-                handle.addEventListener("mousedown", function () {
-                  chip.draggable = true;
-                });
-                chip.addEventListener("mouseup", function () {
-                  chip.draggable = false;
-                });
               }
 
               function createFieldBlock(field) {
@@ -540,9 +520,7 @@
                 wrap.setAttribute("data-type", "field");
                 wrap.className = "callsign-chip";
 
-                var move = makeMoveHandle(function () {
-                  // handled via drag handlers below
-                });
+                var move = makeMoveHandle();
 
                 var select = document.createElement("select");
                 FIELD_OPTIONS.forEach(function (opt) {
@@ -572,9 +550,7 @@
                 wrap.setAttribute("data-type", "text");
                 wrap.className = "callsign-chip";
 
-                var move = makeMoveHandle(function () {
-                  // handled via drag handlers below
-                });
+                var move = makeMoveHandle();
 
                 var inputEl = document.createElement("input");
                 inputEl.type = "text";
