@@ -297,7 +297,7 @@ async function emailUserCreated({ user, groups, hasPassword }) {
       ""
     );
   const stateAbbreviation = String(agency?.state || attrs.state || "").toUpperCase();
-  const county = String(agency?.county || attrs.county || "").trim();
+  const county = String(agency?.county || attrs.county || "").trim().toUpperCase();
 
   // For user-created emails only: if the user was created from an agency template,
   // prefer that template's color override (when present). Otherwise fall back to
@@ -408,7 +408,7 @@ async function emailPasswordChanged(user) {
       ""
     );
   const stateAbbreviation = String(agency?.state || attrs.state || "").toUpperCase();
-  const county = String(agency?.county || attrs.county || "").trim();
+  const county = String(agency?.county || attrs.county || "").trim().toUpperCase();
 
   const subject = "TAK Password Updated";
   const displayName = String(user?.name || "").trim() || "there";
@@ -488,7 +488,7 @@ async function emailGroupsUpdated({ user, beforeIds, afterIds }) {
       ""
     );
   const stateAbbreviation = String(agency?.state || attrs.state || "").toUpperCase();
-  const county = String(agency?.county || attrs.county || "").trim();
+  const county = String(agency?.county || attrs.county || "").trim().toUpperCase();
 
   const subject = "TAK Groups Updated";
   const displayName = String(user?.name || "").trim() || "there";
