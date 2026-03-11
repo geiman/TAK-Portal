@@ -683,6 +683,38 @@ select:focus {
     opacity: 0.7;
 }
 
+/* Callsign format blocks (horizontal row) - compact so ~7 fit at 1920px */
+.callsign-block {
+    max-width: 220px;
+    min-width: 0;
+    padding: 0.25rem 0.35rem !important;
+    border-radius: 0.35rem !important;
+}
+.callsign-block .callsign-block-inner {
+    display: grid;
+    grid-template-columns: 20px 1fr 28px;
+    gap: 0.35rem;
+    align-items: center;
+    min-width: 0;
+}
+.callsign-block .callsign-block-handle {
+    cursor: grab;
+    user-select: none;
+    font-size: 0.9rem;
+    text-align: center;
+}
+.callsign-block select,
+.callsign-block input[type="text"] {
+    font-size: 0.75rem;
+    padding: 0.2rem 0.35rem;
+    min-width: 0;
+    max-width: 100%;
+}
+.callsign-block .callsign-block-delete {
+    padding: 0.15rem 0.3rem;
+    font-size: 0.7rem;
+}
+
 /* ======================
    SETUP MY DEVICE
    ====================== */

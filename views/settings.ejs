@@ -428,7 +428,7 @@
 
             <ul
               id="callsignList"
-              style="list-style:none;padding:0;margin:0;display:flex;flex-direction:row;flex-wrap:wrap;gap:.5rem;align-items:flex-start;"
+              style="list-style:none;padding:0;margin:0;display:flex;flex-direction:row;flex-wrap:wrap;gap:0.35rem;align-items:flex-start;"
             ></ul>
 
             <input
@@ -459,12 +459,12 @@
               if (!list || !input || !preview || !addFieldBtn || !addTextBtn) return;
 
               var FIELD_OPTIONS = [
-                { value: "agencyAbbreviation", label: "Agency Abbreviation" },
-                { value: "stateAbbreviation", label: "State (from Agency)" },
-                { value: "firstName", label: "First Name" },
-                { value: "lastNameUpper", label: "Last Name (UPPERCASE)" },
-                { value: "lastName", label: "Last Name" },
-                { value: "badgeNumber", label: "Badge / Username" }
+                { value: "agencyAbbreviation", label: "Agency" },
+                { value: "stateAbbreviation", label: "State" },
+                { value: "firstName", label: "First" },
+                { value: "lastNameUpper", label: "Last (UP)" },
+                { value: "lastName", label: "Last" },
+                { value: "badgeNumber", label: "Badge" }
               ];
 
               function getDragAfterElement(container, x) {
@@ -533,8 +533,9 @@
               function makeDeleteButton(onClick) {
                 var btn = document.createElement("button");
                 btn.type = "button";
-                btn.textContent = "Delete";
-                btn.className = "btn btn-warning";
+                btn.textContent = "✕";
+                btn.title = "Remove";
+                btn.className = "btn btn-warning callsign-block-delete";
                 btn.addEventListener("click", function () {
                   onClick();
                   serialize();
@@ -550,25 +551,18 @@
                 var li = document.createElement("li");
                 li.setAttribute("data-callsign-row", "1");
                 li.setAttribute("data-type", type);
+                li.className = "callsign-block";
                 li.draggable = true;
                 li.style.border = "1px solid #e5e7eb";
-                li.style.borderRadius = "0.5rem";
-                li.style.padding = "0.5rem";
                 li.style.background = "#fff0";
 
                 var wrap = document.createElement("div");
-                wrap.style.display = "grid";
-                wrap.style.gridTemplateColumns = "32px 1fr 90px";
-                wrap.style.gap = "0.5rem";
-                wrap.style.alignItems = "center";
+                wrap.className = "callsign-block-inner";
 
                 var handle = document.createElement("div");
+                handle.className = "callsign-block-handle";
                 handle.title = "Drag to reorder";
                 handle.textContent = "⋮⋮";
-                handle.style.cursor = "grab";
-                handle.style.userSelect = "none";
-                handle.style.fontSize = "1.2rem";
-                handle.style.textAlign = "center";
 
                 var main;
                 if (type === "field") {
