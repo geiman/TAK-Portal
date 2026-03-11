@@ -203,11 +203,13 @@ if (!isPublicPath) {
       "/groups",
       "/templates",
       "/setup-my-device",
+      "/pending-user-requests",
       "/api/users",
       "/api/groups",
       "/api/templates",
       "/api/agencies",
       "/api/setup-my-device",
+      "/api/user-requests",
     ];
 
     const allowed = allowedAgencyAdminPrefixes.some(prefix =>
