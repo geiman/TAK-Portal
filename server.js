@@ -73,9 +73,9 @@ async function checkForUpdates() {
   }
 }
 
-// Run once on startup, then periodically (e.g. every 1 hour)
+// Run once on startup, then periodically (every 15 min)
 checkForUpdates();
-setInterval(checkForUpdates, 60 * 60 * 1000);
+setInterval(checkForUpdates, 15 * 60 * 1000);
 
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
