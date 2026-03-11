@@ -424,13 +424,13 @@
             <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:.5rem;">
               <button type="button" class="btn" id="addCallsignFieldBtn">Add Field</button>
               <button type="button" class="btn" id="addCallsignTextBtn">Add Text</button>
-              <small class="settings-help">Drag chips by the six-dot handle to change order.</small>
+              <small class="settings-help">Drag rows by the handle to change order.</small>
             </div>
 
-            <div
-              id="callsignBlocks"
-              style="display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:.5rem;"
-            ></div>
+            <ul
+              id="callsignList"
+              style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:.5rem;"
+            ></ul>
 
             <input
               type="hidden"
@@ -461,13 +461,13 @@
               var root = document.getElementById("callsignBuilder");
               if (!root) return;
 
-              var blocksHost = document.getElementById("callsignBlocks");
+              var list = document.getElementById("callsignList");
               var input = document.getElementById("callsignFormatInput");
               var preview = document.getElementById("callsignPreview");
               var addFieldBtn = document.getElementById("addCallsignFieldBtn");
               var addTextBtn = document.getElementById("addCallsignTextBtn");
 
-              if (!blocksHost || !input || !preview || !addFieldBtn || !addTextBtn) return;
+              if (!list || !input || !preview || !addFieldBtn || !addTextBtn) return;
 
               var FIELD_OPTIONS = [
                 { value: "agencyAbbreviation", label: "Agency Abbreviation" },
@@ -478,100 +478,9 @@
                 { value: "badgeNumber", label: "Badge Number" }
               ];
 
-              function makeDeleteButton(onClick) {
-                var btn = document.createElement("button");
-                btn.type = "button";
-                btn.textContent = "✕";
-                btn.title = "Remove";
-                btn.className = "btn btn-warning";
-                btn.style.padding = "0 0.4rem";
-                btn.style.fontSize = "0.75rem";
-                btn.addEventListener("click", function () {
-                  onClick();
-                  serialize();
-                });
-                return btn;
-              }
-
-              function makeMoveHandle() {
-                var handle = document.createElement("span");
-                handle.className = "callsign-chip-move";
-                handle.textContent = "⋮⋮";
-                handle.title = "Drag to move";
-                return handle;
-              }
-
-              function attachDragHandlers(chip, handle) {
-                chip.draggable = true;
-                chip.addEventListener("dragstart", function (e) {
-                  chip.classList.add("dragging");
-                  if (e.dataTransfer) {
-                    e.dataTransfer.effectAllowed = "move";
-                  }
-                });
-                chip.addEventListener("dragend", function () {
-                  chip.classList.remove("dragging");
-                  serialize();
-                });
-              }
-
-              function createFieldBlock(field) {
-                var wrap = document.createElement("span");
-                wrap.setAttribute("data-type", "field");
-                wrap.className = "callsign-chip";
-
-                var move = makeMoveHandle();
-
-                var select = document.createElement("select");
-                FIELD_OPTIONS.forEach(function (opt) {
-                  var o = document.createElement("option");
-                  o.value = opt.value;
-                  o.textContent = opt.label;
-                  select.appendChild(o);
-                });
-                select.value = field && FIELD_OPTIONS.some(function (o) { return o.value === field; })
-                  ? field
-                  : "agencyAbbreviation";
-
-                select.addEventListener("change", serialize);
-
-                wrap.appendChild(move);
-                wrap.appendChild(select);
-                wrap.appendChild(makeDeleteButton(function () {
-                  wrap.remove();
-                }));
-                attachDragHandlers(wrap, move);
-
-                return wrap;
-              }
-
-              function createTextBlock(text) {
-                var wrap = document.createElement("span");
-                wrap.setAttribute("data-type", "text");
-                wrap.className = "callsign-chip";
-
-                var move = makeMoveHandle();
-
-                var inputEl = document.createElement("input");
-                inputEl.type = "text";
-                inputEl.value = text || "";
-                inputEl.placeholder = "Text (e.g. -, TN-)";
-                inputEl.style.width = "110px";
-                inputEl.addEventListener("input", serialize);
-
-                wrap.appendChild(move);
-                wrap.appendChild(inputEl);
-                wrap.appendChild(makeDeleteButton(function () {
-                  wrap.remove();
-                }));
-                attachDragHandlers(wrap, move);
-
-                return wrap;
-              }
-
               function getDragAfterElement(container, y) {
                 var els = [].slice.call(
-                  container.querySelectorAll("span[data-type]:not(.dragging)")
+                  container.querySelectorAll("li[data-callsign-row]:not(.dragging)")
                 );
                 return els.reduce(function (closest, child) {
                   var box = child.getBoundingClientRect();
@@ -585,15 +494,15 @@
 
               function serialize() {
                 var parts = [];
-                var children = blocksHost.querySelectorAll("span[data-type]");
-                Array.prototype.forEach.call(children, function (el) {
-                  var type = el.getAttribute("data-type");
+                var rows = [].slice.call(list.querySelectorAll("li[data-callsign-row]"));
+                rows.forEach(function (row) {
+                  var type = row.getAttribute("data-type");
                   if (type === "field") {
-                    var select = el.querySelector("select");
-                    var v = (select && select.value) || "";
+                    var sel = row.querySelector("select[data-field-name]");
+                    var v = (sel && sel.value) || "";
                     if (v) parts.push("{{" + v + "}}");
                   } else if (type === "text") {
-                    var inp = el.querySelector("input");
+                    var inp = row.querySelector("input[data-text-val]");
                     if (inp && inp.value) parts.push(inp.value);
                   }
                 });
@@ -632,6 +541,94 @@
                 preview.textContent = rendered || "AGENCY-LASTNAME-BADGE";
               }
 
+              function makeDeleteButton(onClick) {
+                var btn = document.createElement("button");
+                btn.type = "button";
+                btn.textContent = "Delete";
+                btn.className = "btn btn-warning";
+                btn.addEventListener("click", function () {
+                  onClick();
+                  serialize();
+                });
+                return btn;
+              }
+
+              function createRow(opts) {
+                var type = opts && opts.type === "text" ? "text" : "field";
+                var field = opts && opts.field;
+                var text = opts && opts.text;
+
+                var li = document.createElement("li");
+                li.setAttribute("data-callsign-row", "1");
+                li.setAttribute("data-type", type);
+                li.draggable = true;
+                li.style.border = "1px solid #e5e7eb";
+                li.style.borderRadius = "0.5rem";
+                li.style.padding = "0.5rem";
+                li.style.background = "#fff0";
+
+                var wrap = document.createElement("div");
+                wrap.style.display = "grid";
+                wrap.style.gridTemplateColumns = "32px 1fr 90px";
+                wrap.style.gap = "0.5rem";
+                wrap.style.alignItems = "center";
+
+                var handle = document.createElement("div");
+                handle.title = "Drag to reorder";
+                handle.textContent = "⋮⋮";
+                handle.style.cursor = "grab";
+                handle.style.userSelect = "none";
+                handle.style.fontSize = "1.2rem";
+                handle.style.textAlign = "center";
+
+                var main;
+                if (type === "field") {
+                  var select = document.createElement("select");
+                  select.setAttribute("data-field-name", "1");
+                  FIELD_OPTIONS.forEach(function (opt) {
+                    var o = document.createElement("option");
+                    o.value = opt.value;
+                    o.textContent = opt.label;
+                    select.appendChild(o);
+                  });
+                  select.value = field && FIELD_OPTIONS.some(function (o) { return o.value === field; })
+                    ? field
+                    : "agencyAbbreviation";
+                  select.addEventListener("change", serialize);
+                  main = select;
+                } else {
+                  var inp = document.createElement("input");
+                  inp.type = "text";
+                  inp.setAttribute("data-text-val", "1");
+                  inp.placeholder = "Text (e.g. -, TN-)";
+                  inp.value = text || "";
+                  inp.addEventListener("input", serialize);
+                  main = inp;
+                }
+
+                var del = makeDeleteButton(function () {
+                  li.remove();
+                });
+
+                wrap.appendChild(handle);
+                wrap.appendChild(main);
+                wrap.appendChild(del);
+                li.appendChild(wrap);
+
+                li.addEventListener("dragstart", function (e) {
+                  li.classList.add("dragging");
+                  if (e.dataTransfer) {
+                    e.dataTransfer.effectAllowed = "move";
+                  }
+                });
+                li.addEventListener("dragend", function () {
+                  li.classList.remove("dragging");
+                  serialize();
+                });
+
+                return li;
+              }
+
               function initFromExpression() {
                 var expr = String(input.value || "").trim();
                 if (!expr) {
@@ -644,46 +641,46 @@
                 while ((m = re.exec(expr)) !== null) {
                   var textPart = expr.slice(lastIndex, m.index);
                   if (textPart) {
-                    blocksHost.appendChild(createTextBlock(textPart));
+                    list.appendChild(createRow({ type: "text", text: textPart }));
                   }
-                  blocksHost.appendChild(createFieldBlock(m[1]));
+                  list.appendChild(createRow({ type: "field", field: m[1] }));
                   lastIndex = re.lastIndex;
                 }
                 var tail = expr.slice(lastIndex);
                 if (tail) {
-                  blocksHost.appendChild(createTextBlock(tail));
+                  list.appendChild(createRow({ type: "text", text: tail }));
                 }
 
-                if (!blocksHost.querySelector("span[data-type]")) {
-                  blocksHost.appendChild(createFieldBlock("agencyAbbreviation"));
-                  blocksHost.appendChild(createTextBlock("-"));
-                  blocksHost.appendChild(createFieldBlock("lastNameUpper"));
-                  blocksHost.appendChild(createTextBlock("-"));
-                  blocksHost.appendChild(createFieldBlock("badgeNumber"));
+                if (!list.querySelector("li[data-callsign-row]")) {
+                  list.appendChild(createRow({ type: "field", field: "agencyAbbreviation" }));
+                  list.appendChild(createRow({ type: "text", text: "-" }));
+                  list.appendChild(createRow({ type: "field", field: "lastNameUpper" }));
+                  list.appendChild(createRow({ type: "text", text: "-" }));
+                  list.appendChild(createRow({ type: "field", field: "badgeNumber" }));
                 }
 
                 serialize();
               }
 
               addFieldBtn.addEventListener("click", function () {
-                blocksHost.appendChild(createFieldBlock("badgeNumber"));
+                list.appendChild(createRow({ type: "field", field: "badgeNumber" }));
                 serialize();
               });
 
               addTextBtn.addEventListener("click", function () {
-                blocksHost.appendChild(createTextBlock("-"));
+                list.appendChild(createRow({ type: "text", text: "-" }));
                 serialize();
               });
 
-              blocksHost.addEventListener("dragover", function (e) {
+              list.addEventListener("dragover", function (e) {
                 e.preventDefault();
-                var dragging = blocksHost.querySelector(".dragging");
+                var dragging = list.querySelector(".dragging");
                 if (!dragging) return;
-                var after = getDragAfterElement(blocksHost, e.clientY);
+                var after = getDragAfterElement(list, e.clientY);
                 if (after == null) {
-                  blocksHost.appendChild(dragging);
+                  list.appendChild(dragging);
                 } else {
-                  blocksHost.insertBefore(dragging, after);
+                  list.insertBefore(dragging, after);
                 }
               });
 
