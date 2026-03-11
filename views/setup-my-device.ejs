@@ -101,6 +101,7 @@
         <div style="text-align:center; min-width: 260px;">
           <img id="setupQrImg" alt="Enrollment QR Code" style="max-width: 280px; width: 100%; height: auto; border-radius: 14px;" />
           <div class="row" style="gap: 10px; margin-top: 14px; justify-content: center;">
+            <span id="setupQrEnrollUrlHolder" data-enroll-url="" style="display:none;" aria-hidden="true"></span>
             <button class="btn" type="button" id="setupQrOpenBtn" disabled>Open URL</button>
             <button class="btn" type="button" id="setupQrCopyBtn" disabled>Copy URL</button>
             <button class="btn" type="button" id="setupQrSaveBtn" disabled>Save Image</button>
@@ -184,9 +185,15 @@
   const overlay = document.getElementById("setupQrOverlay");
   const closeBtn = document.getElementById("setupQrCloseBtn");
   const qrImg = document.getElementById("setupQrImg");
+  const enrollUrlHolder = document.getElementById("setupQrEnrollUrlHolder");
   const openUrlBtn = document.getElementById("setupQrOpenBtn");
   const copyBtn = document.getElementById("setupQrCopyBtn");
   const saveBtn = document.getElementById("setupQrSaveBtn");
+
+  function getCurrentEnrollUrl() {
+    if (!enrollUrlHolder || !enrollUrlHolder.dataset.enrollUrl) return "";
+    return String(enrollUrlHolder.dataset.enrollUrl).trim();
+  }
   const details = document.getElementById("setupQrDetails");
   const countdownEl = document.getElementById("setupQrCountdown");
   const msg = document.getElementById("setupQrMsg");
@@ -335,6 +342,7 @@
       const remain = exp.getTime() - Date.now();
       if (remain <= 0) {
         countdownEl.textContent = "QR Code Expired";
+        if (enrollUrlHolder) enrollUrlHolder.dataset.enrollUrl = "";
         openUrlBtn.disabled = true;
         copyBtn.disabled = true;
         saveBtn.disabled = true;
@@ -390,13 +398,15 @@
   function renderFromCache(obj) {
     cached = obj;
     qrImg.src = obj.qrCode || "";
+    var url = (obj.enrollUrl && String(obj.enrollUrl).trim()) || "";
+    if (enrollUrlHolder) enrollUrlHolder.dataset.enrollUrl = url;
 
     const chips = [];
     if (obj.username) chips.push(`<span class="chip">User: ${obj.username}</span>`);
     details.innerHTML = chips.join(" ");
 
-    openUrlBtn.disabled = !obj.enrollUrl;
-    copyBtn.disabled = !obj.enrollUrl;
+    openUrlBtn.disabled = !url;
+    copyBtn.disabled = !url;
     saveBtn.disabled = !(obj.username && obj.token);
     setMsg(msg, "QR ready.", true);
 
@@ -408,6 +418,7 @@
     // UI reset
     qrImg.src = "";
     details.innerHTML = "";
+    if (enrollUrlHolder) enrollUrlHolder.dataset.enrollUrl = "";
     openUrlBtn.disabled = true;
     copyBtn.disabled = true;
     saveBtn.disabled = true;
@@ -509,11 +520,20 @@
   });
 
   openUrlBtn.addEventListener("click", () => {
-    if (cached && cached.enrollUrl) window.open(cached.enrollUrl, "_blank", "noopener,noreferrer");
+    var url = getCurrentEnrollUrl();
+    if (!url) return;
+    var a = document.createElement("a");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   });
 
   copyBtn.addEventListener("click", () => {
-    if (cached && cached.enrollUrl) copyToClipboard(cached.enrollUrl);
+    var url = getCurrentEnrollUrl();
+    if (url) copyToClipboard(url);
   });
 
   saveBtn.addEventListener("click", () => {
