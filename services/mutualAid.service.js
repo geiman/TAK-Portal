@@ -538,9 +538,17 @@ async function update({ id, type, title, expireEnabled, expireAt }) {
   if (idx < 0) throw new Error("Mutual aid item not found");
 
   const current = items[idx];
+  const currentMode = String(current.groupMode || "new").toLowerCase();
+  const groupWasCreated = current.groupWasCreated === true;
+  const canModifyGroup = groupWasCreated || currentMode !== "existing";
+
   const nextType = String(type || current.type || "").trim().toUpperCase();
   const nextTitle = sanitizeTitle(title ?? current.title);
-  const nextGroupName = buildGroupName(nextType, nextTitle);
+  // Only allow the mutual-aid workflow to rename groups that it actually created.
+  // When a mutual aid is linked to an existing group, we must not rename that group.
+  const nextGroupName = canModifyGroup
+    ? buildGroupName(nextType, nextTitle)
+    : String(current.groupName || "");
 
   // Username should follow the same formatting rules as creation.
   const nextUsername = buildMutualAidUsername(nextType, nextTitle);
@@ -559,7 +567,7 @@ async function update({ id, type, title, expireEnabled, expireAt }) {
   }
 
   // Rename group in Authentik if needed
-  if (String(current.groupName) !== String(nextGroupName)) {
+  if (canModifyGroup && String(current.groupName) !== String(nextGroupName)) {
     await groupsSvc.renameGroup(current.groupId, nextGroupName, { ignoreLocks: true });
   }
 
