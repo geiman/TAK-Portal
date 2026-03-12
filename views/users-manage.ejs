@@ -1576,12 +1576,10 @@ window.editUser = async (userPk) => {
 
   selectedUser = { ...u };
 
-  // Resolve hidden/internal group names we know how to derive (e.g. the agency admin group)
-  // BEFORE rendering chips so users never see raw UUIDs.
-  const adminGroupName = getAgencyAdminGroupNameForUser(selectedUser);
-  const adminGroupId = adminGroupName
-    ? await resolveGroupIdByName(adminGroupName)
-    : null;
+  // Resolve agency-admin group id from our cached mapping (suffix-only lookup),
+  // so it works for both legacy and county-prefixed group names.
+  const abbrForSelected = String(getUserAgencyAbbreviation(selectedUser) || "").trim().toUpperCase();
+  const adminGroupId = abbrForSelected ? agencyAdminGroupIdByAbbr.get(abbrForSelected) : null;
 
     // Also resolve configured Global Admin group names so chips display correctly
   if (IS_GLOBAL_ADMIN && PORTAL_GLOBAL_ADMIN_GROUP_NAMES.length) {
@@ -1624,7 +1622,7 @@ window.editUser = async (userPk) => {
       }
     }
 
-    if (adminGroupName) {
+    if (abbrForSelected) {
       const hasAdmin = adminGroupId
         ? (selectedUser.groups || []).some(gid => String(gid) === String(adminGroupId))
         : false;
@@ -1673,9 +1671,14 @@ if (applyPermissionsBtn) applyPermissionsBtn.addEventListener("click", async () 
 
   const currentIds = new Set((selectedUser.groups || []).map(x => String(x)));
 
-  // Agency Admin group (per-user, derived from agency abbreviation)
-  const adminGroupName = getAgencyAdminGroupNameForUser(selectedUser);
-  const adminGroupId = adminGroupName ? await resolveGroupIdByName(adminGroupName) : null;
+  // Agency Admin group (per-user, derived from agency abbreviation, using cached ids)
+  const abbr = String(getUserAgencyAbbreviation(selectedUser) || "").trim().toUpperCase();
+  let adminGroupId = abbr ? agencyAdminGroupIdByAbbr.get(abbr) : null;
+  if (!adminGroupId && abbr) {
+    // Try to resolve once more from Authentik if cache is empty
+    await ensureAgencyAdminIdsForUsers([selectedUser]);
+    adminGroupId = agencyAdminGroupIdByAbbr.get(abbr) || null;
+  }
 
   // Global Admin group(s) (portal-wide)
   const globalIds = await getGlobalAdminGroupIds();
@@ -1686,7 +1689,7 @@ if (applyPermissionsBtn) applyPermissionsBtn.addEventListener("click", async () 
 
   if (desired === "agency_admin" || desired === "user") {
     // Agency-admin changes require a resolvable agency admin group.
-    if (!adminGroupName || !adminGroupId) {
+    if (!abbr || !adminGroupId) {
       setMsgEl(actionMsg, "Cannot set Agency Admin/User: user has no agency abbreviation (or group missing).", false);
       return;
     }
