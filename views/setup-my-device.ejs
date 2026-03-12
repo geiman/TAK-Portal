@@ -48,11 +48,11 @@
       <div class="grid2">
         <button type="button" class="btn tile" id="scanQrBtnTakAware">
           <span class="title">Scan QR Code (Recommended)</span>
-          <span class="desc">Scan an enrollment QR code to automatically configure TAK Aware.</span>
+          <span class="desc">Scan an enrollment QR code to automatically connect TAK Aware.</span>
         </button>
         <button type="button" class="btn tile" id="manualLoginBtnTakAware">
           <span class="title">Manual Login</span>
-          <span class="desc">Manually configure TAK Aware with step-by-step instructions.</span>
+          <span class="desc">Manually connect TAK Aware to the TAK Server.</span>
         </button>
       </div>
     </div>
@@ -100,11 +100,11 @@
           <div class="grid2">
             <button type="button" class="btn tile" id="scanQrBtnAtak">
               <span class="title">Scan QR Code (Recommended)</span>
-              <span class="desc">Scan an enrollment QR code to automatically configure ATAK.</span>
+              <span class="desc">Scan an enrollment QR code to automatically connect ATAK.</span>
             </button>
             <button type="button" class="btn tile" id="manualLoginBtnAtak">
               <span class="title">Manual Login</span>
-              <span class="desc">Manually configure ATAK with step-by-step instructions.</span>
+              <span class="desc">Manually connect ATAK to the TAK Server.</span>
             </button>
           </div>
         </div>
@@ -113,11 +113,11 @@
           <div class="grid2">
             <button type="button" class="btn tile" id="preferenceScanQrBtn">
               <span class="title">Scan QR Code (Recommended)</span>
-              <span class="desc">Scan a QR code to set your callsign and team (color) on your device.</span>
+              <span class="desc">Scan a QR code to automatically configure ATAK preferences.</span>
             </button>
             <button type="button" class="btn tile" id="preferenceManualBtn">
               <span class="title">Manual Configuration</span>
-              <span class="desc">Enter your callsign and team manually in ATAK preferences.</span>
+              <span class="desc">Manually configure ATAK preferences.</span>
             </button>
           </div>
         </div>
@@ -129,11 +129,11 @@
           <div class="grid2">
             <button type="button" class="btn tile" id="scanQrBtnOtt">
               <span class="title">Scan QR Code (Recommended)</span>
-              <span class="desc">Scan an enrollment QR code to configure Open TAK Tracker (includes callsign and team).</span>
+              <span class="desc">Scan an enrollment QR code to automatically connect and configureOpen TAK Tracker.</span>
             </button>
             <button type="button" class="btn tile" id="manualLoginBtnOtt">
               <span class="title">Manual Login</span>
-              <span class="desc">Manually configure Open TAK Tracker with step-by-step instructions.</span>
+              <span class="desc">Manually configure Open TAK Tracker.</span>
             </button>
           </div>
         </div>
@@ -824,7 +824,7 @@
         "Select Team and select: <strong>" + team + "</strong>",
         "Select Role and select: <strong>" + role + "</strong>",
         "Once complete you may close the window.",
-        "It is also recommended from the settings menu to open display settings and change the base map to \"Flyover\" and to set the map label display to \"Show Full Label\"."
+        "It is also recommended from the settings menu to open Display Settings and change the Base Map to \"Flyover\" and to set the Map Label Display to \"Show Full Label\"."
       ].map(function (s) { return "<li>" + s + "</li>"; }).join("");
     } catch (err) {
       iosPreferenceManualInstructions.innerHTML = "<li class=\"msg bad\">" + escapeHtml(err?.message || "Failed to load preference data") + "</li>";
