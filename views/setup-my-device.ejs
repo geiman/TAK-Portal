@@ -147,7 +147,7 @@
           <img id="setupQrImg" alt="Enrollment QR Code" style="max-width: 280px; width: 100%; height: auto; border-radius: 14px;" />
           <div class="row" style="gap: 10px; margin-top: 14px; justify-content: center;">
             <span id="setupQrEnrollUrlHolder" data-enroll-url="" style="display:none;" aria-hidden="true"></span>
-            <button class="btn" type="button" id="setupQrOpenBtn" disabled>Open URL</button>
+            <button class="btn success" type="button" id="setupQrOpenBtn" disabled>Open URL</button>
             <button class="btn" type="button" id="setupQrCopyBtn" disabled>Copy URL</button>
             <button class="btn" type="button" id="setupQrSaveBtn" disabled>Save Image</button>
           </div>
@@ -194,6 +194,12 @@
       <div class="row" style="gap: 24px; align-items: flex-start; flex-wrap: wrap;">
         <div style="text-align:center; min-width: 260px;">
           <img id="preferenceQrImg" alt="Preference QR Code" style="max-width: 280px; width: 100%; height: auto; border-radius: 14px;" />
+          <div class="row" style="gap: 10px; margin-top: 14px; justify-content: center;">
+            <span id="preferenceQrUrlHolder" data-preference-url="" style="display:none;" aria-hidden="true"></span>
+            <button class="btn success" type="button" id="preferenceQrOpenBtn" disabled>Open URL</button>
+            <button class="btn" type="button" id="preferenceQrCopyBtn" disabled>Copy URL</button>
+            <button class="btn" type="button" id="preferenceQrSaveBtn" disabled>Save Image</button>
+          </div>
         </div>
         <div style="min-width: 320px;">
           <h3 style="margin-top:0;">How to Scan</h3>
@@ -318,9 +324,8 @@
         ]
       : mode === "ott"
       ? [
-          "Open Open TAK Tracker on your Android device.",
-          "Use the in-app QR scanner or your device camera to scan this code.",
-          "The app will enroll and set your callsign and team (color) in one step."
+          "Open the camera on your Android device.",
+          "Point your camera at the QR code and select the notification to open the link."
         ]
       : [
           "Open the camera on your Android device.",
@@ -331,9 +336,30 @@
     instructionsList.innerHTML = steps.map(s => `<li>${s}</li>`).join("");
   }
 
-  function setManualLoginInstructions(mode) {
+  function setManualLoginInstructions(mode, ottData) {
     const isTakAware = mode === "takaware";
-    manualLoginInstructionsTitle.textContent = isTakAware ? "TAK Aware (iOS): How to Manually Configure" : "ATAK (Android): How to Manually Configure";
+    const isOtt = mode === "ott";
+    manualLoginInstructionsTitle.textContent = isTakAware ? "TAK Aware (iOS): How to Manually Configure" : isOtt ? "Open TAK Tracker: How to Manually Configure" : "ATAK (Android): How to Manually Configure";
+
+    if (isOtt && ottData) {
+      const c = (ottData.callsign && escapeHtml(ottData.callsign)) || "";
+      const t = (ottData.teamLabel && escapeHtml(ottData.teamLabel)) || "";
+      const r = (ottData.roleLabel && escapeHtml(ottData.roleLabel)) || "Team Member";
+      const steps = [
+        "Open the Open TAK Tracker app on your Android device.",
+        "Select the settings icon in the top right.",
+        "Select Callsign and enter: <strong>" + c + "</strong>",
+        "Select Team and enter: <strong>" + t + "</strong>",
+        "Select Role and select: <strong>" + r + "</strong>",
+        "Select Manage TAK Servers and Add a Server.",
+        "Select Host Name and enter: <strong>" + escapeHtml(TAK_HOST) + "</strong>",
+        "Select username and enter: <strong>" + escapeHtml(CURRENT_USERNAME) + "</strong>",
+        "Select password and enter your TAK Portal password.",
+        "When finished, select Start Enrollment and ensure that you see Status: Succeeded."
+      ];
+      manualLoginInstructions.innerHTML = steps.map(s => "<li>" + s + "</li>").join("");
+      return;
+    }
 
     const steps = isTakAware
       ? [
@@ -362,6 +388,7 @@
 
   // --- IMPORTANT: make cache user-specific to prevent cross-user QR reuse ---
   const CURRENT_USERNAME = "<%= (authUser && authUser.username) ? authUser.username : '' %>";
+  const TAK_HOST = <%- JSON.stringify(takHost || "your TAK server hostname") %>;
   const CACHE_KEY = CURRENT_USERNAME ? `takPortal.setupDevice.enrollQr.v1:${CURRENT_USERNAME}` : null;
   const LEGACY_CACHE_KEY = "takPortal.setupDevice.enrollQr.v1";
 
@@ -600,14 +627,27 @@
     }
   }
 
-  function handleManualLoginClick(mode) {
+  async function handleManualLoginClick(mode) {
+    if (mode === "ott") {
+      manualLoginInstructionsTitle.textContent = "Open TAK Tracker: How to Manually Configure";
+      manualLoginInstructions.innerHTML = "<li>Loading...</li>";
+      manualLoginDetails.innerHTML = "";
+      openManualLoginModal();
+      try {
+        const data = await fetchPreferenceData();
+        setManualLoginInstructions("ott", data);
+        const chips = [];
+        if (CURRENT_USERNAME) chips.push(`<span class="chip">User: ${escapeHtml(CURRENT_USERNAME)}</span>`);
+        manualLoginDetails.innerHTML = chips.join(" ");
+      } catch (err) {
+        manualLoginInstructions.innerHTML = "<li class=\"msg bad\">" + escapeHtml(err?.message || "Failed to load preference data") + "</li>";
+      }
+      return;
+    }
     setManualLoginInstructions(mode);
-    
-    // Display username in details
     const chips = [];
     if (CURRENT_USERNAME) chips.push(`<span class="chip">User: ${CURRENT_USERNAME}</span>`);
     manualLoginDetails.innerHTML = chips.join(" ");
-    
     openManualLoginModal();
   }
 
@@ -617,6 +657,10 @@
   const preferenceQrOverlay = document.getElementById("preferenceQrOverlay");
   const preferenceQrCloseBtn = document.getElementById("preferenceQrCloseBtn");
   const preferenceQrImg = document.getElementById("preferenceQrImg");
+  const preferenceQrUrlHolder = document.getElementById("preferenceQrUrlHolder");
+  const preferenceQrOpenBtn = document.getElementById("preferenceQrOpenBtn");
+  const preferenceQrCopyBtn = document.getElementById("preferenceQrCopyBtn");
+  const preferenceQrSaveBtn = document.getElementById("preferenceQrSaveBtn");
   const preferenceQrDetails = document.getElementById("preferenceQrDetails");
   const preferenceQrMsg = document.getElementById("preferenceQrMsg");
   const preferenceManualOverlay = document.getElementById("preferenceManualOverlay");
@@ -657,19 +701,33 @@
     document.body.classList.remove("noScroll");
   }
 
+  function getCurrentPreferenceUrl() {
+    if (!preferenceQrUrlHolder || !preferenceQrUrlHolder.dataset.preferenceUrl) return "";
+    return String(preferenceQrUrlHolder.dataset.preferenceUrl).trim();
+  }
+
   async function handlePreferenceScanClick() {
     setPreferenceMsg("Loading...", true);
     preferenceQrImg.src = "";
     preferenceQrDetails.innerHTML = "";
+    if (preferenceQrUrlHolder) preferenceQrUrlHolder.dataset.preferenceUrl = "";
+    preferenceQrOpenBtn.disabled = true;
+    preferenceQrCopyBtn.disabled = true;
+    preferenceQrSaveBtn.disabled = true;
     openPreferenceQrModal();
     try {
       const data = await fetchPreferenceData();
       if (data.qrCode) preferenceQrImg.src = data.qrCode;
+      if (preferenceQrUrlHolder && data.preferenceUrl) preferenceQrUrlHolder.dataset.preferenceUrl = data.preferenceUrl;
       const lines = [];
       if (data.callsign) lines.push(`<div><strong>Callsign:</strong> ${escapeHtml(data.callsign)}</div>`);
       if (data.teamLabel) lines.push(`<div><strong>Team:</strong> ${escapeHtml(data.teamLabel)}</div>`);
       if (data.roleLabel) lines.push(`<div><strong>Role:</strong> ${escapeHtml(data.roleLabel)}</div>`);
       preferenceQrDetails.innerHTML = lines.length ? lines.join("") : "";
+      const url = (data.preferenceUrl && String(data.preferenceUrl).trim()) || "";
+      preferenceQrOpenBtn.disabled = !url;
+      preferenceQrCopyBtn.disabled = !url;
+      preferenceQrSaveBtn.disabled = !data.qrCode;
       setPreferenceMsg("", true);
     } catch (err) {
       setPreferenceMsg(err?.message || String(err), false);
@@ -710,6 +768,33 @@
   preferenceQrOverlay.addEventListener("click", (e) => { if (e.target === preferenceQrOverlay) closePreferenceQrModal(); });
   preferenceManualOverlay.addEventListener("click", (e) => { if (e.target === preferenceManualOverlay) closePreferenceManualModal(); });
 
+  preferenceQrOpenBtn.addEventListener("click", () => {
+    var url = getCurrentPreferenceUrl();
+    if (!url) return;
+    var a = document.createElement("a");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  });
+  preferenceQrCopyBtn.addEventListener("click", () => {
+    var url = getCurrentPreferenceUrl();
+    if (url) copyToClipboard(url).then(() => setPreferenceMsg("Copied!", true)).catch(() => setPreferenceMsg("Copy failed", false));
+  });
+  preferenceQrSaveBtn.addEventListener("click", () => {
+    var src = preferenceQrImg.src;
+    if (!src || !src.startsWith("data:")) return;
+    var a = document.createElement("a");
+    a.href = src;
+    a.download = "preference-qr.png";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setPreferenceMsg("Downloading...", true);
+  });
+
   // Attach handlers (buttons exist in DOM even when flows are hidden)
   scanQrBtnTakAware.addEventListener("click", () => handleScanClick("takaware"));
   scanQrBtnAtak.addEventListener("click", () => handleScanClick("atak"));
@@ -720,7 +805,7 @@
   const scanQrBtnOtt = document.getElementById("scanQrBtnOtt");
   const manualLoginBtnOtt = document.getElementById("manualLoginBtnOtt");
   if (scanQrBtnOtt) scanQrBtnOtt.addEventListener("click", () => handleScanClick("ott"));
-  if (manualLoginBtnOtt) manualLoginBtnOtt.addEventListener("click", () => handleManualLoginClick("atak"));
+  if (manualLoginBtnOtt) manualLoginBtnOtt.addEventListener("click", () => handleManualLoginClick("ott"));
 
   closeBtn.addEventListener("click", closeModal);
   overlay.addEventListener("click", (e) => {
