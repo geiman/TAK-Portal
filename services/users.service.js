@@ -156,6 +156,75 @@ function buildCallsign({
   });
 }
 
+/**
+ * Get preference data for Setup My Device (Android Step 3): callsign, team (color), role.
+ * Uses same logic as onboarding email (CALLSIGN_FORMAT_EXPRESSION, agency, template color override).
+ * @param {object} user - Full Authentik user with attributes
+ * @returns {{ callsign: string, teamLabel: string, roleLabel: string }}
+ */
+function getPreferenceDataForUser(user) {
+  const attrs = user?.attributes || {};
+  const agencies = agenciesStore.load();
+
+  const agencySuffix = String(attrs.agency || "").toLowerCase();
+  const agency =
+    agencies.find(
+      (a) => String(a.suffix || "").toLowerCase() === agencySuffix
+    ) || null;
+
+  const badgeNumber = String(attrs.badge_number || "");
+  const agencyAbbreviation = String(
+    agency?.groupPrefix || attrs.agency_abbreviation || ""
+  );
+  const agencyColor = String(
+    agency?.color || attrs.agency_color || ""
+  );
+  const stateAbbreviation = String(agency?.state || attrs.state || "").toUpperCase();
+  const county = String(agency?.county || attrs.county || "").trim().toUpperCase();
+
+  const displayName = String(user?.name || "").trim() || "";
+  const { lastName, lastNameUpper, firstName } = parseName(displayName);
+
+  let agencyColorEffective = agencyColor;
+  try {
+    const createdTemplateName = String(attrs.created_template || "").trim();
+    if (createdTemplateName && createdTemplateName !== "Manual Group Selection") {
+      const tplAgencySuffix = String(attrs.agency || agencySuffix || "")
+        .trim()
+        .toLowerCase();
+      const allTemplates = templatesStore.load();
+      const match = allTemplates.find(
+        (t) =>
+          String(t?.agencySuffix || "").trim().toLowerCase() === tplAgencySuffix &&
+          String(t?.name || "").trim().toLowerCase() === createdTemplateName.toLowerCase()
+      );
+      const override = String(match?.colorOverride || "").trim();
+      if (override) agencyColorEffective = override;
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  const callsign = buildCallsign({
+    firstName,
+    lastName,
+    lastNameUpper,
+    badgeNumber,
+    agencyAbbreviation,
+    agencyColor: agencyColorEffective,
+    stateAbbreviation,
+    county,
+  });
+
+  const roleLabel = String(attrs.atak_role || attrs.role || "Team Member").trim() || "Team Member";
+
+  return {
+    callsign: String(callsign || "").trim(),
+    teamLabel: String(agencyColorEffective || "").trim(),
+    roleLabel,
+  };
+}
+
 function getTakPortalPublicUrl() {
   try {
     const settings = settingsSvc.getSettings ? settingsSvc.getSettings() || {} : {};
@@ -1799,6 +1868,9 @@ module.exports = {
   getAllUsers,
   invalidateUsersCache,
   invalidateGroupsCache,
+
+  // preference data for setup-my-device (Android Step 3)
+  getPreferenceDataForUser,
 
   // user ops
   userExists,

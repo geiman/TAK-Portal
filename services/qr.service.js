@@ -55,6 +55,51 @@ function buildEnrollUrl({ username, token }) {
   );
 }
 
+/**
+ * Build Open TAK Tracker enrollment URL (enrollment + callsign/team/role in one).
+ * Format: opentaktracker://enroll?host=SERVER&username=USER&token=TOKEN&callsign=CALLSIGN&team=TEAM&role=ROLE
+ */
+function buildOttEnrollUrl({ host, username, token, callsign, teamLabel, roleLabel }) {
+  const h = String(host || "").trim();
+  const u = String(username || "").trim();
+  const t = String(token || "").trim();
+  if (!h || !u || !t) return null;
+
+  const c = String(callsign || "").trim();
+  const team = String(teamLabel || "").trim();
+  const r = String(roleLabel || "Team Member").trim();
+
+  const params = [
+    `host=${encodeURIComponent(h)}`,
+    `username=${encodeURIComponent(u)}`,
+    `token=${encodeURIComponent(t)}`,
+  ];
+  if (c) params.push(`callsign=${encodeURIComponent(c)}`);
+  if (team) params.push(`team=${encodeURIComponent(team)}`);
+  if (r) params.push(`role=${encodeURIComponent(r)}`);
+
+  return `opentaktracker://enroll?${params.join("&")}`;
+}
+
+/**
+ * Build ATAK device preference URL for callsign, team (color), and role.
+ * Format: tak://com.atakmap.app/preference?key1=locationCallsign&type1=string&value1=...&key2=locationTeam&type2=string&value2=...&key3=atakRoleType&type3=string&value3=...
+ */
+function buildPreferenceUrl({ callsign, teamLabel, roleLabel }) {
+  const c = String(callsign || "").trim();
+  const t = String(teamLabel || "").trim();
+  const r = String(roleLabel || "Team Member").trim();
+  if (!c && !t && !r) return null;
+
+  const params = [];
+  if (c) params.push(`key1=locationCallsign&type1=string&value1=${encodeURIComponent(c)}`);
+  if (t) params.push(`key2=locationTeam&type2=string&value2=${encodeURIComponent(t)}`);
+  if (r) params.push(`key3=atakRoleType&type3=string&value3=${encodeURIComponent(r)}`);
+  if (!params.length) return null;
+
+  return `tak://com.atakmap.app/preference?${params.join("&")}`;
+}
+
 // Overlay branding logo (if configured) onto the center of a QR PNG buffer.
 async function addLogoToPng(pngBuffer) {
   try {
@@ -204,6 +249,8 @@ module.exports = {
   getTakUrl,
   getTakHost,
   buildEnrollUrl,
+  buildOttEnrollUrl,
+  buildPreferenceUrl,
   generateDisplayQrDataUrl,
   generateDownloadPng,
 };

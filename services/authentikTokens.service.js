@@ -150,6 +150,7 @@ async function getOrCreateEnrollmentAppPassword(params, ttlMinutes = 15) {
 }
 
 module.exports = {
+  getUserIdByUsername,
   getOrCreateEnrollmentAppPassword,
   TOKEN_DESCRIPTION,
   IDENT_PREFIX,
