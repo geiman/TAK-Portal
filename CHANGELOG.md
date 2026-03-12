@@ -12,6 +12,10 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.42 - 3/11/26
+🎉 `New Feature` - Adds ATAK Preferences Configuration QR Code to automatically set the user's callsign, team, and role in ATAK.<br>
+✨ `Enhancement` - Adds instructions to TAK Aware for manually setting callsign, team, and role.
+
 ### v1.2.41 - 3/11/26
 🎉 `New Feature` - Adds the ability to customize the callsign format in server settings.<br>
 ✨ `Enhancement` - Adds Android link for Open TAK Tracker to the Setup My Device page.
