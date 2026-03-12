@@ -99,7 +99,7 @@
     </div>
 
     <div class="card">
-      <h2>Step 3: Configure Device Preferences</h2>
+      <h2>Step 3: Configure Callsign, Team, and Role</h2>
       <div class="grid2">
         <button type="button" class="btn tile" id="preferenceScanQrBtn">
           <span class="title">Scan QR Code (Recommended)</span>
@@ -178,10 +178,9 @@
         <div style="min-width: 320px;">
           <h3 style="margin-top:0;">How to Scan</h3>
           <ol id="preferenceQrInstructions" style="margin-top: 6px;">
-            <li>Open ATAK on your Android device.</li>
-            <li>Tap the menu (three lines) and go to <strong>Settings</strong>.</li>
-            <li>Under <strong>Display</strong>, tap <strong>Preferences</strong> or use the device QR scanner to scan this code.</li>
-            <li>Scan this QR code to set your callsign and team (color) automatically.</li>
+            <li>Open the camera on your Android device.</li>
+            <li>Point your camera at the QR code and select the notification to open the link.</li>
+            <li>Select Yes to apply the configuration inside ATAK.</li>
           </ol>
           <h3 style="margin-top:0;">Details</h3>
           <div class="chips" id="preferenceQrDetails"></div>
@@ -202,15 +201,7 @@
     <div class="modalBody">
       <div style="max-width: 600px;">
         <h3 style="margin-top:0;">Configure callsign and team in ATAK</h3>
-        <p style="margin: 6px 0 12px;">Open ATAK → Settings → Display → Preferences (or equivalent), then enter the values below.</p>
-        <ol id="preferenceManualInstructions" style="margin-top: 6px;">
-          <li>In ATAK, go to <strong>Settings</strong> → <strong>Display</strong> → <strong>Preferences</strong> (or <strong>My Preferences</strong>).</li>
-          <li>Set <strong>Callsign</strong> to the value shown below.</li>
-          <li>Set <strong>Team (color)</strong> to the value shown below.</li>
-          <li>Save your preferences.</li>
-        </ol>
-        <h3 style="margin-top:0;">Your values</h3>
-        <div class="chips" id="preferenceManualDetails"></div>
+        <ol id="preferenceManualInstructions" style="margin-top: 6px;"></ol>
       </div>
     </div>
   </div>
@@ -584,7 +575,7 @@
   const preferenceQrMsg = document.getElementById("preferenceQrMsg");
   const preferenceManualOverlay = document.getElementById("preferenceManualOverlay");
   const preferenceManualCloseBtn = document.getElementById("preferenceManualCloseBtn");
-  const preferenceManualDetails = document.getElementById("preferenceManualDetails");
+  const preferenceManualInstructions = document.getElementById("preferenceManualInstructions");
 
   function setPreferenceMsg(text, ok = true) {
     preferenceQrMsg.textContent = text || "";
@@ -646,18 +637,23 @@
   }
 
   async function handlePreferenceManualClick() {
-    const chipsEl = preferenceManualDetails;
-    chipsEl.innerHTML = "";
+    preferenceManualInstructions.innerHTML = "";
     openPreferenceManualModal();
     try {
       const data = await fetchPreferenceData();
-      const chips = [];
-      if (data.callsign) chips.push(`<span class="chip">Callsign: <strong>${escapeHtml(data.callsign)}</strong></span>`);
-      if (data.teamLabel) chips.push(`<span class="chip">Team (color): <strong>${escapeHtml(data.teamLabel)}</strong></span>`);
-      if (data.roleLabel) chips.push(`<span class="chip">Role: <strong>${escapeHtml(data.roleLabel)}</strong></span>`);
-      chipsEl.innerHTML = chips.length ? chips.join(" ") : "<span class=\"chip\">No preference data available.</span>";
+      const callsign = (data.callsign && escapeHtml(data.callsign)) || "";
+      const team = (data.teamLabel && escapeHtml(data.teamLabel)) || "";
+      preferenceManualInstructions.innerHTML = [
+        "Open ATAK on your Android device.",
+        "Tap the menu icon and navigate to 'Settings'.",
+        "Select callsign and device preferences.",
+        "Select Callsign Preferences.",
+        "Select My Callsign and enter: <strong>" + callsign + "</strong>",
+        "Select My Team and enter: <strong>" + team + "</strong>",
+        "Exit out of the settings menu after entering these settings."
+      ].map(function (s) { return "<li>" + s + "</li>"; }).join("");
     } catch (err) {
-      chipsEl.innerHTML = `<span class="msg bad">${escapeHtml(err?.message || "Failed to load preference data")}</span>`;
+      preferenceManualInstructions.innerHTML = "<li class=\"msg bad\">" + escapeHtml(err?.message || "Failed to load preference data") + "</li>";
     }
   }
 
