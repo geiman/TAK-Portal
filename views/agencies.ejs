@@ -94,7 +94,7 @@
       <label>County Abbreviation
         <input
           name="countyAbbrev"
-          placeholder="(ex. HML)"
+          placeholder="(ex. HML or MAR)"
           required
           minlength="3"
           oninput="this.value = this.value.toUpperCase().replace(/[^A-Z]/g, '')"
@@ -275,7 +275,7 @@
         County Abbreviation
         <input
           id="countyAbbrevInput"
-          placeholder="(ex. HAMILTON)"
+          placeholder="(ex. HML or MARION)"
           required
           minlength="3"
           style="width:100%; box-sizing:border-box; margin-top:4px;"
@@ -283,7 +283,7 @@
         />
       </label>
       <small class="muted">
-        Must be at least 3 letters and will be stored in Authentik admin group name.
+        Must be at least 3 letters.
       </small>
       <div style="margin-top:14px; text-align:right;">
         <button class="btn" type="button" id="countyAbbrevCancelBtn">Cancel</button>
