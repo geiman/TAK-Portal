@@ -173,9 +173,15 @@ if (!isPublicPath) {
       );
   }
 
-  // If admin groups exist, user must be at least agency admin
+  // If admin groups exist, user must be at least agency admin — except
+  // any authenticated user may access Setup My Device (enroll QR + preference QR).
   if (!hasAnyRequired) {
-    return deny();
+    const isSetupMyDevicePath =
+      normalizedPath === "/setup-my-device" ||
+      normalizedPath.startsWith("/api/setup-my-device");
+    if (!isSetupMyDevicePath) {
+      return deny();
+    }
   }
 
   // GLOBAL ADMINS can access everything
