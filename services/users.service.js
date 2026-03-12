@@ -110,6 +110,30 @@ function parseName(displayName) {
 }
 
 /**
+ * Map agency type strings (as stored in agencies.json) to short codes for callsign format.
+ */
+const AGENCY_TYPE_TO_CODE = {
+  "Law Enforcement": "LE",
+  "Fire": "FD",
+  "EMS": "EMS",
+  "State Defense": "SDF",
+  "Military": "MIL",
+  "Game Warden / NPS / Forestry": "WLD",
+  "CBRNE / HAZMAT": "HAZ",
+  "SAR / Technical": "SAR",
+  "Emergency Management": "EMA",
+  "Dispatch / Communications": "COM",
+  "Public Works": "PW",
+  "Volunteer": "VOL",
+  "Other": "OTH",
+};
+
+function getAgencyTypeCode(agencyTypeString) {
+  const key = String(agencyTypeString || "").trim();
+  return AGENCY_TYPE_TO_CODE[key] || "";
+}
+
+/**
  * Build a callsign string from settings + user context.
  * Falls back to "{{agencyAbbreviation}}-{{lastNameUpper}}-{{badgeNumber}}" when unset/invalid.
  */
@@ -123,6 +147,7 @@ function buildCallsign({
   stateAbbreviation,
   county,
   countyAbbreviation,
+  agencyTypeCode,
 } = {}) {
   let settings = {};
   try {
@@ -146,6 +171,7 @@ function buildCallsign({
     stateAbbreviation: stateAbbreviation || "",
     county: county || "",
     countyAbbreviation: countyAbbreviation || "",
+    agencyTypeCode: agencyTypeCode || "",
   };
 
   return expr.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (match, key) => {
@@ -184,6 +210,7 @@ function getPreferenceDataForUser(user) {
   const stateAbbreviation = String(agency?.state || attrs.state || "").toUpperCase();
   const county = String(agency?.county || attrs.county || "").trim().toUpperCase();
   const countyAbbreviation = String(agency?.countyAbbrev || "").trim().toUpperCase();
+  const agencyTypeCode = getAgencyTypeCode(agency?.type);
 
   const displayName = String(user?.name || "").trim() || "";
   const { lastName, lastNameUpper, firstName } = parseName(displayName);
@@ -218,6 +245,7 @@ function getPreferenceDataForUser(user) {
     stateAbbreviation,
     county,
     countyAbbreviation,
+    agencyTypeCode,
   });
 
   const roleLabel = String(attrs.atak_role || attrs.role || "Team Member").trim() || "Team Member";
@@ -371,6 +399,8 @@ async function emailUserCreated({ user, groups, hasPassword }) {
     );
   const stateAbbreviation = String(agency?.state || attrs.state || "").toUpperCase();
   const county = String(agency?.county || attrs.county || "").trim().toUpperCase();
+  const countyAbbreviation = String(agency?.countyAbbrev || "").trim().toUpperCase();
+  const agencyTypeCode = getAgencyTypeCode(agency?.type);
 
   // For user-created emails only: if the user was created from an agency template,
   // prefer that template's color override (when present). Otherwise fall back to
@@ -429,6 +459,8 @@ async function emailUserCreated({ user, groups, hasPassword }) {
     agencyColor: agencyColorEffective,
     stateAbbreviation,
     county,
+    countyAbbreviation,
+    agencyTypeCode,
   });
 
   const html = renderTemplate(templateKey, {
@@ -482,6 +514,8 @@ async function emailPasswordChanged(user) {
     );
   const stateAbbreviation = String(agency?.state || attrs.state || "").toUpperCase();
   const county = String(agency?.county || attrs.county || "").trim().toUpperCase();
+  const countyAbbreviation = String(agency?.countyAbbrev || "").trim().toUpperCase();
+  const agencyTypeCode = getAgencyTypeCode(agency?.type);
 
   const subject = "TAK Password Updated";
   const displayName = String(user?.name || "").trim() || "there";
@@ -506,6 +540,8 @@ async function emailPasswordChanged(user) {
     agencyColor,
     stateAbbreviation,
     county,
+    countyAbbreviation,
+    agencyTypeCode,
   });
 
   const html = renderTemplate("password_changed.html", {
@@ -562,6 +598,8 @@ async function emailGroupsUpdated({ user, beforeIds, afterIds }) {
     );
   const stateAbbreviation = String(agency?.state || attrs.state || "").toUpperCase();
   const county = String(agency?.county || attrs.county || "").trim().toUpperCase();
+  const countyAbbreviation = String(agency?.countyAbbrev || "").trim().toUpperCase();
+  const agencyTypeCode = getAgencyTypeCode(agency?.type);
 
   const subject = "TAK Groups Updated";
   const displayName = String(user?.name || "").trim() || "there";
@@ -588,6 +626,8 @@ async function emailGroupsUpdated({ user, beforeIds, afterIds }) {
     agencyColor,
     stateAbbreviation,
     county,
+    countyAbbreviation,
+    agencyTypeCode,
   });
 
   const html = renderTemplate("groups_updated.html", {
