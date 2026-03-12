@@ -84,31 +84,64 @@
       </div>
     </div>
 
-    <div class="card">
-      <h2>Step 2: Enroll Your Device</h2>
-      <div class="grid2">
-        <button type="button" class="btn tile" id="scanQrBtnAtak">
-          <span class="title">Scan QR Code (Recommended)</span>
-          <span class="desc">Scan an enrollment QR code to automatically configure ATAK.</span>
-        </button>
-        <button type="button" class="btn tile" id="manualLoginBtnAtak">
-          <span class="title">Manual Login</span>
-          <span class="desc">Manually configure ATAK with step-by-step instructions.</span>
-        </button>
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-top: 0.5rem;">
+      <!-- Left: ATAK -->
+      <div>
+        <div class="card">
+          <h2>Step 2: Enroll Your Device - ATAK</h2>
+          <div class="grid2">
+            <button type="button" class="btn tile" id="scanQrBtnAtak">
+              <span class="title">Scan QR Code (Recommended)</span>
+              <span class="desc">Scan an enrollment QR code to automatically configure ATAK.</span>
+            </button>
+            <button type="button" class="btn tile" id="manualLoginBtnAtak">
+              <span class="title">Manual Login</span>
+              <span class="desc">Manually configure ATAK with step-by-step instructions.</span>
+            </button>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Step 3: Configure Device Preferences - ATAK</h2>
+          <div class="grid2">
+            <button type="button" class="btn tile" id="preferenceScanQrBtn">
+              <span class="title">Scan QR Code (Recommended)</span>
+              <span class="desc">Scan a QR code to set your callsign and team (color) on your device.</span>
+            </button>
+            <button type="button" class="btn tile" id="preferenceManualBtn">
+              <span class="title">Manual Configuration</span>
+              <span class="desc">Enter your callsign and team manually in ATAK preferences.</span>
+            </button>
+          </div>
+        </div>
       </div>
-    </div>
-
-    <div class="card">
-      <h2>Step 3: Configure Callsign, Team, and Role</h2>
-      <div class="grid2">
-        <button type="button" class="btn tile" id="preferenceScanQrBtn">
-          <span class="title">Scan QR Code (Recommended)</span>
-          <span class="desc">Scan a QR code to set your callsign and team (color) on your device.</span>
-        </button>
-        <button type="button" class="btn tile" id="preferenceManualBtn">
-          <span class="title">Manual Configuration</span>
-          <span class="desc">Enter your callsign and team manually in ATAK preferences.</span>
-        </button>
+      <!-- Right: Open TAK Tracker -->
+      <div>
+        <div class="card">
+          <h2>Step 2: Enroll Your Device - Open TAK Tracker</h2>
+          <div class="grid2">
+            <button type="button" class="btn tile" id="scanQrBtnOtt">
+              <span class="title">Scan QR Code (Recommended)</span>
+              <span class="desc">Scan an enrollment QR code to automatically configure Open TAK Tracker.</span>
+            </button>
+            <button type="button" class="btn tile" id="manualLoginBtnOtt">
+              <span class="title">Manual Login</span>
+              <span class="desc">Manually configure Open TAK Tracker with step-by-step instructions.</span>
+            </button>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Step 3: Configure Device Preferences - Open TAK Tracker</h2>
+          <div class="grid2">
+            <button type="button" class="btn tile" id="preferenceScanQrBtnOtt">
+              <span class="title">Scan QR Code (Recommended)</span>
+              <span class="desc">Scan a QR code to set your callsign and team (color) on your device.</span>
+            </button>
+            <button type="button" class="btn tile" id="preferenceManualBtnOtt">
+              <span class="title">Manual Configuration</span>
+              <span class="desc">Enter your callsign and team manually in Open TAK Tracker preferences.</span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -669,6 +702,16 @@
   scanQrBtnAtak.addEventListener("click", () => handleScanClick("atak"));
   manualLoginBtnTakAware.addEventListener("click", () => handleManualLoginClick("takaware"));
   manualLoginBtnAtak.addEventListener("click", () => handleManualLoginClick("atak"));
+
+  // Open TAK Tracker column: same handlers as ATAK for now
+  const scanQrBtnOtt = document.getElementById("scanQrBtnOtt");
+  const manualLoginBtnOtt = document.getElementById("manualLoginBtnOtt");
+  const preferenceScanQrBtnOtt = document.getElementById("preferenceScanQrBtnOtt");
+  const preferenceManualBtnOtt = document.getElementById("preferenceManualBtnOtt");
+  if (scanQrBtnOtt) scanQrBtnOtt.addEventListener("click", () => handleScanClick("atak"));
+  if (manualLoginBtnOtt) manualLoginBtnOtt.addEventListener("click", () => handleManualLoginClick("atak"));
+  if (preferenceScanQrBtnOtt) preferenceScanQrBtnOtt.addEventListener("click", handlePreferenceScanClick);
+  if (preferenceManualBtnOtt) preferenceManualBtnOtt.addEventListener("click", handlePreferenceManualClick);
 
   closeBtn.addEventListener("click", closeModal);
   overlay.addEventListener("click", (e) => {
