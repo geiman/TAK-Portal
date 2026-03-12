@@ -219,6 +219,22 @@ router.get("/groups", async (req, res) => {
   }
 });
 
+// All Authentik groups, including those normally hidden from the portal UI (e.g. authentik-*).
+// Restricted to global admins, used by the Manage Users page to resolve AgencyAdmin roles.
+router.get("/all-groups-hidden", async (req, res) => {
+  try {
+    const authUser = req.authentikUser || null;
+    const access = accessSvc.getAgencyAccess(authUser);
+    if (!access.isGlobalAdmin) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    const all = await groupsSvc.getAllGroups({ includeHidden: true });
+    res.json(Array.isArray(all) ? all : []);
+  } catch (err) {
+    res.status(500).json({ error: toErrorPayload(err) });
+  }
+});
+
 router.post("/", async (req, res) => {
   try {
     const payload = req.body || {};

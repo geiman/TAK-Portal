@@ -1282,6 +1282,23 @@ let visibleGroupIds = new Set();
 // (e.g. groups starting with "authentik-").
 const groupNameToIdCache = new Map();
 
+// Cache of all Authentik groups including those hidden from the normal /api/users/groups list.
+// Only global admins can load this (enforced server-side).
+let allGroupsIncludingHiddenCache = null;
+
+async function fetchAllGroupsIncludingHidden(){
+  if (allGroupsIncludingHiddenCache) return allGroupsIncludingHiddenCache;
+  const res = await fetch("/api/users/all-groups-hidden");
+  const out = await res.json();
+  if (!res.ok) {
+    console.error("Failed to load all groups (including hidden):", out.error || out);
+    allGroupsIncludingHiddenCache = [];
+    return allGroupsIncludingHiddenCache;
+  }
+  allGroupsIncludingHiddenCache = Array.isArray(out) ? out : [];
+  return allGroupsIncludingHiddenCache;
+}
+
 function getUserAgencyAbbreviation(user){
   const attrs = user && user.attributes ? user.attributes : {};
   const raw =
