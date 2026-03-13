@@ -315,6 +315,7 @@
           '<tbody id="connectedClientsTableBody"></tbody></table></div></div>';
         card.innerHTML = html;
         card.classList.add("connected-clients-expanded-card");
+        row.classList.add("connected-clients-row-expanded");
         var tbody = document.getElementById("connectedClientsTableBody");
         if (!tbody) return;
         (rows || []).forEach(function (row) {
@@ -334,6 +335,7 @@
       function collapse() {
         card.innerHTML = originalCardHtml;
         card.classList.remove("connected-clients-expanded-card");
+        row.classList.remove("connected-clients-row-expanded");
         var refreshFn = window.__dashboardTakRefresh;
         if (typeof refreshFn === "function") refreshFn();
       }
@@ -421,11 +423,15 @@
 
   .gridTakStats{
     display: grid;
-    grid-template-columns: 2fr 1fr 1fr;
+    grid-template-columns: 1fr 1fr 1fr;
     gap: 5px;
+  }
+  .gridTakStats.connected-clients-row-expanded{
+    grid-template-columns: 2fr 1fr 1fr;
   }
   @media (max-width: 1100px){
     .gridTakStats{ grid-template-columns: 1fr; }
+    .gridTakStats.connected-clients-row-expanded{ grid-template-columns: 1fr; }
   }
 
   .grid2{
