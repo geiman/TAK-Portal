@@ -13,7 +13,7 @@ Planned features can be accessed [here](docs/roadmap.md)
 ## Version History
 
 ### v1.2.45 - 3/13/26
-✨ `Enhancement` - Adds a "status" pill to the Integrations page to show which integrations are connected to TAK server<br>
+✨ `Enhancement` - Adds a Status pill to the Integrations page to show which integrations are connected to TAK server<br>
 ✨ `Enhancement` - Makes "Connected Users / Clients" clickable on the dashboard to open a list of connected users<br>
 ✨ `Enhancement` - Adjusts Connected Users / Clients total count to subtract connected integrations
 

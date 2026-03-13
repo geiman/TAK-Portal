@@ -275,13 +275,13 @@
   async function loadIntegrations(silent) {
     if (!silent) setTableMsg("Loading…");
     try {
-      await loadConnectedUsernames();
-      const res = await fetch("/api/integrations");
-      const data = await res.json();
+      var res = await fetch("/api/integrations");
+      var data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to load integrations");
       usersCache = data.users || [];
       setTableMsg("");
       renderIntegrations();
+      loadConnectedUsernames().then(function () { renderIntegrations(); });
     } catch (err) {
       if (!silent) {
         setTableMsg(err.message || "Failed to load integrations", false);
