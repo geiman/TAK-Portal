@@ -113,8 +113,8 @@
     <% } %>
   </div>
 
-  <!-- TAK stats row (same style as top row) -->
-  <div class="grid3 gridTight" id="takStatsRow" style="margin-top:8px;" <%= (isGlobalAdmin || isAgencyAdmin) ? 'data-can-expand-clients="true"' : '' %>>
+  <!-- TAK stats row: Connected 50%, Uptime 25%, Disk 25% -->
+  <div class="gridTakStats gridTight" id="takStatsRow" style="margin-top:8px;" <%= (isGlobalAdmin || isAgencyAdmin) ? 'data-can-expand-clients="true"' : '' %>>
     <div class="card stat" id="connectedClientsStatCard" role="<%= (isGlobalAdmin || isAgencyAdmin) ? 'button' : '' %>" tabindex="<%= (isGlobalAdmin || isAgencyAdmin) ? '0' : '-1' %>">
       <div class="statLabel">Connected Users / Clients</div>
       <div class="statValue" id="takClients">--</div>
@@ -315,7 +315,6 @@
           '<tbody id="connectedClientsTableBody"></tbody></table></div></div>';
         card.innerHTML = html;
         card.classList.add("connected-clients-expanded-card");
-        row.classList.add("connected-clients-row-expanded");
         var tbody = document.getElementById("connectedClientsTableBody");
         if (!tbody) return;
         (rows || []).forEach(function (row) {
@@ -335,7 +334,6 @@
       function collapse() {
         card.innerHTML = originalCardHtml;
         card.classList.remove("connected-clients-expanded-card");
-        row.classList.remove("connected-clients-row-expanded");
         var refreshFn = window.__dashboardTakRefresh;
         if (typeof refreshFn === "function") refreshFn();
       }
@@ -421,6 +419,15 @@
     .grid4{ grid-template-columns: 1fr; }
   }
 
+  .gridTakStats{
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr;
+    gap: 5px;
+  }
+  @media (max-width: 1100px){
+    .gridTakStats{ grid-template-columns: 1fr; }
+  }
+
   .grid2{
     display:grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -442,7 +449,8 @@
   /* Remove card margin inside grids so row spacing is controlled below */
   .main .grid3 .card,
   .main .grid4 .card,
-  .main .grid2 .card{
+  .main .grid2 .card,
+  .main .gridTakStats .card{
     margin: 0;
   }
 
@@ -508,8 +516,6 @@
   }
 
   #connectedClientsStatCard[role="button"]:hover { border-color: rgba(255,255,255,0.15); }
-  .connected-clients-row-expanded .card.stat:not(.connected-clients-expanded-card) { display: none; }
-  .connected-clients-expanded-card { grid-column: 1 / -1; }
   .connected-clients-expanded { padding: 12px; }
   .connected-clients-expanded-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
   .connected-clients-expanded-header .cardTitle { margin: 0; }
