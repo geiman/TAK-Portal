@@ -20,6 +20,7 @@ router.get("/metrics", async (req, res) => {
       }).length;
       const total = typeof metrics.connectedClients === "number" ? metrics.connectedClients : 0;
       metrics.connectedClients = Math.max(0, total - noderedCount);
+      metrics.connectedIntegrations = noderedCount;
     } catch (_) {
       // leave metrics.connectedClients as-is if subscriptions fetch fails
     }

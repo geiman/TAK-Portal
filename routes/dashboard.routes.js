@@ -24,9 +24,13 @@ router.get("/", async (req, res) => {
           return u.indexOf(NODERED_PREFIX) === 0;
         }).length;
         const total = typeof takMetrics.connectedClients === "number" ? takMetrics.connectedClients : 0;
-        takMetrics = { ...takMetrics, connectedClients: Math.max(0, total - noderedCount) };
+        takMetrics = {
+          ...takMetrics,
+          connectedClients: Math.max(0, total - noderedCount),
+          connectedIntegrations: noderedCount,
+        };
       } catch (_) {
-        // leave takMetrics.connectedClients as-is if subscriptions fetch fails
+        // leave takMetrics as-is if subscriptions fetch fails
       }
     }
 

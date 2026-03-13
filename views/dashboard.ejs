@@ -107,12 +107,16 @@
       <div class="statHint"></div>
     </div>
 
-    <% if ((stats.totalIntegrations || 0) > 0) { %>
+    <% if (isGlobalAdmin) { %>
+    <a href="/integrations" class="statCardLink">
+    <% } %>
     <div class="card stat">
       <div class="statLabel">Connected Integrations</div>
-      <div class="statValue"><%= stats.totalIntegrations %></div>
+      <div class="statValue" id="takConnectedIntegrations">--</div>
       <div class="statHint"></div>
     </div>
+    <% if (isGlobalAdmin) { %>
+    </a>
     <% } %>
 
     <div class="card stat">
@@ -225,7 +229,7 @@
         const parts = [];
         if (d) parts.push(d + "d");
         if (h || d) parts.push(h + "h");
-        parts.push(m + "m");
+        if (s < 86400) parts.push(m + "m");
         return parts.join(" ");
       }
 
@@ -233,6 +237,8 @@
         $("takDisk").textContent = fmtPct(data && data.diskUsagePercent);
         $("takClients").textContent =
           data && typeof data.connectedClients === "number" ? String(data.connectedClients) : "--";
+        var ci = document.getElementById("takConnectedIntegrations");
+        if (ci) ci.textContent = data && typeof data.connectedIntegrations === "number" ? String(data.connectedIntegrations) : "--";
         $("takUptime").textContent = fmtUptime(data && data.uptimeSeconds);
         $("takUptimeHint").textContent = "";
       }
@@ -426,16 +432,18 @@
           .then(function (data) {
             var el = document.getElementById("takClients");
             if (el) el.textContent = data && typeof data.connectedClients === "number" ? String(data.connectedClients) : "--";
+            var ci = document.getElementById("takConnectedIntegrations");
+            if (ci) ci.textContent = data && typeof data.connectedIntegrations === "number" ? String(data.connectedIntegrations) : "--";
             var disk = document.getElementById("takDisk");
             if (disk) disk.textContent = data && typeof data.diskUsagePercent === "number" ? (data.diskUsagePercent < 10 ? data.diskUsagePercent.toFixed(1).replace(/\.0$/, "") : String(Math.round(data.diskUsagePercent))) : "--";
             var up = document.getElementById("takUptime");
             if (up && data && typeof data.uptimeSeconds === "number") {
-              var s = Math.floor(data.uptimeSeconds);
+              var s = Math.max(0, Math.floor(data.uptimeSeconds));
               var d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
               var parts = [];
               if (d) parts.push(d + "d");
               if (h || d) parts.push(h + "h");
-              parts.push(m + "m");
+              if (s < 86400) parts.push(m + "m");
               up.textContent = parts.join(" ");
             }
           }).catch(function () {});
@@ -466,7 +474,7 @@
     gap: 5px;
   }
   .gridTakStats.connected-clients-row-expanded{
-    grid-template-columns: 2fr 1fr 1fr 1fr;
+    grid-template-columns: 3fr 1fr 1fr 1fr;
   }
   @media (max-width: 1100px){
     .gridTakStats{ grid-template-columns: 1fr; }
