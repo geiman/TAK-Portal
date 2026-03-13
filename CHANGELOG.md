@@ -13,7 +13,7 @@ Planned features can be accessed [here](docs/roadmap.md)
 ## Version History
 
 ### v1.2.46 - 3/13/26
-
+🐛 `Bug Fix` - Fixes issue with incorrect user and integration counts on servers with large user counts.  Added functions to preserve old data until new calculations are performed
 
 ### v1.2.45 - 3/13/26
 ✨ `Enhancement` - Adds a Status pill to the Integrations page to show which integrations are connected to TAK server<br>
