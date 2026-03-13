@@ -456,7 +456,36 @@
       setTableMsg(err.message || "Failed to load page", false);
     }
   })();
-  setInterval(function () { loadIntegrations(true); }, 20000);
+
+  (function () {
+    var refreshTimer = null;
+    var REFRESH_MS = 20000;
+
+    function startRefresh() {
+      if (refreshTimer) return;
+      refreshTimer = setInterval(function () { loadIntegrations(true); }, REFRESH_MS);
+    }
+
+    function stopRefresh() {
+      if (refreshTimer) {
+        clearInterval(refreshTimer);
+        refreshTimer = null;
+      }
+    }
+
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "visible") {
+        loadIntegrations(true);
+        startRefresh();
+      } else {
+        stopRefresh();
+      }
+    });
+
+    if (document.visibilityState === "visible") {
+      startRefresh();
+    }
+  })();
 })();
 </script>
 

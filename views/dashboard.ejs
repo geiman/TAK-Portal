@@ -259,11 +259,11 @@
       if (initial) apply(initial);
 
       // Delay the first health check until after full page load, then +5s.
-      // Then poll every 25s.
+      // Then poll every 20s.
       function startTakPolling() {
         setTimeout(async () => {
           await refresh();
-          setInterval(refresh, 25000);
+          setInterval(refresh, 20000);
         }, 5000);
       }
 
