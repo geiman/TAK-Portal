@@ -1,5 +1,6 @@
 const router = require("express").Router();
 const { getTakMetricsSnapshot, getSubscriptionsAll } = require("../services/takMetrics.service");
+const accessSvc = require("../services/access.service");
 
 router.get("/metrics", async (req, res) => {
   const user = req.authentikUser;
@@ -23,6 +24,11 @@ router.get("/subscriptions", async (req, res) => {
 
   try {
     const result = await getSubscriptionsAll();
+    if (result.data && result.configured && user && user.isAgencyAdmin && !user.isGlobalAdmin) {
+      result.data = result.data.filter((item) =>
+        accessSvc.isUsernameInAllowedAgencies(user, item && item.username)
+      );
+    }
     return res.json(result);
   } catch (err) {
     return res.status(500).json({
