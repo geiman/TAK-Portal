@@ -216,6 +216,7 @@ if (!isPublicPath) {
       "/api/agencies",
       "/api/setup-my-device",
       "/api/user-requests",
+      "/api/tak",
     ];
 
     const allowed = allowedAgencyAdminPrefixes.some(prefix =>
