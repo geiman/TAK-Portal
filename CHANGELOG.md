@@ -13,8 +13,7 @@ Planned features can be accessed [here](docs/roadmap.md)
 ## Version History
 
 ### v1.2.47 - 3/13/26
-✨ `Enhancement` - Adds USA, FED, and OTHER to state options to support federal partners and other states not listed<br>
-
+✨ `Enhancement` - Adds USA, FED, and OTHER to state options to support federal partners and other states not listed
 
 ### v1.2.46 - 3/13/26
 🐛 `Bug Fix` - Fixes issue with incorrect user and integration counts on servers with large user counts.  Added functions to preserve old data until new calculations are performed
