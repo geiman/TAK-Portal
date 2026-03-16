@@ -2,6 +2,7 @@ const router = require("express").Router();
 const dashboardStatsCache = require("../services/dashboardStatsCache.service");
 const mutualAidService = require("../services/mutualAid.service");
 const bookmarksService = require("../services/bookmarks.service");
+const agenciesStore = require("../services/agencies.service");
 const { getTakMetricsSnapshot, getSubscriptionsAll } = require("../services/takMetrics.service");
 
 const NODERED_PREFIX = "nodered-";
@@ -54,6 +55,15 @@ router.get("/", async (req, res) => {
       console.error("[DASHBOARD] MutualAid stats failed:", e?.message || e);
     }
 
+    const agencies = agenciesStore.load() || [];
+    const agencyColors = {};
+    for (const a of agencies) {
+      const name = String(a.name || "").trim();
+      const suffix = String(a.suffix || "").trim().toUpperCase();
+      const key = name || suffix;
+      if (key) agencyColors[key] = String(a.color || "").trim() || null;
+    }
+
     const viewModel = {
       stats: {
         totalUsers: stats?.totalUsers ?? 0,
@@ -71,6 +81,7 @@ router.get("/", async (req, res) => {
         usersByType: {},
         unknownType: 0,
       },
+      agencyColors,
       bookmarks,
       takMetrics,
       pendingUserRequestsCount, 
@@ -98,6 +109,7 @@ router.get("/", async (req, res) => {
         usersByType: {},
         unknownType: 0,
       },
+      agencyColors: {},
       bookmarks,
       takMetrics: null,
       pendingUserRequestsCount: userRequestsSvc.countRequestsForUser(req.authentikUser), 

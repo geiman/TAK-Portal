@@ -5,9 +5,9 @@ Below you will find a comprehensive list of items planned for implementation in 
 ***If you have suggestions for how to make TAK Portal better, please reach out to me directly or by opening an "Issue" on Github! I always want to know how this can better serve you and your agency.***
 
 ## High / In Progress
-- Add locate functionality with texting service
+- Add locate functionality with texting service to send a link to missing persons
 - Create Getting Started / Basic User Guides for TAK Aware, ATAK, and Open TAK Tracker
-- Look at hosting or a way to better get ATAK plugins in the hands of users
+- Look at hosting or a way to better get ATAK plugins in the hands of users via hosting ATAK plugins
 - Further implementation of the Integrations page to create and download certificates for integrations
 
 ## Medium

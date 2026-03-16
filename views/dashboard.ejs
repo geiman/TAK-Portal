@@ -167,14 +167,29 @@
       function initCharts() {
         const usersByAgency = <%- JSON.stringify((charts && charts.usersByAgency) || {}) %>;
         const unknownAgency = <%- JSON.stringify((charts && charts.unknownAgency) || 0) %>;
+        const agencyColors = <%- JSON.stringify(typeof agencyColors !== "undefined" ? agencyColors : {}) %>;
+        const defaultAgencyColor = "#9ca3af";
 
         const agencyLabels = Object.keys(usersByAgency);
         const agencyData = Object.values(usersByAgency);
         if (unknownAgency > 0) { agencyLabels.push("Unknown"); agencyData.push(unknownAgency); }
 
+        const agencyBackgroundColors = agencyLabels.map(function(label) {
+          const c = agencyColors[label];
+          return (c && typeof c === "string" && c.trim()) ? c.trim() : defaultAgencyColor;
+        });
+
         new Chart(document.getElementById("agencyChart"), {
           type: "pie",
-          data: { labels: agencyLabels, datasets: [{ data: agencyData }] },
+          data: {
+            labels: agencyLabels,
+            datasets: [{
+              data: agencyData,
+              backgroundColor: agencyBackgroundColors,
+              borderColor: agencyBackgroundColors,
+              borderWidth: 1
+            }]
+          },
           options: { responsive: true, plugins: { legend: { position: "bottom" } } }
         });
 
