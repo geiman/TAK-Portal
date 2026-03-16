@@ -1903,6 +1903,37 @@ async function getAllGroups(options = {}) {
   return await getAllGroupsRaw(options);
 }
 
+function normalizeGroupId(g) {
+  if (g == null) return "";
+  if (typeof g === "object" && g.pk != null) return String(g.pk);
+  return String(g);
+}
+
+/**
+ * Return users who belong to any of the given group IDs (for bulk email by groups).
+ */
+async function getUsersByGroups(groupIds, options = {}) {
+  const list = Array.isArray(groupIds) ? groupIds.map((id) => String(id).trim()).filter(Boolean) : [];
+  if (!list.length) return [];
+  const all = await getAllUsers(options);
+  const idSet = new Set(list);
+  return all.filter((u) => {
+    const userGroups = Array.isArray(u.groups) ? u.groups.map(normalizeGroupId).filter(Boolean) : [];
+    return userGroups.some((g) => idSet.has(g));
+  });
+}
+
+/**
+ * Return users whose username is in the given list (for bulk email by usernames).
+ */
+async function getUsersByUsernames(usernames, options = {}) {
+  const list = Array.isArray(usernames) ? usernames.map((n) => String(n).trim()).filter(Boolean) : [];
+  if (!list.length) return [];
+  const all = await getAllUsers(options);
+  const nameSet = new Set(list);
+  return all.filter((u) => nameSet.has(String(u?.username || "").trim()));
+}
+
 module.exports = {
   // meta/template support
   getTemplatesForAgency,
@@ -1935,4 +1966,7 @@ module.exports = {
   deleteUser,
   addUserGroups,
   removeUserGroups,
+
+  getUsersByGroups,
+  getUsersByUsernames,
 };
