@@ -247,6 +247,14 @@ app.use("/api/tak", require("./routes/takMetrics.routes"));
 app.use("/api/user-requests", require("./routes/userRequests.routes"));
 app.use("/api/audit-log", requireGlobalAdmin, require("./routes/auditLog.routes"));
 app.use("/api/integrations", requireGlobalAdmin, require("./routes/integrations.routes"));
+app.use("/api/email", (req, res, next) => {
+  const user = req.authentikUser;
+  if (!user || (!user.isGlobalAdmin && !user.isAgencyAdmin)) {
+    const username = user && user.username ? user.username : "";
+    return res.status(403).render("access-denied", { username });
+  }
+  next();
+}, require("./routes/email.routes"));
 app.use("/dashboard", require("./routes/dashboard.routes"));
 
 // UI Routes

@@ -3,7 +3,120 @@
 
 <main class="main">
   <h1>Email</h1>
+
   <div class="card">
-    <p>Email tools and notifications. (Coming soon.)</p>
+    <h2 style="margin-top:0;">Bulk Email</h2>
+
+    <%
+      const settingsObj = (typeof settings !== "undefined" && settings) ? settings : {};
+      const emailEnabledRaw = String(settingsObj.EMAIL_ENABLED || "").toLowerCase();
+      const emailEnabled = emailEnabledRaw === "true";
+    %>
+
+    <% if (!emailEnabled) { %>
+      <div class="alert error" style="margin-bottom:12px;">
+        Email is currently disabled. Configure SMTP and set EMAIL_ENABLED=true in Settings to use this page.
+      </div>
+    <% } %>
+
+    <div class="segmented" style="margin-bottom:10px;">
+      <button class="segBtn active" type="button" data-mode="agency">Agency</button>
+      <button class="segBtn" type="button" data-mode="groups">Groups</button>
+      <button class="segBtn" type="button" data-mode="users">Users</button>
+      <button class="segBtn" type="button" data-mode="all" id="allModeBtn" style="display:none;">All Users</button>
+    </div>
+
+    <!-- Agency pane -->
+    <div id="emailAgencyPane" style="margin-top:8px;">
+      <div class="row" style="justify-content:space-between; align-items:center;">
+        <input
+          id="emailAgencySearch"
+          placeholder="Search agencies..."
+          style="flex:1; min-width:0;"
+        />
+        <div class="row" style="gap:10px;">
+          <button class="btn" type="button" id="emailAgencySelectAll">Select All</button>
+          <button class="btn" type="button" id="emailAgencyClearAll">Clear</button>
+        </div>
+      </div>
+      <div id="emailAgencyList" class="groupsBox" style="margin-top:10px;"></div>
+      <small class="settings-help">Emails will be sent to users whose usernames end with the selected agency suffixes.</small>
+    </div>
+
+    <!-- Groups pane -->
+    <div id="emailGroupsPane" style="display:none; margin-top:8px;">
+      <div class="row" style="justify-content:space-between; align-items:center;">
+        <input
+          id="emailGroupSearch"
+          placeholder="Search groups..."
+          style="flex:1; min-width:0;"
+        />
+        <div class="row" style="gap:10px;">
+          <button class="btn" type="button" id="emailGroupSelectAll">Select All</button>
+          <button class="btn" type="button" id="emailGroupClearAll">Clear</button>
+        </div>
+      </div>
+      <div id="emailGroupList" class="groupsBox" style="margin-top:10px;"></div>
+      <small class="settings-help">Emails will be sent to all users in the selected groups (limited to agencies you can manage).</small>
+    </div>
+
+    <!-- Users pane -->
+    <div id="emailUsersPane" style="display:none; margin-top:8px;">
+      <label style="width:100%;">
+        Usernames (one per line or comma-separated)
+        <textarea
+          id="emailUsernames"
+          rows="4"
+          placeholder="user1&#10;user2&#10;user3"
+          style="width:100%; box-sizing:border-box; resize:vertical;"
+        ></textarea>
+      </label>
+      <small class="settings-help">Only users in agencies you can manage will be included.</small>
+    </div>
+
+    <!-- All users pane (global admins only) -->
+    <div id="emailAllPane" style="display:none; margin-top:8px;">
+      <p>
+        This will send an email to <strong>all users across all agencies</strong>.
+      </p>
+      <label style="flex-direction:row; align-items:center; gap:6px;">
+        <input type="checkbox" id="emailAllConfirm" />
+        <span>I understand and want to email all users.</span>
+      </label>
+    </div>
+
+    <hr style="margin:16px 0;">
+
+    <label>
+      Subject
+      <input id="emailSubject" placeholder="Subject" />
+    </label>
+
+    <label style="margin-top:8px;">
+      Message
+      <textarea
+        id="emailBody"
+        rows="8"
+        placeholder="Write your message here..."
+        style="width:100%; box-sizing:border-box; resize:vertical;"
+      ></textarea>
+    </label>
+
+    <label style="flex-direction:row; align-items:center; gap:6px; margin-top:8px;">
+      <input type="checkbox" id="emailTestOnly" />
+      <span>Send a test to my email only</span>
+    </label>
+
+    <div class="row" style="margin-top:12px; align-items:center; justify-content:space-between;">
+      <span id="emailStatus" class="msg"></span>
+      <div class="row" style="gap:8px;">
+        <button class="btn" type="button" id="emailResetBtn">Reset</button>
+        <button class="btn success" type="button" id="emailSendBtn" <%= emailEnabled ? "" : "disabled" %>>
+          Send Email
+        </button>
+      </div>
+    </div>
   </div>
 </main>
+
+<script src="/email.js" defer></script>
