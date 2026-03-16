@@ -119,6 +119,20 @@ body.theme-light .theme-toggle__icon--moon {
     min-height: 100vh;
 }
 
+/* Slight downscale on larger desktops so layout feels closer to 80% browser zoom,
+   without changing individual component spacing. */
+@media (min-width: 1280px) {
+    .app {
+        transform: scale(0.9);
+        transform-origin: top left;
+    }
+
+    body {
+        /* Avoid accidental horizontal scrollbars from the scaled app */
+        overflow-x: auto;
+    }
+}
+
 /* ======================
    SIDEBAR
    ====================== */
