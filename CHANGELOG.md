@@ -16,6 +16,7 @@ Planned features can be accessed [here](docs/roadmap.md)
 ✨ `Enhancement` - Connected clients are now clickable to list active channels that the user has enabled<br>
 ✨ `Enhancement` - Sidebar is now in a tabbed structure, allowing for grouping of pages as features grow<br>
 ✨ `Enhancement` - Beta mode toggle now added in settings to control visibility of pages in progress <br>
+✨ `Enhancement` - Light/Dark mode now controlled per user device, rather than server-wide, in the headers<br>
 
 ### v1.2.47 - 3/13/26
 ✨ `Enhancement` - Adds USA, FED, and OTHER to state options to support federal partners and other states not listed

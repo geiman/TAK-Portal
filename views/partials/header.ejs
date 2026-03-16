@@ -11,7 +11,21 @@
       <link rel="shortcut icon" href="<%= brandLogoUrl %>" type="image/png" />
     <% } %>
   </head>
-  <body class="theme-<%= brandTheme || 'dark-blue' %>">
+  <body class="theme-<%= brandTheme || 'dark' %>">
+
+    <!-- Theme toggle (per-device) -->
+    <button
+      id="themeToggle"
+      class="themeToggle"
+      type="button"
+      aria-label="Toggle dark/light theme"
+      data-theme="<%= brandTheme || 'dark' %>"
+    >
+      <span class="themeToggle-label">Theme</span>
+      <span class="themeToggle-track">
+        <span class="themeToggle-thumb"></span>
+      </span>
+    </button>
 
 		<!-- Mobile menu button (shows under 900px via CSS) -->
 		<button
@@ -30,4 +44,5 @@
 		<div class="app">
 
 			<script src="/sidebar.js" defer=""></script>
+      <script src="/theme-toggle.js" defer></script>
 		
