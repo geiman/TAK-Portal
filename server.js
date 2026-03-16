@@ -288,13 +288,29 @@ app.get("/integrations", requireGlobalAdmin, (req, res) =>
 );
 
 // Admin: email and locate persons (global + agency admins)
-app.get("/email", requireGlobalAdmin, (req, res) => {
+app.get("/email", (req, res) => {
+  const user = req.authentikUser;
+  if (!user || (!user.isGlobalAdmin && !user.isAgencyAdmin)) {
+    const username = user && user.username ? user.username : "";
+    return res.status(403).render("access-denied", { username });
+  }
   const cfg = settingsSvc.getSettings() || {};
   const beta = String(cfg.BETA_MODE || "").toLowerCase() === "true";
-  if (!beta) return res.status(404).render("access-denied", { username: req.authentikUser?.username || "" });
+  if (!beta) {
+    return res
+      .status(404)
+      .render("access-denied", {
+        username: req.authentikUser?.username || "",
+      });
+  }
   return res.render("email");
 });
-app.get("/locate-persons", requireGlobalAdmin, (req, res) => {
+app.get("/locate-persons", (req, res) => {
+  const user = req.authentikUser;
+  if (!user || (!user.isGlobalAdmin && !user.isAgencyAdmin)) {
+    const username = user && user.username ? user.username : "";
+    return res.status(403).render("access-denied", { username });
+  }
   const cfg = settingsSvc.getSettings() || {};
   const beta = String(cfg.BETA_MODE || "").toLowerCase() === "true";
   if (!beta) return res.status(404).render("access-denied", { username: req.authentikUser?.username || "" });
