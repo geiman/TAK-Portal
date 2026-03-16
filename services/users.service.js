@@ -1903,24 +1903,77 @@ async function getAllGroups(options = {}) {
   return await getAllGroupsRaw(options);
 }
 
-function normalizeGroupId(g) {
-  if (g == null) return "";
-  if (typeof g === "object" && g.pk != null) return String(g.pk);
-  return String(g);
+/**
+ * Fetch users who are in a single group via Authentik's groups_by_pk filter.
+ * Used so we get accurate membership without relying on user.groups from list endpoints.
+ */
+async function fetchUsersByGroupId(groupId, options = {}) {
+  const gid = String(groupId || "").trim();
+  if (!gid) return [];
+  const { includeHiddenPrefixes = false } = options;
+  let users = [];
+  const pageSize = 200;
+  let page = 1;
+  let hasNext = true;
+
+  while (hasNext) {
+    const url = `${getString("AUTHENTIK_URL", "")}/api/v3/core/users/?page=${page}&page_size=${pageSize}&groups_by_pk=${encodeURIComponent(gid)}&include_groups=false&include_roles=false`;
+    const res = await api.get(url);
+    const data = res?.data || {};
+    const results = Array.isArray(data.results) ? data.results : [];
+    users = users.concat(results);
+
+    const pagination = data.pagination || {};
+    if (pagination && pagination.next) {
+      page = pagination.next;
+      hasNext = true;
+    } else {
+      hasNext = false;
+    }
+  }
+
+  if (!includeHiddenPrefixes) {
+    const hiddenPrefixes = getHiddenUserPrefixes();
+    if (hiddenPrefixes.length) {
+      users = users.filter((u) => {
+        const username = String(u?.username || "").trim().toLowerCase();
+        return !hiddenPrefixes.some((p) => username.startsWith(p));
+      });
+    }
+  }
+
+  const folderRaw = String(getString("AUTHENTIK_USER_PATH", "")).trim();
+  if (folderRaw) {
+    const target = normalizePath(folderRaw);
+    users = users.filter((u) => {
+      const up = normalizePath(u.path);
+      return up === target || up.startsWith(target + "/");
+    });
+  }
+
+  return users;
 }
 
 /**
  * Return users who belong to any of the given group IDs (for bulk email by groups).
+ * Fetches per group via Authentik's groups_by_pk so membership is correct; merges and dedupes by user pk.
  */
 async function getUsersByGroups(groupIds, options = {}) {
   const list = Array.isArray(groupIds) ? groupIds.map((id) => String(id).trim()).filter(Boolean) : [];
   if (!list.length) return [];
-  const all = await getAllUsers(options);
-  const idSet = new Set(list);
-  return all.filter((u) => {
-    const userGroups = Array.isArray(u.groups) ? u.groups.map(normalizeGroupId).filter(Boolean) : [];
-    return userGroups.some((g) => idSet.has(g));
-  });
+  const seenPk = new Set();
+  const merged = [];
+  for (const gid of list) {
+    const groupUsers = await fetchUsersByGroupId(gid, options);
+    for (const u of groupUsers) {
+      const pk = u?.pk != null ? String(u.pk) : u?.id != null ? String(u.id) : null;
+      if (pk && !seenPk.has(pk)) {
+        seenPk.add(pk);
+        merged.push(u);
+      }
+    }
+  }
+  return merged;
 }
 
 /**
