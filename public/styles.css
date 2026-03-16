@@ -8,6 +8,10 @@
     --btn: #2b6cff;
     --danger: #ff3b3b;
     --success: #18b35a;
+    /* Sidebar link highlight (dark themes: lighter overlay so it stands out) */
+    --sidebar-link-hover: rgba(255, 255, 255, 0.06);
+    --sidebar-link-active: rgba(255, 255, 255, 0.12);
+    --sidebar-link-active-hover: rgba(255, 255, 255, 0.16);
 }
 
 /* Theme variants */
@@ -39,7 +43,10 @@ body.theme-light {
     --muted: #4b5563; /* slate-600 - darker for readability */
     --line: #e5e7eb;  /* slate-200 borders */
     --btn: #2563eb;   /* slightly richer blue */
-
+    /* Sidebar link highlight (light: dark overlay so current page is clear) */
+    --sidebar-link-hover: rgba(15, 23, 42, 0.06);
+    --sidebar-link-active: rgba(15, 23, 42, 0.1);
+    --sidebar-link-active-hover: rgba(15, 23, 42, 0.14);
 }
 
 
@@ -289,7 +296,7 @@ body.theme-light .theme-toggle__icon--moon {
 .nav-bottom {
     margin-top: auto; /* pushes this section to the bottom of sidebar */
     padding-top: 1rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.15); /* subtle separator */
+    border-top: 1px solid var(--line);
     text-align: center;
 }
 
@@ -303,16 +310,17 @@ body.theme-light .theme-toggle__icon--moon {
 }
 
 .sidebar a:hover {
-  background: rgba(15,23,42,.06); /* works on both dark and light */
+    background: var(--sidebar-link-hover);
 }
 
 .sidebar a.active {
-  background: rgba(15,23,42,.09);
-  border-radius: 8px;
-  font-weight: 600;
+    background: var(--sidebar-link-active);
+    border-radius: 8px;
+    font-weight: 600;
 }
+
 .sidebar a.active:hover {
-  background: rgba(15,23,42,.12);
+    background: var(--sidebar-link-active-hover);
 }
 
 /* Sidebar collapsible sections */
