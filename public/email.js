@@ -55,6 +55,10 @@
         );
       });
 
+    try {
+      console.log("[EMAIL] renderAgencies items", items.length, items);
+    } catch (e) {}
+
     host.innerHTML =
       items
         .map(function (x) {
@@ -89,6 +93,10 @@
         if (!needle) return true;
         return String(g.name || "").toLowerCase().includes(needle);
       });
+
+    try {
+      console.log("[EMAIL] renderGroups items", items.length, items);
+    } catch (e) {}
 
     host.innerHTML =
       items
