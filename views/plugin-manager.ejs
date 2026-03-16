@@ -3,8 +3,355 @@
 
 <main class="main">
   <h1>Plugin Manager</h1>
+  <p class="muted" style="margin-top: 4px;">Link your TAK.gov account to discover plugins, and store downloaded plugins in TAK Portal for your users. Plugins are stored in <code>data/plugins</code>.</p>
+
+  <!-- Link TAK.gov Account (OpenTAKServer-style flow) -->
   <div class="card">
-    <p>Manage plugins and extensions. (Coming soon.)</p>
+    <h2>Link TAK.gov Account</h2>
+    <p>Linking allows you to use the same flow as ATAK’s &quot;Link EUD&quot; feature: generate a code here, enter it at <a href="https://tak.gov/register-device" target="_blank" rel="noopener">tak.gov/register-device</a> (code expires in 3 minutes), then click Link Account below.</p>
+    <div id="linkSection" class="row" style="flex-wrap: wrap; gap: 12px; align-items: flex-start;">
+      <div id="linkCodeArea" style="display: none;">
+        <label>Your link code (enter at TAK.gov)</label>
+        <div class="row" style="align-items: center; gap: 8px;">
+          <code id="linkCodeDisplay" style="font-size: 1.2rem; padding: 8px 12px; background: var(--card-bg, #1e1e1e); border-radius: 6px;"></code>
+          <span id="linkCodeExpiry" class="muted"></span>
+        </div>
+      </div>
+      <div class="row" style="gap: 8px; align-items: flex-end;">
+        <label>Code entered at TAK.gov
+          <input type="text" id="linkCodeInput" placeholder="e.g. A1B2C3D4" maxlength="16" style="width: 140px;" />
+        </label>
+        <button class="btn" type="button" id="getLinkCodeBtn">Get Link Code</button>
+        <button class="btn success" type="button" id="linkAccountBtn">Link Account</button>
+        <button class="btn" type="button" id="unlinkBtn" style="display: none;">Unlink</button>
+      </div>
+    </div>
+    <div id="linkStatus" class="msg"></div>
+    <div id="linkedBadge" style="display: none; margin-top: 8px;">
+      <span class="status-pill status-connected">TAK.gov account linked</span>
+    </div>
+  </div>
+
+  <!-- Add plugin: Upload or Download from URL -->
+  <div class="card">
+    <h2>Add Plugin</h2>
+    <p>Upload an APK from your computer or download from a URL (e.g. after linking TAK.gov you can use plugin URLs from TAK.gov).</p>
+    <div class="row" style="flex-wrap: wrap; gap: 16px;">
+      <div style="flex: 1; min-width: 280px;">
+        <label>Upload plugin file (APK)
+          <input type="file" id="pluginFile" accept=".apk,.zip,.jar" />
+        </label>
+        <label style="margin-top: 8px;">Display name (optional)
+          <input type="text" id="uploadName" placeholder="e.g. Mission Package Tools" style="width: 100%;" />
+        </label>
+        <button class="btn" type="button" id="uploadPluginBtn" style="margin-top: 8px;">Upload Plugin</button>
+      </div>
+      <div style="flex: 1; min-width: 280px;">
+        <label>Or download from URL
+          <input type="url" id="pluginUrl" placeholder="https://..." style="width: 100%;" />
+        </label>
+        <label style="margin-top: 8px;">Display name (optional)
+          <input type="text" id="downloadName" placeholder="e.g. Mission Package Tools" style="width: 100%;" />
+        </label>
+        <button class="btn" type="button" id="downloadPluginBtn" style="margin-top: 8px;">Download Plugin</button>
+      </div>
+    </div>
+    <div id="addPluginMsg" class="msg"></div>
+  </div>
+
+  <!-- Downloaded plugins: cards -->
+  <div class="card">
+    <h2 style="margin-top: 0;">Downloaded Plugins</h2>
+    <p class="muted" style="margin-top: 4px;">Plugins stored in <code>data/plugins</code>. You can download or delete each one.</p>
+    <div id="pluginsMsg" class="msg"></div>
+    <div id="pluginCards" class="plugin-cards" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-top: 16px;">
+      <!-- Filled by JS -->
+    </div>
+    <div id="pluginsEmpty" style="display: none; margin-top: 16px; color: var(--muted, #888);">
+      No plugins yet. Upload or download a plugin above.
+    </div>
   </div>
 </main>
 
+<style>
+  .plugin-cards .plugin-card {
+    background: var(--card-bg, #1a1a1a);
+    border: 1px solid var(--border, #333);
+    border-radius: 8px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .plugin-cards .plugin-card .plugin-name { font-weight: 600; }
+  .plugin-cards .plugin-card .plugin-meta { font-size: 0.9rem; color: var(--muted, #888); }
+  .plugin-cards .plugin-card .plugin-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+</style>
+
+<script>
+(function () {
+  const getLinkCodeBtn = document.getElementById("getLinkCodeBtn");
+  const linkAccountBtn = document.getElementById("linkAccountBtn");
+  const unlinkBtn = document.getElementById("unlinkBtn");
+  const linkCodeInput = document.getElementById("linkCodeInput");
+  const linkCodeDisplay = document.getElementById("linkCodeDisplay");
+  const linkCodeExpiry = document.getElementById("linkCodeExpiry");
+  const linkCodeArea = document.getElementById("linkCodeArea");
+  const linkStatus = document.getElementById("linkStatus");
+  const linkedBadge = document.getElementById("linkedBadge");
+  const pluginFile = document.getElementById("pluginFile");
+  const uploadName = document.getElementById("uploadName");
+  const uploadPluginBtn = document.getElementById("uploadPluginBtn");
+  const pluginUrl = document.getElementById("pluginUrl");
+  const downloadName = document.getElementById("downloadName");
+  const downloadPluginBtn = document.getElementById("downloadPluginBtn");
+  const addPluginMsg = document.getElementById("addPluginMsg");
+  const pluginCards = document.getElementById("pluginCards");
+  const pluginsEmpty = document.getElementById("pluginsEmpty");
+  const pluginsMsg = document.getElementById("pluginsMsg");
+
+  function esc(s) {
+    if (s == null || s === undefined) return "";
+    const div = document.createElement("div");
+    div.textContent = s;
+    return div.innerHTML;
+  }
+
+  function setLinkStatus(text, ok) {
+    linkStatus.textContent = text || "";
+    linkStatus.style.color = ok === false ? "var(--error, #c00)" : "";
+  }
+
+  function setAddPluginMsg(text, ok) {
+    addPluginMsg.textContent = text || "";
+    addPluginMsg.style.color = ok === false ? "var(--error, #c00)" : "";
+  }
+
+  function setPluginsMsg(text, ok) {
+    pluginsMsg.textContent = text || "";
+    pluginsMsg.style.color = ok === false ? "var(--error, #c00)" : "";
+  }
+
+  function formatSize(bytes) {
+    if (bytes == null) return "—";
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(2) + " MB";
+  }
+
+  function formatDate(iso) {
+    if (!iso) return "—";
+    try {
+      const d = new Date(iso);
+      return isNaN(d.getTime()) ? iso : d.toLocaleDateString() + " " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    } catch (_) { return iso; }
+  }
+
+  function renderPluginCards(plugins) {
+    const list = Array.isArray(plugins) ? plugins : [];
+    if (list.length === 0) {
+      pluginCards.innerHTML = "";
+      pluginCards.style.display = "none";
+      pluginsEmpty.style.display = "block";
+      return;
+    }
+    pluginsEmpty.style.display = "none";
+    pluginCards.style.display = "grid";
+    pluginCards.innerHTML = list.map(function (p) {
+      const name = esc(p.name || p.filename || p.id);
+      const meta = [];
+      if (p.filename) meta.push(esc(p.filename));
+      meta.push(formatSize(p.sizeBytes != null ? p.sizeBytes : p.size));
+      meta.push(formatDate(p.downloadedAt));
+      if (p.source) meta.push("Source: " + esc(p.source));
+      const metaStr = meta.join(" · ");
+      const exists = p.exists !== false;
+      const downloadUrl = "/api/plugins/" + esc(p.id) + "/download";
+      return "<div class=\"plugin-card\" data-id=\"" + esc(p.id) + "\">" +
+        "<div class=\"plugin-name\">" + name + "</div>" +
+        "<div class=\"plugin-meta\">" + metaStr + "</div>" +
+        (exists ? "" : "<div class=\"plugin-meta\" style=\"color: var(--error, #c00);\">File missing on disk</div>") +
+        "<div class=\"plugin-actions\">" +
+        (exists ? "<a href=\"" + downloadUrl + "\" class=\"btn\" download>Download</a>" : "") +
+        "<button class=\"btn danger\" type=\"button\" data-delete=\"" + esc(p.id) + "\">Delete</button>" +
+        "</div></div>";
+    }).join("");
+    pluginCards.querySelectorAll("[data-delete]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        const id = btn.getAttribute("data-delete");
+        if (!id) return;
+        if (!confirm("Remove this plugin and delete its file from the server? This cannot be undone.")) return;
+        deletePlugin(id);
+      });
+    });
+  }
+
+  async function loadState() {
+    try {
+      const res = await fetch("/api/plugins/state");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to load state");
+      const link = data.takGovLink || {};
+      const plugins = data.plugins || [];
+      if (link.linked) {
+        linkedBadge.style.display = "block";
+        unlinkBtn.style.display = "inline-block";
+        linkCodeArea.style.display = "none";
+        linkCodeInput.value = "";
+        setLinkStatus("", true);
+      } else {
+        linkedBadge.style.display = "none";
+        unlinkBtn.style.display = "none";
+        if (link.linkCode && link.linkCodeExpiry && Date.now() < link.linkCodeExpiry) {
+          linkCodeArea.style.display = "block";
+          linkCodeDisplay.textContent = link.linkCode;
+          const sec = Math.max(0, Math.floor((link.linkCodeExpiry - Date.now()) / 1000));
+          linkCodeExpiry.textContent = "Expires in " + sec + "s";
+        } else {
+          linkCodeArea.style.display = "none";
+        }
+      }
+      renderPluginCards(plugins);
+    } catch (err) {
+      setPluginsMsg(err.message || "Failed to load plugins", false);
+    }
+  }
+
+  getLinkCodeBtn.addEventListener("click", async function () {
+    setLinkStatus("", true);
+    try {
+      const res = await fetch("/api/plugins/link-code", { method: "POST", headers: { "Content-Type": "application/json" } });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to generate code");
+      linkCodeArea.style.display = "block";
+      linkCodeDisplay.textContent = data.linkCode || "";
+      linkCodeInput.value = "";
+      setLinkStatus(data.message || "Enter this code at https://tak.gov/register-device within 3 minutes.", true);
+      if (data.linkCodeExpiry) {
+        const interval = setInterval(function () {
+          const sec = Math.max(0, Math.floor((data.linkCodeExpiry - Date.now()) / 1000));
+          linkCodeExpiry.textContent = "Expires in " + sec + "s";
+          if (sec <= 0) clearInterval(interval);
+        }, 1000);
+      }
+    } catch (err) {
+      setLinkStatus(err.message || "Error", false);
+    }
+  });
+
+  linkAccountBtn.addEventListener("click", async function () {
+    const code = (linkCodeInput && linkCodeInput.value || "").trim();
+    if (!code) {
+      setLinkStatus("Enter the code you received at TAK.gov.", false);
+      return;
+    }
+    setLinkStatus("Linking…", true);
+    try {
+      const res = await fetch("/api/plugins/link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: code }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Link failed");
+      setLinkStatus(data.message || "Linked.", true);
+      loadState();
+    } catch (err) {
+      setLinkStatus(err.message || "Error", false);
+    }
+  });
+
+  unlinkBtn.addEventListener("click", async function () {
+    if (!confirm("Unlink your TAK.gov account? Downloaded plugins will remain stored.")) return;
+    try {
+      const res = await fetch("/api/plugins/unlink", { method: "POST", headers: { "Content-Type": "application/json" } });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Unlink failed");
+      setLinkStatus("Account unlinked.", true);
+      loadState();
+    } catch (err) {
+      setLinkStatus(err.message || "Error", false);
+    }
+  });
+
+  uploadPluginBtn.addEventListener("click", function () {
+    const file = pluginFile && pluginFile.files && pluginFile.files[0];
+    if (!file) {
+      setAddPluginMsg("Select a plugin file first.", false);
+      return;
+    }
+    setAddPluginMsg("Uploading…", true);
+    const form = new FormData();
+    form.append("plugin", file);
+    const name = (uploadName && uploadName.value || "").trim();
+    if (name) form.append("name", name);
+    fetch("/api/plugins/upload", { method: "POST", body: form })
+      .then(function (res) { return res.json().then(function (data) { return { res, data }; }); })
+      .then(function (_ref) {
+        const res = _ref.res;
+        const data = _ref.data;
+        if (!res.ok) throw new Error(data.error || "Upload failed");
+        setAddPluginMsg("Plugin uploaded: " + (data.plugin && data.plugin.name) + ".", true);
+        pluginFile.value = "";
+        if (uploadName) uploadName.value = "";
+        loadState();
+      })
+      .catch(function (err) {
+        setAddPluginMsg(err.message || "Upload failed", false);
+      });
+  });
+
+  downloadPluginBtn.addEventListener("click", function () {
+    const url = (pluginUrl && pluginUrl.value || "").trim();
+    if (!url) {
+      setAddPluginMsg("Enter a plugin URL.", false);
+      return;
+    }
+    setAddPluginMsg("Downloading…", true);
+    const body = { url: url };
+    const name = (downloadName && downloadName.value || "").trim();
+    if (name) body.name = name;
+    fetch("/api/plugins/download", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+      .then(function (res) { return res.json().then(function (data) { return { res, data }; }); })
+      .then(function (_ref) {
+        const res = _ref.res;
+        const data = _ref.data;
+        if (!res.ok) throw new Error(data.error || "Download failed");
+        setAddPluginMsg("Plugin downloaded: " + (data.plugin && data.plugin.name) + ".", true);
+        if (pluginUrl) pluginUrl.value = "";
+        if (downloadName) downloadName.value = "";
+        loadState();
+      })
+      .catch(function (err) {
+        setAddPluginMsg(err.message || "Download failed", false);
+      });
+  });
+
+  async function deletePlugin(id) {
+    setPluginsMsg("Deleting…", true);
+    try {
+      const res = await fetch("/api/plugins/" + encodeURIComponent(id), { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Delete failed");
+      setPluginsMsg("Plugin removed.", true);
+      loadState();
+    } catch (err) {
+      setPluginsMsg(err.message || "Delete failed", false);
+    }
+  }
+
+  // Initial state from server-rendered data (optional; we refetch for consistency)
+  const initialPlugins = typeof plugins !== "undefined" && Array.isArray(plugins) ? plugins : [];
+  const initialLink = typeof takGovLink !== "undefined" && takGovLink ? takGovLink : { linked: false };
+  if (initialLink.linked) {
+    linkedBadge.style.display = "block";
+    unlinkBtn.style.display = "inline-block";
+  }
+  renderPluginCards(initialPlugins.length ? initialPlugins : []);
+  loadState();
+})();
+</script>

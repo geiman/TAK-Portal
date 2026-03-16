@@ -246,6 +246,7 @@ app.use("/api/mutual-aid", require("./routes/mutualAid.routes"));
 app.use("/api/tak", require("./routes/takMetrics.routes"));
 app.use("/api/user-requests", require("./routes/userRequests.routes"));
 app.use("/api/audit-log", requireGlobalAdmin, require("./routes/auditLog.routes"));
+app.use("/api/plugins", requireGlobalAdmin, require("./routes/plugins.routes"));
 app.use("/api/integrations", requireGlobalAdmin, require("./routes/integrations.routes"));
 app.use("/api/email", (req, res, next) => {
   const user = req.authentikUser;
@@ -313,7 +314,10 @@ app.get("/plugin-manager", requireGlobalAdmin, (req, res) => {
   const cfg = settingsSvc.getSettings() || {};
   const beta = String(cfg.BETA_MODE || "").toLowerCase() === "true";
   if (!beta) return res.status(404).render("access-denied", { username: req.authentikUser?.username || "" });
-  return res.render("plugin-manager");
+  const pluginsSvc = require("./services/plugins.service");
+  const takGovLink = pluginsSvc.getTakGovLinkState(false);
+  const plugins = pluginsSvc.listPlugins();
+  return res.render("plugin-manager", { takGovLink, plugins });
 });
 
 // Beta: Onboarding pages (any authenticated user, beta mode)
