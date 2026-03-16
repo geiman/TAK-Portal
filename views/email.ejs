@@ -533,11 +533,10 @@
           }
           return;
         }
+        resetEmailForm();
         if (emailStatus) {
           emailStatus.className = "msg ok";
-          emailStatus.textContent = `Email queued for ${
-            out.count || 0
-          } recipient(s).`;
+          emailStatus.textContent = `Email sent to ${out.count || 0} recipient(s).`;
         }
       } catch (e) {
         if (emailStatus) {

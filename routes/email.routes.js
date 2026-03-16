@@ -5,6 +5,7 @@ const groupsSvc = require("../services/groups.service");
 const accessSvc = require("../services/access.service");
 const emailSvc = require("../services/email.service");
 const auditSvc = require("../services/auditLog.service");
+const { renderTemplate, htmlToText } = require("../services/emailTemplates.service");
 
 function toErrorPayload(err) {
   const data = err?.response?.data;
@@ -180,8 +181,16 @@ router.post("/send", async (req, res) => {
       }
     }
 
-    const html = `<p>${message.replace(/\n/g, "<br>")}</p>`;
-    const text = message;
+    const escapeHtml = (s) =>
+      String(s ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    const messageBody = escapeHtml(message).replace(/\n/g, "<br>");
+    const html = renderTemplate("bulk_email.html", { subject, messageBody });
+    const text = htmlToText(html);
 
     const result = await emailSvc.sendMail({
       to: "", // everyone goes in BCC
