@@ -19,16 +19,16 @@
       </div>
       <div class="row" style="gap: 8px; align-items: flex-end;">
         <label>Code entered at TAK.gov
-          <input type="text" id="linkCodeInput" placeholder="e.g. A1B2C3D4" maxlength="16" style="width: 140px;" />
+          <input type="text" id="linkCodeInput" placeholder="e.g. ABCDWXYZ" maxlength="16" style="width: 140px;" pattern="[A-Za-z]*" title="Letters only" />
         </label>
         <button class="btn" type="button" id="getLinkCodeBtn">Get Link Code</button>
         <button class="btn success" type="button" id="linkAccountBtn">Link Account</button>
-        <button class="btn" type="button" id="unlinkBtn" style="display: none;">Unlink</button>
       </div>
     </div>
     <div id="linkStatus" class="msg"></div>
-    <div id="linkedBadge" style="display: none; margin-top: 8px;">
+    <div id="linkedBadge" class="row" style="display: none; margin-top: 8px; align-items: center; gap: 10px;">
       <span class="status-pill status-connected">TAK.gov account linked</span>
+      <button class="btn" type="button" id="unlinkBtnBadge">Unlink account</button>
     </div>
   </div>
 
@@ -92,7 +92,7 @@
 (function () {
   const getLinkCodeBtn = document.getElementById("getLinkCodeBtn");
   const linkAccountBtn = document.getElementById("linkAccountBtn");
-  const unlinkBtn = document.getElementById("unlinkBtn");
+  const unlinkBtn = document.getElementById("unlinkBtnBadge");
   const linkCodeInput = document.getElementById("linkCodeInput");
   const linkCodeDisplay = document.getElementById("linkCodeDisplay");
   const linkCodeExpiry = document.getElementById("linkCodeExpiry");
@@ -194,14 +194,12 @@
       const link = data.takGovLink || {};
       const plugins = data.plugins || [];
       if (link.linked) {
-        linkedBadge.style.display = "block";
-        unlinkBtn.style.display = "inline-block";
+        linkedBadge.style.display = "flex";
         linkCodeArea.style.display = "none";
         linkCodeInput.value = "";
         setLinkStatus("", true);
       } else {
         linkedBadge.style.display = "none";
-        unlinkBtn.style.display = "none";
         if (link.linkCode && link.linkCodeExpiry && Date.now() < link.linkCodeExpiry) {
           linkCodeArea.style.display = "block";
           linkCodeDisplay.textContent = link.linkCode;
@@ -348,8 +346,7 @@
   const initialPlugins = typeof plugins !== "undefined" && Array.isArray(plugins) ? plugins : [];
   const initialLink = typeof takGovLink !== "undefined" && takGovLink ? takGovLink : { linked: false };
   if (initialLink.linked) {
-    linkedBadge.style.display = "block";
-    unlinkBtn.style.display = "inline-block";
+    linkedBadge.style.display = "flex";
   }
   renderPluginCards(initialPlugins.length ? initialPlugins : []);
   loadState();

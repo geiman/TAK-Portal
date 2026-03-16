@@ -62,7 +62,10 @@ function getTakGovLinkState(generateNewCode = false) {
   const { takGovLink } = manifest;
 
   if (generateNewCode) {
-    const code = crypto.randomBytes(4).toString("hex").toUpperCase();
+    const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const bytes = crypto.randomBytes(8);
+    let code = "";
+    for (let i = 0; i < bytes.length; i++) code += letters[bytes[i] % 26];
     const expiry = Date.now() + LINK_CODE_TTL_MS;
     const updated = {
       ...takGovLink,
