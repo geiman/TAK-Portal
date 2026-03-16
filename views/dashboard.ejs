@@ -200,12 +200,16 @@
         const typeData = Object.values(usersByType);
         if (unknownType > 0) { typeLabels.push("Unknown"); typeData.push(unknownType); }
 
+        var typePalette = ["#3b82f6", "#f59e0b", "#10b981", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#84cc16"];
+        var typeBackgroundColors = typeLabels.map(function(_, i) { return typePalette[i % typePalette.length]; });
+
         new Chart(document.getElementById("typeChart"), {
           type: "pie",
           data: {
             labels: typeLabels,
             datasets: [{
               data: typeData,
+              backgroundColor: typeBackgroundColors,
               borderColor: "#ffffff",
               borderWidth: 2
             }]
