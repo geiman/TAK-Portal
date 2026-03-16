@@ -341,12 +341,18 @@
         return hex ? hex + "33" : "transparent";
       }
 
-      function fillExpandedTableBody(rows) {
+      var latestSubscriptions = [];
+
+      function fillExpandedTableBody(rows, rawItems) {
+        latestSubscriptions = Array.isArray(rawItems) ? rawItems.slice() : [];
         var tbody = document.getElementById("connectedClientsTableBody");
         if (!tbody) return;
         tbody.innerHTML = "";
         (rows || []).forEach(function (r) {
           var tr = document.createElement("tr");
+          if (r.subscriptionUid) {
+            tr.setAttribute("data-subscription-uid", r.subscriptionUid);
+          }
           var bg = teamToBg(r.team);
           if (bg !== "transparent") tr.style.backgroundColor = bg;
           tr.innerHTML = "<td>" + esc(r.callsign) + "</td><td>" + esc(r.username) + "</td><td>" + esc(r.takClient) + "</td><td>" + esc(r.role) + "</td>";
@@ -354,7 +360,7 @@
         });
       }
 
-      function renderExpandedView(rows) {
+      function renderExpandedView(rows, rawItems) {
         var html = '<div class="connected-clients-expanded">' +
           '<div class="connected-clients-expanded-header">' +
           '<h2 class="cardTitle">Connected Users</h2>' +
@@ -362,16 +368,117 @@
           '</div>' +
           '<div class="connected-clients-table-wrap"><table class="connected-clients-table">' +
           '<thead><tr><th>Callsign</th><th>Username</th><th>TAK Client</th><th>Role</th></tr></thead>' +
-          '<tbody id="connectedClientsTableBody"></tbody></table></div></div>';
+          '<tbody id="connectedClientsTableBody"></tbody></table></div></div>' +
+          '<div class="modalOverlay" id="clientGroupsOverlay" style="display:none;">' +
+            '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="clientGroupsTitle">' +
+              '<div class="modalHeader">' +
+                '<h2 id="clientGroupsTitle" style="margin:0;">Active Groups</h2>' +
+                '<button class="btn" id="clientGroupsCloseBtn" type="button">Close</button>' +
+              '</div>' +
+              '<div class="modalBody">' +
+                '<div id="clientGroupsSummary" class="msg" style="display:none;"></div>' +
+                '<div id="clientGroupsList" style="margin-top:10px; max-height:320px; overflow:auto;"></div>' +
+              '</div>' +
+            '</div>' +
+          '</div>';
         card.innerHTML = html;
         card.classList.add("connected-clients-expanded-card");
         row.classList.add("connected-clients-row-expanded");
-        fillExpandedTableBody(rows);
+        fillExpandedTableBody(rows, rawItems);
         document.getElementById("connectedClientsCloseBtn").addEventListener("click", function (e) {
           e.preventDefault();
           e.stopPropagation();
           collapse();
         });
+        // Wire up modal behavior
+        var overlay = document.getElementById("clientGroupsOverlay");
+        var closeBtn = document.getElementById("clientGroupsCloseBtn");
+        var listEl = document.getElementById("clientGroupsList");
+        var summaryEl = document.getElementById("clientGroupsSummary");
+
+        function closeClientGroupsModal() {
+          if (overlay) overlay.style.display = "none";
+        }
+
+        function openClientGroupsModal(sub) {
+          if (!overlay || !listEl || !sub) return;
+
+          // Build normalized group names from subscription groups
+          var groups = Array.isArray(sub.groups) ? sub.groups.filter(function (g) { return g && g.active; }) : [];
+          var byName = {};
+          groups.forEach(function (g) {
+            var name = (g.name != null ? String(g.name).trim() : "");
+            if (!name) return;
+            var dir = (g.direction != null ? String(g.direction).trim().toUpperCase() : "");
+            if (!byName[name]) {
+              byName[name] = { in: false, out: false };
+            }
+            if (dir === "IN") byName[name].in = true;
+            if (dir === "OUT") byName[name].out = true;
+          });
+
+          var displayNames = Object.keys(byName).map(function (base) {
+            var flags = byName[base];
+            if (flags.in && flags.out) return base;
+            if (flags.in) return base + "_WRITE";
+            if (flags.out) return base + "_READ";
+            return base;
+          }).sort(function (a, b) {
+            return a.localeCompare(b, undefined, { sensitivity: "base" });
+          });
+
+          listEl.innerHTML = "";
+          if (displayNames.length === 0) {
+            listEl.innerHTML = '<div class="muted">No active groups for this client.</div>';
+          } else {
+            var ul = document.createElement("ul");
+            ul.style.paddingLeft = "20px";
+            displayNames.forEach(function (name) {
+              var li = document.createElement("li");
+              li.textContent = name;
+              ul.appendChild(li);
+            });
+            listEl.appendChild(ul);
+          }
+
+          if (summaryEl) {
+            var label = (sub.callsign && String(sub.callsign).trim()) || (sub.username && String(sub.username).trim()) || "Client";
+            summaryEl.textContent = "Groups currently active for " + label + ":";
+            summaryEl.style.display = "block";
+          }
+
+          overlay.style.display = "flex";
+        }
+
+        if (closeBtn) {
+          closeBtn.addEventListener("click", function (e) {
+            e.preventDefault();
+            closeClientGroupsModal();
+          });
+        }
+        if (overlay) {
+          overlay.addEventListener("click", function (e) {
+            if (e.target === overlay) {
+              closeClientGroupsModal();
+            }
+          });
+        }
+
+        // Row click -> open modal with that subscription's groups
+        var tbody = document.getElementById("connectedClientsTableBody");
+        if (tbody) {
+          tbody.addEventListener("click", function (e) {
+            var tr = e.target.closest("tr");
+            if (!tr) return;
+            e.stopPropagation();
+            var uid = tr.getAttribute("data-subscription-uid");
+            if (!uid || !latestSubscriptions.length) return;
+            var sub = latestSubscriptions.find(function (s) { return String(s.subscriptionUid) === uid; });
+            if (!sub) return;
+            openClientGroupsModal(sub);
+          });
+        }
+
         if (expandedRefreshTimer) clearInterval(expandedRefreshTimer);
         expandedRefreshTimer = setInterval(function () {
           if (!card.classList.contains("connected-clients-expanded-card")) return;
@@ -389,11 +496,12 @@
                   username: item.username != null ? String(item.username).trim() : "",
                   takClient: item.takClient != null ? String(item.takClient).trim() || "—" : "—",
                   role: item.role != null ? String(item.role).trim() || "—" : "—",
-                  team: item.team != null ? String(item.team).trim() : ""
+                  team: item.team != null ? String(item.team).trim() : "",
+                  subscriptionUid: item.subscriptionUid != null ? String(item.subscriptionUid).trim() : ""
                 };
               });
               nextRows.sort(function (a, b) { return (a.callsign || "").localeCompare(b.callsign || "", undefined, { sensitivity: "base" }); });
-              fillExpandedTableBody(nextRows);
+              fillExpandedTableBody(nextRows, list);
             })
             .catch(function () {});
         }, EXPANDED_REFRESH_MS);
@@ -437,11 +545,12 @@
                 username: item.username != null ? String(item.username).trim() : "",
                 takClient: item.takClient != null ? String(item.takClient).trim() || "—" : "—",
                 role: item.role != null ? String(item.role).trim() || "—" : "—",
-                team: item.team != null ? String(item.team).trim() : ""
+                team: item.team != null ? String(item.team).trim() : "",
+                subscriptionUid: item.subscriptionUid != null ? String(item.subscriptionUid).trim() : ""
               };
             });
             rows.sort(function (a, b) { return (a.callsign || "").localeCompare(b.callsign || "", undefined, { sensitivity: "base" }); });
-            renderExpandedView(rows);
+            renderExpandedView(rows, list);
           })
           .catch(function () { collapse(); });
       }
