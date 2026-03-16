@@ -148,17 +148,56 @@
     }
     var allModeBtn = $("#allModeBtn");
 
-    fetch("/api/email/meta", { credentials: "same-origin" })
-      .then(function (r) {
-        if (!r.ok) throw new Error("Failed to load email metadata.");
-        return r.json();
+    // Global admin flag can be passed from EJS if desired
+    if (typeof window.EMAIL_IS_GLOBAL_ADMIN !== "undefined") {
+      state.isGlobalAdmin = !!window.EMAIL_IS_GLOBAL_ADMIN;
+    }
+
+    Promise.all([
+      fetch("/api/agencies", { credentials: "same-origin" }),
+      fetch("/api/groups", { credentials: "same-origin" }),
+    ])
+      .then(function (responses) {
+        return Promise.all(
+          responses.map(function (r) {
+            return r.json().then(function (data) {
+              return { ok: r.ok, data: data };
+            });
+          })
+        );
       })
-      .then(function (data) {
-        state.isGlobalAdmin = !!data.isGlobalAdmin;
-        state.agencies = Array.isArray(data.agencies) ? data.agencies : [];
-        state.groups = Array.isArray(data.groups) ? data.groups : [];
+      .then(function (results) {
+        var status = $("#emailStatus");
+        var agenciesRes = results[0];
+        var groupsRes = results[1];
+
+        if (agenciesRes.ok && Array.isArray(agenciesRes.data)) {
+          state.agencies = agenciesRes.data;
+        } else {
+          state.agencies = [];
+          if (status) {
+            status.classList.add("bad");
+            status.textContent =
+              (agenciesRes.data && agenciesRes.data.error) ||
+              "Failed to load agencies.";
+          }
+        }
+
+        if (groupsRes.ok && Array.isArray(groupsRes.data)) {
+          state.groups = groupsRes.data;
+        } else {
+          state.groups = [];
+          if (status) {
+            status.classList.add("bad");
+            status.textContent =
+              (groupsRes.data && groupsRes.data.error) ||
+              "Failed to load groups.";
+          }
+        }
+
         renderAgencies();
         renderGroups();
+
         if (state.isGlobalAdmin && allModeBtn) {
           allModeBtn.style.display = "";
         }
