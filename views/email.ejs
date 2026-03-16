@@ -41,7 +41,9 @@
           <button class="btn" type="button" id="emailAgencyClearAll">Clear</button>
         </div>
       </div>
-      <div id="emailAgencyList" class="groupsBox" style="margin-top:10px;"></div>
+      <div id="emailAgencyList" class="groupsBox" style="margin-top:10px;">
+        <div id="emailAgencyListInner"></div>
+      </div>
       <small class="settings-help">Emails will be sent to users whose usernames end with the selected agency suffixes.</small>
     </div>
 
@@ -58,21 +60,28 @@
           <button class="btn" type="button" id="emailGroupClearAll">Clear</button>
         </div>
       </div>
-      <div id="emailGroupList" class="groupsBox" style="margin-top:10px;"></div>
+      <div id="emailGroupList" class="groupsBox" style="margin-top:10px;">
+        <div id="emailGroupListInner" class="emailGroupGrid"></div>
+      </div>
       <small class="settings-help">Emails will be sent to all users in the selected groups (limited to agencies you can manage).</small>
     </div>
 
     <!-- Users pane -->
     <div id="emailUsersPane" style="display:none; margin-top:8px;">
-      <label style="width:100%;">
-        Usernames (one per line or comma-separated)
-        <textarea
-          id="emailUsernames"
-          rows="4"
-          placeholder="user1&#10;user2&#10;user3"
-          style="width:100%; box-sizing:border-box; resize:vertical;"
-        ></textarea>
-      </label>
+      <div class="row" style="justify-content:space-between; align-items:center;">
+        <input
+          id="emailUserSearch"
+          placeholder="Search users..."
+          style="flex:1; min-width:0;"
+        />
+        <div class="row" style="gap:10px;">
+          <button class="btn" type="button" id="emailUserSelectAll">Select All</button>
+          <button class="btn" type="button" id="emailUserClearAll">Clear</button>
+        </div>
+      </div>
+      <div id="emailUserList" class="groupsBox" style="margin-top:10px;">
+        <div id="emailUserListInner" class="emailUserListInner"></div>
+      </div>
       <small class="settings-help">Only users in agencies you can manage will be included.</small>
     </div>
 
@@ -104,11 +113,6 @@
       ></textarea>
     </label>
 
-    <label style="flex-direction:row; align-items:center; gap:6px; margin-top:8px;">
-      <input type="checkbox" id="emailTestOnly" />
-      <span>Send a test to my email only</span>
-    </label>
-
     <div class="row" style="margin-top:12px; align-items:center; justify-content:space-between;">
       <span id="emailStatus" class="msg"></span>
       <div class="row" style="gap:8px;">
@@ -121,6 +125,47 @@
   </div>
 </main>
 
+<style>
+/* Responsive grid for groups (and users) list: more columns as width increases, like templates page */
+.emailGroupGrid,
+.emailUserListInner {
+  column-width: 280px;
+  column-gap: 14px;
+  column-count: 1;
+}
+@media (min-width: 560px) {
+  .emailGroupGrid,
+  .emailUserListInner {
+    column-count: 2;
+  }
+}
+@media (min-width: 950px) {
+  .emailGroupGrid,
+  .emailUserListInner {
+    column-count: 3;
+  }
+}
+@media (min-width: 1200px) {
+  .emailGroupGrid,
+  .emailUserListInner {
+    column-count: 4;
+  }
+}
+.emailGroupGrid .groupItem,
+.emailUserListInner .groupItem {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  break-inside: avoid;
+}
+</style>
+
 <script>
   (function () {
     const IS_GLOBAL_ADMIN = <%= isGlobalAdmin ? 'true' : 'false' %>;
@@ -132,19 +177,24 @@
 
     const emailAgencySearch = document.getElementById("emailAgencySearch");
     const emailAgencyList = document.getElementById("emailAgencyList");
+    const emailAgencyListInner = document.getElementById("emailAgencyListInner");
     const emailAgencySelectAll = document.getElementById("emailAgencySelectAll");
     const emailAgencyClearAll = document.getElementById("emailAgencyClearAll");
 
     const emailGroupSearch = document.getElementById("emailGroupSearch");
     const emailGroupList = document.getElementById("emailGroupList");
+    const emailGroupListInner = document.getElementById("emailGroupListInner");
     const emailGroupSelectAll = document.getElementById("emailGroupSelectAll");
     const emailGroupClearAll = document.getElementById("emailGroupClearAll");
 
-    const emailUsernames = document.getElementById("emailUsernames");
+    const emailUserSearch = document.getElementById("emailUserSearch");
+    const emailUserList = document.getElementById("emailUserList");
+    const emailUserListInner = document.getElementById("emailUserListInner");
+    const emailUserSelectAll = document.getElementById("emailUserSelectAll");
+    const emailUserClearAll = document.getElementById("emailUserClearAll");
     const emailAllConfirm = document.getElementById("emailAllConfirm");
     const emailSubject = document.getElementById("emailSubject");
     const emailBody = document.getElementById("emailBody");
-    const emailTestOnly = document.getElementById("emailTestOnly");
     const emailStatus = document.getElementById("emailStatus");
     const emailResetBtn = document.getElementById("emailResetBtn");
     const emailSendBtn = document.getElementById("emailSendBtn");
@@ -153,7 +203,11 @@
 
     let agenciesCache = [];
     let groupsCache = [];
+    let usersCache = [];
     let emailMode = "agency";
+    const selectedAgencySuffixesSet = new Set();
+    const selectedGroupIdsSet = new Set();
+    const selectedUsernamesSet = new Set();
 
     function setEmailMode(mode) {
       emailMode = mode;
@@ -164,6 +218,7 @@
       if (emailGroupsPane) emailGroupsPane.style.display = mode === "groups" ? "block" : "none";
       if (emailUsersPane) emailUsersPane.style.display = mode === "users" ? "block" : "none";
       if (emailAllPane) emailAllPane.style.display = mode === "all" ? "block" : "none";
+      if (mode === "users" && usersCache.length === 0) loadEmailUsers();
     }
 
     function emailAgencyItems() {
@@ -178,7 +233,7 @@
     }
 
     function renderEmailAgencyList() {
-      if (!emailAgencyList) return;
+      if (!emailAgencyListInner) return;
       const needle = String(emailAgencySearch.value || "").trim().toLowerCase();
       const items = emailAgencyItems().filter((x) => {
         if (!needle) return true;
@@ -187,13 +242,14 @@
         );
       });
 
-      emailAgencyList.innerHTML =
+      emailAgencyListInner.innerHTML =
         items
           .map((x) => {
+            const checked = selectedAgencySuffixesSet.has(x.suffix) ? " checked" : "";
             const label = `${x.name} (${x.suffix})`;
             return `
               <label class="groupItem">
-                <input type="checkbox" class="agencyChk" value="${x.suffix}" />
+                <input type="checkbox" class="agencyChk" value="${x.suffix}"${checked} />
                 <span>${label}</span>
               </label>
             `;
@@ -203,7 +259,7 @@
     }
 
     function renderEmailGroupList() {
-      if (!emailGroupList) return;
+      if (!emailGroupListInner) return;
       const needle = String(emailGroupSearch.value || "").trim().toLowerCase();
       const items = (groupsCache || [])
         .slice()
@@ -214,13 +270,14 @@
             : String(g.name || "").toLowerCase().includes(needle)
         );
 
-      emailGroupList.innerHTML =
+      emailGroupListInner.innerHTML =
         items
           .map((g) => {
             const id = String(g.pk);
+            const checked = selectedGroupIdsSet.has(id) ? " checked" : "";
             return `
               <label class="groupItem">
-                <input type="checkbox" class="srcGroupChk" value="${id}" />
+                <input type="checkbox" class="srcGroupChk" value="${id}"${checked} />
                 <span>${g.name}</span>
               </label>
             `;
@@ -253,16 +310,83 @@
       }
     }
 
+    async function loadEmailUsers() {
+      try {
+        usersCache = [];
+        let page = 1;
+        const pageSize = 500;
+        let hasNext = true;
+        while (hasNext) {
+          const res = await fetch(
+            `/api/users/search?q=&page=${page}&pageSize=${pageSize}`
+          );
+          const out = await res.json();
+          if (!res.ok || !Array.isArray(out.users)) break;
+          usersCache = usersCache.concat(out.users);
+          hasNext = !!out.hasNext;
+          page += 1;
+        }
+        renderEmailUserList();
+      } catch (e) {
+        usersCache = [];
+        renderEmailUserList();
+      }
+    }
+
+    function renderEmailUserList() {
+      if (!emailUserListInner) return;
+      const needle = String(emailUserSearch.value || "").trim().toLowerCase();
+      const items = (usersCache || [])
+        .slice()
+        .sort((a, b) =>
+          String(a.name || a.username || "").localeCompare(
+            String(b.name || b.username || "")
+          )
+        )
+        .filter((u) => {
+          if (!needle) return true;
+          const name = String(u.name || "").toLowerCase();
+          const username = String(u.username || "").toLowerCase();
+          const email = String(u.email || "").toLowerCase();
+          return (
+            name.includes(needle) ||
+            username.includes(needle) ||
+            email.includes(needle)
+          );
+        });
+
+      emailUserListInner.innerHTML =
+        items
+          .map((u) => {
+            const username = String(u.username || "").trim();
+            if (!username) return "";
+            const display = u.name
+              ? `${u.name} (${username})`
+              : username;
+            const checked = selectedUsernamesSet.has(username) ? " checked" : "";
+            const safeDisplay = String(display)
+              .replace(/&/g, "&amp;")
+              .replace(/</g, "&lt;")
+              .replace(/>/g, "&gt;")
+              .replace(/"/g, "&quot;");
+            return `
+              <label class="groupItem">
+                <input type="checkbox" class="userChk" value="${username.replace(/"/g, "&quot;")}"${checked} />
+                <span>${safeDisplay}</span>
+              </label>
+            `;
+          })
+          .filter(Boolean)
+          .join("") ||
+        `<div style="padding:10px; color: var(--muted);">No users found.</div>`;
+    }
+
     function selectedAgencySuffixes() {
-      return Array.from(
-        emailAgencyList.querySelectorAll("input.agencyChk:checked")
-      ).map((ch) => String(ch.value || "").trim().toLowerCase());
+      return Array.from(selectedAgencySuffixesSet);
     }
 
     function selectedGroupIds() {
-      return Array.from(
-        emailGroupList.querySelectorAll("input.srcGroupChk:checked")
-      ).map((ch) => String(ch.value || "").trim());
+      return Array.from(selectedGroupIdsSet);
     }
 
     async function sendEmail() {
@@ -279,7 +403,6 @@
         usernames: [],
         subject: String(emailSubject.value || "").trim(),
         body: String(emailBody.value || "").trim(),
-        testOnly: !!emailTestOnly.checked,
       };
 
       if (!payload.subject || !payload.body) {
@@ -292,14 +415,31 @@
 
       if (emailMode === "agency") {
         payload.agencies = selectedAgencySuffixes();
+        if (payload.agencies.length === 0) {
+          if (emailStatus) {
+            emailStatus.className = "msg bad";
+            emailStatus.textContent = "Select at least one agency.";
+          }
+          return;
+        }
       } else if (emailMode === "groups") {
         payload.groupIds = selectedGroupIds();
+        if (payload.groupIds.length === 0) {
+          if (emailStatus) {
+            emailStatus.className = "msg bad";
+            emailStatus.textContent = "Select at least one group.";
+          }
+          return;
+        }
       } else if (emailMode === "users") {
-        const raw = String(emailUsernames.value || "");
-        payload.usernames = raw
-          .split(/[\n,]/g)
-          .map((s) => String(s || "").trim())
-          .filter(Boolean);
+        payload.usernames = Array.from(selectedUsernamesSet);
+        if (payload.usernames.length === 0) {
+          if (emailStatus) {
+            emailStatus.className = "msg bad";
+            emailStatus.textContent = "Select at least one user.";
+          }
+          return;
+        }
       } else if (emailMode === "all") {
         if (!IS_GLOBAL_ADMIN) {
           if (emailStatus) {
@@ -351,19 +491,16 @@
     function resetEmailForm() {
       if (emailSubject) emailSubject.value = "";
       if (emailBody) emailBody.value = "";
-      if (emailUsernames) emailUsernames.value = "";
-      if (emailTestOnly) emailTestOnly.checked = false;
       if (emailAllConfirm) emailAllConfirm.checked = false;
-      if (emailAgencyList) {
-        emailAgencyList
-          .querySelectorAll("input.agencyChk")
-          .forEach((ch) => (ch.checked = false));
-      }
-      if (emailGroupList) {
-        emailGroupList
-          .querySelectorAll("input.srcGroupChk")
-          .forEach((ch) => (ch.checked = false));
-      }
+      selectedAgencySuffixesSet.clear();
+      selectedGroupIdsSet.clear();
+      selectedUsernamesSet.clear();
+      if (emailAgencySearch) emailAgencySearch.value = "";
+      if (emailGroupSearch) emailGroupSearch.value = "";
+      if (emailUserSearch) emailUserSearch.value = "";
+      renderEmailAgencyList();
+      renderEmailGroupList();
+      renderEmailUserList();
       if (emailStatus) {
         emailStatus.className = "msg";
         emailStatus.textContent = "";
@@ -389,38 +526,95 @@
     if (emailGroupSearch) {
       emailGroupSearch.addEventListener("input", renderEmailGroupList);
     }
+    if (emailUserSearch) {
+      emailUserSearch.addEventListener("input", renderEmailUserList);
+    }
 
-    // Select/Clear buttons
+    // Keep selection in sync when checkboxes change (event delegation)
+    if (emailAgencyList) {
+      emailAgencyList.addEventListener("change", (e) => {
+        const ch = e.target;
+        if (!ch || ch.type !== "checkbox" || !ch.classList.contains("agencyChk")) return;
+        const v = String(ch.value || "").trim().toLowerCase();
+        if (ch.checked) selectedAgencySuffixesSet.add(v);
+        else selectedAgencySuffixesSet.delete(v);
+      });
+    }
+    if (emailGroupList) {
+      emailGroupList.addEventListener("change", (e) => {
+        const ch = e.target;
+        if (!ch || ch.type !== "checkbox" || !ch.classList.contains("srcGroupChk")) return;
+        const v = String(ch.value || "").trim();
+        if (ch.checked) selectedGroupIdsSet.add(v);
+        else selectedGroupIdsSet.delete(v);
+      });
+    }
+    if (emailUserList) {
+      emailUserList.addEventListener("change", (e) => {
+        const ch = e.target;
+        if (!ch || ch.type !== "checkbox" || !ch.classList.contains("userChk")) return;
+        const v = String(ch.value || "").trim();
+        if (ch.checked) selectedUsernamesSet.add(v);
+        else selectedUsernamesSet.delete(v);
+      });
+    }
+
+    // Select All: add all visible (filtered) items to set and re-render
     if (emailAgencySelectAll) {
       emailAgencySelectAll.onclick = () => {
-        if (!emailAgencyList) return;
-        emailAgencyList
-          .querySelectorAll("input.agencyChk")
-          .forEach((ch) => (ch.checked = true));
+        const needle = String(emailAgencySearch.value || "").trim().toLowerCase();
+        const items = emailAgencyItems().filter((x) => {
+          if (!needle) return true;
+          return x.name.toLowerCase().includes(needle) || x.suffix.includes(needle);
+        });
+        items.forEach((x) => selectedAgencySuffixesSet.add(x.suffix));
+        renderEmailAgencyList();
       };
     }
     if (emailAgencyClearAll) {
       emailAgencyClearAll.onclick = () => {
-        if (!emailAgencyList) return;
-        emailAgencyList
-          .querySelectorAll("input.agencyChk")
-          .forEach((ch) => (ch.checked = false));
+        selectedAgencySuffixesSet.clear();
+        renderEmailAgencyList();
       };
     }
     if (emailGroupSelectAll) {
       emailGroupSelectAll.onclick = () => {
-        if (!emailGroupList) return;
-        emailGroupList
-          .querySelectorAll("input.srcGroupChk")
-          .forEach((ch) => (ch.checked = true));
+        const needle = String(emailGroupSearch.value || "").trim().toLowerCase();
+        const items = (groupsCache || [])
+          .filter((g) =>
+            !needle ? true : String(g.name || "").toLowerCase().includes(needle)
+          );
+        items.forEach((g) => selectedGroupIdsSet.add(String(g.pk)));
+        renderEmailGroupList();
       };
     }
     if (emailGroupClearAll) {
       emailGroupClearAll.onclick = () => {
-        if (!emailGroupList) return;
-        emailGroupList
-          .querySelectorAll("input.srcGroupChk")
-          .forEach((ch) => (ch.checked = false));
+        selectedGroupIdsSet.clear();
+        renderEmailGroupList();
+      };
+    }
+    if (emailUserSelectAll) {
+      emailUserSelectAll.onclick = () => {
+        const needle = String(emailUserSearch.value || "").trim().toLowerCase();
+        const items = (usersCache || []).filter((u) => {
+          if (!needle) return true;
+          const name = String(u.name || "").toLowerCase();
+          const username = String(u.username || "").toLowerCase();
+          const email = String(u.email || "").toLowerCase();
+          return name.includes(needle) || username.includes(needle) || email.includes(needle);
+        });
+        items.forEach((u) => {
+          const username = String(u.username || "").trim();
+          if (username) selectedUsernamesSet.add(username);
+        });
+        renderEmailUserList();
+      };
+    }
+    if (emailUserClearAll) {
+      emailUserClearAll.onclick = () => {
+        selectedUsernamesSet.clear();
+        renderEmailUserList();
       };
     }
 
