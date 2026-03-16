@@ -7,8 +7,8 @@
   const _displayName =
     typeof authUser !== "undefined" &&
     authUser &&
-    authUser.displayName
-      ? authUser.displayName
+    (authUser.displayName || authUser.username)
+      ? (authUser.displayName || authUser.username)
       : "";
 
   const canSeeSettings = _isGlobalAdmin;
