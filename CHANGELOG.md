@@ -12,6 +12,10 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.49 - 3/16/26
+✨ `Enhancement` - Charts on the dashboard now follow color structure of the agencies page.<br>
+
+
 ### v1.2.48 - 3/16/26
 🎉 `New Feature` - Adds the ability for Global admins to email all users<br>
 🎉 `New Feature` - Adds the ability for Global or Agency admins to email users filtered by agency, groups, or specific users<br>
