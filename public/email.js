@@ -15,10 +15,14 @@
     document.querySelectorAll(".segBtn[data-mode]").forEach(function (btn) {
       btn.classList.toggle("active", btn.getAttribute("data-mode") === mode);
     });
-    $("#emailAgencyPane").style.display = mode === "agency" ? "" : "none";
-    $("#emailGroupsPane").style.display = mode === "groups" ? "" : "none";
-    $("#emailUsersPane").style.display = mode === "users" ? "" : "none";
-    $("#emailAllPane").style.display = mode === "all" ? "" : "none";
+    var agencyPane = $("#emailAgencyPane");
+    var groupsPane = $("#emailGroupsPane");
+    var usersPane = $("#emailUsersPane");
+    var allPane = $("#emailAllPane");
+    if (agencyPane) agencyPane.style.display = mode === "agency" ? "" : "none";
+    if (groupsPane) groupsPane.style.display = mode === "groups" ? "" : "none";
+    if (usersPane) usersPane.style.display = mode === "users" ? "" : "none";
+    if (allPane) allPane.style.display = mode === "all" ? "" : "none";
   }
 
   function renderAgencies() {
@@ -138,6 +142,10 @@
   }
 
   function init() {
+    // If we're not on the email page, bail out early.
+    if (!document.getElementById("emailAgencyPane")) {
+      return;
+    }
     var allModeBtn = $("#allModeBtn");
 
     fetch("/api/email/meta", { credentials: "same-origin" })
