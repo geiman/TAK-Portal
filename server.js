@@ -279,8 +279,18 @@ app.get("/integrations", requireGlobalAdmin, (req, res) =>
 );
 
 // Admin: email and locate persons (global + agency admins)
-app.get("/email", requireGlobalAdmin, (req, res) => res.render("email"));
-app.get("/locate-persons", requireGlobalAdmin, (req, res) => res.render("locate-persons"));
+app.get("/email", requireGlobalAdmin, (req, res) => {
+  const cfg = settingsSvc.getSettings() || {};
+  const beta = String(cfg.BETA_MODE || "").toLowerCase() === "true";
+  if (!beta) return res.status(404).render("access-denied", { username: req.authentikUser?.username || "" });
+  return res.render("email");
+});
+app.get("/locate-persons", requireGlobalAdmin, (req, res) => {
+  const cfg = settingsSvc.getSettings() || {};
+  const beta = String(cfg.BETA_MODE || "").toLowerCase() === "true";
+  if (!beta) return res.status(404).render("access-denied", { username: req.authentikUser?.username || "" });
+  return res.render("locate-persons");
+});
 
 // Demo page: Global Admins only
 app.get("/demo", requireStrictGlobalAdmin, (req, res) => {

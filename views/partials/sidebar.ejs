@@ -13,6 +13,12 @@
 
   const canSeeSettings = _isGlobalAdmin;
 
+  const _settings = typeof settings !== "undefined" && settings ? settings : {};
+  const betaModeEnabled =
+    typeof _settings.BETA_MODE === "string"
+      ? _settings.BETA_MODE.toLowerCase() === "true"
+      : false;
+
   const _path = (typeof currentPath !== "undefined" && currentPath) ? String(currentPath).replace(/\/+$/, "") || "/" : "/";
   function isActive(href) {
     const h = (href || "/").replace(/\/+$/, "") || "/";
@@ -57,8 +63,10 @@
           </button>
           <div class="nav-section-links" id="nav-administration">
             <a href="/mutual-aid" class="<%= isActive('/mutual-aid') ? 'active' : '' %>">Mutual Aid</a>
-            <a href="/email" class="<%= isActive('/email') ? 'active' : '' %>">Email</a>
-            <a href="/locate-persons" class="<%= isActive('/locate-persons') ? 'active' : '' %>">Locate Persons</a>
+            <% if (betaModeEnabled) { %>
+              <a href="/email" class="<%= isActive('/email') ? 'active' : '' %>">Email</a>
+              <a href="/locate-persons" class="<%= isActive('/locate-persons') ? 'active' : '' %>">Locate Persons</a>
+            <% } %>
             <a href="/audit-log" class="<%= isActive('/audit-log') ? 'active' : '' %>">Audit Log</a>
           </div>
         </div>

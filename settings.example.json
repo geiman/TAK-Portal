@@ -29,6 +29,7 @@
   "EMAIL_ALWAYS_CC": "",
   "EMAIL_SEND_COPY_TO": "",
   "EMAIL_FAIL_HARD": "false",
+  "BETA_MODE": "false",
   "BRAND_THEME": "dark",
   "BRAND_LOGO_URL": "",
   "BOOKMARK1_TITLE": "TAK Portal GitHub",

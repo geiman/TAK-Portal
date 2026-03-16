@@ -25,7 +25,8 @@
         "EMAIL_ENABLED",
         "SMTP_SECURE",
         "EMAIL_FAIL_HARD",
-        "PORTAL_AUTH_ENABLED"
+        "PORTAL_AUTH_ENABLED",
+        "BETA_MODE"
       ]);
 
       function renderField(key, label, helpText, defaultValue) {
@@ -108,6 +109,7 @@
         "EMAIL_ALWAYS_CC",
         "EMAIL_SEND_COPY_TO",
         "EMAIL_FAIL_HARD",
+        "BETA_MODE",
 
         ...bookmarkKeys,
 
@@ -689,13 +691,14 @@
       </details>
     </div>
 
-    <!-- Appearance -->
+    <!-- Appearance & Beta -->
     <div class="card">
       <details class="settings-section">
-        <summary class="settings-summary">Appearance</summary>
+        <summary class="settings-summary">Appearance &amp; Beta</summary>
 
         <div class="settings-body">
           <div class="grid2">
+            <% renderField("BETA_MODE","Enable Beta Features","If true, shows in-development features like Email and Locate Persons to admins."); %>
             <label class="settings-field">
               <span class="settings-label">Portal Logo</span>
               <input type="file" name="BRAND_LOGO_UPLOAD" accept="image/*" />
