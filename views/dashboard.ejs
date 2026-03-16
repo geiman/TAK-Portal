@@ -169,6 +169,22 @@
         const unknownAgency = <%- JSON.stringify((charts && charts.unknownAgency) || 0) %>;
         const agencyColors = <%- JSON.stringify(typeof agencyColors !== "undefined" ? agencyColors : {}) %>;
         const defaultAgencyColor = "#9ca3af";
+        var agencyColorNameToHex = {
+          "Blue": "#3b82f6",
+          "Dark Blue": "#1e3a8a",
+          "Brown": "#8B4513",
+          "Cyan": "#06b6d4",
+          "Green": "#22c55e",
+          "Dark Green": "#166534",
+          "Magenta": "#d946ef",
+          "Maroon": "#881337",
+          "Orange": "#f97316",
+          "Purple": "#a855f7",
+          "Red": "#dc2626",
+          "Teal": "#0d9488",
+          "White": "#f8fafc",
+          "Yellow": "#eab308"
+        };
 
         const agencyLabels = Object.keys(usersByAgency);
         const agencyData = Object.values(usersByAgency);
@@ -176,7 +192,11 @@
 
         const agencyBackgroundColors = agencyLabels.map(function(label) {
           const c = agencyColors[label];
-          return (c && typeof c === "string" && c.trim()) ? c.trim() : defaultAgencyColor;
+          if (!c || typeof c !== "string") return defaultAgencyColor;
+          const raw = c.trim();
+          if (!raw) return defaultAgencyColor;
+          if (raw.charAt(0) === "#") return raw;
+          return agencyColorNameToHex[raw] || agencyColorNameToHex[raw.toLowerCase()] || raw;
         });
 
         new Chart(document.getElementById("agencyChart"), {
