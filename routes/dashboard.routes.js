@@ -64,6 +64,30 @@ router.get("/", async (req, res) => {
       if (key) agencyColors[key] = String(a.color || "").trim() || null;
     }
 
+    const usersByAgency = (charts && charts.usersByAgency) || {};
+    const typeColors = {};
+    for (const type of Object.keys(charts?.usersByType || {})) {
+      const typeTrim = String(type || "").trim();
+      if (!typeTrim) continue;
+      const agenciesOfType = (agencies || []).filter(
+        (a) => String(a.type || "").trim() === typeTrim
+      );
+      let bestColor = null;
+      let bestCount = -1;
+      for (const a of agenciesOfType) {
+        const name = String(a.name || "").trim();
+        const suffix = String(a.suffix || "").trim().toUpperCase();
+        const key = name || suffix;
+        if (!key) continue;
+        const count = usersByAgency[key] || 0;
+        if (count > bestCount) {
+          bestCount = count;
+          bestColor = String(a.color || "").trim() || null;
+        }
+      }
+      if (bestColor) typeColors[typeTrim] = bestColor;
+    }
+
     const viewModel = {
       stats: {
         totalUsers: stats?.totalUsers ?? 0,
@@ -82,6 +106,7 @@ router.get("/", async (req, res) => {
         unknownType: 0,
       },
       agencyColors,
+      typeColors,
       bookmarks,
       takMetrics,
       pendingUserRequestsCount, 
@@ -110,6 +135,7 @@ router.get("/", async (req, res) => {
         unknownType: 0,
       },
       agencyColors: {},
+      typeColors: {},
       bookmarks,
       takMetrics: null,
       pendingUserRequestsCount: userRequestsSvc.countRequestsForUser(req.authentikUser), 
