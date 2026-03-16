@@ -5,7 +5,9 @@ Below you will find a comprehensive list of items planned for implementation in 
 ***If you have suggestions for how to make TAK Portal better, please reach out to me directly or by opening an "Issue" on Github! I always want to know how this can better serve you and your agency.***
 
 ## High / In Progress
+- Add locate functionality / texting as well
 - Add additional visibility to details about connected clients
+- Add email functionality to bcc whole agency, all users, or specific people
 - Create Getting Started / Basic User Guides for TAK Aware, ATAK, and Open TAK Tracker
 - Look at hosting or a way to better get ATAK plugins in the hands of users
 - Further implementation of the Integrations page to create and download certificates for integrations
