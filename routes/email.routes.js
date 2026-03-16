@@ -121,6 +121,35 @@ async function resolveRecipients({ authUser, mode, agencies, groupIds, usernames
   return distinctEmails(users);
 }
 
+// POST /api/email/recipient-count — returns { count } for the given mode/selection (no email sent)
+router.post("/recipient-count", async (req, res) => {
+  try {
+    const body = req.body || {};
+    const authUser = req.authentikUser || null;
+    const mode = String(body.mode || "").toLowerCase();
+    const agencies = Array.isArray(body.agencies) ? body.agencies : [];
+    const groupIds = Array.isArray(body.groupIds) ? body.groupIds : [];
+    const usernamesRaw = Array.isArray(body.usernames)
+      ? body.usernames
+      : typeof body.usernames === "string"
+      ? body.usernames.split(/[\n,]/g)
+      : [];
+    const usernames = usernamesRaw.map((s) => String(s || "").trim()).filter(Boolean);
+
+    const targets = await resolveRecipients({
+      authUser,
+      mode,
+      agencies,
+      groupIds,
+      usernames,
+    });
+    res.json({ count: targets.length });
+  } catch (err) {
+    const status = err.statusCode || 500;
+    res.status(status).json({ error: toErrorPayload(err) });
+  }
+});
+
 // POST /api/email/send
 router.post("/send", async (req, res) => {
   try {

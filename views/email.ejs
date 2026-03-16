@@ -519,6 +519,25 @@
       }
 
       try {
+        const countRes = await fetch("/api/email/recipient-count", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({
+            mode: payload.mode,
+            agencies: payload.agencies,
+            groupIds: payload.groupIds,
+            usernames: payload.usernames,
+          }),
+        });
+        const countOut = await countRes.json();
+        const recipientCount = countRes.ok && typeof countOut.count === "number" ? countOut.count : 0;
+        const confirmMsg =
+          recipientCount === 0
+            ? "No recipients will receive this email. Send anyway?"
+            : "Are you sure you want to send this email to " + recipientCount + " recipient(s)?";
+        if (!window.confirm(confirmMsg)) return;
+
         const res = await fetch("/api/email/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
