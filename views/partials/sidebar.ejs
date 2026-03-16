@@ -77,12 +77,16 @@
             <span class="nav-section-chevron" aria-hidden="true">▾</span>
           </button>
           <div class="nav-section-links" id="nav-administration">
-            <a href="/mutual-aid" class="<%= isActive('/mutual-aid') ? 'active' : '' %>">Mutual Aid</a>
+            <% if (_isGlobalAdmin) { %>
+              <a href="/mutual-aid" class="<%= isActive('/mutual-aid') ? 'active' : '' %>">Mutual Aid</a>
+            <% } %>
             <% if (betaModeEnabled) { %>
               <a href="/email" class="<%= isActive('/email') ? 'active' : '' %>">Email</a>
               <a href="/locate-persons" class="<%= isActive('/locate-persons') ? 'active' : '' %>">Locate Persons</a>
             <% } %>
-            <a href="/audit-log" class="<%= isActive('/audit-log') ? 'active' : '' %>">Audit Log</a>
+            <% if (_isGlobalAdmin) { %>
+              <a href="/audit-log" class="<%= isActive('/audit-log') ? 'active' : '' %>">Audit Log</a>
+            <% } %>
           </div>
         </div>
 

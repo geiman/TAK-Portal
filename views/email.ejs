@@ -19,7 +19,10 @@
       </div>
     <% } %>
 
-    <div class="segmented" style="margin-bottom:10px;">
+    <p class="settings-help" style="margin-bottom:10px;">Choose how you want to send the email, then select recipients.</p>
+
+    <label style="display:block; margin-bottom:6px;">Send to</label>
+    <div class="segmented" style="margin-bottom:14px;">
       <button class="segBtn active" type="button" data-mode="agency">Agency</button>
       <button class="segBtn" type="button" data-mode="groups">Groups</button>
       <button class="segBtn" type="button" data-mode="users">Users</button>
@@ -28,64 +31,64 @@
       <% } %>
     </div>
 
-    <!-- Agency pane (reuse IDs/structure from Groups mass-assign) -->
+    <!-- Agency: dropdown with checkboxes (audit-log style) -->
     <div id="emailAgencyPane" style="margin-top:8px;">
-      <div class="row" style="justify-content:space-between; align-items:center;">
-        <input
-          id="emailAgencySearch"
-          placeholder="Search agencies..."
-          style="flex:1; min-width:0;"
-        />
-        <div class="row" style="gap:10px;">
-          <button class="btn" type="button" id="emailAgencySelectAll">Select All</button>
-          <button class="btn" type="button" id="emailAgencyClearAll">Clear</button>
+      <label class="email-dropdown-label">Agencies</label>
+      <div id="emailAgencyDropdown" class="email-dropdown filter-multiselect">
+        <button type="button" class="btn filter-toggle email-dropdown-toggle" id="emailAgencyToggle">Select agencies ▾</button>
+        <div class="filter-menu email-dropdown-menu">
+          <div class="filter-menu-inner">
+            <input type="text" id="emailAgencySearch" class="email-dropdown-search" placeholder="Search..." />
+            <div id="emailAgencyListInner" class="email-dropdown-list"></div>
+            <div class="email-dropdown-actions">
+              <button type="button" class="btn link-btn" id="emailAgencySelectAll">Select all</button>
+              <button type="button" class="btn link-btn" id="emailAgencyClearAll">Clear</button>
+            </div>
+          </div>
         </div>
       </div>
-      <div id="emailAgencyList" class="groupsBox" style="margin-top:10px;">
-        <div id="emailAgencyListInner"></div>
-      </div>
-      <small class="settings-help">Emails will be sent to users whose usernames end with the selected agency suffixes.</small>
+      <small class="settings-help">Users whose usernames end with the selected agency suffixes.</small>
     </div>
 
-    <!-- Groups pane -->
+    <!-- Groups: dropdown with checkboxes -->
     <div id="emailGroupsPane" style="display:none; margin-top:8px;">
-      <div class="row" style="justify-content:space-between; align-items:center;">
-        <input
-          id="emailGroupSearch"
-          placeholder="Search groups..."
-          style="flex:1; min-width:0;"
-        />
-        <div class="row" style="gap:10px;">
-          <button class="btn" type="button" id="emailGroupSelectAll">Select All</button>
-          <button class="btn" type="button" id="emailGroupClearAll">Clear</button>
+      <label class="email-dropdown-label">Groups</label>
+      <div id="emailGroupDropdown" class="email-dropdown filter-multiselect">
+        <button type="button" class="btn filter-toggle email-dropdown-toggle" id="emailGroupToggle">Select groups ▾</button>
+        <div class="filter-menu email-dropdown-menu">
+          <div class="filter-menu-inner">
+            <input type="text" id="emailGroupSearch" class="email-dropdown-search" placeholder="Search..." />
+            <div id="emailGroupListInner" class="email-dropdown-list"></div>
+            <div class="email-dropdown-actions">
+              <button type="button" class="btn link-btn" id="emailGroupSelectAll">Select all</button>
+              <button type="button" class="btn link-btn" id="emailGroupClearAll">Clear</button>
+            </div>
+          </div>
         </div>
       </div>
-      <div id="emailGroupList" class="groupsBox" style="margin-top:10px;">
-        <div id="emailGroupListInner" class="emailGroupGrid"></div>
-      </div>
-      <small class="settings-help">Emails will be sent to all users in the selected groups (limited to agencies you can manage).</small>
+      <small class="settings-help">All users in the selected groups (limited to agencies you can manage).</small>
     </div>
 
-    <!-- Users pane -->
+    <!-- Users: dropdown with checkboxes -->
     <div id="emailUsersPane" style="display:none; margin-top:8px;">
-      <div class="row" style="justify-content:space-between; align-items:center;">
-        <input
-          id="emailUserSearch"
-          placeholder="Search users..."
-          style="flex:1; min-width:0;"
-        />
-        <div class="row" style="gap:10px;">
-          <button class="btn" type="button" id="emailUserSelectAll">Select All</button>
-          <button class="btn" type="button" id="emailUserClearAll">Clear</button>
+      <label class="email-dropdown-label">Users</label>
+      <div id="emailUserDropdown" class="email-dropdown filter-multiselect">
+        <button type="button" class="btn filter-toggle email-dropdown-toggle" id="emailUserToggle">Select users ▾</button>
+        <div class="filter-menu email-dropdown-menu">
+          <div class="filter-menu-inner">
+            <input type="text" id="emailUserSearch" class="email-dropdown-search" placeholder="Search..." />
+            <div id="emailUserListInner" class="email-dropdown-list"></div>
+            <div class="email-dropdown-actions">
+              <button type="button" class="btn link-btn" id="emailUserSelectAll">Select all</button>
+              <button type="button" class="btn link-btn" id="emailUserClearAll">Clear</button>
+            </div>
+          </div>
         </div>
       </div>
-      <div id="emailUserList" class="groupsBox" style="margin-top:10px;">
-        <div id="emailUserListInner" class="emailUserListInner"></div>
-      </div>
-      <small class="settings-help">Only users in agencies you can manage will be included.</small>
+      <small class="settings-help">Only users in agencies you can manage.</small>
     </div>
 
-    <!-- All users pane (global admins only) -->
+    <!-- All users (global admins only) -->
     <div id="emailAllPane" style="display:none; margin-top:8px;">
       <p>
         This will send an email to <strong>all users across all agencies</strong>.
@@ -126,44 +129,68 @@
 </main>
 
 <style>
-/* Responsive grid for groups (and users) list: more columns as width increases, like templates page */
-.emailGroupGrid,
-.emailUserListInner {
-  column-width: 280px;
-  column-gap: 14px;
-  column-count: 1;
+/* Dropdown with checkboxes (audit-log style) */
+.email-dropdown-label { display: block; margin-bottom: 6px; font-weight: 500; }
+.email-dropdown.filter-multiselect { position: relative; display: inline-block; }
+.email-dropdown .filter-toggle { white-space: nowrap; }
+.email-dropdown .filter-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  min-width: 280px;
+  max-width: 360px;
+  max-height: 280px;
+  overflow: hidden;
+  flex-direction: column;
+  background: var(--card, #111827);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 8px;
+  box-shadow: 0 12px 30px rgba(0,0,0,.6);
+  padding: 0;
+  display: none;
 }
-@media (min-width: 560px) {
-  .emailGroupGrid,
-  .emailUserListInner {
-    column-count: 2;
-  }
+.email-dropdown.open .filter-menu { display: flex; }
+.email-dropdown .filter-menu-inner {
+  padding: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
-@media (min-width: 950px) {
-  .emailGroupGrid,
-  .emailUserListInner {
-    column-count: 3;
-  }
+.email-dropdown-search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border: 1px solid rgba(255,255,255,.15);
+  border-radius: 6px;
+  background: var(--input-bg, rgba(0,0,0,.2));
+  color: inherit;
+  font-size: 13px;
 }
-@media (min-width: 1200px) {
-  .emailGroupGrid,
-  .emailUserListInner {
-    column-count: 4;
-  }
+.email-dropdown-list {
+  max-height: 200px;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
-.emailGroupGrid .groupItem,
-.emailUserListInner .groupItem {
+.email-dropdown .filter-option {
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  border-radius: 10px;
+  gap: 10px;
+  padding: 6px 10px;
+  font-size: 13px;
   cursor: pointer;
-  user-select: none;
-  white-space: nowrap;
-  break-inside: avoid;
 }
+.email-dropdown .filter-option input[type="checkbox"] {
+  margin: 0;
+  flex-shrink: 0;
+  width: 1.125em;
+  height: 1.125em;
+}
+.email-dropdown .filter-option span { flex: 1; min-width: 0; text-align: left; }
+.email-dropdown-actions { display: flex; gap: 10px; flex-shrink: 0; }
+.email-dropdown-actions .link-btn { padding: 4px 0; font-size: 12px; }
 </style>
 
 <script>
@@ -176,20 +203,23 @@
     const emailAllPane = document.getElementById("emailAllPane");
 
     const emailAgencySearch = document.getElementById("emailAgencySearch");
-    const emailAgencyList = document.getElementById("emailAgencyList");
+    const emailAgencyDropdown = document.getElementById("emailAgencyDropdown");
     const emailAgencyListInner = document.getElementById("emailAgencyListInner");
+    const emailAgencyToggle = document.getElementById("emailAgencyToggle");
     const emailAgencySelectAll = document.getElementById("emailAgencySelectAll");
     const emailAgencyClearAll = document.getElementById("emailAgencyClearAll");
 
     const emailGroupSearch = document.getElementById("emailGroupSearch");
-    const emailGroupList = document.getElementById("emailGroupList");
+    const emailGroupDropdown = document.getElementById("emailGroupDropdown");
     const emailGroupListInner = document.getElementById("emailGroupListInner");
+    const emailGroupToggle = document.getElementById("emailGroupToggle");
     const emailGroupSelectAll = document.getElementById("emailGroupSelectAll");
     const emailGroupClearAll = document.getElementById("emailGroupClearAll");
 
     const emailUserSearch = document.getElementById("emailUserSearch");
-    const emailUserList = document.getElementById("emailUserList");
+    const emailUserDropdown = document.getElementById("emailUserDropdown");
     const emailUserListInner = document.getElementById("emailUserListInner");
+    const emailUserToggle = document.getElementById("emailUserToggle");
     const emailUserSelectAll = document.getElementById("emailUserSelectAll");
     const emailUserClearAll = document.getElementById("emailUserClearAll");
     const emailAllConfirm = document.getElementById("emailAllConfirm");
@@ -219,6 +249,33 @@
       if (emailUsersPane) emailUsersPane.style.display = mode === "users" ? "block" : "none";
       if (emailAllPane) emailAllPane.style.display = mode === "all" ? "block" : "none";
       if (mode === "users" && usersCache.length === 0) loadEmailUsers();
+      updateEmailDropdownLabels();
+    }
+
+    function updateEmailDropdownLabels() {
+      if (emailAgencyToggle) {
+        const n = selectedAgencySuffixesSet.size;
+        emailAgencyToggle.textContent = n ? n + " agency" + (n === 1 ? "" : " agencies") + " selected ▾" : "Select agencies ▾";
+      }
+      if (emailGroupToggle) {
+        const n = selectedGroupIdsSet.size;
+        emailGroupToggle.textContent = n ? n + " group" + (n === 1 ? "" : " groups") + " selected ▾" : "Select groups ▾";
+      }
+      if (emailUserToggle) {
+        const n = selectedUsernamesSet.size;
+        emailUserToggle.textContent = n ? n + " user" + (n === 1 ? "" : " users") + " selected ▾" : "Select users ▾";
+      }
+    }
+
+    function setupEmailDropdown(container, toggleBtn) {
+      if (!container || !toggleBtn) return;
+      toggleBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        document.querySelectorAll(".email-dropdown.open").forEach((el) => {
+          if (el !== container) el.classList.remove("open");
+        });
+        container.classList.toggle("open");
+      });
     }
 
     function emailAgencyItems() {
@@ -248,7 +305,7 @@
             const checked = selectedAgencySuffixesSet.has(x.suffix) ? " checked" : "";
             const label = `${x.name} (${x.suffix})`;
             return `
-              <label class="groupItem">
+              <label class="filter-option">
                 <input type="checkbox" class="agencyChk" value="${x.suffix}"${checked} />
                 <span>${label}</span>
               </label>
@@ -256,6 +313,7 @@
           })
           .join("") ||
         `<div style="padding:10px; color: var(--muted);">No agencies found.</div>`;
+      updateEmailDropdownLabels();
     }
 
     function renderEmailGroupList() {
@@ -276,7 +334,7 @@
             const id = String(g.pk);
             const checked = selectedGroupIdsSet.has(id) ? " checked" : "";
             return `
-              <label class="groupItem">
+              <label class="filter-option">
                 <input type="checkbox" class="srcGroupChk" value="${id}"${checked} />
                 <span>${g.name}</span>
               </label>
@@ -284,6 +342,7 @@
           })
           .join("") ||
         `<div style="padding:10px; color: var(--muted);">No groups found.</div>`;
+      updateEmailDropdownLabels();
     }
 
     async function loadEmailAgencies() {
@@ -370,7 +429,7 @@
               .replace(/>/g, "&gt;")
               .replace(/"/g, "&quot;");
             return `
-              <label class="groupItem">
+              <label class="filter-option">
                 <input type="checkbox" class="userChk" value="${username.replace(/"/g, "&quot;")}"${checked} />
                 <span>${safeDisplay}</span>
               </label>
@@ -379,6 +438,7 @@
           .filter(Boolean)
           .join("") ||
         `<div style="padding:10px; color: var(--muted);">No users found.</div>`;
+      updateEmailDropdownLabels();
     }
 
     function selectedAgencySuffixes() {
@@ -498,9 +558,11 @@
       if (emailAgencySearch) emailAgencySearch.value = "";
       if (emailGroupSearch) emailGroupSearch.value = "";
       if (emailUserSearch) emailUserSearch.value = "";
+      document.querySelectorAll(".email-dropdown.open").forEach((el) => el.classList.remove("open"));
       renderEmailAgencyList();
       renderEmailGroupList();
       renderEmailUserList();
+      updateEmailDropdownLabels();
       if (emailStatus) {
         emailStatus.className = "msg";
         emailStatus.textContent = "";
@@ -531,33 +593,47 @@
     }
 
     // Keep selection in sync when checkboxes change (event delegation)
-    if (emailAgencyList) {
-      emailAgencyList.addEventListener("change", (e) => {
+    if (emailAgencyDropdown) {
+      emailAgencyDropdown.addEventListener("change", (e) => {
         const ch = e.target;
         if (!ch || ch.type !== "checkbox" || !ch.classList.contains("agencyChk")) return;
         const v = String(ch.value || "").trim().toLowerCase();
         if (ch.checked) selectedAgencySuffixesSet.add(v);
         else selectedAgencySuffixesSet.delete(v);
+        updateEmailDropdownLabels();
       });
     }
-    if (emailGroupList) {
-      emailGroupList.addEventListener("change", (e) => {
+    if (emailGroupDropdown) {
+      emailGroupDropdown.addEventListener("change", (e) => {
         const ch = e.target;
         if (!ch || ch.type !== "checkbox" || !ch.classList.contains("srcGroupChk")) return;
         const v = String(ch.value || "").trim();
         if (ch.checked) selectedGroupIdsSet.add(v);
         else selectedGroupIdsSet.delete(v);
+        updateEmailDropdownLabels();
       });
     }
-    if (emailUserList) {
-      emailUserList.addEventListener("change", (e) => {
+    if (emailUserDropdown) {
+      emailUserDropdown.addEventListener("change", (e) => {
         const ch = e.target;
         if (!ch || ch.type !== "checkbox" || !ch.classList.contains("userChk")) return;
         const v = String(ch.value || "").trim();
         if (ch.checked) selectedUsernamesSet.add(v);
         else selectedUsernamesSet.delete(v);
+        updateEmailDropdownLabels();
       });
     }
+
+    // Dropdown open/close
+    setupEmailDropdown(emailAgencyDropdown, emailAgencyToggle);
+    setupEmailDropdown(emailGroupDropdown, emailGroupToggle);
+    setupEmailDropdown(emailUserDropdown, emailUserToggle);
+    document.querySelectorAll(".email-dropdown .filter-menu").forEach((menu) => {
+      menu.addEventListener("click", (e) => e.stopPropagation());
+    });
+    document.addEventListener("click", () => {
+      document.querySelectorAll(".email-dropdown.open").forEach((el) => el.classList.remove("open"));
+    });
 
     // Select All: add all visible (filtered) items to set and re-render
     if (emailAgencySelectAll) {
