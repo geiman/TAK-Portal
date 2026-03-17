@@ -13,7 +13,7 @@
         <div id="linkCodeArea" style="display: none;">
           <label>Code to enter on TAK.gov (issued by TAK.gov)</label>
           <div class="row" style="align-items: center; gap: 8px; flex-wrap: wrap;">
-            <code id="linkCodeDisplay" style="font-size: 1.2rem; padding: 8px 12px; background: var(--card-bg, #1e1e1e); border-radius: 6px;"></code>
+            <code id="linkCodeDisplay" style="font-size: 1.2rem; padding: 8px 12px; background: var(--card); border-radius: 6px;"></code>
             <span id="linkCodeExpiry" class="muted"></span>
           </div>
           <p style="margin-top: 8px;">
@@ -41,7 +41,7 @@
     <div id="pluginCards" class="plugin-cards" style="display: none; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-top: 16px;">
       <!-- Filled by JS -->
     </div>
-    <div id="pluginsEmpty" style="display: none; margin-top: 16px; color: var(--muted, #888);">
+    <div id="pluginsEmpty" style="display: none; margin-top: 16px; color: var(--muted);">
       No plugins yet. Add plugins from the Plugin Browser below or use Manual Plugin Upload at the bottom.
     </div>
   </div>
@@ -70,7 +70,7 @@
       <div id="marketplaceGrid" class="plugin-cards marketplace-grid" style="display: none; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-top: 16px;">
         <!-- TAK.gov plugin cards -->
       </div>
-      <div id="marketplaceEmpty" style="display: none; margin-top: 16px; color: var(--muted, #888);">
+      <div id="marketplaceEmpty" style="display: none; margin-top: 16px; color: var(--muted);">
         No plugins returned. Try a different ATAK version.
       </div>
     </div>
@@ -108,13 +108,14 @@
 
 <style>
   .plugin-cards .plugin-card {
-    background: var(--card-bg, #1a1a1a);
-    border: 1px solid var(--border, #333);
+    background: var(--card);
+    border: 1px solid var(--line);
     border-radius: 8px;
     padding: 14px;
     display: flex;
     flex-direction: column;
     gap: 8px;
+    height: 100%;
   }
   .plugin-cards .plugin-card .plugin-card-header {
     display: flex;
@@ -128,17 +129,17 @@
     font-size: 0.75rem;
     padding: 2px 8px;
     border-radius: 999px;
-    background: var(--border, #333);
-    color: var(--muted, #888);
+    background: var(--line);
+    color: var(--muted);
   }
-  .plugin-cards .plugin-card .plugin-desc { font-size: 0.85rem; color: var(--muted, #888); max-height: 2.6em; overflow: hidden; text-overflow: ellipsis; }
+  .plugin-cards .plugin-card .plugin-desc { font-size: 0.85rem; color: var(--muted); max-height: 2.6em; overflow: hidden; text-overflow: ellipsis; }
   .plugin-cards .plugin-card .plugin-desc-empty { font-style: italic; }
-  .plugin-cards .plugin-card .plugin-meta { font-size: 0.9rem; color: var(--muted, #888); }
-  .plugin-cards .plugin-card .plugin-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; align-items: center; }
+  .plugin-cards .plugin-card .plugin-meta { font-size: 0.9rem; color: var(--muted); }
+  .plugin-cards .plugin-card .plugin-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; align-items: center; }
   .btn.favorite { background: #e6c200; color: #000; border-color: #e6c200; }
   .btn.favorite:hover { filter: brightness(1.08); }
   .btn.favorite.is-favorite { background: #f0d000; color: #000; }
-  .marketplace-grid .plugin-card .plugin-desc { font-size: 0.85rem; color: var(--muted, #888); max-height: 2.6em; overflow: hidden; text-overflow: ellipsis; }
+  .marketplace-grid .plugin-card .plugin-desc { font-size: 0.85rem; color: var(--muted); max-height: 2.6em; overflow: hidden; text-overflow: ellipsis; }
 </style>
 
 <script>
@@ -184,17 +185,17 @@
 
   function setLinkStatus(text, ok) {
     linkStatus.textContent = text || "";
-    linkStatus.style.color = ok === false ? "var(--error, #c00)" : "";
+    linkStatus.style.color = ok === false ? "var(--danger)" : "";
   }
 
   function setAddPluginMsg(text, ok) {
     addPluginMsg.textContent = text || "";
-    addPluginMsg.style.color = ok === false ? "var(--error, #c00)" : "";
+    addPluginMsg.style.color = ok === false ? "var(--danger)" : "";
   }
 
   function setPluginsMsg(text, ok) {
     pluginsMsg.textContent = text || "";
-    pluginsMsg.style.color = ok === false ? "var(--error, #c00)" : "";
+    pluginsMsg.style.color = ok === false ? "var(--danger)" : "";
   }
 
   function formatSize(bytes) {
@@ -238,7 +239,7 @@
         (versionPill || "") +
         "</div>" +
         (desc ? "<div class=\"plugin-desc\">" + esc(descShort) + (desc.length > 120 ? "…" : "") + "</div>" : "<div class=\"plugin-desc plugin-desc-empty\">No description</div>") +
-        (exists ? "" : "<div class=\"plugin-meta\" style=\"color: var(--error, #c00);\">File missing on disk</div>") +
+        (exists ? "" : "<div class=\"plugin-meta\" style=\"color: var(--danger);\">File missing on disk</div>") +
         "<div class=\"plugin-actions\">" +
         "<button class=\"btn favorite " + (isFavorite ? "is-favorite" : "") + "\" type=\"button\" data-favorite=\"" + esc(p.id) + "\" title=\"" + (isFavorite ? "Unfavorite" : "Favorite") + "\">" + (isFavorite ? "★ Unfavorite" : "☆ Favorite") + "</button>" +
         "<button class=\"btn\" type=\"button\" data-edit-desc=\"" + esc(p.id) + "\" title=\"Edit description\">Edit description</button>" +
@@ -410,7 +411,7 @@
   function setMarketplaceMsg(text, ok) {
     if (!marketplaceMsg) return;
     marketplaceMsg.textContent = text || "";
-    marketplaceMsg.style.color = ok === false ? "var(--error, #c00)" : "";
+    marketplaceMsg.style.color = ok === false ? "var(--danger)" : "";
   }
 
   function getTakgovDisplayList() {

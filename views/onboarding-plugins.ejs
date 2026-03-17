@@ -43,7 +43,7 @@
         versionPill +
         '</div>' +
         (desc ? '<div class="plugin-desc">' + esc(descShort) + (desc.length > 120 ? "…" : "") + '</div>' : '') +
-        (exists ? '' : '<div class="plugin-meta" style="color: var(--error, #c00);">File missing on disk</div>') +
+        (exists ? '' : '<div class="plugin-meta" style="color: var(--danger);">File missing on disk</div>') +
         '<div class="plugin-actions">' +
         (exists ? '<a href="' + downloadUrl + '" class="btn" download>Download</a>' : '') +
         '</div></div>';
@@ -78,13 +78,14 @@
 
 <style>
   .plugin-cards.onboarding-plugin-cards .plugin-card {
-    background: var(--card-bg, #1a1a1a);
-    border: 1px solid var(--border, #333);
+    background: var(--card);
+    border: 1px solid var(--line);
     border-radius: 8px;
     padding: 14px;
     display: flex;
     flex-direction: column;
     gap: 8px;
+    height: 100%;
   }
   .plugin-cards.onboarding-plugin-cards .plugin-card-header {
     display: flex;
@@ -98,10 +99,10 @@
     font-size: 0.75rem;
     padding: 2px 8px;
     border-radius: 999px;
-    background: var(--border, #333);
-    color: var(--muted, #888);
+    background: var(--line);
+    color: var(--muted);
   }
-  .plugin-cards.onboarding-plugin-cards .plugin-desc { font-size: 0.85rem; color: var(--muted, #888); max-height: 2.6em; overflow: hidden; text-overflow: ellipsis; }
-  .plugin-cards.onboarding-plugin-cards .plugin-meta { font-size: 0.9rem; color: var(--muted, #888); }
-  .plugin-cards.onboarding-plugin-cards .plugin-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+  .plugin-cards.onboarding-plugin-cards .plugin-desc { font-size: 0.85rem; color: var(--muted); max-height: 2.6em; overflow: hidden; text-overflow: ellipsis; }
+  .plugin-cards.onboarding-plugin-cards .plugin-meta { font-size: 0.9rem; color: var(--muted); }
+  .plugin-cards.onboarding-plugin-cards .plugin-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; }
 </style>
