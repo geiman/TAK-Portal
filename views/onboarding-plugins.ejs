@@ -44,8 +44,12 @@
       const metaStr = meta.join(" · ");
       const exists = p.exists !== false;
       const downloadUrl = "/api/plugins/" + encodeURIComponent(p.id) + "/download";
+      const versionPill = p.version ? '<span class="plugin-version-pill">v' + esc(p.version) + '</span>' : '';
       return '<div class="plugin-card" data-id="' + esc(p.id) + '">' +
+        '<div class="plugin-card-header">' +
         '<div class="plugin-name">' + name + '</div>' +
+        versionPill +
+        '</div>' +
         (desc ? '<div class="plugin-desc">' + esc(desc) + (desc.length >= 120 ? "…" : "") + '</div>' : '') +
         '<div class="plugin-meta">' + metaStr + '</div>' +
         (exists ? '' : '<div class="plugin-meta" style="color: var(--error, #c00);">File missing on disk</div>') +
@@ -94,7 +98,21 @@
     flex-direction: column;
     gap: 8px;
   }
-  .plugin-cards.onboarding-plugin-cards .plugin-name { font-weight: 600; }
+  .plugin-cards.onboarding-plugin-cards .plugin-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .plugin-cards.onboarding-plugin-cards .plugin-name { font-weight: 600; flex: 1; min-width: 0; }
+  .plugin-cards.onboarding-plugin-cards .plugin-version-pill {
+    flex-shrink: 0;
+    font-size: 0.75rem;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--border, #333);
+    color: var(--muted, #888);
+  }
   .plugin-cards.onboarding-plugin-cards .plugin-desc { font-size: 0.85rem; color: var(--muted, #888); max-height: 2.6em; overflow: hidden; text-overflow: ellipsis; }
   .plugin-cards.onboarding-plugin-cards .plugin-meta { font-size: 0.9rem; color: var(--muted, #888); }
   .plugin-cards.onboarding-plugin-cards .plugin-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }

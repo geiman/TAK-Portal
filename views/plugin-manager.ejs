@@ -34,9 +34,22 @@
     </div>
   </div>
 
+  <!-- Downloaded plugins: cards (above Plugin Browser) -->
+  <div class="card">
+    <h2 style="margin-top: 0;">Downloaded Plugins</h2>
+    <p class="muted" style="margin-top: 4px;">Plugins stored in <code>data/plugins</code>. You can download or delete each one.</p>
+    <div id="pluginsMsg" class="msg"></div>
+    <div id="pluginCards" class="plugin-cards" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-top: 16px;">
+      <!-- Filled by JS -->
+    </div>
+    <div id="pluginsEmpty" style="display: none; margin-top: 16px; color: var(--muted, #888);">
+      No plugins yet. Add plugins from the Plugin Browser below or use Manual Plugin Upload at the bottom.
+    </div>
+  </div>
+
   <!-- TAK.gov Plugin Browser (visible when linked) -->
   <div class="card" id="marketplaceCard">
-    <h2>TAK Plugin Browser</h2>
+    <h2 style="margin-top: 0;">TAK Plugin Browser</h2>
     <div id="marketplaceBrowse" style="display: none;">
       <p class="muted" style="margin-top: 4px;">Choose ATAK version and click <strong>Browse</strong> to load ATAK-CIV plugins available to your account.</p>
       <div class="row" style="flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-top: 12px;">
@@ -60,19 +73,6 @@
       <div id="marketplaceEmpty" style="display: none; margin-top: 16px; color: var(--muted, #888);">
         No plugins returned. Try a different ATAK version.
       </div>
-    </div>
-  </div>
-
-  <!-- Downloaded plugins: cards -->
-  <div class="card">
-    <h2 style="margin-top: 0;">Downloaded Plugins</h2>
-    <p class="muted" style="margin-top: 4px;">Plugins stored in <code>data/plugins</code>. You can download or delete each one.</p>
-    <div id="pluginsMsg" class="msg"></div>
-    <div id="pluginCards" class="plugin-cards" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-top: 16px;">
-      <!-- Filled by JS -->
-    </div>
-    <div id="pluginsEmpty" style="display: none; margin-top: 16px; color: var(--muted, #888);">
-      No plugins yet. Add plugins from the Marketplace above or use Manual Plugin Upload below.
     </div>
   </div>
 
@@ -116,7 +116,21 @@
     flex-direction: column;
     gap: 8px;
   }
-  .plugin-cards .plugin-card .plugin-name { font-weight: 600; }
+  .plugin-cards .plugin-card .plugin-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .plugin-cards .plugin-card .plugin-name { font-weight: 600; flex: 1; min-width: 0; }
+  .plugin-cards .plugin-card .plugin-version-pill {
+    flex-shrink: 0;
+    font-size: 0.75rem;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--border, #333);
+    color: var(--muted, #888);
+  }
   .plugin-cards .plugin-card .plugin-desc { font-size: 0.85rem; color: var(--muted, #888); max-height: 2.6em; overflow: hidden; text-overflow: ellipsis; }
   .plugin-cards .plugin-card .plugin-meta { font-size: 0.9rem; color: var(--muted, #888); }
   .plugin-cards .plugin-card .plugin-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; align-items: center; }
@@ -221,8 +235,12 @@
       const downloadUrl = "/api/plugins/" + esc(p.id) + "/download";
       const isFavorite = p.favorite === true;
       const updateAvailable = p.source === "tak.gov" && p.package_name && updateStatusCache[p.id] === true;
+      const versionPill = p.version ? "<span class=\"plugin-version-pill\">v" + esc(p.version) + "</span>" : "";
       return "<div class=\"plugin-card\" data-id=\"" + esc(p.id) + "\">" +
+        "<div class=\"plugin-card-header\">" +
         "<div class=\"plugin-name\">" + name + "</div>" +
+        (versionPill || "") +
+        "</div>" +
         (desc ? "<div class=\"plugin-desc\">" + esc(desc) + (desc.length >= 120 ? "…" : "") + "</div>" : "") +
         "<div class=\"plugin-meta\">" + metaStr + "</div>" +
         (exists ? "" : "<div class=\"plugin-meta\" style=\"color: var(--error, #c00);\">File missing on disk</div>") +
@@ -392,8 +410,12 @@
       const alreadyInstalled = p.package_name && downloaded.some(function (d) { return d.package_name === p.package_name; });
       const btnLabel = alreadyInstalled ? "Update" : "Add to server";
       const btnClass = alreadyInstalled ? "btn" : "btn success";
+      const versionPill = p.version ? "<span class=\"plugin-version-pill\">v" + esc(p.version) + "</span>" : "";
       return "<div class=\"plugin-card\" data-takgov-index=\"" + idx + "\">" +
+        "<div class=\"plugin-card-header\">" +
         "<div class=\"plugin-name\">" + name + "</div>" +
+        (versionPill || "") +
+        "</div>" +
         (desc ? "<div class=\"plugin-desc\">" + esc(desc) + (desc.length >= 120 ? "…" : "") + "</div>" : "") +
         "<div class=\"plugin-meta\">" + metaStr + "</div>" +
         "<div class=\"plugin-actions\">" +
