@@ -156,6 +156,28 @@ router.get("/takgov/plugins", async (req, res) => {
 });
 
 /**
+ * GET /api/plugins/takgov/icon
+ * Proxy plugin icon from TAK.gov (requires linked account). Query: icon_url (must start with https://tak.gov/eud_api).
+ */
+router.get("/takgov/icon", async (req, res) => {
+  try {
+    const iconUrl = req.query.icon_url;
+    if (!iconUrl || typeof iconUrl !== "string") {
+      return res.status(400).json({ error: "icon_url is required." });
+    }
+    const result = await pluginsSvc.getTakGovPluginIcon(iconUrl.trim());
+    if (!result.success) {
+      return res.status(400).send(result.error || "Failed to load icon.");
+    }
+    res.set("Cache-Control", "private, max-age=3600");
+    res.type(result.contentType || "image/png");
+    res.send(result.buffer);
+  } catch (err) {
+    res.status(500).send(toErrorPayload(err));
+  }
+});
+
+/**
  * POST /api/plugins/takgov/download
  * Download a plugin from TAK.gov and add to server. Body: plugin object from TAK.gov list (apk_url, display_name, etc.).
  */

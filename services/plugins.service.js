@@ -262,6 +262,38 @@ async function downloadTakGovPlugin(pluginItem) {
   }
 }
 
+const TAK_GOV_EUD_API_PREFIX = "https://tak.gov/eud_api";
+
+/**
+ * Fetch a plugin icon from TAK.gov (for marketplace display). Validates URL to prevent SSRF.
+ * @param {string} iconUrl - must start with https://tak.gov/eud_api
+ * @returns {Promise<{ success: boolean, buffer?: Buffer, contentType?: string, error?: string }>}
+ */
+async function getTakGovPluginIcon(iconUrl) {
+  const url = typeof iconUrl === "string" ? iconUrl.trim() : "";
+  if (!url || !url.startsWith(TAK_GOV_EUD_API_PREFIX)) {
+    return { success: false, error: "Invalid icon URL." };
+  }
+  const token = await getTakGovAccessToken();
+  if (!token.success) return { success: false, error: token.error };
+  try {
+    const { statusCode, data: bodyBuffer, headers } = await takGovHttp2Get(url, token.access_token, {
+      responseType: "buffer",
+      maxRedirects: 3,
+    });
+    if (statusCode !== 200) {
+      return { success: false, error: `TAK.gov returned ${statusCode}.` };
+    }
+    if (!Buffer.isBuffer(bodyBuffer) || bodyBuffer.length === 0) {
+      return { success: false, error: "Empty icon." };
+    }
+    const contentType = headers["content-type"] || "image/png";
+    return { success: true, buffer: bodyBuffer, contentType };
+  } catch (err) {
+    return { success: false, error: err?.message || "Failed to fetch icon." };
+  }
+}
+
 function ensurePluginsDir() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(PLUGINS_DIR)) fs.mkdirSync(PLUGINS_DIR, { recursive: true });
@@ -643,6 +675,7 @@ module.exports = {
   getTakGovAccessToken,
   fetchTakGovPlugins,
   downloadTakGovPlugin,
+  getTakGovPluginIcon,
   listPlugins,
   addPluginFromFile,
   addPluginFromUrl,

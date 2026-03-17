@@ -37,17 +37,18 @@
     <h2>TAK.gov Plugin Marketplace</h2>
     <p id="marketplaceIntro" class="muted">Link your TAK.gov account above to browse and install plugins from TAK.gov.</p>
     <div id="marketplaceBrowse" style="display: none;">
-      <p class="muted" style="margin-top: 4px;">Choose product and ATAK version, then click <strong>Browse</strong> to load plugins available to your account.</p>
+      <p class="muted" style="margin-top: 4px;">Choose ATAK version and click <strong>Browse</strong> to load ATAK-CIV plugins available to your account.</p>
       <div class="row" style="flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-top: 12px;">
-        <label>Product
-          <select id="takgovProduct" style="min-width: 140px;">
-            <option value="ATAK-CIV">ATAK-CIV</option>
-            <option value="ATAK-GOV">ATAK-GOV</option>
-            <option value="ATAK-MIL">ATAK-MIL</option>
-          </select>
-        </label>
         <label>ATAK version
-          <input type="text" id="takgovVersion" value="5.5.0" placeholder="e.g. 5.5.0" style="width: 100px;" />
+          <select id="takgovVersion" style="min-width: 120px;">
+            <option value="5.6.0" selected>5.6.0</option>
+            <option value="5.5.0">5.5.0</option>
+            <option value="5.4.0">5.4.0</option>
+            <option value="5.3.0">5.3.0</option>
+            <option value="5.2.0">5.2.0</option>
+            <option value="5.1.0">5.1.0</option>
+            <option value="5.0.0">5.0.0</option>
+          </select>
         </label>
         <button class="btn" type="button" id="browseTakgovBtn">Browse plugins</button>
       </div>
@@ -56,7 +57,7 @@
         <!-- TAK.gov plugin cards -->
       </div>
       <div id="marketplaceEmpty" style="display: none; margin-top: 16px; color: var(--muted, #888);">
-        No plugins returned. Try a different product or version.
+        No plugins returned. Try a different ATAK version.
       </div>
     </div>
   </div>
@@ -116,6 +117,10 @@
   .plugin-cards .plugin-card .plugin-meta { font-size: 0.9rem; color: var(--muted, #888); }
   .plugin-cards .plugin-card .plugin-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
   .marketplace-grid .plugin-card .plugin-desc { font-size: 0.85rem; color: var(--muted, #888); max-height: 2.6em; overflow: hidden; text-overflow: ellipsis; }
+  .marketplace-grid .plugin-card .plugin-card-inner { display: flex; gap: 12px; align-items: flex-start; }
+  .marketplace-grid .plugin-card .plugin-icon-wrap { flex-shrink: 0; width: 48px; height: 48px; background: var(--card-bg, #1a1a1a); border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+  .marketplace-grid .plugin-card .plugin-icon-wrap img { width: 40px; height: 40px; object-fit: contain; }
+  .marketplace-grid .plugin-card .plugin-body { flex: 1; min-width: 0; }
 </style>
 
 <script>
@@ -141,7 +146,6 @@
   const pluginsMsg = document.getElementById("pluginsMsg");
   const marketplaceIntro = document.getElementById("marketplaceIntro");
   const marketplaceBrowse = document.getElementById("marketplaceBrowse");
-  const takgovProduct = document.getElementById("takgovProduct");
   const takgovVersion = document.getElementById("takgovVersion");
   const browseTakgovBtn = document.getElementById("browseTakgovBtn");
   const marketplaceMsg = document.getElementById("marketplaceMsg");
@@ -288,13 +292,21 @@
       if (p.package_name) meta.push(esc(p.package_name));
       if (p.atak_version) meta.push("ATAK " + esc(p.atak_version));
       const metaStr = meta.join(" · ");
+      const iconUrl = p.icon_url && String(p.icon_url).trim();
+      const iconSrc = iconUrl ? ("/api/plugins/takgov/icon?icon_url=" + encodeURIComponent(iconUrl)) : "";
+      const iconHtml = iconUrl
+        ? "<div class=\"plugin-icon-wrap\"><img src=\"" + esc(iconSrc) + "\" alt=\"\" onerror=\"this.parentElement.style.display='none'\" /></div>"
+        : "<div class=\"plugin-icon-wrap\" style=\"background: var(--border, #333);\"><span style=\"font-size: 0.7rem; color: var(--muted, #888);\">No icon</span></div>";
       return "<div class=\"plugin-card\" data-takgov-index=\"" + idx + "\">" +
+        "<div class=\"plugin-card-inner\">" +
+        iconHtml +
+        "<div class=\"plugin-body\">" +
         "<div class=\"plugin-name\">" + name + "</div>" +
         (desc ? "<div class=\"plugin-desc\">" + esc(desc) + (desc.length >= 120 ? "…" : "") + "</div>" : "") +
         "<div class=\"plugin-meta\">" + metaStr + "</div>" +
         "<div class=\"plugin-actions\">" +
         "<button class=\"btn success\" type=\"button\" data-takgov-download data-takgov-index=\"" + idx + "\">Add to server</button>" +
-        "</div></div>";
+        "</div></div></div></div>";
     }).join("");
     marketplaceGrid.querySelectorAll("[data-takgov-download]").forEach(function (btn) {
       btn.addEventListener("click", function () {
@@ -326,11 +338,10 @@
   }
 
   browseTakgovBtn.addEventListener("click", async function () {
-    const product = (takgovProduct && takgovProduct.value || "ATAK-CIV").trim();
     const version = (takgovVersion && takgovVersion.value || "5.5.0").trim();
     setMarketplaceMsg("Loading…", true);
     try {
-      const res = await fetch("/api/plugins/takgov/plugins?product=" + encodeURIComponent(product) + "&product_version=" + encodeURIComponent(version));
+      const res = await fetch("/api/plugins/takgov/plugins?product=ATAK-CIV&product_version=" + encodeURIComponent(version));
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to load plugins");
       takgovPluginsCache = data.plugins || [];
