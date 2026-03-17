@@ -209,14 +209,15 @@
   }
 
   function renderPluginCards(plugins) {
+    if (pluginsLoading) pluginsLoading.style.display = "none";
     const list = Array.isArray(plugins) ? plugins : [];
     if (list.length === 0) {
       pluginCards.innerHTML = "";
       pluginCards.style.display = "none";
-      pluginsEmpty.style.display = "block";
+      if (pluginsEmpty) pluginsEmpty.style.display = "block";
       return;
     }
-    pluginsEmpty.style.display = "none";
+    if (pluginsEmpty) pluginsEmpty.style.display = "none";
     pluginCards.style.display = "grid";
     pluginCards.innerHTML = list.map(function (p) {
       const name = esc(p.name || p.filename || p.id);
