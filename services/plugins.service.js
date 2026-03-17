@@ -465,7 +465,7 @@ async function getTakGovLinkState(generateNewCode = false) {
         linkCodeExpiry: expiry,
         verificationUri,
         verificationUriComplete: verificationUriComplete || undefined,
-        message: `Enter this code at ${verificationUri} (expires in ${Math.floor(expiresIn / 60)} minutes).`,
+        message: `Enter this code at https://tak.gov/register-device (expires in ${Math.floor(expiresIn / 60)} minutes).`,
       };
     } catch (err) {
       const msg = err?.message || "Failed to get link code from TAK.gov.";
