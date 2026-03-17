@@ -12,6 +12,9 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.50 - 3/17/26
+🐛 `Bug Fix` - Fixes issue with sidebar not allowing for scroll on small / mobile devices
+
 ### v1.2.49 - 3/16/26
 🎉 `New Feature` - Added a plugin manager and plugin page to support hosting ATAK Plugins from TAK Portal.  The plugin manager can be linked to your tak.gov account to automatically discover and download plugins.<br>
 ✨ `Enhancement` - Charts on the dashboard now follow color structure of the agencies page.
