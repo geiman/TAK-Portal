@@ -13,9 +13,7 @@ Planned features can be accessed [here](docs/roadmap.md)
 ## Version History
 
 ### v1.2.50 - 3/16/26
-🎉 `New Feature` - Plugin Manager: link TAK.gov account (Get Link Code → enter at [tak.gov/register-device](https://tak.gov/register-device) → Link Account), mirroring OpenTAKServer flow<br>
-🎉 `New Feature` - Download plugins from URL or upload APK; plugins stored in `data/plugins` and listed as cards on Plugin Manager<br>
-🎉 `New Feature` - Delete plugins from Plugin Manager (removes file from disk and manifest)<br>
+🎉 `New Feature` - Added a plugin manager and plugin page to support hosting ATAK Plugins from TAK Portal.  The plugin manager can be linked to your tak.gov account to automatically discover plugins.<br>
 
 ### v1.2.49 - 3/16/26
 ✨ `Enhancement` - Charts on the dashboard now follow color structure of the agencies page.<br>

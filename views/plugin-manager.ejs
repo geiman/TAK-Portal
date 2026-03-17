@@ -8,35 +8,30 @@
   <div class="card">
     <h2>Link TAK.gov Account</h2>
     <div id="linkSetupBlock">
-      <div id="linkStep1" class="card" style="margin-top: 16px;">
-        <h2 style="margin-top: 0;">Step 1: Get link code</h2>
-        <p class="muted" style="margin-bottom: 12px;">Request a one-time code from TAK.gov. The code will appear below.</p>
-        <button class="btn tile" type="button" id="getLinkCodeBtn">
-          <span class="title">Get link code</span>
-          <span class="desc">Request a code from TAK.gov to link this server.</span>
-        </button>
-        <div id="linkCodeArea" style="display: none; margin-top: 16px; padding: 12px; background: var(--card); border-radius: 8px; border: 1px solid var(--line);">
-          <label style="display: block; margin-bottom: 6px;">Code to enter on TAK.gov</label>
+      <div id="linkStep2" class="card" style="margin-top: 16px;">
+        <h2 style="margin-top: 0;">Step 2: Get link code and enter on TAK.gov</h2>
+        <div id="linkCodeArea" style="display: none; margin-bottom: 16px; padding: 12px; background: var(--card); border-radius: 8px; border: 1px solid var(--line);">
           <div class="row" style="align-items: center; gap: 8px; flex-wrap: wrap;">
             <code id="linkCodeDisplay" style="font-size: 1.4rem; padding: 10px 14px; background: var(--bg); border-radius: 6px; letter-spacing: 0.05em;"></code>
             <span id="linkCodeExpiry" class="muted"></span>
           </div>
         </div>
-      </div>
-      <div id="linkStep2" class="card" style="margin-top: 16px;">
-        <h2 style="margin-top: 0;">Step 2: Enter code on TAK.gov</h2>
-        <p class="muted" style="margin-bottom: 12px;">Open TAK.gov in a new tab, enter the code from Step 1, sign in, and authorize.</p>
-        <a id="verificationUriLink" href="https://tak.gov/register-device" target="_blank" rel="noopener noreferrer" class="btn tile">
-          <span class="title">Open TAK.gov to enter code</span>
-          <span class="desc">Opens tak.gov/register-device in a new tab. If TAK.gov supports it, the code may be pre-filled from the URL.</span>
-        </a>
+        <div class="grid2">
+          <button class="btn tile" type="button" id="getLinkCodeBtn">
+            <span class="title">Get link code</span>
+            <span class="desc">Request a one-time code from TAK.gov. The code appears above so you can use it here or on another device.</span>
+          </button>
+          <a id="verificationUriLink" href="https://tak.gov/register-device" target="_blank" rel="noopener noreferrer" class="btn tile">
+            <span class="title">Open TAK.gov to enter code</span>
+            <span class="desc">Opens tak.gov/register-device in a new tab; the code may be pre-filled from the URL.</span>
+          </a>
+        </div>
       </div>
       <div id="linkStep3" class="card" style="margin-top: 16px;">
         <h2 style="margin-top: 0;">Step 3: Perform account link</h2>
-        <p class="muted" style="margin-bottom: 12px;">After you’ve entered the code and authorized on TAK.gov, click below to complete linking.</p>
         <button class="btn tile success" type="button" id="linkAccountBtn">
           <span class="title">Link account</span>
-          <span class="desc">Complete the link using the code you authorized on TAK.gov.</span>
+          <span class="desc">After entering the code and authorizing on TAK.gov, click here to complete linking.</span>
         </button>
       </div>
     </div>
