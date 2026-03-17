@@ -215,7 +215,11 @@
 
   function renderPluginCards(plugins) {
     if (pluginsLoading) pluginsLoading.style.display = "none";
-    const list = Array.isArray(plugins) ? plugins : [];
+    const list = (Array.isArray(plugins) ? plugins : []).slice().sort(function (a, b) {
+      const na = (a.name || a.filename || a.id || "").toLowerCase();
+      const nb = (b.name || b.filename || b.id || "").toLowerCase();
+      return na.localeCompare(nb);
+    });
     if (list.length === 0) {
       pluginCards.innerHTML = "";
       pluginCards.style.display = "none";
