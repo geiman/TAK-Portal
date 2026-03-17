@@ -130,6 +130,7 @@
     color: var(--muted, #888);
   }
   .plugin-cards .plugin-card .plugin-desc { font-size: 0.85rem; color: var(--muted, #888); max-height: 2.6em; overflow: hidden; text-overflow: ellipsis; }
+  .plugin-cards .plugin-card .plugin-desc-empty { font-style: italic; }
   .plugin-cards .plugin-card .plugin-meta { font-size: 0.9rem; color: var(--muted, #888); }
   .plugin-cards .plugin-card .plugin-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; align-items: center; }
   .btn.favorite { background: #e6c200; color: #000; border-color: #e6c200; }
@@ -221,15 +222,8 @@
     pluginCards.style.display = "grid";
     pluginCards.innerHTML = list.map(function (p) {
       const name = esc(p.name || p.filename || p.id);
-      const desc = (p.description || "").slice(0, 120);
-      const meta = [];
-      if (p.version) meta.push("v" + esc(p.version));
-      if (p.package_name) meta.push(esc(p.package_name));
-      if (p.atakVersion || p.atak_version) meta.push("ATAK " + esc(p.atakVersion || p.atak_version));
-      meta.push(formatSize(p.sizeBytes != null ? p.sizeBytes : p.size));
-      meta.push(formatDate(p.downloadedAt));
-      if (p.source) meta.push("Source: " + esc(p.source));
-      const metaStr = meta.join(" · ");
+      const desc = (p.description || "").trim();
+      const descShort = desc.slice(0, 120);
       const exists = p.exists !== false;
       const downloadUrl = "/api/plugins/" + esc(p.id) + "/download";
       const isFavorite = p.favorite === true;
@@ -240,10 +234,10 @@
         "<div class=\"plugin-name\">" + name + "</div>" +
         (versionPill || "") +
         "</div>" +
-        (desc ? "<div class=\"plugin-desc\">" + esc(desc) + (desc.length >= 120 ? "…" : "") + "</div>" : "") +
-        "<div class=\"plugin-meta\">" + metaStr + "</div>" +
+        (desc ? "<div class=\"plugin-desc\">" + esc(descShort) + (desc.length > 120 ? "…" : "") + "</div>" : "<div class=\"plugin-desc plugin-desc-empty\">No description</div>") +
         (exists ? "" : "<div class=\"plugin-meta\" style=\"color: var(--error, #c00);\">File missing on disk</div>") +
         "<div class=\"plugin-actions\">" +
+        "<button class=\"btn\" type=\"button\" data-edit-desc=\"" + esc(p.id) + "\" title=\"Edit description\">Edit description</button>" +
         "<button class=\"btn favorite " + (isFavorite ? "is-favorite" : "") + "\" type=\"button\" data-favorite=\"" + esc(p.id) + "\" title=\"" + (isFavorite ? "Unfavorite" : "Favorite") + "\">" + (isFavorite ? "★ Unfavorite" : "☆ Favorite") + "</button>" +
         (exists ? "<a href=\"" + downloadUrl + "\" class=\"btn\" download>Download</a>" : "") +
         (updateAvailable ? "<button class=\"btn\" type=\"button\" data-update=\"" + esc(p.id) + "\">Check for Updates</button>" : "") +
@@ -271,6 +265,35 @@
         const id = btn.getAttribute("data-update");
         if (!id) return;
         updatePluginFromTakgov(id, btn);
+      });
+    });
+    pluginCards.querySelectorAll("[data-edit-desc]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        const id = btn.getAttribute("data-edit-desc");
+        if (!id) return;
+        const p = list.find(function (x) { return x.id === id; });
+        const current = (p && p.description) ? String(p.description) : "";
+        const value = window.prompt("Edit plugin description:", current);
+        if (value === null) return;
+        fetch("/api/plugins/" + encodeURIComponent(id), {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ description: value.trim() }),
+        })
+          .then(function (res) { return res.json().then(function (data) { return { res, data }; }); })
+          .then(function (_ref) {
+            const res = _ref.res;
+            const data = _ref.data;
+            if (!res.ok) {
+              setPluginsMsg(data.error || "Failed to update description", false);
+              return;
+            }
+            setPluginsMsg("", true);
+            loadState();
+          })
+          .catch(function (err) {
+            setPluginsMsg(err.message || "Failed to update description", false);
+          });
       });
     });
   }

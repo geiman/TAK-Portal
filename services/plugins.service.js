@@ -747,12 +747,26 @@ function getPluginFilePath(id) {
  * @returns {{ success: boolean, error?: string }}
  */
 function setPluginFavorite(id, favorite) {
+  return updatePluginMetadata(id, { favorite });
+}
+
+/**
+ * Update plugin metadata (description, favorite). At least one of description or favorite must be provided.
+ * @param {string} id - plugin id
+ * @param {{ description?: string, favorite?: boolean }} updates
+ * @returns {{ success: boolean, plugin?: object, error?: string }}
+ */
+function updatePluginMetadata(id, updates) {
+  if (!updates || (updates.description === undefined && updates.favorite === undefined)) {
+    return { success: false, error: "Provide at least one of description or favorite." };
+  }
   const manifest = loadManifest();
   const plugin = manifest.plugins.find((p) => p.id === id);
   if (!plugin) return { success: false, error: "Plugin not found." };
-  plugin.favorite = favorite === true;
+  if (updates.description !== undefined) plugin.description = typeof updates.description === "string" ? updates.description : null;
+  if (updates.favorite !== undefined) plugin.favorite = updates.favorite === true;
   saveManifest(manifest);
-  return { success: true, plugin: { ...plugin, favorite: plugin.favorite } };
+  return { success: true, plugin: { ...plugin } };
 }
 
 /**
@@ -848,6 +862,7 @@ module.exports = {
   deletePlugin,
   getPluginFilePath,
   setPluginFavorite,
+  updatePluginMetadata,
   updatePluginFromTakGov,
   getUpdateStatus,
 };

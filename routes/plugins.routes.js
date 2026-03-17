@@ -272,16 +272,19 @@ router.post("/upload", upload.single("plugin"), (req, res) => {
 
 /**
  * PATCH /api/plugins/:id
- * Update plugin metadata (e.g. favorite). Body: { favorite: boolean }
+ * Update plugin metadata. Body: { favorite?: boolean, description?: string } (at least one required)
  */
 router.patch("/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { favorite } = req.body || {};
-    if (typeof favorite !== "boolean") {
-      return res.status(400).json({ error: "Body must include favorite (boolean)." });
+    const { favorite, description } = req.body || {};
+    const updates = {};
+    if (typeof favorite === "boolean") updates.favorite = favorite;
+    if (description !== undefined) updates.description = typeof description === "string" ? description : null;
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: "Body must include at least one of favorite (boolean) or description (string)." });
     }
-    const result = pluginsSvc.setPluginFavorite(id, favorite);
+    const result = pluginsSvc.updatePluginMetadata(id, updates);
     if (!result.success) {
       return res.status(404).json({ error: result.error });
     }
