@@ -68,9 +68,8 @@
   <% } %>
 
   <% if (other.length > 0) { %>
-  <div class="card" style="margin-top: <%= recommended.length > 0 ? 24 : 20 %>px;">
-    <h2 style="margin-top: 0;">Other Plugins</h2>
-    <p class="muted" style="margin-top: 4px;">All other available plugins.</p>
+  <div class="card" style="margin-top: 24px;">
+    <h2 style="margin-top: 0;"><%= recommended.length > 0 ? "Other Plugins" : "Plugins" %></h2>
     <div class="plugin-cards onboarding-plugin-cards" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-top: 16px;">
       <% other.forEach(function (p) { %><%- renderCard(p) %><% }); %>
     </div>
