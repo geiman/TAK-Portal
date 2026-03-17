@@ -255,8 +255,93 @@ async function fetchTakGovPlugins(product, product_version) {
 }
 
 /**
+ * HTTP/2 GET that streams the response body directly to a file (no in-memory buffer).
+ * Matches OpenTAKServer: only Authorization + User-Agent, follow redirects.
+ * @param {string} url - full URL
+ * @param {string} accessToken - Bearer token
+ * @param {string} destFilePath - path to write the file
+ * @param {{ timeoutMs?: number }} [options]
+ * @returns {Promise<{ statusCode: number, headers: object, error?: string }>}
+ */
+function takGovHttp2StreamToFile(url, accessToken, destFilePath, options = {}) {
+  const timeoutMs = options.timeoutMs ?? 300000;
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const pathname = u.pathname + u.search;
+    const client = http2.connect(url, { servername: u.hostname });
+    let settled = false;
+    let timeoutId;
+    const cleanup = () => {
+      clearTimeout(timeoutId);
+      try { client.close(); } catch (_) {}
+    };
+    const finish = (fn, arg) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      fn(arg);
+    };
+    timeoutId = setTimeout(() => {
+      finish(reject, new Error("TAK.gov request timeout"));
+    }, timeoutMs);
+    client.on("error", (err) => finish(reject, err));
+
+    const headers = {
+      ":path": pathname,
+      ":method": "GET",
+      "user-agent": USER_AGENT,
+      "authorization": `Bearer ${accessToken}`,
+    };
+    const req = client.request(headers);
+    const fileStream = fs.createWriteStream(destFilePath);
+    req.on("response", (responseHeaders) => {
+      const status = Number(responseHeaders[":status"]) || 0;
+      const location = responseHeaders["location"];
+      if ((status === 301 || status === 302 || status === 307 || status === 308) && location) {
+        fileStream.destroy();
+        try { fs.unlinkSync(destFilePath); } catch (_) {}
+        cleanup();
+        takGovHttp2StreamToFile(location, accessToken, destFilePath, options)
+          .then(resolve)
+          .catch(reject);
+        return;
+      }
+      if (status !== 200) {
+        fileStream.destroy();
+        try { fs.unlinkSync(destFilePath); } catch (_) {}
+        const chunks = [];
+        req.on("data", (chunk) => chunks.push(chunk));
+        req.on("end", () => {
+          const errBody = Buffer.concat(chunks).toString("utf8").trim().slice(0, 300);
+          finish(resolve, { statusCode: status, headers: responseHeaders, error: errBody || `HTTP ${status}` });
+        });
+        return;
+      }
+      req.pipe(fileStream);
+      fileStream.on("finish", () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve({ statusCode: status, headers: responseHeaders });
+      });
+    });
+    req.on("error", (err) => {
+      fileStream.destroy();
+      try { fs.unlinkSync(destFilePath); } catch (_) {}
+      finish(reject, err);
+    });
+    fileStream.on("error", (err) => {
+      req.destroy();
+      try { fs.unlinkSync(destFilePath); } catch (_) {}
+      finish(reject, err);
+    });
+    req.end();
+  });
+}
+
+/**
  * Download a plugin from TAK.gov by URL (using stored refresh token for Bearer).
- * TAK.gov requires HTTP/2; we use a dedicated connection with a long timeout for large APK transfers.
+ * Streams directly to file (like OpenTAKServer) to avoid protocol errors from buffering large APKs.
  * @param {{ apk_url: string, display_name?: string, version?: string, package_name?: string, atak_version?: string, apk_size_bytes?: number }} pluginItem - from TAK.gov plugins list
  * @returns {Promise<{ success: boolean, plugin?: object, error?: string }>}
  */
@@ -268,39 +353,29 @@ async function downloadTakGovPlugin(pluginItem) {
   const token = await getTakGovAccessToken();
   if (!token.success) return { success: false, error: token.error };
 
+  ensurePluginsDir();
+  const tempPath = path.join(PLUGINS_DIR, `_tmp_${Date.now()}_${Math.random().toString(36).slice(2)}.apk`);
   try {
-    const { statusCode, data: bodyBuffer, headers } = await takGovHttp2Get(apkUrl, token.access_token, {
-      responseType: "buffer",
-      maxRedirects: 5,
-      extraHeaders: { "referer": "https://tak.gov/" },
-      timeoutMs: 300000,
-    });
-    if (statusCode !== 200) {
-      let errMsg = `TAK.gov returned ${statusCode} for plugin download.`;
-      if (Buffer.isBuffer(bodyBuffer) && bodyBuffer.length > 0) {
-        try {
-          const text = bodyBuffer.toString("utf8").trim().slice(0, 300);
-          if (text) errMsg = text;
-        } catch (_) {}
-      }
-      return { success: false, error: errMsg };
+    const result = await takGovHttp2StreamToFile(apkUrl, token.access_token, tempPath, { timeoutMs: 300000 });
+    if (result.statusCode !== 200) {
+      return { success: false, error: result.error || `TAK.gov returned ${result.statusCode} for plugin download.` };
     }
-    if (!Buffer.isBuffer(bodyBuffer) || bodyBuffer.length === 0) {
-      return { success: false, error: "Empty or invalid plugin file." };
-    }
-
+    const { headers } = result;
     const contentDisp = headers["content-disposition"];
     let filename = (typeof contentDisp === "string" && contentDisp.match(/filename[*]?=(?:UTF-8'')?["']?([^"'\s;]+)/i)?.[1]) || "plugin.apk";
     filename = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
     const destPath = path.join(PLUGINS_DIR, filename);
-    ensurePluginsDir();
 
     const manifest = loadManifest();
     const existing = manifest.plugins.find((p) => p.filename === filename);
     if (existing) {
+      try {
+        const oldPath = path.join(PLUGINS_DIR, existing.filename);
+        if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+      } catch (_) {}
       manifest.plugins = manifest.plugins.filter((p) => p.id !== existing.id);
     }
-    fs.writeFileSync(destPath, bodyBuffer);
+    fs.renameSync(tempPath, destPath);
     const stat = fs.statSync(destPath);
     const id = nextPluginId(manifest.plugins);
     const plugin = {
