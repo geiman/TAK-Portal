@@ -256,6 +256,7 @@ async function fetchTakGovPlugins(product, product_version) {
 
 /**
  * Download a plugin from TAK.gov by URL (using stored refresh token for Bearer).
+ * Uses HTTP/1.1 (axios) for the APK download to avoid HTTP/2 protocol errors on large transfers.
  * @param {{ apk_url: string, display_name?: string, version?: string, package_name?: string, atak_version?: string, apk_size_bytes?: number }} pluginItem - from TAK.gov plugins list
  * @returns {Promise<{ success: boolean, plugin?: object, error?: string }>}
  */
@@ -267,27 +268,50 @@ async function downloadTakGovPlugin(pluginItem) {
   const token = await getTakGovAccessToken();
   if (!token.success) return { success: false, error: token.error };
 
+  const axios = require("axios");
   try {
-    const { statusCode, data: bodyBuffer, headers } = await takGovHttp2Get(apkUrl, token.access_token, {
-      responseType: "buffer",
-      maxRedirects: 5,
-      extraHeaders: { "referer": "https://tak.gov/" },
-    });
-    if (statusCode !== 200) {
-      let errMsg = `TAK.gov returned ${statusCode} for plugin download.`;
-      if (Buffer.isBuffer(bodyBuffer) && bodyBuffer.length > 0) {
+    let response;
+    try {
+      response = await axios.get(apkUrl, {
+        responseType: "arraybuffer",
+        timeout: 120000,
+        maxContentLength: 500 * 1024 * 1024,
+        maxRedirects: 5,
+        headers: {
+          "Authorization": `Bearer ${token.access_token}`,
+          "User-Agent": USER_AGENT,
+          "Referer": "https://tak.gov/",
+        },
+      });
+    } catch (axiosErr) {
+      const status = axiosErr?.response?.status;
+      const data = axiosErr?.response?.data;
+      let errMsg = status ? `TAK.gov returned ${status} for plugin download.` : (axiosErr?.message || "Download failed.");
+      if (data && Buffer.isBuffer(data)) {
         try {
-          const text = bodyBuffer.toString("utf8").trim().slice(0, 300);
+          const text = data.toString("utf8").trim().slice(0, 300);
           if (text) errMsg = text;
         } catch (_) {}
       }
       return { success: false, error: errMsg };
     }
-    if (!Buffer.isBuffer(bodyBuffer) || bodyBuffer.length === 0) {
+    if (response.status !== 200) {
+      let errMsg = `TAK.gov returned ${response.status} for plugin download.`;
+      const data = response.data;
+      if (data && Buffer.isBuffer(data) && data.length > 0) {
+        try {
+          const text = data.toString("utf8").trim().slice(0, 300);
+          if (text) errMsg = text;
+        } catch (_) {}
+      }
+      return { success: false, error: errMsg };
+    }
+    const bodyBuffer = Buffer.from(response.data);
+    if (!bodyBuffer || bodyBuffer.length === 0) {
       return { success: false, error: "Empty or invalid plugin file." };
     }
 
-    const contentDisp = headers["content-disposition"];
+    const contentDisp = response.headers["content-disposition"];
     let filename = (typeof contentDisp === "string" && contentDisp.match(/filename[*]?=(?:UTF-8'')?["']?([^"'\s;]+)/i)?.[1]) || "plugin.apk";
     filename = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
     const destPath = path.join(PLUGINS_DIR, filename);
