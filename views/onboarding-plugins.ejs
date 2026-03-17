@@ -6,8 +6,16 @@
 
   <%
     const pluginList = Array.isArray(plugins) ? plugins : [];
-    const recommended = pluginList.filter((p) => p.favorite === true);
-    const other = pluginList.filter((p) => p.favorite !== true);
+    const recommended = pluginList.filter((p) => p.favorite === true).sort((a, b) => {
+      const na = (a.name || a.filename || a.id || "").toLowerCase();
+      const nb = (b.name || b.filename || b.id || "").toLowerCase();
+      return na.localeCompare(nb);
+    });
+    const other = pluginList.filter((p) => p.favorite !== true).sort((a, b) => {
+      const na = (a.name || a.filename || a.id || "").toLowerCase();
+      const nb = (b.name || b.filename || b.id || "").toLowerCase();
+      return na.localeCompare(nb);
+    });
 
     function formatSize(bytes) {
       if (bytes == null) return "—";
