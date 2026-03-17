@@ -164,6 +164,7 @@ router.post("/takgov/download", async (req, res) => {
     const pluginItem = req.body?.plugin || req.body;
     const result = await pluginsSvc.downloadTakGovPlugin(pluginItem);
     if (!result.success) {
+      console.error("[plugins] TAK.gov download failed:", result.error);
       return res.status(400).json({ error: result.error });
     }
     const auditUser = req.authentikUser;

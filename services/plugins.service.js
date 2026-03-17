@@ -7,8 +7,13 @@
 
 const fs = require("fs");
 const path = require("path");
+const { pipeline, Readable } = require("stream");
+const { promisify } = require("util");
 const http2 = require("http2");
 const { URL } = require("url");
+const { fetch, Agent } = require("undici");
+
+const pipelinePromise = promisify(pipeline);
 
 const DATA_DIR = path.join(__dirname, "..", "data");
 const PLUGINS_DIR = path.join(DATA_DIR, "plugins");
@@ -255,88 +260,42 @@ async function fetchTakGovPlugins(product, product_version) {
 }
 
 /**
- * HTTP/2 GET that streams the response body directly to a file (no in-memory buffer).
- * Matches OpenTAKServer: only Authorization + User-Agent, follow redirects.
- * @param {string} url - full URL
+ * Download a URL to a file using undici fetch with HTTP/2 (allowH2).
+ * TAK.gov requires HTTP/2; undici handles it without Node http2 protocol errors.
+ * @param {string} url - APK URL
  * @param {string} accessToken - Bearer token
  * @param {string} destFilePath - path to write the file
  * @param {{ timeoutMs?: number }} [options]
- * @returns {Promise<{ statusCode: number, headers: object, error?: string }>}
+ * @returns {Promise<{ statusCode: number, headers: Headers, error?: string }>}
  */
-function takGovHttp2StreamToFile(url, accessToken, destFilePath, options = {}) {
+async function takGovFetchStreamToFile(url, accessToken, destFilePath, options = {}) {
   const timeoutMs = options.timeoutMs ?? 300000;
-  return new Promise((resolve, reject) => {
-    const u = new URL(url);
-    const pathname = u.pathname + u.search;
-    const client = http2.connect(url, { servername: u.hostname });
-    let settled = false;
-    let timeoutId;
-    const cleanup = () => {
-      clearTimeout(timeoutId);
-      try { client.close(); } catch (_) {}
-    };
-    const finish = (fn, arg) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      fn(arg);
-    };
-    timeoutId = setTimeout(() => {
-      finish(reject, new Error("TAK.gov request timeout"));
-    }, timeoutMs);
-    client.on("error", (err) => finish(reject, err));
-
-    const headers = {
-      ":path": pathname,
-      ":method": "GET",
-      "user-agent": USER_AGENT,
-      "authorization": `Bearer ${accessToken}`,
-    };
-    const req = client.request(headers);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      dispatcher: new Agent({ allowH2: true }),
+      signal: controller.signal,
+      headers: {
+        "User-Agent": USER_AGENT,
+        "Authorization": `Bearer ${accessToken}`,
+      },
+      redirect: "follow",
+    });
+    clearTimeout(timeoutId);
+    if (!response.ok) {
+      const errBody = await response.text().then((t) => t.trim().slice(0, 300)).catch(() => "");
+      return { statusCode: response.status, headers: response.headers, error: errBody || `HTTP ${response.status}` };
+    }
     const fileStream = fs.createWriteStream(destFilePath);
-    req.on("response", (responseHeaders) => {
-      const status = Number(responseHeaders[":status"]) || 0;
-      const location = responseHeaders["location"];
-      if ((status === 301 || status === 302 || status === 307 || status === 308) && location) {
-        fileStream.destroy();
-        try { fs.unlinkSync(destFilePath); } catch (_) {}
-        cleanup();
-        takGovHttp2StreamToFile(location, accessToken, destFilePath, options)
-          .then(resolve)
-          .catch(reject);
-        return;
-      }
-      if (status !== 200) {
-        fileStream.destroy();
-        try { fs.unlinkSync(destFilePath); } catch (_) {}
-        const chunks = [];
-        req.on("data", (chunk) => chunks.push(chunk));
-        req.on("end", () => {
-          const errBody = Buffer.concat(chunks).toString("utf8").trim().slice(0, 300);
-          finish(resolve, { statusCode: status, headers: responseHeaders, error: errBody || `HTTP ${status}` });
-        });
-        return;
-      }
-      req.pipe(fileStream);
-      fileStream.on("finish", () => {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        resolve({ statusCode: status, headers: responseHeaders });
-      });
-    });
-    req.on("error", (err) => {
-      fileStream.destroy();
-      try { fs.unlinkSync(destFilePath); } catch (_) {}
-      finish(reject, err);
-    });
-    fileStream.on("error", (err) => {
-      req.destroy();
-      try { fs.unlinkSync(destFilePath); } catch (_) {}
-      finish(reject, err);
-    });
-    req.end();
-  });
+    const nodeStream = Readable.fromWeb(response.body);
+    await pipelinePromise(nodeStream, fileStream);
+    return { statusCode: response.status, headers: response.headers };
+  } catch (err) {
+    clearTimeout(timeoutId);
+    try { if (fs.existsSync(destFilePath)) fs.unlinkSync(destFilePath); } catch (_) {}
+    throw err;
+  }
 }
 
 /**
@@ -356,12 +315,11 @@ async function downloadTakGovPlugin(pluginItem) {
   ensurePluginsDir();
   const tempPath = path.join(PLUGINS_DIR, `_tmp_${Date.now()}_${Math.random().toString(36).slice(2)}.apk`);
   try {
-    const result = await takGovHttp2StreamToFile(apkUrl, token.access_token, tempPath, { timeoutMs: 300000 });
+    const result = await takGovFetchStreamToFile(apkUrl, token.access_token, tempPath, { timeoutMs: 300000 });
     if (result.statusCode !== 200) {
       return { success: false, error: result.error || `TAK.gov returned ${result.statusCode} for plugin download.` };
     }
-    const { headers } = result;
-    const contentDisp = headers["content-disposition"];
+    const contentDisp = result.headers.get ? result.headers.get("content-disposition") : result.headers["content-disposition"];
     let filename = (typeof contentDisp === "string" && contentDisp.match(/filename[*]?=(?:UTF-8'')?["']?([^"'\s;]+)/i)?.[1]) || "plugin.apk";
     filename = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
     const destPath = path.join(PLUGINS_DIR, filename);
@@ -392,7 +350,9 @@ async function downloadTakGovPlugin(pluginItem) {
     saveManifest(manifest);
     return { success: true, plugin };
   } catch (err) {
-    return { success: false, error: err?.message || "Download failed." };
+    const msg = err?.message || "Download failed.";
+    console.error("[plugins.service] downloadTakGovPlugin error:", msg, err?.code || "");
+    return { success: false, error: msg };
   }
 }
 
