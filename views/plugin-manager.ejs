@@ -8,32 +8,23 @@
   <div class="card">
     <h2>Link TAK.gov Account</h2>
     <div id="linkSetupBlock">
-      <div id="linkStep2" class="card" style="margin-top: 16px;">
-        <h2 style="margin-top: 0;">Step 2: Get link code and enter on TAK.gov</h2>
-        <div id="linkCodeArea" style="display: none; margin-bottom: 16px; padding: 12px; background: var(--card); border-radius: 8px; border: 1px solid var(--line);">
-          <div class="row" style="align-items: center; gap: 8px; flex-wrap: wrap;">
-            <code id="linkCodeDisplay" style="font-size: 1.4rem; padding: 10px 14px; background: var(--bg); border-radius: 6px; letter-spacing: 0.05em;"></code>
-            <span id="linkCodeExpiry" class="muted"></span>
-          </div>
-        </div>
-        <div class="grid2">
-          <button class="btn tile" type="button" id="getLinkCodeBtn">
-            <span class="title">Get link code</span>
-            <span class="desc">Request a one-time code from TAK.gov. The code appears above so you can use it here or on another device.</span>
-          </button>
-          <a id="verificationUriLink" href="https://tak.gov/register-device" target="_blank" rel="noopener noreferrer" class="btn tile">
-            <span class="title">Open TAK.gov to enter code</span>
-            <span class="desc">Opens tak.gov/register-device in a new tab; the code may be pre-filled from the URL.</span>
-          </a>
+      <div id="linkCodeArea" style="display: none; margin-top: 16px; margin-bottom: 16px; padding: 12px; background: var(--card); border-radius: 8px; border: 1px solid var(--line);">
+        <div class="row" style="align-items: center; gap: 8px; flex-wrap: wrap;">
+          <code id="linkCodeDisplay" style="font-size: 1.4rem; padding: 10px 14px; background: var(--bg); border-radius: 6px; letter-spacing: 0.05em;"></code>
+          <span id="linkCodeExpiry" class="muted"></span>
         </div>
       </div>
-      <div id="linkStep3" class="card" style="margin-top: 16px;">
-        <h2 style="margin-top: 0;">Step 3: Perform account link</h2>
+      <div class="grid2">
+        <button class="btn tile" type="button" id="getLinkCodeBtn">
+          <span class="title">Step 1: Get link code and open TAK.gov</span>
+          <span class="desc">Request a code from TAK.gov and open the page in a new tab; the code may be pre-filled.</span>
+        </button>
         <button class="btn tile success" type="button" id="linkAccountBtn">
-          <span class="title">Link account</span>
+          <span class="title">Step 2: Link account</span>
           <span class="desc">After entering the code and authorizing on TAK.gov, click here to complete linking.</span>
         </button>
       </div>
+      <a id="verificationUriLink" href="https://tak.gov/register-device" target="_blank" rel="noopener noreferrer" style="display: none;" aria-hidden="true"></a>
     </div>
     <div id="linkStatus" class="msg"></div>
     <div id="linkedBadge" class="row" style="display: none; margin-top: 8px; align-items: center; gap: 10px;">
@@ -554,10 +545,10 @@
       if (!res.ok) throw new Error(data.error || "Failed to get code");
       linkCodeArea.style.display = "block";
       linkCodeDisplay.textContent = data.linkCode || "";
-      if (verificationUriLink) {
-        verificationUriLink.href = data.verificationUriComplete || data.verificationUri || "https://tak.gov/register-device";
-      }
-      setLinkStatus(data.message || "Enter the code above on TAK.gov, then click Link Account.", true);
+      const openUrl = data.verificationUriComplete || data.verificationUri || "https://tak.gov/register-device";
+      if (verificationUriLink) verificationUriLink.href = openUrl;
+      window.open(openUrl, "_blank", "noopener,noreferrer");
+      setLinkStatus(data.message || "Enter the code on TAK.gov if needed, then click Step 2: Link account.", true);
       if (data.linkCodeExpiry) {
         const interval = setInterval(function () {
           const sec = Math.max(0, Math.floor((data.linkCodeExpiry - Date.now()) / 1000));
