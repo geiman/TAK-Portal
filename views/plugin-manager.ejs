@@ -303,17 +303,32 @@
         if (!pluginItem || !pluginItem.apk_url) return;
         btn.disabled = true;
         btn.textContent = "Adding…";
+        setMarketplaceMsg("", true);
         fetch("/api/plugins/takgov/download", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ plugin: pluginItem }),
         })
-          .then(function (res) { return res.json().then(function (data) { return { res, data }; }); })
+          .then(function (res) {
+            return res.text().then(function (text) {
+              var data = {};
+              try { data = text ? JSON.parse(text) : {}; } catch (_) {}
+              return { res, data, text };
+            });
+          })
           .then(function (_ref) {
             const res = _ref.res;
             const data = _ref.data;
-            if (!res.ok) throw new Error(data.error || "Download failed");
+            const text = _ref.text;
+            const errMsg = (data && data.error) || (typeof text === "string" && text.slice(0, 200)) || "Download failed";
+            if (!res.ok) {
+              setMarketplaceMsg(errMsg, false);
+              btn.textContent = "Add to server";
+              btn.disabled = false;
+              return;
+            }
             btn.textContent = "Added";
+            setMarketplaceMsg("Plugin added to server.", true);
             loadState();
           })
           .catch(function (err) {
