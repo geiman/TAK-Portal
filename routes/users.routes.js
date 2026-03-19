@@ -686,6 +686,26 @@ router.get("/search", async (req, res) => {
             throw new Error("Delegated agency filter returned no results; falling back");
           }
 
+          // If total differs from a username-suffix search, our `attributes.agency`
+          // filter is likely under-matching (e.g., older users missing the attribute).
+          // In that case, fall back to the legacy in-memory paging for correctness.
+          // Only run the extra check when the attribute-filtered total is
+          // suspiciously small for the requested page size.
+          if (totalAgencyAll <= pageSize) {
+            const approxByUsernameSuffix = await users.searchUsersPaged({
+              q: agencySuffixToDelegate,
+              page: 1,
+              pageSize: 1,
+              sortKey,
+              sortDir,
+            }).catch(() => null);
+
+            const totalApprox = Number(approxByUsernameSuffix?.total || 0);
+            if (totalApprox > totalAgencyAll) {
+              throw new Error("Delegated agency filter under-matched; falling back");
+            }
+          }
+
           let totalVisible = totalAgencyAll;
 
           // Exact exclusion count: global admins in this agency.
