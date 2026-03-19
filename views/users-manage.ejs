@@ -47,6 +47,7 @@
             placeholder="Min 12 characters: upper, lower, number, and symbol"
             minlength="12"
             pattern="(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[^A-Za-z0-9]).{12,}"
+            autocomplete="new-password"
           />
           <button
             type="button"
@@ -198,8 +199,20 @@
 
             <label>Reset Password</label>
             <div class="grid2" style="margin-top:6px;">
-              <input id="pw1" type="password" placeholder="New password" />
-              <input id="pw2" type="password" placeholder="Confirm password" />
+              <input
+                id="pw1"
+                name="newPassword"
+                type="password"
+                placeholder="New password"
+                autocomplete="new-password"
+              />
+              <input
+                id="pw2"
+                name="confirmPassword"
+                type="password"
+                placeholder="Confirm password"
+                autocomplete="new-password"
+              />
             </div>
 
             <div class="row" style="gap:10px; margin-top:10px;">
