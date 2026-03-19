@@ -12,6 +12,10 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.52 - 3/19/26
+✨ `Enhancement` - Added the ability for global admins to filter the users page by agency.<br>
+🐛 `Bug Fix` - Fixes issue with Global Admins seeing user pages with less than 25 users.
+
 ### v1.2.51 - 3/18/26
 🐛 `Bug Fix` - Attempts to improve load times on the users page by moving more queries to Authentik.
 
