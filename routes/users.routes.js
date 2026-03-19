@@ -756,6 +756,7 @@ router.get("/search", async (req, res) => {
           let totalVisible = totalAgencyAll;
 
           // Exact exclusion count: global admins in this agency.
+          let globalAdminsCount = 0;
           if (globalAdminGroupPks.length) {
             const totalGlobalAdminsRes = await users.searchUsersByAgencyAbbreviationPaged({
               agencyAbbreviation: agencyAbbreviationToDelegate,
@@ -768,7 +769,7 @@ router.get("/search", async (req, res) => {
               includeRoles: false,
             });
 
-            const globalAdminsCount = Number(totalGlobalAdminsRes?.total || 0);
+            globalAdminsCount = Number(totalGlobalAdminsRes?.total || 0);
             totalVisible = Math.max(0, totalVisible - globalAdminsCount);
 
             console.log(
@@ -783,6 +784,31 @@ router.get("/search", async (req, res) => {
 
           const totalPages = Math.max(1, Math.ceil(totalVisible / pageSize));
           const page = Math.min(currentPageRequested, totalPages);
+
+          // If there are no global admins in this agency slice, we can avoid the
+          // "fill while skipping" loop entirely and just return Authentik's
+          // server-side page directly.
+          if (globalAdminsCount === 0) {
+            const pageRes = await users.searchUsersByAgencyAbbreviationPaged({
+              agencyAbbreviation: agencyAbbreviationToDelegate,
+              q: "",
+              page,
+              pageSize,
+              sortKey,
+              sortDir,
+              includeRoles: false,
+              includeGroups: true,
+            });
+
+            return res.json({
+              users: Array.isArray(pageRes?.users) ? pageRes.users : [],
+              total: totalVisible,
+              page: Number(pageRes?.page || page),
+              pageSize,
+              hasNext: !!pageRes?.hasNext,
+              hasPrev: !!pageRes?.hasPrev,
+            });
+          }
 
           const startFiltered = (page - 1) * pageSize;
           const endFilteredExclusive = startFiltered + pageSize;
