@@ -103,12 +103,6 @@
       id="searchForm"
       style="margin:0; display:flex; align-items:center; gap:12px; flex-wrap:wrap;"
     >
-      <input
-        id="q"
-        placeholder="Search username, email, name, or agency..."
-        style="margin: 10px 0; flex: 1; min-width: 260px; width: auto; box-sizing: border-box;"
-        autocomplete="off"
-      />
       <% if (isGlobalAdmin) { %>
         <select
           id="filterAgencySelect"
@@ -116,6 +110,12 @@
           style="margin: 10px 0; min-width: 260px;"
         ></select>
       <% } %>
+      <input
+        id="q"
+        placeholder="Search username, email, name, or agency..."
+        style="margin: 10px 0; flex: 1; min-width: 260px; width: auto; box-sizing: border-box;"
+        autocomplete="off"
+      />
     </form>
 
     <div id="msg" class="msg"></div>
@@ -400,20 +400,45 @@ async function loadAgencies() {
   const agencies = await res.json();
   if (!res.ok) throw new Error(agencies.error || "Failed to load agencies");
 
-  const agencyOptions = agencies
+  const list = Array.isArray(agencies) ? agencies : [];
+  const sortedByName = list
     .slice()
-    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")))
+    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+
+  // Create-form dropdown (existing behavior): show suffix in parentheses.
+  agencySelect.innerHTML = sortedByName
     .map(
       (a) =>
         `<option value="${esc(a.suffix)}">${esc(a.name)} (${esc(a.suffix)})</option>`
     )
     .join("");
 
-  agencySelect.innerHTML = agencyOptions;
-
   // Global-admin-only: filter dropdown for the results table.
   if (filterAgencySelect) {
-    filterAgencySelect.innerHTML = `<option value="">All Agencies</option>${agencyOptions}`;
+    const prevVal = String(filterAgencySelect.value || "");
+    const filterOptions = sortedByName
+      .map((a) => {
+        const abbr = a.groupPrefix || a.suffix || "";
+        // IMPORTANT: option value is still the agency `suffix` because the
+        // backend expects `agencySuffix`, not abbreviation/groupPrefix.
+        return `<option value="${esc(a.suffix)}">${esc(a.name)} (${esc(abbr)})</option>`;
+      })
+      .join("");
+
+    filterAgencySelect.innerHTML = `<option value="">All Agencies</option>${filterOptions}`;
+
+    // Restore selection if still present.
+    if (prevVal) filterAgencySelect.value = prevVal;
+
+    // If there are many agencies, make the dropdown scrollable via
+    // a listbox-style select (`size` + constrained height).
+    if (sortedByName.length > 10) {
+      filterAgencySelect.size = 10;
+      filterAgencySelect.style.maxHeight = "220px";
+    } else {
+      filterAgencySelect.size = 1;
+      filterAgencySelect.style.maxHeight = "";
+    }
   }
 }
 
