@@ -520,6 +520,31 @@ router.get("/search", async (req, res) => {
 
     const authUser = req.authentikUser || null;
     const access = accessSvc.getAgencyAccess(authUser);
+
+    // ---------------- AUTHENTIK-DELEGATED FAST PATH ----------------
+    // Major win: if the search box is empty, we can let Authentik do
+    // ordering + pagination server-side (instead of fetching all users
+    // into Node and sorting/paging in-memory).
+    //
+    // Keep this intentionally limited to avoid breaking search semantics.
+    const qVal = String(q || "").trim();
+    const sortableKeysForAuthentik = new Set(["username", "name", "email", "status"]);
+
+    if (access.isGlobalAdmin && !qVal && sortableKeysForAuthentik.has(sortKey)) {
+      try {
+        const delegated = await users.searchUsersPaged({
+          q: "",
+          page: requestedPage,
+          pageSize,
+          sortKey,
+          sortDir,
+        });
+        return res.json(delegated);
+      } catch (e) {
+        // Fall back to the legacy in-memory implementation below.
+      }
+    }
+
     // ----- ROLE + SORT HELPERS -----
     // Cache resolved Global Admin group PKs so we don't have to re-fetch all
     // groups on every page load.

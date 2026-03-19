@@ -1476,11 +1476,32 @@ async function findUsers({ q, forceRefresh = false } = {}) {
   });
 }
 
-async function searchUsersPaged({ q, page = 1, pageSize = 50 } = {}) {
+function getAuthentikOrderingForUserSort({ sortKey, sortDir } = {}) {
+  const key = String(sortKey || "").toLowerCase();
+  const dir = String(sortDir || "asc").toLowerCase() === "desc" ? "desc" : "asc";
+
+  // These are expected to match Authentik's User model fields for ordering.
+  // If we can't map a sortKey safely, caller should avoid delegating.
+  let orderingField = "username";
+  if (key === "username") orderingField = "username";
+  else if (key === "name") orderingField = "name";
+  else if (key === "email") orderingField = "email";
+  else if (key === "status") orderingField = "is_active";
+
+  return dir === "desc" ? `-${orderingField}` : orderingField;
+}
+
+async function searchUsersPaged({
+  q,
+  page = 1,
+  pageSize = 50,
+  sortKey = "username",
+  sortDir = "asc",
+} = {}) {
   const params = {
     page,
     page_size: pageSize,
-    ordering: "username",
+    ordering: getAuthentikOrderingForUserSort({ sortKey, sortDir }),
   };
 
   // IMPORTANT: Keep pagination totals accurate without extra API calls.
