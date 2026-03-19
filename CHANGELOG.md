@@ -15,7 +15,7 @@ Planned features can be accessed [here](docs/roadmap.md)
 ### v1.2.53 - 3/19/26
 ✨ `Enhancement` - Adds filters to groups page<br>
 ✨ `Enhancement` - Adds filters and search bar to templates page<br>
-🐛 `Bug Fix` - Fixes issue with Portal Auth breaking allowed agency suffix logic
+🐛 `Bug Fix` - Fixes issue with Portal Auth breaking allowed agency suffix logic if portal auth is disabled
 
 ### v1.2.52 - 3/19/26
 ✨ `Enhancement` - Added the ability for global admins to filter the users page by agency.<br>
