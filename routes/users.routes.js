@@ -649,13 +649,17 @@ router.get("/search", async (req, res) => {
     const access = accessSvc.getAgencyAccess(authUser);
 
     // ---------------- AUTHENTIK-DELEGATED FAST PATH ----------------
-    // Major win: if the search box is empty, we can let Authentik do
-    // ordering + pagination server-side (instead of fetching all users
-    // into Node and sorting/paging in-memory).
-    //
-    // Keep this intentionally limited to avoid breaking search semantics.
+    // Major win: let Authentik do ordering + pagination server-side
+    // (instead of fetching all users into Node and sorting/paging in-memory).
     const qVal = String(q || "").trim();
-    const sortableKeysForAuthentik = new Set(["username", "name", "email", "status"]);
+    // Authentik can order by the underlying user fields, but our UI's "name"
+    // sort uses a last-name-first derived value (see `lastNameForSort()` in
+    // users-manage.ejs). For empty search we allow delegation (page order is
+    // less confusing); for non-empty search we restrict delegation to avoid
+    // "looks wrong" paging/sorting issues.
+    const sortableKeysForAuthentikEmptyQ = new Set(["username", "name", "email", "status"]);
+    const sortableKeysForAuthentikWithQ = new Set(["username", "email", "status"]);
+    const sortableKeysForAuthentik = qVal ? sortableKeysForAuthentikWithQ : sortableKeysForAuthentikEmptyQ;
 
     if (access.isGlobalAdmin && sortableKeysForAuthentik.has(sortKey)) {
       try {
