@@ -1713,6 +1713,120 @@ async function searchUsersByAgencyAbbreviationPaged({
   };
 }
 
+async function searchUsersByAgencySuffixPaged({
+  agencySuffix,
+  q,
+  page = 1,
+  pageSize = 50,
+  sortKey = "username",
+  sortDir = "asc",
+  groupsByPk,
+  includeRoles = false,
+} = {}) {
+  const sfx = String(agencySuffix || "").trim();
+  if (!sfx) {
+    return {
+      users: [],
+      total: 0,
+      page: 1,
+      pageSize,
+      hasNext: false,
+      hasPrev: false,
+    };
+  }
+
+  const hiddenPrefixes = getHiddenUserPrefixes();
+  const folderRaw = String(getString("AUTHENTIK_USER_PATH", "")).trim();
+
+  const params = {
+    page,
+    page_size: pageSize,
+    ordering: getAuthentikOrderingForUserSort({ sortKey, sortDir }),
+    // Authentik stores the `agency` suffix in user.attributes.agency (set at create-user time)
+    [`attributes__agency`]: sfx,
+    include_roles: includeRoles ? "true" : "false",
+  };
+
+  // Reduce payload + align pagination totals with what the UI is allowed to see.
+  if (hiddenPrefixes.length) {
+    // Match the logic used by searchUsersPaged() so totals reflect visible users.
+    params.type = ["external", "internal"];
+  }
+
+  if (folderRaw) {
+    params.path_startswith = normalizePath(folderRaw);
+  }
+
+  if (Array.isArray(groupsByPk) && groupsByPk.length) {
+    params.groups_by_pk = groupsByPk.map((x) => String(x).trim()).filter(Boolean);
+  }
+
+  if (q && String(q).trim()) {
+    // For this fast path, we generally call with q empty (to preserve semantics).
+    params.search = String(q).trim();
+  }
+
+  const res = await api.get("/core/users/", { params });
+  const data = res?.data || {};
+  const raw = Array.isArray(data.results) ? data.results : [];
+
+  // Keep the same hidden-prefix/path enforcement as other paged helpers
+  let users = raw.slice();
+
+  // Apply prefix filter as a safety net in case the instance has custom naming.
+  if (hiddenPrefixes.length) {
+    users = users.filter((u) => {
+      const username = String(u?.username || "").trim().toLowerCase();
+      return !hiddenPrefixes.some((p) => username.startsWith(p));
+    });
+  }
+
+  if (folderRaw) {
+    const target = normalizePath(folderRaw);
+    users = users.filter((u) => {
+      const up = normalizePath(u.path);
+      return up === target || up.startsWith(target + "/");
+    });
+  }
+
+  const pagination = data.pagination || {};
+  let total = 0;
+
+  if (pagination && pagination.count != null) {
+    const t = Number(pagination.count);
+    if (!Number.isNaN(t) && t >= 0) total = t;
+  }
+
+  if (!total && data && data.count != null) {
+    const c = Number(data.count);
+    if (!Number.isNaN(c) && c >= 0) total = c;
+  }
+
+  if (!total) total = users.length;
+
+  // Adjust downward for hidden-prefix filtering when it affected this page.
+  if (hiddenPrefixes.length) {
+    const filteredOnPage = raw.length - users.length;
+    if (filteredOnPage > 0 && total >= filteredOnPage) {
+      total = total - filteredOnPage;
+    }
+  }
+
+  const currentPage =
+    typeof pagination.current === "number"
+      ? pagination.current
+      : Number(params.page) || 1;
+
+  return {
+    users,
+    total,
+    page: currentPage,
+    pageSize,
+    hasNext: Boolean(pagination.next ?? data.next),
+    hasPrev: Boolean(pagination.previous ?? data.previous),
+  };
+}
+
 async function resetPassword(userId, password) {
   await assertUserNotActionLocked(userId);
   const err = validatePassword(password);
@@ -2031,6 +2145,7 @@ module.exports = {
   findUsers,
   searchUsersPaged,
   searchUsersByAgencyAbbreviationPaged,
+  searchUsersByAgencySuffixPaged,
   resetPassword,
   resendOnboardingEmail,
   updateEmail,

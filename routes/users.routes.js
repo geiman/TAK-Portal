@@ -545,6 +545,126 @@ router.get("/search", async (req, res) => {
       }
     }
 
+    // Agency-admin delegated fast path:
+    // - Empty search box (to preserve semantics)
+    // - Supported sorts (to safely delegate ordering)
+    // - Filter by Authentik user attribute `attributes.agency` (set at create time)
+    if (!access.isGlobalAdmin && access.isAgencyAdmin && sortableKeysForAuthentik.has(sortKey) && !qVal) {
+      const allowedSuffixes = Array.isArray(access.allowedAgencySuffixes)
+        ? access.allowedAgencySuffixes.map((s) => String(s || "").trim().toLowerCase()).filter(Boolean)
+        : [];
+
+      const requestedAgencySuffix = String(req.query.agencySuffix || "")
+        .trim()
+        .toLowerCase();
+
+      const agencySuffixToDelegate =
+        (requestedAgencySuffix && allowedSuffixes.includes(requestedAgencySuffix))
+          ? requestedAgencySuffix
+          : (allowedSuffixes.length === 1 ? allowedSuffixes[0] : "");
+
+      if (agencySuffixToDelegate) {
+        try {
+          const currentPageRequested = requestedPage < 1 ? 1 : requestedPage;
+
+          const globalAdminGroupPks = await getGlobalAdminGroupPks();
+          const globalAdminSet = new Set(globalAdminGroupPks.map(String));
+
+          // Total across the agency set (includes global admins).
+          const totalAgencyAllRes = await users.searchUsersByAgencySuffixPaged({
+            agencySuffix: agencySuffixToDelegate,
+            q: "",
+            page: 1,
+            pageSize: 1,
+            sortKey,
+            sortDir,
+            includeRoles: false,
+          });
+
+          const totalAgencyAll = Number(totalAgencyAllRes?.total || 0);
+          // Safety: if Authentik returns 0 for the attribute-filtered query,
+          // the portal attributes might not exist on existing users.
+          // Fall back to the legacy username-suffix filtering to avoid omissions.
+          if (totalAgencyAll === 0) {
+            throw new Error("Delegated agency filter returned no results; falling back");
+          }
+
+          let totalVisible = totalAgencyAll;
+
+          // Exact exclusion count: global admins in this agency.
+          if (globalAdminGroupPks.length) {
+            const totalGlobalAdminsRes = await users.searchUsersByAgencySuffixPaged({
+              agencySuffix: agencySuffixToDelegate,
+              q: "",
+              page: 1,
+              pageSize: 1,
+              sortKey,
+              sortDir,
+              groupsByPk: globalAdminGroupPks,
+              includeRoles: false,
+            });
+
+            const globalAdminsCount = Number(totalGlobalAdminsRes?.total || 0);
+            totalVisible = Math.max(0, totalVisible - globalAdminsCount);
+          }
+
+          const totalPages = Math.max(1, Math.ceil(totalVisible / pageSize));
+          const page = Math.min(currentPageRequested, totalPages);
+
+          const startFiltered = (page - 1) * pageSize;
+          const endFilteredExclusive = startFiltered + pageSize;
+
+          // Fill the requested page, skipping global-admin users in order.
+          const internalPageSize = Math.max(pageSize * 4, 100);
+          let unfilteredPage = 1;
+          let filteredIndex = 0; // counts non-global-admin users only
+          const returned = [];
+
+          while (returned.length < pageSize) {
+            const pageRes = await users.searchUsersByAgencySuffixPaged({
+              agencySuffix: agencySuffixToDelegate,
+              q: "",
+              page: unfilteredPage,
+              pageSize: internalPageSize,
+              sortKey,
+              sortDir,
+              includeRoles: false,
+            });
+
+            const rows = Array.isArray(pageRes?.users) ? pageRes.users : [];
+            if (!rows.length) break;
+
+            for (const u of rows) {
+              const uGroups = Array.isArray(u?.groups) ? u.groups.map(String) : [];
+              const isGlobal = uGroups.some((gid) => globalAdminSet.has(gid));
+              if (isGlobal) continue;
+
+              if (filteredIndex >= startFiltered && filteredIndex < endFilteredExclusive) {
+                returned.push(u);
+              }
+              filteredIndex += 1;
+
+              if (returned.length >= pageSize) break;
+            }
+
+            if (!pageRes?.hasNext) break;
+            unfilteredPage += 1;
+          }
+
+          return res.json({
+            users: returned,
+            total: totalVisible,
+            page,
+            pageSize,
+            hasNext: page < totalPages,
+            hasPrev: page > 1,
+          });
+        } catch (e) {
+          // Fall back to the legacy in-memory implementation below.
+        }
+      }
+    }
+
     // ----- ROLE + SORT HELPERS -----
     // Cache resolved Global Admin group PKs so we don't have to re-fetch all
     // groups on every page load.

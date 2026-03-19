@@ -699,7 +699,8 @@ async function massUnassignUsersFromGroup({ groupId, suffixes, sourceGroupIds, u
 // In-memory TTL cache:
 // Groups are read far more often than they change, so caching them drastically
 // speeds up endpoints used by the Users page without cutting functionality.
-const GROUPS_CACHE_TTL_MS = (getInt("GROUPS_CACHE_TTL_SECONDS", 60) || 0) * 1000;
+// Default: disabled. Enable by setting GROUPS_CACHE_TTL_SECONDS>0 in env.
+const GROUPS_CACHE_TTL_MS = (getInt("GROUPS_CACHE_TTL_SECONDS", 0) || 0) * 1000;
 let GROUPS_CACHE_BY_INCLUDE_HIDDEN = {
   true: { data: null, loadedAt: 0 },
   false: { data: null, loadedAt: 0 },
