@@ -1370,10 +1370,44 @@ async function ensureAgencyAdminIdsForUsers(users){
 
   for (const abbr of uniq){
     if (agencyAdminGroupIdByAbbr.has(abbr)) continue;
-    // Look up from the prebuilt index (scan groups only once per page load).
-    const index = await ensureAgencyAdminGroupIdIndex();
-    const id = index.has(abbr) ? index.get(abbr) : null;
-    agencyAdminGroupIdByAbbr.set(abbr, id || null);
+    // Only global admins can access the full "all-groups-hidden" list.
+    // For agency admins, resolve via a safe endpoint that filters to the
+    // viewer's allowed agencies.
+    if (IS_GLOBAL_ADMIN) {
+      const index = await ensureAgencyAdminGroupIdIndex();
+      const id = index.has(abbr) ? index.get(abbr) : null;
+      agencyAdminGroupIdByAbbr.set(abbr, id ? [id] : []);
+      continue;
+    }
+
+    // Lazy-load a map for agency admins (covers all abbreviations on this page).
+    if (!agencyAdminGroupIdIndexByAbbr) {
+      try {
+        const res = await fetch(
+          "/api/users/agency-admin-group-ids?abbreviations=" +
+            encodeURIComponent(Array.from(uniq).join(","))
+        );
+        const out = await res.json();
+        const map = new Map();
+        if (res.ok && out && typeof out === "object") {
+          for (const [k, v] of Object.entries(out)) {
+            const key = String(k || "").trim().toUpperCase();
+            const arr = Array.isArray(v) ? v.map(String) : [];
+            map.set(key, arr);
+          }
+        }
+        agencyAdminGroupIdIndexByAbbr = map;
+      } catch (e) {
+        // If this lookup fails, role labeling may degrade but the page
+        // remains functional.
+        agencyAdminGroupIdIndexByAbbr = new Map();
+      }
+    }
+
+    const arr = agencyAdminGroupIdIndexByAbbr.has(abbr)
+      ? agencyAdminGroupIdIndexByAbbr.get(abbr)
+      : [];
+    agencyAdminGroupIdByAbbr.set(abbr, Array.isArray(arr) ? arr : []);
   }
 }
 
@@ -1391,9 +1425,12 @@ function roleForUser(user){
 
   // 2 Agency Admin
   const abbr = String(getUserAgencyAbbreviation(user) || '').trim().toUpperCase();
-  const adminId = abbr ? agencyAdminGroupIdByAbbr.get(abbr) : null;
+  const adminIds = abbr ? agencyAdminGroupIdByAbbr.get(abbr) : null;
+  const hasAgencyAdmin = Array.isArray(adminIds)
+    ? adminIds.some(id => groups.includes(String(id)))
+    : (adminIds ? groups.includes(String(adminIds)) : false);
 
-  if (adminId && groups.includes(String(adminId))) {
+  if (hasAgencyAdmin) {
     return "Agency Admin";
   }
 
@@ -1655,9 +1692,12 @@ window.editUser = async (userPk) => {
     }
 
     if (abbrForSelected) {
-      const hasAdmin = adminGroupId
-        ? (selectedUser.groups || []).some(gid => String(gid) === String(adminGroupId))
-        : false;
+      const adminIds = adminGroupId;
+      const hasAdmin = Array.isArray(adminIds)
+        ? adminIds.some(id => (selectedUser.groups || []).some(gid => String(gid) === String(id)))
+        : (adminIds
+            ? (selectedUser.groups || []).some(gid => String(gid) === String(adminIds))
+            : false);
       // Only overwrite selection if not already set to global_admin above.
       if (permissionsSelect.value !== "global_admin") {
         permissionsSelect.value = hasAdmin ? "agency_admin" : "user";
@@ -1706,7 +1746,8 @@ if (applyPermissionsBtn) applyPermissionsBtn.addEventListener("click", async () 
   // Agency Admin group (per-user, derived from agency abbreviation, using cached ids)
   const abbr = String(getUserAgencyAbbreviation(selectedUser) || "").trim().toUpperCase();
   let adminGroupId = abbr ? agencyAdminGroupIdByAbbr.get(abbr) : null;
-  if (!adminGroupId && abbr) {
+  const adminGroupIdsEmpty = Array.isArray(adminGroupId) ? !adminGroupId.length : !adminGroupId;
+  if (adminGroupIdsEmpty && abbr) {
     // Try to resolve once more from Authentik if cache is empty
     await ensureAgencyAdminIdsForUsers([selectedUser]);
     adminGroupId = agencyAdminGroupIdByAbbr.get(abbr) || null;
@@ -1721,17 +1762,26 @@ if (applyPermissionsBtn) applyPermissionsBtn.addEventListener("click", async () 
 
   if (desired === "agency_admin" || desired === "user") {
     // Agency-admin changes require a resolvable agency admin group.
-    if (!abbr || !adminGroupId) {
+    const hasAdminGroup = Array.isArray(adminGroupId) ? adminGroupId.length > 0 : !!adminGroupId;
+    if (!abbr || !hasAdminGroup) {
       setMsgEl(actionMsg, "Cannot set Agency Admin/User: user has no agency abbreviation (or group missing).", false);
       return;
     }
   }
 
   if (desired === "user") {
-    if (adminGroupId) toRemove.add(String(adminGroupId));
+    if (Array.isArray(adminGroupId)) {
+      adminGroupId.forEach(id => toRemove.add(String(id)));
+    } else if (adminGroupId) {
+      toRemove.add(String(adminGroupId));
+    }
     globalIds.forEach(id => toRemove.add(String(id)));
   } else if (desired === "agency_admin") {
-    if (adminGroupId) toAdd.add(String(adminGroupId));
+    if (Array.isArray(adminGroupId)) {
+      adminGroupId.forEach(id => toAdd.add(String(id)));
+    } else if (adminGroupId) {
+      toAdd.add(String(adminGroupId));
+    }
     globalIds.forEach(id => toRemove.add(String(id)));
   } else if (desired === "global_admin") {
     if (!globalIds.length) {
@@ -1743,7 +1793,9 @@ if (applyPermissionsBtn) applyPermissionsBtn.addEventListener("click", async () 
     globalIds.forEach(id => toAdd.add(String(id)));
 
     // If user is currently an agency admin, remove that group
-    if (adminGroupId) {
+    if (Array.isArray(adminGroupId)) {
+      adminGroupId.forEach(id => toRemove.add(String(id)));
+    } else if (adminGroupId) {
       toRemove.add(String(adminGroupId));
     }
   }
