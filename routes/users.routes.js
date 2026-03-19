@@ -699,6 +699,7 @@ router.get("/search", async (req, res) => {
           );
 
           // Total across the agency set (includes global admins).
+          const tTotalAgencyAllStart = Date.now();
           const totalAgencyAllRes = await users.searchUsersByAgencyAbbreviationPaged({
             agencyAbbreviation: agencyAbbreviationToDelegate,
             q: "",
@@ -708,6 +709,7 @@ router.get("/search", async (req, res) => {
             sortDir,
             includeRoles: false,
           });
+          const tTotalAgencyAllMs = Date.now() - tTotalAgencyAllStart;
 
           const totalAgencyAll = Number(totalAgencyAllRes?.total || 0);
           // Safety: if Authentik returns 0 for the attribute-filtered query,
@@ -723,6 +725,7 @@ router.get("/search", async (req, res) => {
               totalAgencyAll,
               delegatedTotalPageFromQuery: totalAgencyAllRes?.page,
               delegatedHasNext: totalAgencyAllRes?.hasNext,
+              totalAgencyAllMs: tTotalAgencyAllMs,
             })
           );
 
@@ -758,6 +761,7 @@ router.get("/search", async (req, res) => {
           // Exact exclusion count: global admins in this agency.
           let globalAdminsCount = 0;
           if (globalAdminGroupPks.length) {
+            const tGlobalStart = Date.now();
             const totalGlobalAdminsRes = await users.searchUsersByAgencyAbbreviationPaged({
               agencyAbbreviation: agencyAbbreviationToDelegate,
               q: "",
@@ -768,6 +772,7 @@ router.get("/search", async (req, res) => {
               groupsByPk: globalAdminGroupPks,
               includeRoles: false,
             });
+            const tGlobalMs = Date.now() - tGlobalStart;
 
             globalAdminsCount = Number(totalGlobalAdminsRes?.total || 0);
             totalVisible = Math.max(0, totalVisible - globalAdminsCount);
@@ -778,6 +783,7 @@ router.get("/search", async (req, res) => {
                 globalAdminsCount,
                 totalVisible,
                 globalAdminGroupPks: globalAdminGroupPks.map(String),
+                globalAdminsExclusionMs: tGlobalMs,
               })
             );
           }
@@ -789,6 +795,7 @@ router.get("/search", async (req, res) => {
           // "fill while skipping" loop entirely and just return Authentik's
           // server-side page directly.
           if (globalAdminsCount === 0) {
+            const tPageResStart = Date.now();
             const pageRes = await users.searchUsersByAgencyAbbreviationPaged({
               agencyAbbreviation: agencyAbbreviationToDelegate,
               q: "",
@@ -799,6 +806,7 @@ router.get("/search", async (req, res) => {
               includeRoles: false,
               includeGroups: true,
             });
+            const tPageResMs = Date.now() - tPageResStart;
 
             return res.json({
               users: Array.isArray(pageRes?.users) ? pageRes.users : [],
