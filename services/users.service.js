@@ -1625,6 +1625,11 @@ async function searchUsersByAgencyAbbreviationPaged({
   q,
   page = 1,
   pageSize = 50,
+  sortKey = "username",
+  sortDir = "asc",
+  groupsByPk,
+  includeRoles = false,
+  includeGroups = true,
 } = {}) {
   const abbr = String(agencyAbbreviation || "").trim();
   if (!abbr) {
@@ -1638,14 +1643,32 @@ async function searchUsersByAgencyAbbreviationPaged({
     };
   }
 
+  const hiddenPrefixes = getHiddenUserPrefixes();
+  const folderRaw = String(getString("AUTHENTIK_USER_PATH", "")).trim();
+
   const params = {
     page,
     page_size: pageSize,
-    ordering: "username",
+    ordering: getAuthentikOrderingForUserSort({ sortKey, sortDir }),
     // Authentik filters JSON attributes via `attributes=<json>`.
     // See authentik/core/api/users.py UsersFilter.filter_attributes().
     attributes: JSON.stringify({ agency_abbreviation: abbr }),
+    include_roles: includeRoles ? "true" : "false",
+    include_groups: includeGroups ? "true" : "false",
   };
+
+  // Reduce payload + align pagination totals with what the UI is allowed to see.
+  if (hiddenPrefixes.length) {
+    params.type = ["external", "internal"];
+  }
+
+  if (folderRaw) {
+    params.path_startswith = normalizePath(folderRaw);
+  }
+
+  if (Array.isArray(groupsByPk) && groupsByPk.length) {
+    params.groups_by_pk = groupsByPk.map((x) => String(x).trim()).filter(Boolean);
+  }
 
   if (q && String(q).trim()) {
     // Authentik supports "search" across username/email/etc.
@@ -1654,16 +1677,10 @@ async function searchUsersByAgencyAbbreviationPaged({
 
   const res = await api.get("/core/users/", { params });
   const data = res?.data || {};
-  let users = Array.isArray(data.results) ? data.results : [];
+  const raw = Array.isArray(data.results) ? data.results : [];
 
   // Apply the same hidden-prefix/path filters used elsewhere.
-  const hiddenPrefixesRaw = String(getString("USERS_HIDDEN_PREFIXES", "")).trim();
-  const hiddenPrefixes = hiddenPrefixesRaw
-    ? hiddenPrefixesRaw
-        .split(",")
-        .map((x) => String(x).trim().toLowerCase())
-        .filter(Boolean)
-    : [];
+  let users = raw.slice();
 
   if (hiddenPrefixes.length) {
     users = users.filter((u) => {
@@ -1672,7 +1689,6 @@ async function searchUsersByAgencyAbbreviationPaged({
     });
   }
 
-  const folderRaw = String(getString("AUTHENTIK_USER_PATH", "")).trim();
   if (folderRaw) {
     const target = normalizePath(folderRaw);
     users = users.filter((u) => {
@@ -1697,6 +1713,14 @@ async function searchUsersByAgencyAbbreviationPaged({
   }
 
   if (!total) total = users.length;
+
+  // Adjust downward for hidden-prefix filtering when it affected this page.
+  if (hiddenPrefixes.length) {
+    const filteredOnPage = raw.length - users.length;
+    if (filteredOnPage > 0 && total >= filteredOnPage) {
+      total = total - filteredOnPage;
+    }
+  }
 
   const currentPage =
     typeof pagination.current === "number"

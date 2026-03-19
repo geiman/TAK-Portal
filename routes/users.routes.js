@@ -645,7 +645,8 @@ router.get("/search", async (req, res) => {
     // Agency-admin delegated fast path:
     // - Empty search box (to preserve semantics)
     // - Supported sorts (to safely delegate ordering)
-    // - Filter by Authentik user attribute `attributes.agency` (set at create time)
+    // - Filter by Authentik user attribute `attributes.agency_abbreviation`
+    //   (set on user creation and generally present on older users too)
     if (!access.isGlobalAdmin && access.isAgencyAdmin && sortableKeysForAuthentik.has(sortKey) && !qVal) {
       const allowedSuffixes = Array.isArray(access.allowedAgencySuffixes)
         ? access.allowedAgencySuffixes.map((s) => String(s || "").trim().toLowerCase()).filter(Boolean)
@@ -664,12 +665,27 @@ router.get("/search", async (req, res) => {
         try {
           const currentPageRequested = requestedPage < 1 ? 1 : requestedPage;
 
+          const agencies = require("../services/agencies.service").load();
+          const agencyForSuffix = (Array.isArray(agencies) ? agencies : []).find(
+            a =>
+              String(a?.suffix || "")
+                .trim()
+                .toLowerCase() === String(agencySuffixToDelegate).trim().toLowerCase()
+          );
+          const agencyAbbreviationToDelegate = agencyForSuffix
+            ? String(agencyForSuffix.groupPrefix || "").trim()
+            : "";
+
+          if (!agencyAbbreviationToDelegate) {
+            throw new Error("Could not map agency suffix to groupPrefix");
+          }
+
           const globalAdminGroupPks = await getGlobalAdminGroupPks();
           const globalAdminSet = new Set(globalAdminGroupPks.map(String));
 
           // Total across the agency set (includes global admins).
-          const totalAgencyAllRes = await users.searchUsersByAgencySuffixPaged({
-            agencySuffix: agencySuffixToDelegate,
+          const totalAgencyAllRes = await users.searchUsersByAgencyAbbreviationPaged({
+            agencyAbbreviation: agencyAbbreviationToDelegate,
             q: "",
             page: 1,
             pageSize: 1,
@@ -686,14 +702,14 @@ router.get("/search", async (req, res) => {
             throw new Error("Delegated agency filter returned no results; falling back");
           }
 
-          // If total differs from a username-suffix search, our `attributes.agency`
+          // If total differs from a username-suffix search, our `attributes.agency_abbreviation`
           // filter is likely under-matching (e.g., older users missing the attribute).
           // In that case, fall back to the legacy in-memory paging for correctness.
           // Only run the extra check when the attribute-filtered total is
           // suspiciously small for the requested page size.
           if (totalAgencyAll <= pageSize) {
             const approxByUsernameSuffix = await users.searchUsersPaged({
-              q: agencySuffixToDelegate,
+              q: agencyAbbreviationToDelegate,
               page: 1,
               pageSize: 1,
               sortKey,
@@ -710,8 +726,8 @@ router.get("/search", async (req, res) => {
 
           // Exact exclusion count: global admins in this agency.
           if (globalAdminGroupPks.length) {
-            const totalGlobalAdminsRes = await users.searchUsersByAgencySuffixPaged({
-              agencySuffix: agencySuffixToDelegate,
+            const totalGlobalAdminsRes = await users.searchUsersByAgencyAbbreviationPaged({
+              agencyAbbreviation: agencyAbbreviationToDelegate,
               q: "",
               page: 1,
               pageSize: 1,
@@ -738,8 +754,8 @@ router.get("/search", async (req, res) => {
           const returned = [];
 
           while (returned.length < pageSize) {
-            const pageRes = await users.searchUsersByAgencySuffixPaged({
-              agencySuffix: agencySuffixToDelegate,
+            const pageRes = await users.searchUsersByAgencyAbbreviationPaged({
+              agencyAbbreviation: agencyAbbreviationToDelegate,
               q: "",
               page: unfilteredPage,
               pageSize: internalPageSize,
