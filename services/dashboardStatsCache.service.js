@@ -115,7 +115,7 @@ async function refreshNow() {
   try {
     // Authentik data
     const [users, groups] = await Promise.all([
-      usersService.getAllUsers(),
+      usersService.getAllUsersLightweight(),
       groupsService.getAllGroups(), // <-- use portal logic
     ]);
 

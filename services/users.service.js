@@ -808,6 +808,54 @@ async function getAllUsersRaw(options = {}) {
   });
 }
 
+// Lightweight variant for dashboard/statistics use-cases.
+// Keeps the same visibility/path filtering but requests less payload.
+async function getAllUsersLightweightRaw(options = {}) {
+  const { includeHiddenPrefixes = false } = options;
+  let users = [];
+  const pageSize = getInt("AUTHENTIK_USER_PAGE_SIZE", 500) || 500;
+  let page = 1;
+  let hasNext = true;
+
+  while (hasNext) {
+    const url = `${getString("AUTHENTIK_URL", "")}/api/v3/core/users/?page=${page}&page_size=${pageSize}&include_groups=false&include_roles=false`;
+    const res = await api.get(url);
+    const data = res?.data || {};
+    const results = Array.isArray(data.results) ? data.results : [];
+    const pagination = data.pagination || {};
+
+    users = users.concat(results);
+
+    if (pagination && pagination.next) {
+      page = pagination.next;
+      hasNext = true;
+    } else {
+      hasNext = false;
+    }
+  }
+
+  if (!includeHiddenPrefixes) {
+    const hiddenPrefixes = getHiddenUserPrefixes();
+    if (hiddenPrefixes.length) {
+      users = users.filter((u) => {
+        const username = String(u?.username || "").trim().toLowerCase();
+        return !hiddenPrefixes.some((p) => username.startsWith(p));
+      });
+    }
+  }
+
+  const folderRaw = String(getString("AUTHENTIK_USER_PATH", "")).trim();
+  if (!folderRaw) {
+    return users;
+  }
+
+  const target = normalizePath(folderRaw);
+  return users.filter((u) => {
+    const up = normalizePath(u.path);
+    return up === target || up.startsWith(target + "/");
+  });
+}
+
 async function userExists(username) {
   const res = await api.get("/core/users/", { params: { username } });
   return res.data.results.length > 0;
@@ -2149,6 +2197,8 @@ async function removeUserGroups(userId, groupIds) {
 
 let USERS_CACHE = null;
 let USERS_CACHE_TS = 0;
+let USERS_LIGHTWEIGHT_CACHE = null;
+let USERS_LIGHTWEIGHT_CACHE_TS = 0;
 // TTL in seconds; defaults to 60s. Use 0 to disable caching and always hit Authentik.
 // Cache is invalidated on create/delete/update so paging/sorting stays fast without stale data.
 const USERS_CACHE_TTL_MS = (getInt("USERS_CACHE_TTL_SECONDS", 60) || 0) * 1000;
@@ -2156,6 +2206,8 @@ const USERS_CACHE_TTL_MS = (getInt("USERS_CACHE_TTL_SECONDS", 60) || 0) * 1000;
 function invalidateUsersCache() {
   USERS_CACHE = null;
   USERS_CACHE_TS = 0;
+  USERS_LIGHTWEIGHT_CACHE = null;
+  USERS_LIGHTWEIGHT_CACHE_TS = 0;
 }
 
 function invalidateGroupsCache() {
@@ -2183,6 +2235,30 @@ async function getAllUsers(options = {}) {
   const users = await getAllUsersRaw({});
   USERS_CACHE = users;
   USERS_CACHE_TS = now;
+  return users;
+}
+
+async function getAllUsersLightweight(options = {}) {
+  const { forceRefresh = false } = options || {};
+
+  // If caching is disabled via env, always hit Authentik directly.
+  if (USERS_CACHE_TTL_MS <= 0) {
+    return await getAllUsersLightweightRaw({});
+  }
+
+  const now = Date.now();
+  const cacheValid =
+    USERS_LIGHTWEIGHT_CACHE &&
+    USERS_LIGHTWEIGHT_CACHE_TS &&
+    now - USERS_LIGHTWEIGHT_CACHE_TS < USERS_CACHE_TTL_MS;
+
+  if (!forceRefresh && cacheValid) {
+    return USERS_LIGHTWEIGHT_CACHE;
+  }
+
+  const users = await getAllUsersLightweightRaw({});
+  USERS_LIGHTWEIGHT_CACHE = users;
+  USERS_LIGHTWEIGHT_CACHE_TS = now;
   return users;
 }
 
@@ -2282,6 +2358,7 @@ module.exports = {
   // shared data
   getAllGroups,
   getAllUsers,
+  getAllUsersLightweight,
   invalidateUsersCache,
   invalidateGroupsCache,
 
