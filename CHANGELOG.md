@@ -12,6 +12,9 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.55 - 3/20/26
+🐛 `Bug Fix` - Temporarily removing "Role" column from the users page as that was causing massive load time performance issues.
+
 ### v1.2.54 - 3/20/26
 ✨ `Enhancement` - Adds eyeball/visibility icon to password reset edit modal<br>
 🐛 `Bug Fix` - Fixes issue with Agencies not displaying as a dropdown on the users page

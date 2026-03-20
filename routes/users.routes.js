@@ -678,7 +678,18 @@ router.get("/search", async (req, res) => {
           sortKey,
           sortDir,
         });
-        return res.json(delegated);
+        const delegatedUsers = Array.isArray(delegated?.users) ? delegated.users : [];
+        const delegatedHasNext = !!delegated?.hasNext;
+
+        // If we got a short page while still claiming a next page, the
+        // Authentik-paged result is likely being reduced by post-filters
+        // (e.g. hidden prefix filtering). Fall back to the legacy in-memory
+        // paging so the UI gets full pages except the last.
+        if (delegatedUsers.length < pageSize && delegatedHasNext) {
+          // Fall through to the in-memory implementation below.
+        } else {
+          return res.json(delegated);
+        }
       } catch (e) {
         // Fall back to the legacy in-memory implementation below.
       }
