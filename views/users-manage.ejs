@@ -143,9 +143,6 @@
           <th class="sortable" data-key="email">
             Email <span class="sortIndicator" aria-hidden="true"></span>
           </th>
-          <th class="sortable" data-key="role">
-            Role<span class="sortIndicator" aria-hidden="true"></span>
-          </th>
           <th class="sortable" data-key="status">
             Status <span class="sortIndicator" aria-hidden="true"></span>
           </th>
@@ -1231,7 +1228,6 @@ function renderResults(users){
         <td>${escapeHtml(getUserAgencyAbbreviation(u) || "—")}</td>
         <td>${escapeHtml(u.name || "")}</td>
         <td>${escapeHtml(u.email || "")}</td>
-        <td>${escapeHtml(u.__role || "User")}</td>
         <td>${u.is_active ? "Enabled" : "Disabled"}</td>
         <td>
           ${locked ? `<span class="muted">Actions Hidden</span>` : `
@@ -2702,8 +2698,8 @@ th.sortable:hover{
   .table td:nth-child(4){
     display: none;
   }
-  .table th:nth-child(6),
-  .table td:nth-child(6){
+  .table th:nth-child(5),
+  .table td:nth-child(5){
     display: none;
   }
 }

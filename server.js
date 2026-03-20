@@ -20,7 +20,6 @@ const auditSvc = require("./services/auditLog.service");
 const accessSvc = require("./services/access.service");
 const usersSvc = require("./services/users.service");
 const groupsSvc = require("./services/groups.service");
-const adminRoleIndexSvc = require("./services/adminRoleIndex.service");
 
 const app = express();
 
@@ -1203,7 +1202,6 @@ app.listen(port, () => {
 
   // Prime dashboard Authentik stats cache (dashboard-only)
   dashboardStatsCache.startDashboardStatsRefresher();
-  adminRoleIndexSvc.init();
 
   // Rehydrate expiration timers from stored mutual aid records.
   try {
