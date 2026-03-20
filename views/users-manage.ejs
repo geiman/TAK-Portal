@@ -386,6 +386,32 @@ function esc(s) {
     .replaceAll("'", "&#39;");
 }
 
+function enableScrollableDropdownBehavior(selectEl, maxVisible = 10) {
+  if (!selectEl || selectEl.dataset.scrollableDropdownInit === "1") return;
+  selectEl.dataset.scrollableDropdownInit = "1";
+
+  const collapse = () => {
+    selectEl.size = 1;
+    selectEl.style.maxHeight = "";
+  };
+
+  const expand = () => {
+    const optionCount = Array.isArray(selectEl.options) ? selectEl.options.length : selectEl.options.length;
+    selectEl.size = Math.max(1, Math.min(maxVisible, optionCount || 1));
+    selectEl.style.maxHeight = "220px";
+  };
+
+  // Keep compact by default, expand only while interacting.
+  collapse();
+  selectEl.addEventListener("focus", expand);
+  selectEl.addEventListener("mousedown", expand);
+  selectEl.addEventListener("blur", collapse);
+  selectEl.addEventListener("change", () => {
+    // Collapse shortly after selection so value visibly updates first.
+    setTimeout(collapse, 0);
+  });
+}
+
 // ----- Password validator -----
 // Allow blank. If filled, must have: 12+ chars, upper, lower, digit, symbol.
 function isValidPassword(pwd) {
@@ -430,9 +456,8 @@ async function loadAgencies() {
     // Restore selection if still present.
     if (prevVal) filterAgencySelect.value = prevVal;
 
-    // Keep this as a standard dropdown control (not a listbox).
-    filterAgencySelect.size = 1;
-    filterAgencySelect.style.maxHeight = "";
+    // Keep compact by default, but allow explicit scrolling while open/focused.
+    enableScrollableDropdownBehavior(filterAgencySelect, 10);
   }
 }
 
