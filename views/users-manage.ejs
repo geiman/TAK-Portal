@@ -209,20 +209,40 @@
 
             <label>Reset Password</label>
             <div class="grid2" style="margin-top:6px;">
-              <input
-                id="pw1"
-                name="newPassword"
-                type="password"
-                placeholder="New password"
-                autocomplete="off"
-              />
-              <input
-                id="pw2"
-                name="confirmPassword"
-                type="password"
-                placeholder="Confirm password"
-                autocomplete="off"
-              />
+              <div class="passwordWrap">
+                <input
+                  id="pw1"
+                  name="newPassword"
+                  type="password"
+                  placeholder="New password"
+                  autocomplete="off"
+                />
+                <button
+                  type="button"
+                  id="pw1Toggle"
+                  class="passwordToggle"
+                  aria-label="Show password"
+                >
+                  👁
+                </button>
+              </div>
+              <div class="passwordWrap">
+                <input
+                  id="pw2"
+                  name="confirmPassword"
+                  type="password"
+                  placeholder="Confirm password"
+                  autocomplete="off"
+                />
+                <button
+                  type="button"
+                  id="pw2Toggle"
+                  class="passwordToggle"
+                  aria-label="Show password"
+                >
+                  👁
+                </button>
+              </div>
             </div>
 
             <div class="row" style="gap:10px; margin-top:10px;">
@@ -849,6 +869,8 @@ const emailInput = document.getElementById("emailInput");
 const saveEmailBtn = document.getElementById("saveEmailBtn");
 const pw1 = document.getElementById("pw1");
 const pw2 = document.getElementById("pw2");
+const pw1Toggle = document.getElementById("pw1Toggle");
+const pw2Toggle = document.getElementById("pw2Toggle");
 const resetPwBtn = document.getElementById("resetPwBtn");
 const resendOnboardingBtn = document.getElementById("resendOnboardingBtn");
 const groupChips = document.getElementById("groupChips");
@@ -1336,6 +1358,22 @@ const groupNameToIdCache = new Map();
 // Cache of all Authentik groups including those hidden from the normal /api/users/groups list.
 // Only global admins can load this (enforced server-side).
 let allGroupsIncludingHiddenCache = null;
+
+function wirePasswordToggle(inputEl, toggleEl) {
+  if (!inputEl || !toggleEl) return;
+  toggleEl.textContent = "👁";
+  toggleEl.setAttribute("aria-label", "Show password");
+  toggleEl.title = "Show password";
+  toggleEl.addEventListener("click", () => {
+    const isHidden = inputEl.type === "password";
+    inputEl.type = isHidden ? "text" : "password";
+    toggleEl.setAttribute("aria-label", isHidden ? "Hide password" : "Show password");
+    toggleEl.title = isHidden ? "Hide password" : "Show password";
+  });
+}
+
+wirePasswordToggle(pw1, pw1Toggle);
+wirePasswordToggle(pw2, pw2Toggle);
 
 async function fetchAllGroupsIncludingHidden(){
   if (allGroupsIncludingHiddenCache) return allGroupsIncludingHiddenCache;
