@@ -239,9 +239,23 @@ async function getUptimeSeconds(client, actuatorBase) {
 const SAMPLE_INTERVAL_MS = Number(process.env.TAK_METRICS_SAMPLE_INTERVAL_MS ?? 2000);
 const WINDOW_SAMPLES = Math.max(1, Number(process.env.TAK_METRICS_WINDOW_SAMPLES ?? 5));
 const MAX_SAMPLE_AGE_MS = Math.max(1000, Number(process.env.TAK_METRICS_MAX_SAMPLE_AGE_MS ?? 15000));
+const METRICS_CACHE_TTL_MS = Math.max(
+  1000,
+  Number(process.env.TAK_METRICS_CACHE_TTL_MS ?? 5000)
+);
+const SUBSCRIPTIONS_CACHE_TTL_MS = Math.max(
+  1000,
+  Number(process.env.TAK_SUBSCRIPTIONS_CACHE_TTL_MS ?? 15000)
+);
 
 let _samplerStarted = false;
 let _sampleTimer = null;
+let _metricsCache = null;
+let _metricsCacheTs = 0;
+let _metricsInFlight = null;
+let _subscriptionsCache = null;
+let _subscriptionsCacheTs = 0;
+let _subscriptionsInFlight = null;
 
 /** Each sample: { ts, disk, net, uptimeSeconds } */
 let _samples = [];
@@ -302,7 +316,7 @@ function startSamplerIfNeeded({ client, actuatorBase }) {
 
 // ---- Snapshot ----
 
-async function getTakMetricsSnapshot() {
+async function buildTakMetricsSnapshot() {
   const takUrl = getString("TAK_URL", "");
   if (!String(takUrl || "").trim()) {
     return { configured: false, fetchedAt: new Date().toISOString() };
@@ -375,9 +389,34 @@ async function getTakMetricsSnapshot() {
   };
 }
 
+async function getTakMetricsSnapshot() {
+  const now = Date.now();
+  if (_metricsCache && now - _metricsCacheTs <= METRICS_CACHE_TTL_MS) {
+    return { ..._metricsCache };
+  }
+
+  if (_metricsInFlight) {
+    const snapshot = await _metricsInFlight;
+    return snapshot ? { ...snapshot } : snapshot;
+  }
+
+  _metricsInFlight = buildTakMetricsSnapshot()
+    .then((snapshot) => {
+      _metricsCache = snapshot;
+      _metricsCacheTs = Date.now();
+      return snapshot;
+    })
+    .finally(() => {
+      _metricsInFlight = null;
+    });
+
+  const snapshot = await _metricsInFlight;
+  return snapshot ? { ...snapshot } : snapshot;
+}
+
 // ---- Marti subscriptions (connected clients list) ----
 
-async function getSubscriptionsAll() {
+async function fetchSubscriptionsAll() {
   const takUrl = getString("TAK_URL", "");
   if (!String(takUrl || "").trim()) {
     return { configured: false, data: [] };
@@ -393,12 +432,41 @@ async function getSubscriptionsAll() {
     const list = Array.isArray(res.data.data) ? res.data.data : [];
     return { configured: true, data: list };
   } catch (err) {
-    return {
-      configured: true,
-      data: [],
-      error: err?.response?.data || err?.message || "Failed to fetch subscriptions",
-    };
+    throw err;
   }
+}
+
+async function getSubscriptionsAll() {
+  const now = Date.now();
+  if (_subscriptionsCache && now - _subscriptionsCacheTs <= SUBSCRIPTIONS_CACHE_TTL_MS) {
+    return { ..._subscriptionsCache };
+  }
+
+  if (_subscriptionsInFlight) {
+    const snapshot = await _subscriptionsInFlight;
+    return snapshot ? { ...snapshot } : snapshot;
+  }
+
+  _subscriptionsInFlight = fetchSubscriptionsAll()
+    .then((result) => {
+      _subscriptionsCache = result;
+      _subscriptionsCacheTs = Date.now();
+      return result;
+    })
+    .catch((err) => {
+      if (_subscriptionsCache) return _subscriptionsCache;
+      return {
+        configured: true,
+        data: [],
+        error: err?.response?.data || err?.message || "Failed to fetch subscriptions",
+      };
+    })
+    .finally(() => {
+      _subscriptionsInFlight = null;
+    });
+
+  const result = await _subscriptionsInFlight;
+  return result ? { ...result } : result;
 }
 
 module.exports = {

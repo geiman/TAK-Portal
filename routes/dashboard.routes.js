@@ -7,6 +7,16 @@ const { getTakMetricsSnapshot, getSubscriptionsAll } = require("../services/takM
 
 const NODERED_PREFIX = "nodered-";
 const userRequestsSvc = require("../services/userRequests.service");
+const DASHBOARD_TAK_TIMEOUT_MS = 1500;
+
+function withTimeout(promise, timeoutMs) {
+  return Promise.race([
+    promise,
+    new Promise((resolve) => {
+      setTimeout(() => resolve(null), timeoutMs);
+    }),
+  ]);
+}
 
 
 router.get("/", async (req, res) => {
@@ -15,24 +25,23 @@ router.get("/", async (req, res) => {
     const bookmarks = bookmarksService.loadBookmarks();
 
     // --- TAK server health metrics (best-effort; dashboard still loads if TAK is down) ---
-    let takMetrics = await getTakMetricsSnapshot().catch(() => null);
-    if (takMetrics && takMetrics.configured) {
-      try {
-        const sub = await getSubscriptionsAll();
-        const list = Array.isArray(sub.data) ? sub.data : [];
-        const noderedCount = list.filter((item) => {
-          const u = (item.username != null ? String(item.username).trim() : "").toLowerCase();
-          return u.indexOf(NODERED_PREFIX) === 0;
-        }).length;
-        const total = typeof takMetrics.connectedClients === "number" ? takMetrics.connectedClients : 0;
-        takMetrics = {
-          ...takMetrics,
-          connectedClients: Math.max(0, total - noderedCount),
-          connectedIntegrations: noderedCount,
-        };
-      } catch (_) {
-        // leave takMetrics as-is if subscriptions fetch fails
-      }
+    const [takMetricsBase, subscriptions] = await Promise.all([
+      withTimeout(getTakMetricsSnapshot().catch(() => null), DASHBOARD_TAK_TIMEOUT_MS),
+      withTimeout(getSubscriptionsAll().catch(() => null), DASHBOARD_TAK_TIMEOUT_MS),
+    ]);
+    let takMetrics = takMetricsBase;
+    if (takMetrics && takMetrics.configured && subscriptions) {
+      const list = Array.isArray(subscriptions.data) ? subscriptions.data : [];
+      const noderedCount = list.filter((item) => {
+        const u = (item.username != null ? String(item.username).trim() : "").toLowerCase();
+        return u.indexOf(NODERED_PREFIX) === 0;
+      }).length;
+      const total = typeof takMetrics.connectedClients === "number" ? takMetrics.connectedClients : 0;
+      takMetrics = {
+        ...takMetrics,
+        connectedClients: Math.max(0, total - noderedCount),
+        connectedIntegrations: noderedCount,
+      };
     }
 
     // --- Mutual Aid active banners ---
