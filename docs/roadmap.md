@@ -8,13 +8,16 @@ Below you will find a comprehensive list of items planned for implementation in 
 - Add locate functionality with texting service to send a link to missing persons
 - Create Getting Started / Basic User Guides for TAK Aware, ATAK, and Open TAK Tracker
 - Further implementation of the Integrations page to create and download certificates for integrations
+- Add access level between Agency and Global that has Global Admin access, but without access to server settings or audit log.  (Helpful for trusted EOC high level users)
 
 ## Medium
+- Adding a "timeout/sandbox" group so instead of deleting a user with the delete button, requiring a restart, it removes all groups and adds them to a single "special" write only group to remove their access.  Then create a tab for the global admin of all the pending user deletions that need to take place before a restart.
 - Implement Device Profile management
 - Implement TAK Server Data Sync Mission Management
 - Implement TAK Server Data Package Management
-- Expand Mutual Aid to allow Agency Admins to access the page and create events for their agency channels only
+
 
 ## Food For Thought / Unassigned
+- Expand Mutual Aid to allow Agency Admins to access the page and create events for their agency channels only
 - Add ability to delete a mutual aid user while leaving the mutual aid channel intact
 - Consider adding a "timeout/sandbox" group so instead of deleting a user with the delete button, requiring a restart, it removes all groups and adds them to a single "special" write only group to remove their access.  Then create a tab for the global admin of all the pending user deletions that need to take place before a restart.
