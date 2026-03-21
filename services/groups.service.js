@@ -50,6 +50,19 @@ function normalizeIdList(value) {
   return value.map(v => String(v).trim()).filter(Boolean);
 }
 
+function getGroupMembersCacheTtlMs() {
+  const seconds = getInt("GROUP_MEMBERS_CACHE_TTL_SECONDS", 60);
+  const s = Number.isFinite(Number(seconds)) ? Number(seconds) : 60;
+  if (s <= 0) return 0;
+  return Math.max(5, s) * 1000;
+}
+
+function getGroupMembersPageSize() {
+  const n = Number(getInt("GROUP_MEMBERS_PAGE_SIZE", 1000) || 1000);
+  if (!Number.isFinite(n) || n <= 0) return 1000;
+  return Math.min(2000, Math.max(100, n));
+}
+
 function ensureTakPrefix(name) {
   const n = String(name || "").trim();
   if (!n) return "";
@@ -217,8 +230,18 @@ async function getUsersByGroupIdRaw({ groupId, agencyAbbreviation } = {}) {
   const gid = normalizeId(groupId);
   if (!gid) throw new Error("Group id is required");
 
+  const cacheKey = `${gid}::${String(agencyAbbreviation || "").trim().toUpperCase()}`;
+  const now = Date.now();
+  const ttlMs = getGroupMembersCacheTtlMs();
+  if (ttlMs > 0) {
+    const cached = GROUP_USERS_CACHE.get(cacheKey);
+    if (cached && now - cached.loadedAt < ttlMs) {
+      return cached.data;
+    }
+  }
+
   let users = [];
-  const pageSize = 200;
+  const pageSize = getGroupMembersPageSize();
   let page = 1;
 
   // Use server-side filters:
@@ -246,7 +269,14 @@ async function getUsersByGroupIdRaw({ groupId, agencyAbbreviation } = {}) {
     }
   }
 
-  return applyUserVisibilityFilters(users);
+  const filtered = applyUserVisibilityFilters(users);
+  if (ttlMs > 0) {
+    GROUP_USERS_CACHE.set(cacheKey, {
+      loadedAt: now,
+      data: filtered,
+    });
+  }
+  return filtered;
 }
 
 // ---------------- Group CRUD ----------------
@@ -499,6 +529,7 @@ async function bulkAddUsersToGroup(groupId, userPks) {
   }
 
   await api.patch(`/core/groups/${id}/`, { users: merged });
+  invalidateGroupUsersCache();
 
   return {
     matched: toAdd.length,
@@ -528,6 +559,7 @@ async function bulkRemoveUsersFromGroup(groupId, userPks) {
   }
 
   await api.patch(`/core/groups/${id}/`, { users: remaining });
+  invalidateGroupUsersCache();
 
   return {
     matched: toRemove.size,
@@ -568,11 +600,13 @@ async function massAssignUsersToGroup({ groupId, suffixes, sourceGroupIds, userI
     let targetUserPks = explicitUsers.slice();
     if (!access.isGlobalAdmin) {
       // Agency admins must be restricted to allowed-agency users.
-      const hydrated = await Promise.all(
-        explicitUsers.map((id) => usersService.getUserById(id).catch(() => null))
-      );
+      // Use one lightweight list call instead of N getUserById calls.
+      const allUsers = await usersService.getAllUsersLightweight();
+      const wanted = new Set(explicitUsers.map((id) => String(id).trim()));
       const allowedUsers = restrictToAllowedAgencies(
-        hydrated.filter(Boolean)
+        (allUsers || []).filter((u) =>
+          wanted.has(String(u?.pk ?? u?.id ?? "").trim())
+        )
       );
       targetUserPks = allowedUsers
         .map((u) => String(u?.pk ?? u?.id ?? "").trim())
@@ -690,11 +724,12 @@ async function massUnassignUsersFromGroup({ groupId, suffixes, sourceGroupIds, u
   if (explicitUsers.length) {
     let targetUserPks = explicitUsers.slice();
     if (!access.isGlobalAdmin) {
-      const hydrated = await Promise.all(
-        explicitUsers.map((id) => usersService.getUserById(id).catch(() => null))
-      );
+      const allUsers = await usersService.getAllUsersLightweight();
+      const wanted = new Set(explicitUsers.map((id) => String(id).trim()));
       const allowedUsers = restrictToAllowedAgencies(
-        hydrated.filter(Boolean)
+        (allUsers || []).filter((u) =>
+          wanted.has(String(u?.pk ?? u?.id ?? "").trim())
+        )
       );
       targetUserPks = allowedUsers
         .map((u) => String(u?.pk ?? u?.id ?? "").trim())
@@ -763,6 +798,7 @@ let GROUPS_CACHE_BY_INCLUDE_HIDDEN = {
   true: { data: null, loadedAt: 0 },
   false: { data: null, loadedAt: 0 },
 };
+let GROUP_USERS_CACHE = new Map();
 
 function invalidateGroupsCache() {
   GROUPS_CACHE_BY_INCLUDE_HIDDEN = {
@@ -772,7 +808,7 @@ function invalidateGroupsCache() {
 }
 
 function invalidateGroupUsersCache() {
-  // no-op – kept so existing callers still work
+  GROUP_USERS_CACHE = new Map();
 }
 
 async function getAllGroups(options = {}) {
