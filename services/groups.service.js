@@ -611,10 +611,10 @@ async function bulkRemoveUsersFromGroup(groupId, userPks) {
 async function loadUsersByAgencySuffixes({
   selectedSuffixes,
   emitProgress,
-  concurrency = 3,
+  concurrency = 8,
 } = {}) {
   const suffixes = Array.isArray(selectedSuffixes) ? selectedSuffixes : [];
-  const maxConcurrency = Math.max(1, Number(concurrency) || 3);
+  const maxConcurrency = Math.max(1, Number(concurrency) || 8);
   const seenPk = new Set();
   const matchedUsers = [];
   let processedAgencies = 0;
@@ -777,7 +777,7 @@ async function massAssignUsersToGroup({ groupId, suffixes, sourceGroupIds, userI
   let matchedUsers = await loadUsersByAgencySuffixes({
     selectedSuffixes,
     emitProgress,
-    concurrency: 3,
+    concurrency: 8,
   });
 
   emitProgress({
@@ -972,7 +972,7 @@ async function massUnassignUsersFromGroup({ groupId, suffixes, sourceGroupIds, u
   let matchedUsers = await loadUsersByAgencySuffixes({
     selectedSuffixes,
     emitProgress,
-    concurrency: 3,
+    concurrency: 8,
   });
 
   emitProgress({
