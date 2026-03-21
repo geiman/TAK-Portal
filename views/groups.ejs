@@ -255,7 +255,7 @@
 
       <!-- Group mode -->
       <div id="massGroupPane" style="display:none; margin-top:14px;">
-        <div class="row" style="justify-content:space-between; align-items:center%;">
+        <div class="row" style="justify-content:space-between; align-items:center;">
           <input
             id="sourceGroupSearch"
             placeholder="Search groups..."
@@ -1936,7 +1936,8 @@ massApplyBtn.onclick = async () => {
           phase === "applying" ? "Applying changes" :
           "In Progress";
         if (phase === "queued" || phase === "loading_users") {
-          setMsg(massMsg, `${phaseLabel}... ${processed} of ? • ${fmtElapsed(elapsedMs)}`, true);
+          const totalLabel = total > 0 ? String(total) : "?";
+          setMsg(massMsg, `${phaseLabel}... ${processed} of ${totalLabel} • ${fmtElapsed(elapsedMs)}`, true);
         } else {
           const totalLabel = total > 0 ? String(total) : "?";
           setMsg(massMsg, `${phaseLabel}... ${processed} of ${totalLabel} • ${fmtElapsed(elapsedMs)}`, true);
