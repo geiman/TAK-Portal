@@ -1314,7 +1314,8 @@ function showMassModal(show){
 function setMassAction(next){
   massAction = next === "unassign" ? "unassign" : "assign";
   const actionLabel = massAction === "assign" ? "Mass Assign" : "Mass Unassign";
-  massTitle.textContent = `${actionLabel}: ${activeMassGroupName || activeMassGroupId || ""}`.trim();
+  const groupLabel = stripTakPrefix(String(activeMassGroupName || activeMassGroupId || ""));
+  massTitle.textContent = `${actionLabel}: ${groupLabel}`.trim();
   massApplyBtn.textContent = actionLabel;
   setMsg(massMsg, "");
 }
@@ -1451,7 +1452,7 @@ async function loadMembersPage(page) {
   membersHasNext = !!out.hasNext;
   membersHasPrev = !!out.hasPrev;
 
-  const groupLabel = activeMembersGroupName || out.group?.name || activeMembersGroupId;
+    const groupLabel = stripTakPrefix(String(activeMembersGroupName || out.group?.name || activeMembersGroupId || ""));
   membersSummary.textContent = `${membersTotalCount} member${membersTotalCount === 1 ? "" : "s"} in group "${groupLabel}".`;
   membersSummary.className = "msg ok";
   membersHint.textContent = membersTotalCount
@@ -1500,7 +1501,7 @@ window.openGroupMembers = async (groupId) => {
 window.removeUserFromGroup = async (userPk) => {
   if (!activeMembersGroupId) return;
 
-  const label = activeMembersGroupName || activeMembersGroupId;
+  const label = stripTakPrefix(String(activeMembersGroupName || activeMembersGroupId || ""));
   if (!confirm(`Remove this user from group "${label}"?`)) return;
 
   try {
@@ -1521,7 +1522,7 @@ window.removeUserFromGroup = async (userPk) => {
     activeMembers = activeMembers.filter(u => String(u.pk) !== String(userPk));
     const memberCount = Math.max(0, Number(membersTotalCount || 0) - 1);
     membersTotalCount = memberCount;
-    const groupLabel = label;
+    const groupLabel = stripTakPrefix(String(label || ""));
 
     membersSummary.textContent =
       `${memberCount} member${memberCount === 1 ? "" : "s"} in group "${groupLabel}".`;
@@ -1912,7 +1913,7 @@ massApplyBtn.onclick = async () => {
     }
 
     const startedAt = Date.now();
-    setMsg(massMsg, `In Progress... 0 of ${Number(startOut.total || 0)} • 0:00`, true);
+    setMsg(massMsg, `Preparing... • 0:00`, true);
 
     let done = false;
     while (!done) {
@@ -1929,11 +1930,17 @@ massApplyBtn.onclick = async () => {
 
       if (statusOut.status === "running") {
         const phaseLabel =
+          phase === "queued" ? "Preparing" :
           phase === "loading_users" ? "Loading users" :
           phase === "matching" ? "Matching users" :
           phase === "applying" ? "Applying changes" :
           "In Progress";
-        setMsg(massMsg, `${phaseLabel}... ${processed} of ${Math.max(0, total)} • ${fmtElapsed(elapsedMs)}`, true);
+        if (phase === "queued" || phase === "loading_users") {
+          setMsg(massMsg, `${phaseLabel}... • ${fmtElapsed(elapsedMs)}`, true);
+        } else {
+          const totalLabel = total > 0 ? String(total) : "?";
+          setMsg(massMsg, `${phaseLabel}... ${processed} of ${totalLabel} • ${fmtElapsed(elapsedMs)}`, true);
+        }
         await new Promise(r => setTimeout(r, 800));
         continue;
       }
