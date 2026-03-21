@@ -14,7 +14,8 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ### v1.2.56 - 3/21/26
 ✨ `Enhancement` - Many backend  improvements to Groups and Mutual Aid pages to make view members, mass assign, and mass unassign load and perform quicker.<br>
-✨ `Enhancement` - Renamed "Private" group label to "Hide From Agency Admins" as this is the only case where a group can't be hidden from the manage access section of agencies.
+✨ `Enhancement` - Renamed "Private" group label to "Hide From Agency Admins" as this is the only case where a group can't be hidden from the manage access section of agencies.<br>
+✨ `Enhancement` - Added a button to export Audit Log CSV file
 
 ### v1.2.55 - 3/20/26
 🐛 `Bug Fix` - Temporarily removing "Role" column from the users page as that was causing massive load time performance issues.

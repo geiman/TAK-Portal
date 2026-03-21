@@ -511,6 +511,9 @@
       targetDisplay = (u.username && u.name) ? (u.username + ' - ' + u.name) : (u.username || u.name || targetId);
     } else if (targetType.toLowerCase() === 'group' && targetId && GROUP_MAP[targetId]) {
       targetDisplay = GROUP_MAP[targetId];
+    } else if (targetType.toLowerCase() === 'group') {
+      var detailGroupName = String(details?.groupName || details?.name || '').trim();
+      if (detailGroupName) targetDisplay = detailGroupName;
     }
 
     const frag = tpl.content.cloneNode(true);

@@ -26,6 +26,17 @@ function toErrorPayload(err) {
   return err?.message || "Unknown error";
 }
 
+async function getGroupNameSafe(groupId) {
+  const id = String(groupId || "").trim();
+  if (!id) return "";
+  try {
+    const g = await groups.getGroupById(id);
+    return String(g?.name || "").trim();
+  } catch (_) {
+    return "";
+  }
+}
+
 // -------------------- Mass assign/unassign progress jobs (in-memory) --------------------
 const massJobs = new Map();
 function newJobId() {
@@ -305,6 +316,7 @@ router.delete("/:groupId", async (req, res) => {
 router.post("/mass-assign", async (req, res) => {
   try {
     const authUser = req.authentikUser || null;
+    const targetGroupName = await getGroupNameSafe(req.body?.groupId);
     const out = await groups.massAssignUsersToGroup({
       groupId: req.body?.groupId,
       suffixes: req.body?.suffixes,
@@ -320,6 +332,8 @@ router.post("/mass-assign", async (req, res) => {
       targetType: "group",
       targetId: String(req.body?.groupId || ""),
       details: {
+        name: targetGroupName || undefined,
+        groupName: targetGroupName || undefined,
         suffixes: req.body?.suffixes,
         userIdsCount: Array.isArray(req.body?.userIds) ? req.body.userIds.length : undefined,
         sourceGroupIds: req.body?.sourceGroupIds ?? req.body?.sourceGroupId,
@@ -336,6 +350,7 @@ router.post("/mass-assign/start", async (req, res) => {
   try {
     const authUser = req.authentikUser || null;
     const payload = req.body || {};
+    const targetGroupName = await getGroupNameSafe(payload.groupId);
     const sourceMode =
       payload.sourceMode === "group" || payload.sourceMode === "users" || payload.sourceMode === "agency"
         ? payload.sourceMode
@@ -408,6 +423,25 @@ router.post("/mass-assign/start", async (req, res) => {
           job.durationMs = durationMs;
           job.durationSeconds = Math.round((durationMs / 1000) * 10) / 10;
         }
+
+        auditSvc.logEvent({
+          actor: authUser,
+          request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+          action: "MASS_ASSIGN_USERS_TO_GROUP",
+          targetType: "group",
+          targetId: String(payload.groupId || ""),
+          details: {
+            name: targetGroupName || undefined,
+            groupName: targetGroupName || undefined,
+            suffixes: payload.suffixes,
+            userIdsCount: Array.isArray(payload.userIds) ? payload.userIds.length : undefined,
+            sourceGroupIds: payload.sourceGroupIds ?? payload.sourceGroupId,
+            sourceMode,
+            matched: Number(out?.matched || 0),
+            updated: Number(out?.updated || 0),
+            durationMs,
+          },
+        });
       } catch (err) {
         const finishedAt = Date.now();
         const durationMs = finishedAt - startedAt;
@@ -434,6 +468,7 @@ router.post("/mass-assign/start", async (req, res) => {
 router.post("/mass-unassign", async (req, res) => {
   try {
     const authUser = req.authentikUser || null;
+    const targetGroupName = await getGroupNameSafe(req.body?.groupId);
     const out = await groups.massUnassignUsersFromGroup({
       groupId: req.body?.groupId,
       suffixes: req.body?.suffixes,
@@ -449,6 +484,8 @@ router.post("/mass-unassign", async (req, res) => {
       targetType: "group",
       targetId: String(req.body?.groupId || ""),
       details: {
+        name: targetGroupName || undefined,
+        groupName: targetGroupName || undefined,
         suffixes: req.body?.suffixes,
         userIdsCount: Array.isArray(req.body?.userIds) ? req.body.userIds.length : undefined,
         sourceGroupIds: req.body?.sourceGroupIds ?? req.body?.sourceGroupId,
@@ -465,6 +502,7 @@ router.post("/mass-unassign/start", async (req, res) => {
   try {
     const authUser = req.authentikUser || null;
     const payload = req.body || {};
+    const targetGroupName = await getGroupNameSafe(payload.groupId);
     const sourceMode =
       payload.sourceMode === "group" || payload.sourceMode === "users" || payload.sourceMode === "agency"
         ? payload.sourceMode
@@ -537,6 +575,25 @@ router.post("/mass-unassign/start", async (req, res) => {
           job.durationMs = durationMs;
           job.durationSeconds = Math.round((durationMs / 1000) * 10) / 10;
         }
+
+        auditSvc.logEvent({
+          actor: authUser,
+          request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+          action: "MASS_UNASSIGN_USERS_FROM_GROUP",
+          targetType: "group",
+          targetId: String(payload.groupId || ""),
+          details: {
+            name: targetGroupName || undefined,
+            groupName: targetGroupName || undefined,
+            suffixes: payload.suffixes,
+            userIdsCount: Array.isArray(payload.userIds) ? payload.userIds.length : undefined,
+            sourceGroupIds: payload.sourceGroupIds ?? payload.sourceGroupId,
+            sourceMode,
+            matched: Number(out?.matched || 0),
+            updated: Number(out?.updated || 0),
+            durationMs,
+          },
+        });
       } catch (err) {
         const finishedAt = Date.now();
         const durationMs = finishedAt - startedAt;
