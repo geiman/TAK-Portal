@@ -271,6 +271,20 @@
         <input id="membersFilter" placeholder="Filter by username, name, or email..." style="min-width: 360px;" />
       </div>
 
+      <div class="pagination" style="margin-top:10px; display:flex; align-items:center; justify-content:center; gap:8px; font-size:14px;">
+        <button class="btn" id="membersPrevBtn" type="button"
+          style="padding: 4px 14px; border-radius:999px; background:#2f3241; border:1px solid #3a3d4d; color:#e4e4e4; font-size:13px; line-height:1.2;">
+          Previous
+        </button>
+        <span id="membersPageInfo"
+          style="padding:3px 10px; border-radius:999px; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.06); opacity:.9; font-size:12px;">
+        </span>
+        <button class="btn" id="membersNextBtn" type="button"
+          style="padding: 4px 14px; border-radius:999px; background:#2f3241; border:1px solid #3a3d4d; color:#e4e4e4; font-size:13px; line-height:1.2;">
+          Next
+        </button>
+      </div>
+
       <div id="membersList" class="groupsBox" style="margin-top:10px; max-height: 320px; overflow:auto;"></div>
       <small id="membersHint" class="muted"></small>
     </div>
@@ -321,10 +335,18 @@ const membersSummary = document.getElementById("membersSummary");
 const membersFilter = document.getElementById("membersFilter");
 const membersList = document.getElementById("membersList");
 const membersHint = document.getElementById("membersHint");
+const membersPrevBtn = document.getElementById("membersPrevBtn");
+const membersNextBtn = document.getElementById("membersNextBtn");
+const membersPageInfo = document.getElementById("membersPageInfo");
 
 let activeMembers = [];
 let activeMembersGroupId = "";
 let activeMembersGroupName = "";
+let membersCurrentPage = 1;
+let membersPageSize = 100;
+let membersTotalCount = 0;
+let membersHasNext = false;
+let membersHasPrev = false;
 
 function showMembersModal(show) {
   if (!membersOverlay) return;
@@ -375,6 +397,47 @@ function renderMembersList() {
   `;
 }
 
+function renderMembersPagination() {
+  const total = Number(membersTotalCount || 0);
+  const size = Math.max(1, Number(membersPageSize || 100));
+  const totalPages = total > 0 ? Math.max(1, Math.ceil(total / size)) : 1;
+  if (membersPageInfo) membersPageInfo.textContent = `Page ${membersCurrentPage} of ${totalPages}`;
+  if (membersPrevBtn) membersPrevBtn.disabled = !membersHasPrev;
+  if (membersNextBtn) membersNextBtn.disabled = !membersHasNext;
+}
+
+async function loadMembersPage(page) {
+  if (!activeMembersGroupId) return;
+  const targetPage = Math.max(1, Number(page || 1));
+  membersSummary.textContent = "Loading members...";
+  membersSummary.className = "msg";
+
+  const res = await fetch(
+    `/api/groups/${encodeURIComponent(activeMembersGroupId)}/members?page=${targetPage}&pageSize=${membersPageSize}`
+  );
+  const out = await res.json();
+  if (!res.ok) throw new Error(out.error || "Failed to load members");
+
+  activeMembers = Array.isArray(out.users) ? out.users : [];
+  membersCurrentPage = Number(out.page || targetPage || 1);
+  membersPageSize = Number(out.pageSize || membersPageSize || 100);
+  membersTotalCount = Number(out.memberCount || activeMembers.length || 0);
+  membersHasNext = !!out.hasNext;
+  membersHasPrev = !!out.hasPrev;
+
+  const label = activeMembersGroupName || displayGroupName(out.group?.name || "") || activeMembersGroupId;
+  membersSummary.textContent = `${membersTotalCount} member${
+    membersTotalCount === 1 ? "" : "s"
+  } in group "${label}".`;
+  membersSummary.className = "msg ok";
+  membersHint.textContent = membersTotalCount
+    ? "Showing current members of this mutual aid group's Authentik group."
+    : "No users are currently assigned to this mutual aid group.";
+
+  renderMembersList();
+  renderMembersPagination();
+}
+
 async function openMutualAidMembers(groupId, groupName) {
   activeMembersGroupId = String(groupId || "");
   activeMembersGroupName = displayGroupName(groupName || "");
@@ -384,37 +447,26 @@ async function openMutualAidMembers(groupId, groupName) {
   membersList.innerHTML = "";
   membersHint.textContent = "";
   if (membersFilter) membersFilter.value = "";
+  membersCurrentPage = 1;
+  membersTotalCount = 0;
+  membersHasNext = false;
+  membersHasPrev = false;
+  renderMembersPagination();
 
   showMembersModal(true);
 
   try {
-    const res = await fetch(`/api/groups/${encodeURIComponent(groupId)}/members`);
-    const out = await res.json();
-
-    if (!res.ok) {
-      throw new Error(out.error || "Failed to load members");
-    }
-
-    activeMembers = Array.isArray(out.users) ? out.users : [];
-    const memberCount =
-      typeof out.memberCount === "number" ? out.memberCount : activeMembers.length;
-    const label = activeMembersGroupName || displayGroupName(out.group?.name || "") || groupId;
-
-    membersSummary.textContent = `${memberCount} member${
-      memberCount === 1 ? "" : "s"
-    } in group "${label}".`;
-    membersSummary.className = "msg ok";
-    membersHint.textContent = memberCount
-      ? "Users currently assigned to this mutual aid group's Authentik group."
-      : "No users are currently assigned to this mutual aid group.";
-
-    renderMembersList();
+    await loadMembersPage(1);
   } catch (e) {
     membersSummary.textContent = "Failed to load members.";
     membersSummary.className = "msg bad";
     membersList.innerHTML = "";
     membersHint.textContent = "";
     activeMembers = [];
+    membersTotalCount = 0;
+    membersHasNext = false;
+    membersHasPrev = false;
+    renderMembersPagination();
   }
 }
 
@@ -426,6 +478,20 @@ if (membersCloseBtn && membersOverlay) {
 }
 if (membersFilter) {
   membersFilter.oninput = renderMembersList;
+}
+if (membersPrevBtn) {
+  membersPrevBtn.onclick = () => {
+    if (membersHasPrev && membersCurrentPage > 1) {
+      loadMembersPage(membersCurrentPage - 1).catch(() => {});
+    }
+  };
+}
+if (membersNextBtn) {
+  membersNextBtn.onclick = () => {
+    if (membersHasNext) {
+      loadMembersPage(membersCurrentPage + 1).catch(() => {});
+    }
+  };
 }
 
 // ----- Page state -----
@@ -1407,39 +1473,102 @@ userClearAll.onclick = () => {
 massApplyBtn.onclick = async () => {
   if(!activeMassGroupId){ setMsg(massMsg, "Missing target group", false); return; }
   const actionVerb = massAction === "unassign" ? "unassign" : "assign";
-  setMsg(massMsg, "Applying...", true);
+  setMsg(massMsg, "", true);
 
-  let payload = { groupId: activeMassGroupId };
+  const mode = massMode || "agency";
+  let payload = { groupId: activeMassGroupId, sourceMode: mode };
 
-  if(massMode === "agency"){
+  if(mode === "agency"){
     const suffixes = Array.from(agencyList.querySelectorAll("input.agencyChk:checked")).map(ch => String(ch.value));
-    if(suffixes.length) payload.suffixes = suffixes;
-    else { setMsg(massMsg, "No selections — nothing to apply (you can just Close).", true); return; }
+    if (!suffixes.length) return setMsg(massMsg, "Select one or more agencies.", false);
+    if (!confirm(`Mass ${actionVerb} "${activeMassGroupName}" ${actionVerb === "assign" ? "to" : "from"} all users in ${suffixes.length} agency suffix(es)?`)) return;
+    payload.suffixes = suffixes;
   }
 
-  if(massMode === "group"){
+  if(mode === "group"){
     const sourceGroupIds = Array.from(selectedSourceGroupIds);
-    if(sourceGroupIds.length) payload.sourceGroupIds = sourceGroupIds;
-    else { setMsg(massMsg, "No selections — nothing to apply (you can just Close).", true); return; }
+    if (!sourceGroupIds.length) return setMsg(massMsg, "Select one or more source groups.", false);
+    if (!confirm(`Mass ${actionVerb} "${activeMassGroupName}" ${actionVerb === "assign" ? "to" : "from"} users already in ${sourceGroupIds.length} selected group(s)?`)) return;
+    payload.sourceGroupIds = sourceGroupIds;
   }
 
-  if(massMode === "users"){
+  if(mode === "users"){
     const userIds = Array.from(selectedUserIds);
-    if(userIds.length) payload.userIds = userIds;
-    else { setMsg(massMsg, "No selections — nothing to apply (you can just Close).", true); return; }
+    if (!userIds.length) return setMsg(massMsg, "Select one or more users.", false);
+    if (!confirm(`Mass ${actionVerb} "${activeMassGroupName}" ${actionVerb === "assign" ? "to" : "from"} ${userIds.length} user(s)?`)) return;
+    payload.userIds = userIds;
   }
 
-  const endpoint = massAction === "unassign" ? "/api/groups/mass-unassign" : "/api/groups/mass-assign";
+  const startEndpoint = massAction === "unassign" ? "/api/groups/mass-unassign/start" : "/api/groups/mass-assign/start";
+  const fmtElapsed = (ms) => {
+    const sec = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}:${String(s).padStart(2, "0")}`;
+  };
 
-  const res = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-  const data = await res.json();
-  if(!res.ok){ setMsg(massMsg, data.error || `Mass ${actionVerb} failed`, false); return; }
-  const label = actionVerb === "assign" ? "Assigned" : "Unassigned";
-  setMsg(massMsg, `${label} ${data.updated}/${data.matched} users.`, true);
+  try {
+    const startRes = await fetch(startEndpoint, {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify(payload)
+    });
+    const startOut = await startRes.json();
+    if (!startRes.ok || !startOut?.jobId) {
+      return setMsg(massMsg, startOut.error || `Mass ${actionVerb} failed`, false);
+    }
+
+    const startedAt = Date.now();
+    setMsg(massMsg, `Preparing... 0 of ? • 0:00`, true);
+
+    let done = false;
+    while (!done) {
+      const statusRes = await fetch(`/api/groups/mass-jobs/${encodeURIComponent(startOut.jobId)}`);
+      const statusOut = await statusRes.json();
+      if (!statusRes.ok || !statusOut.success) {
+        throw new Error(statusOut.error || "Failed to read mass action status");
+      }
+
+      const total = Number(statusOut.total || 0);
+      const processed = Number(statusOut.processed || 0);
+      const elapsedMs = Date.now() - startedAt;
+      const phase = String(statusOut.phase || "");
+      const sourceMode = String(statusOut.sourceMode || mode || "agency");
+
+      if (statusOut.status === "running") {
+        const loadingLabel =
+          sourceMode === "group" ? "Loading groups" :
+          sourceMode === "users" ? "Loading users" :
+          "Loading agencies";
+        const phaseLabel =
+          phase === "queued" ? "Preparing" :
+          phase === "loading_users" ? loadingLabel :
+          phase === "matching" ? "Matching users" :
+          phase === "applying" ? "Applying changes" :
+          "In Progress";
+        const totalLabel = total > 0 ? String(total) : "?";
+        setMsg(massMsg, `${phaseLabel}... ${processed} of ${totalLabel} • ${fmtElapsed(elapsedMs)}`, true);
+        await new Promise(r => setTimeout(r, 800));
+        continue;
+      }
+
+      if (statusOut.status === "failed") {
+        setMsg(massMsg, statusOut.error || `Mass ${actionVerb} failed`, false);
+        done = true;
+        continue;
+      }
+
+      const result = statusOut.result || {};
+      setMsg(
+        massMsg,
+        `Completed. Matched ${Number(result.matched || 0)} user(s). Updated ${Number(result.updated || 0)}. • ${fmtElapsed(elapsedMs)}`,
+        true
+      );
+      done = true;
+    }
+  } catch (e) {
+    setMsg(massMsg, `Mass ${actionVerb} failed`, false);
+  }
 };
 
 // ----- List rendering -----
