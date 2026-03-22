@@ -756,6 +756,20 @@ async function getAllGroupsRaw(options = {}) {
   return groups;
 }
 
+/**
+ * Filter out USERS_HIDDEN_PREFIXES unless includeHiddenPrefixes is true.
+ * Used by list endpoints and dashboard stats (single fetch + split in memory).
+ */
+function applyHiddenPrefixFilter(users, includeHiddenPrefixes) {
+  if (includeHiddenPrefixes) return users;
+  const hiddenPrefixes = getHiddenUserPrefixes();
+  if (!hiddenPrefixes.length) return users;
+  return users.filter((u) => {
+    const username = String(u?.username || "").trim().toLowerCase();
+    return !hiddenPrefixes.some((p) => username.startsWith(p));
+  });
+}
+
 // Fetch all users, then:
 // - page using Authentik's `pagination` object (no hard cap on total)
 // - hide service/system users by username prefix (USERS_HIDDEN_PREFIXES), unless includeHiddenPrefixes
@@ -784,16 +798,7 @@ async function getAllUsersRaw(options = {}) {
     }
   }
 
-  // --- prefix filter (skip when e.g. Integrations page needs nodered- users) ---
-  if (!includeHiddenPrefixes) {
-    const hiddenPrefixes = getHiddenUserPrefixes();
-    if (hiddenPrefixes.length) {
-      users = users.filter(u => {
-        const username = String(u?.username || "").trim().toLowerCase();
-        return !hiddenPrefixes.some(p => username.startsWith(p));
-      });
-    }
-  }
+  users = applyHiddenPrefixFilter(users, includeHiddenPrefixes);
 
   // --- path filter ---
   const folderRaw = String(getString("AUTHENTIK_USER_PATH", "")).trim();
@@ -835,15 +840,7 @@ async function getAllUsersLightweightRaw(options = {}) {
     }
   }
 
-  if (!includeHiddenPrefixes) {
-    const hiddenPrefixes = getHiddenUserPrefixes();
-    if (hiddenPrefixes.length) {
-      users = users.filter((u) => {
-        const username = String(u?.username || "").trim().toLowerCase();
-        return !hiddenPrefixes.some((p) => username.startsWith(p));
-      });
-    }
-  }
+  users = applyHiddenPrefixFilter(users, includeHiddenPrefixes);
 
   const folderRaw = String(getString("AUTHENTIK_USER_PATH", "")).trim();
   if (!folderRaw) {
@@ -1215,13 +1212,30 @@ async function createIntegrationUser(
 /**
  * Return users whose username starts with the integration prefix (e.g. "nodered-").
  * Bypasses USERS_HIDDEN_PREFIXES so integration users are visible on the Integrations page.
+ * Uses the lightweight list endpoint (same as dashboard) — not full getAllUsersRaw.
  */
 async function findIntegrationUsers() {
-  const raw = await getAllUsersRaw({ includeHiddenPrefixes: true });
+  const raw = await getAllUsersLightweightRaw({ includeHiddenPrefixes: true });
   const prefix = INTEGRATION_PREFIX.toLowerCase();
   return raw.filter(u =>
     String(u?.username || "").toLowerCase().startsWith(prefix)
   );
+}
+
+/**
+ * One Authentik user-directory pass for dashboard stats (4000+ users: avoids doubling HTTP work).
+ * Fetches with hidden-prefix accounts included, then derives visible totals + integration count in memory.
+ */
+async function fetchUsersForDashboardStats() {
+  const all = await getAllUsersLightweightRaw({ includeHiddenPrefixes: true });
+  const visibleUsers = applyHiddenPrefixFilter(all, false);
+  const integrationPrefix = INTEGRATION_PREFIX.toLowerCase();
+  let integrationCount = 0;
+  for (const u of all) {
+    const un = String(u?.username || "").toLowerCase();
+    if (un.startsWith(integrationPrefix)) integrationCount += 1;
+  }
+  return { visibleUsers, integrationCount };
 }
 
 // Bulk CSV import
@@ -2407,6 +2421,7 @@ module.exports = {
   getAllGroups,
   getAllUsers,
   getAllUsersLightweight,
+  fetchUsersForDashboardStats,
   invalidateUsersCache,
   invalidateGroupsCache,
 

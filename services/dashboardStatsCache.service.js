@@ -128,31 +128,23 @@ async function refreshNow() {
     _state.lastError = null;
 
     try {
-      // Authentik data
-      const [users, groups] = await Promise.all([
-        usersService.getAllUsersLightweight(),
+      // One lightweight user-directory pass + groups in parallel (avoids doubling Authentik work).
+      const [{ visibleUsers, integrationCount }, groups] = await Promise.all([
+        usersService.fetchUsersForDashboardStats(),
         groupsService.getAllGroups(), // <-- use portal logic
       ]);
 
       // Local data (agencies)
       const agencies = agenciesStore.load();
 
-      const charts = buildCharts(users || [], agencies || []);
-
-      let totalIntegrations = 0;
-      try {
-        const integrationUsers = await usersService.findIntegrationUsers();
-        totalIntegrations = Array.isArray(integrationUsers) ? integrationUsers.length : 0;
-      } catch (e) {
-        console.warn("[DASHBOARD] Integration count failed:", e?.message || e);
-      }
+      const charts = buildCharts(visibleUsers || [], agencies || []);
 
       _state.snapshot = {
         stats: {
-          totalUsers: Array.isArray(users) ? users.length : 0,
+          totalUsers: Array.isArray(visibleUsers) ? visibleUsers.length : 0,
           totalGroups: Array.isArray(groups) ? groups.length : 0,
           totalAgencies: Array.isArray(agencies) ? agencies.length : 0,
-          totalIntegrations,
+          totalIntegrations: integrationCount,
         },
         charts,
       };
