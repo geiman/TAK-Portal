@@ -235,12 +235,12 @@
   <div class="modalOverlay" id="lookupModal" style="display:none;">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="domainModalTitle">
       <div class="modalHeader">
-        <h2 id="domainModalTitle" style="margin:0;">Configure Domain</h2>
+        <h2 id="domainModalTitle" style="margin:0;">Configure Agency Domain(s)</h2>
         <button class="btn" type="button" onclick="showLookupModal(false)">Close</button>
       </div>
       <div class="modalBody">
-        <p>Configure approved email domains for this agency (comma-separated, no @ symbol). This is stored in the agency record as <code>lookupDomain</code>.
-        <br><br>If you list one or more domains, the public <strong>Request Access</strong> form will only accept email addresses ending in those domains for this agency—even when Account Lookup is turned off. Leave the field empty to allow any email domain for requests.
+        <p>Configure approved email domains for this agency (comma-separated, no @ symbol).
+        <br><br>If you list one or more domains, the public <strong>Request Access</strong> form will only accept email addresses ending in those domains. Leave the field empty to allow any email domain for requests.
         <br><br><strong>Account Lookup</strong> (when enabled) lets users request an enrollment QR code by email and username, for shared or apparatus accounts. Lookup still requires a matching approved domain and only works while lookup is enabled.
 
         <div style="margin-top:14px;">
@@ -261,10 +261,10 @@
             Save domains
           </button>
           <button class="btn danger" type="button" id="disableLookupInModalBtn" style="display:none;">
-            Disable lookup
+            Disable Account Lookup
           </button>
           <button class="btn success" type="button" id="confirmEnableLookup" style="display:none;">
-            Enable lookup
+            Enable Account Lookup
           </button>
         </div>
       </div>
@@ -781,9 +781,8 @@ if (confirmEnableLookupBtn) {
           return;
         }
         currentLookupModalEnabled = true;
-        syncLookupModalActionButtons();
-        showLookupModal(false);
         await loadAgenciesWithCounts();
+        syncLookupModalActionButtons();
         setMsg("Account lookup enabled.", true);
       })
       .catch(() => {
