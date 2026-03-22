@@ -7,9 +7,11 @@ const DEFAULT_REFRESH_SECONDS = 300;
 const MIN_REFRESH_SECONDS = 30;
 const DEFAULT_INITIAL_DELAY_SECONDS = 8;
 
+/** Coalesces concurrent refreshNow() calls so waiters get the same result, not stale zeros. */
+let _refreshInFlight = null;
+
 const _state = {
   timer: null,
-  isRefreshing: false,
   lastError: null,
   refreshedAt: null,
   snapshot: {
@@ -120,50 +122,57 @@ function buildCharts(users, agencies) {
 }
 
 async function refreshNow() {
-  if (_state.isRefreshing) return _state.snapshot;
+  if (_refreshInFlight) return _refreshInFlight;
 
-  _state.isRefreshing = true;
-  _state.lastError = null;
+  _refreshInFlight = (async () => {
+    _state.lastError = null;
 
-  try {
-    // Authentik data
-    const [users, groups] = await Promise.all([
-      usersService.getAllUsersLightweight(),
-      groupsService.getAllGroups(), // <-- use portal logic
-    ]);
-
-    // Local data (agencies)
-    const agencies = agenciesStore.load();
-
-    const charts = buildCharts(users || [], agencies || []);
-
-    let totalIntegrations = 0;
     try {
-      const integrationUsers = await usersService.findIntegrationUsers();
-      totalIntegrations = Array.isArray(integrationUsers) ? integrationUsers.length : 0;
-    } catch (e) {
-      console.warn("[DASHBOARD] Integration count failed:", e?.message || e);
+      // Authentik data
+      const [users, groups] = await Promise.all([
+        usersService.getAllUsersLightweight(),
+        groupsService.getAllGroups(), // <-- use portal logic
+      ]);
+
+      // Local data (agencies)
+      const agencies = agenciesStore.load();
+
+      const charts = buildCharts(users || [], agencies || []);
+
+      let totalIntegrations = 0;
+      try {
+        const integrationUsers = await usersService.findIntegrationUsers();
+        totalIntegrations = Array.isArray(integrationUsers) ? integrationUsers.length : 0;
+      } catch (e) {
+        console.warn("[DASHBOARD] Integration count failed:", e?.message || e);
+      }
+
+      _state.snapshot = {
+        stats: {
+          totalUsers: Array.isArray(users) ? users.length : 0,
+          totalGroups: Array.isArray(groups) ? groups.length : 0,
+          totalAgencies: Array.isArray(agencies) ? agencies.length : 0,
+          totalIntegrations,
+        },
+        charts,
+      };
+
+      _state.refreshedAt = new Date();
+      return _state.snapshot;
+    } catch (err) {
+      _state.lastError = err?.message || String(err);
+      console.warn("[DASHBOARD] Authentik stats cache refresh failed:", err);
+      // Avoid unbounded /dashboard awaits when Authentik is down and we never had a successful refresh.
+      if (!_state.refreshedAt) {
+        _state.refreshedAt = new Date();
+      }
+      return _state.snapshot; // keep last good snapshot
+    } finally {
+      _refreshInFlight = null;
     }
+  })();
 
-    _state.snapshot = {
-      stats: {
-        totalUsers: Array.isArray(users) ? users.length : 0,
-        totalGroups: Array.isArray(groups) ? groups.length : 0,
-        totalAgencies: Array.isArray(agencies) ? agencies.length : 0,
-        totalIntegrations,
-      },
-      charts,
-    };
-
-    _state.refreshedAt = new Date();
-    return _state.snapshot;
-  } catch (err) {
-    _state.lastError = err?.message || String(err);
-    console.warn("[DASHBOARD] Authentik stats cache refresh failed:", err);
-    return _state.snapshot; // keep last good snapshot
-  } finally {
-    _state.isRefreshing = false;
-  }
+  return _refreshInFlight;
 }
 
 function stopDashboardStatsRefresher() {
@@ -180,17 +189,22 @@ function startDashboardStatsRefresher() {
   const seconds = parseRefreshSeconds();
   const initialDelaySeconds = parseInitialDelaySeconds();
 
-  // Prime shortly after startup so Authentik/network has a moment to settle.
-  setTimeout(() => {
-    refreshNow().catch(() => null);
-  }, initialDelaySeconds * 1000).unref?.();
+  // Prime immediately so /dashboard is not stuck on zeros until the old "first refresh after delay" runs.
+  void refreshNow().catch(() => null);
+
+  // Optional second pass after startup so Authentik/network can settle (same intent as before).
+  if (initialDelaySeconds > 0) {
+    setTimeout(() => {
+      refreshNow().catch(() => null);
+    }, initialDelaySeconds * 1000).unref?.();
+  }
 
   _state.timer = setInterval(() => {
     refreshNow().catch(() => null);
   }, seconds * 1000);
 
   console.log(
-    `[DASHBOARD] Authentik stats cache enabled: first refresh in ${initialDelaySeconds}s, then every ${seconds}s`
+    `[DASHBOARD] Authentik stats cache enabled: immediate refresh + optional settle at ${initialDelaySeconds}s, then every ${seconds}s`
   );
 }
 

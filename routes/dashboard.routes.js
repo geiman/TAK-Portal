@@ -21,7 +21,13 @@ function withTimeout(promise, timeoutMs) {
 
 router.get("/", async (req, res) => {
   try {
-    const { stats, charts } = dashboardStatsCache.getDashboardStatsSnapshot();
+    let snap = dashboardStatsCache.getDashboardStatsSnapshot();
+    // First visit after process start used to read all zeros until the delayed background refresh ran.
+    if (!snap.refreshedAt) {
+      await dashboardStatsCache.refreshNow();
+      snap = dashboardStatsCache.getDashboardStatsSnapshot();
+    }
+    const { stats, charts } = snap;
     const bookmarks = bookmarksService.loadBookmarks();
 
     // --- TAK server health metrics (best-effort; dashboard still loads if TAK is down) ---
