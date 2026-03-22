@@ -12,6 +12,9 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.57 - 3/21/26
+✨ `Enhancement` - Added the ability to lock the request access page to only submit if the user's email domain matches the selected agency. (Configured on the agencies page for global admins)
+
 ### v1.2.56 - 3/21/26
 ✨ `Enhancement` - Many backend  improvements to Groups and Mutual Aid pages to make view members, mass assign, and mass unassign load and perform quicker.<br>
 ✨ `Enhancement` - Renamed "Private" group label to "Hide From Agency Admins" as this is the only case where a group can't be hidden from the manage access section of agencies.<br>
