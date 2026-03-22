@@ -64,6 +64,16 @@
         <select name="templateIndex" id="createTemplateSelect"></select>
       </label>
 
+      <label>Permissions
+        <select name="permissions" id="createPermissionsSelect" aria-label="User permissions">
+          <option value="user" selected>User</option>
+          <option value="agency_admin">Agency Admin</option>
+          <% if (isGlobalAdmin) { %>
+            <option value="global_admin">Global Admin</option>
+          <% } %>
+        </select>
+      </label>
+
       <!-- Manual Groups (checkbox picker) -->
       <div id="createManualGroupsWrap" style="display:none; grid-column: 1 / -1;">
         <h3 style="margin-top:0;">Manual Groups</h3>
@@ -2671,7 +2681,8 @@ th.sortable:hover{
   max-width: 420px;
 }
 
-#permissionsSelect{
+#permissionsSelect,
+#createPermissionsSelect{
   min-width: 160px;
   max-width: 220px;
 }

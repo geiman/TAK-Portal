@@ -396,6 +396,7 @@ module.exports = {
   normalizeSuffix,
   normalizeGroupList,
   getAgencyAdminGroupName,
+  getAllAgencyAdminGroupNames,
   getAllowedAgencySuffixesForGroups,
   hasAnyAgencyAdminsConfigured,
   getAgencyAccess,

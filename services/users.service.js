@@ -4,6 +4,7 @@ const agenciesStore = require("./agencies.service");
 const templatesStore = require("./templates.service");
 const tak = require("./tak.service");
 const settingsSvc = require("./settings.service");
+const accessSvc = require("./access.service");
 
 function getHiddenUserPrefixes() {
   return String(getString("USERS_HIDDEN_PREFIXES", ""))
@@ -872,6 +873,8 @@ async function createUser(
     password,
     templateIndex,
     manualGroupIds,
+    /** "user" | "agency_admin" | "global_admin" — extra groups applied after template groups */
+    permissions,
     // Optional optimization: pass preloaded Authentik groups to avoid refetching for each user
     allGroups,
   },
@@ -982,9 +985,53 @@ async function createUser(
       .filter(Boolean);
   }
   // Merge + dedupe by PK (selected groups only)
-  const finalGroups = [
+  let groupsToApply = [
     ...new Map(selectedGroups.map(g => [g.pk, g])).values(),
   ];
+
+  const perm = String(permissions || "user").trim().toLowerCase();
+  if (perm === "agency_admin" || perm === "global_admin") {
+    const allHidden = await getAllGroups({ includeHidden: true });
+    const byNameLower = new Map(
+      allHidden.map(g => [String(g.name || "").trim().toLowerCase(), g])
+    );
+
+    const extra = [];
+    if (perm === "agency_admin") {
+      const names = accessSvc.getAllAgencyAdminGroupNames(agency);
+      for (const n of names) {
+        const g = byNameLower.get(String(n).trim().toLowerCase());
+        if (g) extra.push(g);
+      }
+      if (!extra.length) {
+        throw new Error(
+          "Cannot assign Agency Admin: agency admin group was not found in Authentik."
+        );
+      }
+    } else {
+      const raw = String(getString("PORTAL_AUTH_REQUIRED_GROUP", "")).trim();
+      const nameList = raw
+        .split(",")
+        .map(x => String(x || "").trim().toLowerCase())
+        .filter(Boolean);
+      for (const nm of nameList) {
+        const g = byNameLower.get(nm);
+        if (g) extra.push(g);
+      }
+      if (!extra.length) {
+        throw new Error(
+          "Cannot assign Global Admin: global admin groups are not configured or not found in Authentik."
+        );
+      }
+    }
+
+    const byPk = new Map(groupsToApply.map(g => [String(g.pk), g]));
+    for (const g of extra) {
+      byPk.set(String(g.pk), g);
+    }
+    groupsToApply = [...byPk.values()];
+  }
+
   // Build payload
   const attributes = {
     agency: agency.suffix,
@@ -1041,27 +1088,23 @@ async function createUser(
   }
 
   // Apply groups
-  if (finalGroups.length) {
-    const before = await getUserById(user.pk);
-
+  if (groupsToApply.length) {
     await api.patch(`/core/users/${user.pk}/`, {
-      groups: finalGroups.map(g => g.pk),
+      groups: groupsToApply.map(g => g.pk),
     });
-
-    const after = await getUserById(user.pk);
   }
 
 
   // Email notification (never includes the password)
   try {
-    await emailUserCreated({ user, groups: finalGroups, hasPassword });
+    await emailUserCreated({ user, groups: groupsToApply, hasPassword });
   } catch (e) {
     // Don't fail user creation if email fails
     console.error("[EMAIL] user creation notice failed:", e?.message || e);
   }
 
   invalidateUsersCache();
-  return { user, groups: finalGroups };
+  return { user, groups: groupsToApply };
 }
 
 const INTEGRATION_PREFIX = "nodered-";
