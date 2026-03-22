@@ -75,6 +75,11 @@
         bookmarkKeys.push(`BOOKMARK${i}_TITLE`, `BOOKMARK${i}_URL`);
       }
 
+      const additionalAgencyTypeKeys = [];
+      for (let i = 1; i <= 30; i++) {
+        additionalAgencyTypeKeys.push(`ADDITIONAL_AGENCY_TYPE_${i}`);
+      }
+
       const knownKeys = new Set([
         "AUTHENTIK_URL",
         "AUTHENTIK_TOKEN",
@@ -112,6 +117,7 @@
         "BETA_MODE",
 
         ...bookmarkKeys,
+        ...additionalAgencyTypeKeys,
 
         "BRAND_THEME",
         "BRAND_LOGO_URL",
@@ -412,6 +418,178 @@
         </details>
       </div>
     <% } %>
+
+    <!-- Additional Agency Types -->
+    <div class="card">
+      <details class="settings-section">
+        <summary class="settings-summary">Additional Agency Types</summary>
+
+        <div class="settings-body">
+          <p class="settings-help">
+            Types listed here appear in the <strong>Agencies</strong> page type dropdown at the bottom of the list, just above <strong>Other</strong>.
+            Built-in types are always shown first; reorder only affects your additional types.
+          </p>
+
+          <%
+            const initialAdditionalAgencyTypes = [];
+            for (let i = 1; i <= 30; i++) {
+              const v = (settings[`ADDITIONAL_AGENCY_TYPE_${i}`] || "").trim();
+              if (v) initialAdditionalAgencyTypes.push(v);
+            }
+          %>
+
+          <div id="additionalAgencyTypeEditor" style="margin-top:.5rem;">
+            <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:.5rem;">
+              <button type="button" class="btn" id="addAdditionalAgencyTypeBtn">Add type</button>
+              <small class="settings-help" id="additionalAgencyTypeCountNote"></small>
+            </div>
+
+            <ul id="additionalAgencyTypeList" style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:.5rem;"></ul>
+
+            <div id="additionalAgencyTypeHiddenFields"></div>
+          </div>
+
+          <script>
+            (function () {
+              var MAX = 30;
+              var form = document.getElementById("settingsForm");
+              var list = document.getElementById("additionalAgencyTypeList");
+              var addBtn = document.getElementById("addAdditionalAgencyTypeBtn");
+              var note = document.getElementById("additionalAgencyTypeCountNote");
+              var hiddenHost = document.getElementById("additionalAgencyTypeHiddenFields");
+
+              if (!form || !list || !addBtn || !hiddenHost) return;
+
+              var initial = <%- JSON.stringify(initialAdditionalAgencyTypes) %>;
+
+              function updateCount() {
+                var n = list.querySelectorAll("li[data-additional-agency-type-row]").length;
+                if (note) note.textContent = n + " / " + MAX + " additional types";
+                addBtn.disabled = n >= MAX;
+              }
+
+              function createRow(label) {
+                var li = document.createElement("li");
+                li.setAttribute("data-additional-agency-type-row", "1");
+                li.draggable = true;
+                li.style.border = "1px solid #e5e7eb";
+                li.style.borderRadius = "0.5rem";
+                li.style.padding = "0.5rem";
+                li.style.background = "#fff0";
+
+                var wrap = document.createElement("div");
+                wrap.style.display = "grid";
+                wrap.style.gridTemplateColumns = "32px 1fr 80px";
+                wrap.style.gap = "0.5rem";
+                wrap.style.alignItems = "center";
+
+                var handle = document.createElement("div");
+                handle.title = "Drag to reorder";
+                handle.textContent = "⋮⋮";
+                handle.style.cursor = "grab";
+                handle.style.userSelect = "none";
+                handle.style.fontSize = "1.2rem";
+                handle.style.textAlign = "center";
+
+                var inp = document.createElement("input");
+                inp.type = "text";
+                inp.placeholder = "Type label (e.g. Transit Police)";
+                inp.value = label || "";
+                inp.setAttribute("data-additional-agency-type-val", "1");
+                inp.style.width = "100%";
+
+                var del = document.createElement("button");
+                del.type = "button";
+                del.className = "btn btn-warning";
+                del.textContent = "Delete";
+                del.addEventListener("click", function () {
+                  li.remove();
+                  updateCount();
+                });
+
+                wrap.appendChild(handle);
+                wrap.appendChild(inp);
+                wrap.appendChild(del);
+                li.appendChild(wrap);
+
+                li.addEventListener("dragstart", function (e) {
+                  li.classList.add("dragging");
+                  e.dataTransfer.effectAllowed = "move";
+                });
+                li.addEventListener("dragend", function () {
+                  li.classList.remove("dragging");
+                });
+
+                return li;
+              }
+
+              function getDragAfterElement(container, y) {
+                var els = [].slice.call(
+                  container.querySelectorAll("li[data-additional-agency-type-row]:not(.dragging)")
+                );
+                return els.reduce(
+                  function (closest, child) {
+                    var box = child.getBoundingClientRect();
+                    var offset = y - box.top - box.height / 2;
+                    if (offset < 0 && offset > closest.offset) {
+                      return { offset: offset, element: child };
+                    }
+                    return closest;
+                  },
+                  { offset: Number.NEGATIVE_INFINITY, element: null }
+                ).element;
+              }
+
+              list.addEventListener("dragover", function (e) {
+                e.preventDefault();
+                var dragging = list.querySelector(".dragging");
+                if (!dragging) return;
+                var after = getDragAfterElement(list, e.clientY);
+                if (after == null) {
+                  list.appendChild(dragging);
+                } else {
+                  list.insertBefore(dragging, after);
+                }
+              });
+
+              addBtn.addEventListener("click", function () {
+                var n = list.querySelectorAll("li[data-additional-agency-type-row]").length;
+                if (n >= MAX) return;
+                list.appendChild(createRow(""));
+                updateCount();
+              });
+
+              if (Array.isArray(initial) && initial.length) {
+                initial.forEach(function (t) {
+                  list.appendChild(createRow(t));
+                });
+              }
+              updateCount();
+
+              form.addEventListener("submit", function () {
+                hiddenHost.innerHTML = "";
+
+                var rows = [].slice.call(list.querySelectorAll("li[data-additional-agency-type-row]"));
+                var normalized = rows
+                  .map(function (li) {
+                    var el = li.querySelector("[data-additional-agency-type-val]");
+                    return String((el && el.value) || "").trim();
+                  })
+                  .filter(Boolean);
+
+                for (var i = 1; i <= MAX; i++) {
+                  var h = document.createElement("input");
+                  h.type = "hidden";
+                  h.name = "settings[ADDITIONAL_AGENCY_TYPE_" + i + "]";
+                  h.value = normalized[i - 1] || "";
+                  hiddenHost.appendChild(h);
+                }
+              });
+            })();
+          </script>
+        </div>
+      </details>
+    </div>
 
     <!-- Callsign Format -->
     <div class="card">

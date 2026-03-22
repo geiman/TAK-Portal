@@ -20,6 +20,7 @@ const auditSvc = require("./services/auditLog.service");
 const accessSvc = require("./services/access.service");
 const usersSvc = require("./services/users.service");
 const groupsSvc = require("./services/groups.service");
+const agencyTypesSvc = require("./services/agencyTypes.service");
 
 const app = express();
 
@@ -278,7 +279,9 @@ app.get("/users/manage", (req, res) => {
 });
 app.get("/groups", (req, res) => res.render("groups"));
 app.get("/agencies", requireGlobalAdmin, (req, res) =>
-  res.render("agencies")
+  res.render("agencies", {
+    agencyTypeOptions: agencyTypesSvc.getAgencyTypeOptions(),
+  })
 ); //require Global Admin
 app.get("/templates", (req, res) => res.render("templates"));
 app.get("/mutual-aid", requireGlobalAdmin, (req, res) =>

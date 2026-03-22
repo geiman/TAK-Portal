@@ -108,19 +108,10 @@
       <label>Agency Type
         <select name="type" required>
           <option value="" disabled selected>Agency Type</option>
-          <option value="Law Enforcement">Law Enforcement</option>
-          <option value="Fire">Fire</option>
-          <option value="EMS">EMS</option>
-          <option value="State Defense">State Defense</option>
-          <option value="Military">Military</option>
-          <option value="Game Warden / NPS / Forestry">Game Warden / NPS / Forestry</option>
-          <option value="CBRNE / HAZMAT">CBRNE / HAZMAT</option>
-          <option value="SAR / Technical">SAR / Technical</option>
-          <option value="Emergency Management">Emergency Management</option>
-          <option value="Dispatch / Communications">Dispatch / Communications</option>
-          <option value="Public Works">Public Works</option>
-          <option value="Volunteer">Volunteer</option>
-          <option value="Other">Other</option>
+          <% const _agencyTypeOpts = Array.isArray(agencyTypeOptions) && agencyTypeOptions.length ? agencyTypeOptions : []; %>
+          <% _agencyTypeOpts.forEach(function (t) { %>
+<option value="<%= t %>"><%= t %></option>
+          <% }); %>
         </select>
       </label>
 
