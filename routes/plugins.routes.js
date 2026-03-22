@@ -26,10 +26,10 @@ const upload = multer({
   limits: { fileSize: 500 * 1024 * 1024 }, // 500 MB
 });
 
+const { toSafeApiError } = require("../services/apiErrorPayload.service");
+
 function toErrorPayload(err) {
-  const data = err?.response?.data;
-  if (data) return typeof data === "string" ? data : data;
-  return err?.message || "Unknown error";
+  return toSafeApiError(err);
 }
 
 /**

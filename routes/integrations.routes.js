@@ -2,11 +2,10 @@ const router = require("express").Router();
 const users = require("../services/users.service");
 const groupsSvc = require("../services/groups.service");
 const auditSvc = require("../services/auditLog.service");
+const { toSafeApiError } = require("../services/apiErrorPayload.service");
 
 function toErrorPayload(err) {
-  const data = err?.response?.data;
-  if (data) return typeof data === "string" ? data : data;
-  return err?.message || "Unknown error";
+  return toSafeApiError(err);
 }
 
 function stripTakPrefix(name) {

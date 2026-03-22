@@ -9,6 +9,7 @@ const qrSvc = require("../services/qr.service");
 const tokensSvc = require("../services/authentikTokens.service");
 const { getString } = require("../services/env");
 const auditSvc = require("../services/auditLog.service");
+const { toSafeApiError } = require("../services/apiErrorPayload.service");
 
 // Cache resolved Global Admin group PKs (from PORTAL_AUTH_REQUIRED_GROUP)
 // so we can cheaply hide global-admin users from agency-admin views.
@@ -108,18 +109,9 @@ function newJobId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-// Small helper to keep error responses consistent and safe
+// Small helper to keep error responses consistent and safe (no raw HTML from Authentik)
 function toErrorPayload(err) {
-  const data = err?.response?.data;
-  if (data) {
-    if (typeof data === "string") return data;
-    try {
-      return JSON.stringify(data);
-    } catch (_) {
-      return "Unknown error";
-    }
-  }
-  return err?.message || "Unknown error";
+  return toSafeApiError(err);
 }
 
 router.get("/meta", async (req, res) => {

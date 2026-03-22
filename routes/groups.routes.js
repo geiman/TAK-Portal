@@ -6,7 +6,7 @@ const accessSvc = require("../services/access.service");
 const usersService = require("../services/users.service");
 const auditSvc = require("../services/auditLog.service");
 const { getString } = require("../services/env");
-
+const { toSafeApiError } = require("../services/apiErrorPayload.service");
 
 function ensureTakPrefix(name) {
   const n = String(name || "").trim();
@@ -21,9 +21,7 @@ function stripTakPrefix(name) {
 }
 
 function toErrorPayload(err) {
-  const data = err?.response?.data;
-  if (data) return typeof data === "string" ? data : data;
-  return err?.message || "Unknown error";
+  return toSafeApiError(err);
 }
 
 async function getGroupNameSafe(groupId) {

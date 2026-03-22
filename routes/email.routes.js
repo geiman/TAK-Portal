@@ -6,18 +6,10 @@ const accessSvc = require("../services/access.service");
 const emailSvc = require("../services/email.service");
 const auditSvc = require("../services/auditLog.service");
 const { renderTemplate, htmlToText } = require("../services/emailTemplates.service");
+const { toSafeApiError } = require("../services/apiErrorPayload.service");
 
 function toErrorPayload(err) {
-  const data = err?.response?.data;
-  if (data) {
-    if (typeof data === "string") return data;
-    try {
-      return JSON.stringify(data);
-    } catch (_) {
-      return "Unknown error";
-    }
-  }
-  return err?.message || "Unknown error";
+  return toSafeApiError(err);
 }
 
 // GET /api/email/meta
