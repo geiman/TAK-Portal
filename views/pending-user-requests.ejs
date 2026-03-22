@@ -81,6 +81,12 @@
   max-width: 220px;
 }
 
+.requestPermissionsSelect{
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
+}
+
 /* Stack nicely on small screens */
 @media (max-width: 640px){
   .templateBar{
@@ -290,6 +296,16 @@ th.sortable:hover{
 
             <label>Template
               <select name="templateIndex" class="templateSelect"></select>
+            </label>
+
+            <label>Permissions
+              <select name="permissions" class="requestPermissionsSelect" aria-label="User permissions">
+                <option value="user" selected>User</option>
+                <option value="agency_admin">Agency Admin</option>
+                <% if (isGlobalAdmin) { %>
+                  <option value="global_admin">Global Admin</option>
+                <% } %>
+              </select>
             </label>
 
             <!-- Manual Groups (checkbox picker) -->
@@ -785,6 +801,9 @@ th.sortable:hover{
 
       const fd = new FormData(form);
       const payload = Object.fromEntries(fd.entries());
+
+      const permVal = String(payload.permissions || "user").trim().toLowerCase();
+      payload.permissions = permVal || "user";
 
       const pwd = String(payload.password || '').trim();
       if (!isValidPassword(pwd)) {
