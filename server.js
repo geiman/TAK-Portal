@@ -657,7 +657,7 @@ app.post("/request-access", async (req, res) => {
       }
     }
 
-    userRequestsSvc.createRequest({
+    await userRequestsSvc.createRequest({
       firstName: body.firstName,
       lastName: body.lastName,
       email: body.email,
