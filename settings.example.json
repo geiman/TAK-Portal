@@ -17,6 +17,7 @@
   "TAK_REVOKE_ON_DISABLE": "true",
   "TAK_DEBUG": "false",
   "TAK_BYPASS_ENABLED": "false",
+  "DASHBOARD_TAK_STATS_REFRESH_SECONDS": "15",
   "CLOUDTAK_URL": "",
   "EMAIL_ENABLED": "false",
   "EMAIL_PROVIDER": "smtp",

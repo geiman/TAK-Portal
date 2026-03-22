@@ -1,23 +1,11 @@
 const router = require("express").Router();
 const dashboardStatsCache = require("../services/dashboardStatsCache.service");
+const takDashboardCache = require("../services/takDashboardCache.service");
 const mutualAidService = require("../services/mutualAid.service");
 const bookmarksService = require("../services/bookmarks.service");
 const agenciesStore = require("../services/agencies.service");
-const { getTakMetricsSnapshot, getSubscriptionsAll } = require("../services/takMetrics.service");
 
-const NODERED_PREFIX = "nodered-";
 const userRequestsSvc = require("../services/userRequests.service");
-const DASHBOARD_TAK_TIMEOUT_MS = 1500;
-
-function withTimeout(promise, timeoutMs) {
-  return Promise.race([
-    promise,
-    new Promise((resolve) => {
-      setTimeout(() => resolve(null), timeoutMs);
-    }),
-  ]);
-}
-
 
 router.get("/", async (req, res) => {
   try {
@@ -30,25 +18,8 @@ router.get("/", async (req, res) => {
     const { stats, charts } = snap;
     const bookmarks = bookmarksService.loadBookmarks();
 
-    // --- TAK server health metrics (best-effort; dashboard still loads if TAK is down) ---
-    const [takMetricsBase, subscriptions] = await Promise.all([
-      withTimeout(getTakMetricsSnapshot().catch(() => null), DASHBOARD_TAK_TIMEOUT_MS),
-      withTimeout(getSubscriptionsAll().catch(() => null), DASHBOARD_TAK_TIMEOUT_MS),
-    ]);
-    let takMetrics = takMetricsBase;
-    if (takMetrics && takMetrics.configured && subscriptions) {
-      const list = Array.isArray(subscriptions.data) ? subscriptions.data : [];
-      const noderedCount = list.filter((item) => {
-        const u = (item.username != null ? String(item.username).trim() : "").toLowerCase();
-        return u.indexOf(NODERED_PREFIX) === 0;
-      }).length;
-      const total = typeof takMetrics.connectedClients === "number" ? takMetrics.connectedClients : 0;
-      takMetrics = {
-        ...takMetrics,
-        connectedClients: Math.max(0, total - noderedCount),
-        connectedIntegrations: noderedCount,
-      };
-    }
+    // TAK metrics: read server-side background cache (no await on TAK HTTP; client still polls /api/tak/metrics).
+    const { takMetrics } = takDashboardCache.getDashboardTakSnapshot();
 
     // --- Mutual Aid active banners ---
     const pendingUserRequestsCount = userRequestsSvc.countRequestsForUser(req.authentikUser);
@@ -132,6 +103,7 @@ router.get("/", async (req, res) => {
     console.error("[DASHBOARD] failed:", err?.message || err);
 
     const bookmarks = bookmarksService.loadBookmarks();
+    const { takMetrics: cachedTak } = takDashboardCache.getDashboardTakSnapshot();
     const viewModel = {
       stats: {
         totalUsers: 0,
@@ -152,7 +124,7 @@ router.get("/", async (req, res) => {
       agencyColors: {},
       typeColors: {},
       bookmarks,
-      takMetrics: null,
+      takMetrics: cachedTak,
       pendingUserRequestsCount: userRequestsSvc.countRequestsForUser(req.authentikUser), 
       error: err?.response?.data || err?.message || "Failed to load dashboard",
     };

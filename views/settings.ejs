@@ -88,6 +88,7 @@
         "USERS_ACTIONS_HIDDEN_PREFIXES",
         "GROUPS_ACTIONS_HIDDEN_PREFIXES",
         "DASHBOARD_AUTHENTIK_STATS_REFRESH_SECONDS",
+        "DASHBOARD_TAK_STATS_REFRESH_SECONDS",
 
         "TAK_URL",
         "TAK_API_P12_PATH",
@@ -245,6 +246,7 @@
             <% renderField("TAK_REVOKE_ON_DISABLE","Revoke on Disable","If true, revokes TAK certs when a user is disabled."); %>
             <% renderField("TAK_DEBUG","TAK Debug","If true, enables verbose TAK debug logging."); %>
             <% renderField("TAK_BYPASS_ENABLED","Bypass TAK","If true, disables all outbound TAK calls (for testing)."); %>
+            <% renderField("DASHBOARD_TAK_STATS_REFRESH_SECONDS","Dashboard TAK stats refresh (seconds)","How often the server refreshes cached TAK metrics for the dashboard in the background. Lower = fresher numbers; the dashboard page does not wait on TAK. Server restart required for changes to take effect."); %>
             <% renderField("CLOUDTAK_URL","CloudTAK URL","Optional. Base URL for CloudTAK web (e.g. https://cloudtak.example.gov)."); %>
           </div>
         </div>

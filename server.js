@@ -5,6 +5,7 @@ const fs = require("fs");
 const multer = require("multer");
 const settingsSvc = require("./services/settings.service");
 const dashboardStatsCache = require("./services/dashboardStatsCache.service");
+const takDashboardCache = require("./services/takDashboardCache.service");
 const axios = require("axios");
 const { getString } = require("./services/env");
 const { URL } = require("url");
@@ -1201,6 +1202,9 @@ app.listen(port, () => {
 
   // Prime dashboard Authentik stats cache (dashboard-only)
   dashboardStatsCache.startDashboardStatsRefresher();
+
+  // TAK metrics for dashboard HTML: background refresh so /dashboard does not wait on TAK
+  takDashboardCache.startTakDashboardRefresher();
 
   // Rehydrate expiration timers from stored mutual aid records.
   try {
