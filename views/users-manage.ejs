@@ -182,7 +182,14 @@
       <button class="btn" id="closeBtn" type="button">Close</button>
     </div>
 
-    <div class="modalBody">
+    <div class="modalBody" id="modalBody" style="position:relative;">
+      <div id="editUserModalLoading" class="editUserModalLoading" hidden>
+        <div class="editUserModalLoadingCard">
+          <div class="editUserModalLoadingSpinner" aria-hidden="true"></div>
+          <p class="editUserModalLoadingTitle">Loading user details…</p>
+          <p class="muted" style="margin:0;font-size:12px;">Fetching group memberships from Authentik</p>
+        </div>
+      </div>
       <div class="grid2">
         <!-- Top section: organized panels -->
         <div class="topPanels" style="grid-column:1/-1;">
@@ -859,6 +866,8 @@ const pageInfoBottom = document.getElementById("pageInfoBottom");
 
 // Modal elements
 const modalOverlay = document.getElementById("modalOverlay");
+const modalBody = document.getElementById("modalBody");
+const editUserModalLoading = document.getElementById("editUserModalLoading");
 const closeBtn = document.getElementById("closeBtn");
 const userTitle = document.getElementById("userTitle");
 
@@ -1290,9 +1299,21 @@ function openModal(){
   document.body.classList.add("noScroll");
 }
 
+function setEditUserModalLoading(on) {
+  if (!editUserModalLoading || !modalBody) return;
+  if (on) {
+    editUserModalLoading.hidden = false;
+    modalBody.setAttribute("aria-busy", "true");
+  } else {
+    editUserModalLoading.hidden = true;
+    modalBody.removeAttribute("aria-busy");
+  }
+}
+
 function closeModal(){
   modalOverlay.style.display = "none";
   document.body.classList.remove("noScroll");
+  setEditUserModalLoading(false);
   setMsgEl(actionMsg, "");
   setMsgEl(nameMsg, "");
   pw1.value = ""; pw2.value = "";
@@ -1797,14 +1818,19 @@ window.editUser = async (userPk) => {
     }
   }
 
-  // Show the modal immediately from table row data (do not wait on network).
-  selectedUser = { ...u };
-  paintEditModalFromSelectedUser();
-  openModal();
+  // Avoid showing stale chips/permissions from a previous edit or incomplete row data.
+  if (firstNameInput) firstNameInput.value = "";
+  if (lastNameInput) lastNameInput.value = "";
+  if (emailInput) emailInput.value = "";
+  if (groupChips) groupChips.innerHTML = "";
+  if (groupsInner) groupsInner.innerHTML = "";
+  pickedGroupIds = new Set();
 
-  loadTemplatesForAgency(
-    (selectedUser && selectedUser.attributes && selectedUser.attributes.agency) || ""
-  ).catch(() => {});
+  selectedUser = { ...u };
+  if (userTitle) userTitle.textContent = `User ${u.username}`;
+
+  setEditUserModalLoading(true);
+  openModal();
 
   let merged = { ...u };
   try {
@@ -1823,7 +1849,12 @@ window.editUser = async (userPk) => {
   }
 
   selectedUser = merged;
+  setEditUserModalLoading(false);
   paintEditModalFromSelectedUser();
+
+  loadTemplatesForAgency(
+    (selectedUser && selectedUser.attributes && selectedUser.attributes.agency) || ""
+  ).catch(() => {});
 
   if (permissionsSelect) {
     const globalOptionExists = !!permissionsSelect.querySelector('option[value="global_admin"]');
@@ -2719,6 +2750,46 @@ th.sortable:hover{
 .templateBar select{
   min-width: 180px;
   max-width: 420px;
+}
+
+/* Edit user: block interaction until Authentik user + group data is loaded */
+.editUserModalLoading{
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.5);
+  border-radius: 0 0 12px 12px;
+  backdrop-filter: blur(2px);
+}
+.editUserModalLoading[hidden]{
+  display: none !important;
+}
+.editUserModalLoadingCard{
+  text-align: center;
+  padding: 20px 28px;
+  border-radius: 12px;
+  background: var(--panel, #1a1a1e);
+  border: 1px solid var(--line, rgba(255,255,255,0.1));
+  max-width: 320px;
+}
+.editUserModalLoadingTitle{
+  margin: 12px 0 4px;
+  font-weight: 600;
+}
+.editUserModalLoadingSpinner{
+  width: 36px;
+  height: 36px;
+  margin: 0 auto;
+  border: 3px solid rgba(255,255,255,0.15);
+  border-top-color: var(--btn, #3b82f6);
+  border-radius: 50%;
+  animation: editUserSpin 0.75s linear infinite;
+}
+@keyframes editUserSpin{
+  to { transform: rotate(360deg); }
 }
 
 #permissionsSelect{
