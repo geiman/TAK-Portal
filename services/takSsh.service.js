@@ -17,8 +17,7 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const childProcess = require("child_process");
-const { Client } = require("ssh2");
+const { Client, utils: sshUtils } = require("ssh2");
 const { getString, getInt, getBool } = require("./env");
 const settingsSvc = require("./settings.service");
 
@@ -40,6 +39,19 @@ function ensureDir(dirPath) {
 
 function quoteForSingleQuotedShell(str) {
   return String(str || "").replace(/'/g, "'\"'\"'");
+}
+
+function isUsablePrivateKey(privateKeyText, passphrase) {
+  try {
+    const parsed = sshUtils.parseKey(String(privateKeyText || ""), passphrase);
+    if (parsed instanceof Error) return false;
+    if (Array.isArray(parsed)) {
+      return parsed.length > 0 && parsed.every((p) => !(p instanceof Error));
+    }
+    return !!parsed;
+  } catch (_) {
+    return false;
+  }
 }
 
 function b64UrlToBuffer(input) {
@@ -108,6 +120,11 @@ function getTakSshConfig() {
     return null;
   }
 
+  if (!isUsablePrivateKey(privateKey, undefined)) {
+    console.warn("[TAK SSH] Private key exists but is not parseable by ssh2.");
+    return null;
+  }
+
   const username = String(getString("TAK_SSH_USER", "")).trim();
   if (!username) return null;
 
@@ -140,37 +157,33 @@ function ensureLocalSshKeyPair() {
   ensureDir(DATA_SSH_DIR);
 
   if (fs.existsSync(DEFAULT_PRIVATE_KEY_PATH) && fs.existsSync(DEFAULT_PUBLIC_KEY_PATH)) {
-    return getLocalKeyStatus();
+    try {
+      const existingPrivate = fs.readFileSync(DEFAULT_PRIVATE_KEY_PATH, "utf8");
+      if (isUsablePrivateKey(existingPrivate, undefined)) {
+        return getLocalKeyStatus();
+      }
+      console.warn("[TAK SSH] Existing private key is invalid. Regenerating.");
+    } catch (_) {
+      // Regenerate below.
+    }
   }
 
-  let generated = false;
+  const { publicKey, privateKey } = crypto.generateKeyPairSync("rsa", {
+    modulusLength: 4096,
+    publicExponent: 0x10001,
+  });
+  const privatePem = privateKey.export({ format: "pem", type: "pkcs8" });
+  fs.writeFileSync(DEFAULT_PRIVATE_KEY_PATH, String(privatePem), { mode: 0o600 });
 
-  // Prefer OpenSSH-native key generation when available.
-  try {
-    childProcess.execFileSync(
-      "ssh-keygen",
-      ["-t", "ed25519", "-N", "", "-f", DEFAULT_PRIVATE_KEY_PATH, "-C", "tak-portal"],
-      { stdio: "ignore" }
-    );
-    generated = true;
-  } catch (err) {
-    // Ignore and fall back below.
-  }
+  const jwk = publicKey.export({ format: "jwk" });
+  const opensshPublic = buildSshRsaPublicFromJwk(jwk, "tak-portal");
+  fs.writeFileSync(DEFAULT_PUBLIC_KEY_PATH, String(opensshPublic).trim() + "\n", {
+    mode: 0o644,
+  });
 
-  // Fallback path: no ssh-keygen on host.
-  if (!generated) {
-    const { publicKey, privateKey } = crypto.generateKeyPairSync("rsa", {
-      modulusLength: 4096,
-      publicExponent: 0x10001,
-    });
-    const privatePem = privateKey.export({ format: "pem", type: "pkcs8" });
-    fs.writeFileSync(DEFAULT_PRIVATE_KEY_PATH, String(privatePem), { mode: 0o600 });
-
-    const jwk = publicKey.export({ format: "jwk" });
-    const opensshPublic = buildSshRsaPublicFromJwk(jwk, "tak-portal");
-    fs.writeFileSync(DEFAULT_PUBLIC_KEY_PATH, String(opensshPublic).trim() + "\n", {
-      mode: 0o644,
-    });
+  const verifyPrivate = fs.readFileSync(DEFAULT_PRIVATE_KEY_PATH, "utf8");
+  if (!isUsablePrivateKey(verifyPrivate, undefined)) {
+    throw new Error("Generated private key is not parseable by ssh2.");
   }
 
   // Keep settings pointed at generated keys so they survive restart/redeploy.
