@@ -215,8 +215,7 @@
           </div>
 
           <div style="margin-top:.75rem;display:flex;gap:.5rem;flex-wrap:wrap;">
-            <button type="button" class="btn" id="sshGenerateKeyBtn">Generate SSH Key</button>
-            <button type="button" class="btn" id="sshHandshakeBtn">Run One-Time Handshake</button>
+            <button type="button" class="btn" id="sshHandshakeBtn">Generate Key + Run One-Time Handshake</button>
             <button type="button" class="btn" id="sshRefreshStatusBtn">Refresh SSH Status</button>
           </div>
 
@@ -1321,7 +1320,6 @@
     const userInput = document.getElementById("sshUserInput");
     const passInput = document.getElementById("sshPasswordInput");
     const cmdInput = document.getElementById("sshCommandInput");
-    const btnGenerate = document.getElementById("sshGenerateKeyBtn");
     const btnHandshake = document.getElementById("sshHandshakeBtn");
     const btnStatus = document.getElementById("sshRefreshStatusBtn");
     const btnRun = document.getElementById("sshRunCommandBtn");
@@ -1376,20 +1374,6 @@
       });
     }
 
-    if (btnGenerate) {
-      btnGenerate.addEventListener("click", async function () {
-        try {
-          btnGenerate.disabled = true;
-          await postJson("/api/ssh/generate-key", {});
-          await getStatus();
-        } catch (err) {
-          setStatus(err.message || String(err), true);
-        } finally {
-          btnGenerate.disabled = false;
-        }
-      });
-    }
-
     if (btnHandshake) {
       btnHandshake.addEventListener("click", async function () {
         const host = (hostInput && hostInput.value || "").trim();
@@ -1402,6 +1386,9 @@
         }
         try {
           btnHandshake.disabled = true;
+          setStatus("Generating SSH key...", false);
+          await postJson("/api/ssh/generate-key", {});
+          setStatus("Running one-time handshake...", false);
           await postJson("/api/ssh/handshake", { host, port, username, password });
           if (passInput) passInput.value = "";
           await getStatus();
