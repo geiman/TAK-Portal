@@ -60,6 +60,19 @@ function getIntegrationCertPaths(username) {
   };
 }
 
+function deleteStoredIntegrationCertFiles(username) {
+  const p = getIntegrationCertPaths(username);
+  try {
+    if (fs.existsSync(p.pemPath)) fs.unlinkSync(p.pemPath);
+  } catch (_) {}
+  try {
+    if (fs.existsSync(p.keyPath)) fs.unlinkSync(p.keyPath);
+  } catch (_) {}
+  try {
+    if (fs.existsSync(p.dir) && fs.readdirSync(p.dir).length === 0) fs.rmdirSync(p.dir);
+  } catch (_) {}
+}
+
 function hasStoredIntegrationCertFiles(username) {
   const p = getIntegrationCertPaths(username);
   return fs.existsSync(p.pemPath) && fs.existsSync(p.keyPath);
@@ -154,6 +167,39 @@ async function getOrProvisionIntegrationCertFiles(username) {
     return { ok: true, ...getIntegrationCertPaths(un), fromCache: true };
   }
   return provisionIntegrationCertFiles(un);
+}
+
+async function revokeIntegrationCertViaSshScript(username) {
+  const un = sanitizeIntegrationUsername(username);
+  const cfg = getTakSshConfig();
+  if (!cfg) {
+    throw new Error("SSH is not configured. Complete SSH handshake in Settings.");
+  }
+
+  const safeName = quoteForSingleQuotedShell(un);
+  const revokeCommand =
+    "sudo -u tak bash -lc 'set -e; cd /opt/tak/certs; " +
+    `./revokeCert.sh files/${safeName} files/ca-do-not-share files/ca'`;
+
+  const result = await execOverSsh(
+    {
+      host: cfg.host,
+      port: cfg.port,
+      username: cfg.username,
+      privateKey: cfg.privateKey,
+      passphrase: cfg.passphrase,
+      readyTimeout: 15000,
+    },
+    revokeCommand,
+    45000
+  );
+
+  if (!result.ok) {
+    throw new Error(result.message || "Failed to revoke integration cert via SSH script.");
+  }
+
+  deleteStoredIntegrationCertFiles(un);
+  return { ok: true, username: un };
 }
 
 function isUsablePrivateKey(privateKeyText, passphrase) {
@@ -514,6 +560,8 @@ module.exports = {
   hasStoredIntegrationCertFiles,
   provisionIntegrationCertFiles,
   getOrProvisionIntegrationCertFiles,
+  revokeIntegrationCertViaSshScript,
+  deleteStoredIntegrationCertFiles,
   getTakSshConfig,
   createTakClientCertForIntegration,
 };

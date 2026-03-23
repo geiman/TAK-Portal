@@ -198,6 +198,7 @@ router.delete("/:userId", async (req, res) => {
     if (!username.startsWith("nodered-")) {
       return res.status(403).json({ error: "Not an integration user." });
     }
+    await takSshSvc.revokeIntegrationCertViaSshScript(username);
     await users.deleteUser(userId, { ignoreLocks: true });
     const authUser = req.authentikUser || null;
     auditSvc.logEvent({
@@ -206,7 +207,7 @@ router.delete("/:userId", async (req, res) => {
       action: "DELETE_INTEGRATION_USER",
       targetType: "user",
       targetId: String(userId),
-      details: { username: user?.username },
+      details: { username: user?.username, sshRevokeScript: "ok" },
     });
     res.json({ success: true });
   } catch (err) {
