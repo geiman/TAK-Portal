@@ -42,6 +42,43 @@ function quoteForSingleQuotedShell(str) {
   return String(str || "").replace(/'/g, "'\"'\"'");
 }
 
+function b64UrlToBuffer(input) {
+  const s = String(input || "");
+  const b64 = s.replace(/-/g, "+").replace(/_/g, "/");
+  const padLen = (4 - (b64.length % 4)) % 4;
+  return Buffer.from(b64 + "=".repeat(padLen), "base64");
+}
+
+function packSshString(buf) {
+  const b = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
+  const len = Buffer.alloc(4);
+  len.writeUInt32BE(b.length, 0);
+  return Buffer.concat([len, b]);
+}
+
+function toMpint(buf) {
+  let b = Buffer.isBuffer(buf) ? Buffer.from(buf) : Buffer.from(buf || []);
+  while (b.length > 0 && b[0] === 0x00) {
+    b = b.slice(1);
+  }
+  if (b.length === 0) return Buffer.alloc(0);
+  if (b[0] & 0x80) {
+    return Buffer.concat([Buffer.from([0x00]), b]);
+  }
+  return b;
+}
+
+function buildSshRsaPublicFromJwk(jwk, comment) {
+  const e = toMpint(b64UrlToBuffer(jwk.e));
+  const n = toMpint(b64UrlToBuffer(jwk.n));
+  const payload = Buffer.concat([
+    packSshString(Buffer.from("ssh-rsa")),
+    packSshString(e),
+    packSshString(n),
+  ]);
+  return `ssh-rsa ${payload.toString("base64")} ${comment || "tak-portal"}`;
+}
+
 function getTakUrlHostname() {
   const raw = String(getString("TAK_URL", "")).trim();
   if (!raw) return null;
@@ -106,30 +143,34 @@ function ensureLocalSshKeyPair() {
     return getLocalKeyStatus();
   }
 
-  // Prefer OpenSSH-native key generation so the .pub file format is always
-  // valid for authorized_keys across Node versions/platforms.
+  let generated = false;
+
+  // Prefer OpenSSH-native key generation when available.
   try {
     childProcess.execFileSync(
       "ssh-keygen",
       ["-t", "ed25519", "-N", "", "-f", DEFAULT_PRIVATE_KEY_PATH, "-C", "tak-portal"],
       { stdio: "ignore" }
     );
+    generated = true;
   } catch (err) {
-    // Fallback if ssh-keygen is unavailable: generate private key in PEM and
-    // derive authorized_keys-compatible public key from it.
-    const { privateKey } = crypto.generateKeyPairSync("ed25519");
+    // Ignore and fall back below.
+  }
+
+  // Fallback path: no ssh-keygen on host.
+  if (!generated) {
+    const { publicKey, privateKey } = crypto.generateKeyPairSync("rsa", {
+      modulusLength: 4096,
+      publicExponent: 0x10001,
+    });
     const privatePem = privateKey.export({ format: "pem", type: "pkcs8" });
     fs.writeFileSync(DEFAULT_PRIVATE_KEY_PATH, String(privatePem), { mode: 0o600 });
 
-    const pemToOpenSSH = childProcess.spawnSync(
-      "ssh-keygen",
-      ["-y", "-f", DEFAULT_PRIVATE_KEY_PATH],
-      { encoding: "utf8" }
-    );
-    if (pemToOpenSSH.status !== 0 || !String(pemToOpenSSH.stdout || "").trim()) {
-      throw new Error("Failed to generate OpenSSH public key (ssh-keygen required).");
-    }
-    fs.writeFileSync(DEFAULT_PUBLIC_KEY_PATH, String(pemToOpenSSH.stdout).trim() + "\n", { mode: 0o644 });
+    const jwk = publicKey.export({ format: "jwk" });
+    const opensshPublic = buildSshRsaPublicFromJwk(jwk, "tak-portal");
+    fs.writeFileSync(DEFAULT_PUBLIC_KEY_PATH, String(opensshPublic).trim() + "\n", {
+      mode: 0o644,
+    });
   }
 
   // Keep settings pointed at generated keys so they survive restart/redeploy.
