@@ -17,6 +17,7 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const childProcess = require("child_process");
 const { Client } = require("ssh2");
 const { getString, getInt, getBool } = require("./env");
 const settingsSvc = require("./settings.service");
@@ -105,12 +106,31 @@ function ensureLocalSshKeyPair() {
     return getLocalKeyStatus();
   }
 
-  const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
-  const privatePem = privateKey.export({ format: "pem", type: "pkcs8" });
-  const publicOpenSsh = publicKey.export({ format: "ssh", type: "spki" });
+  // Prefer OpenSSH-native key generation so the .pub file format is always
+  // valid for authorized_keys across Node versions/platforms.
+  try {
+    childProcess.execFileSync(
+      "ssh-keygen",
+      ["-t", "ed25519", "-N", "", "-f", DEFAULT_PRIVATE_KEY_PATH, "-C", "tak-portal"],
+      { stdio: "ignore" }
+    );
+  } catch (err) {
+    // Fallback if ssh-keygen is unavailable: generate private key in PEM and
+    // derive authorized_keys-compatible public key from it.
+    const { privateKey } = crypto.generateKeyPairSync("ed25519");
+    const privatePem = privateKey.export({ format: "pem", type: "pkcs8" });
+    fs.writeFileSync(DEFAULT_PRIVATE_KEY_PATH, String(privatePem), { mode: 0o600 });
 
-  fs.writeFileSync(DEFAULT_PRIVATE_KEY_PATH, String(privatePem), { mode: 0o600 });
-  fs.writeFileSync(DEFAULT_PUBLIC_KEY_PATH, String(publicOpenSsh) + "\n", { mode: 0o644 });
+    const pemToOpenSSH = childProcess.spawnSync(
+      "ssh-keygen",
+      ["-y", "-f", DEFAULT_PRIVATE_KEY_PATH],
+      { encoding: "utf8" }
+    );
+    if (pemToOpenSSH.status !== 0 || !String(pemToOpenSSH.stdout || "").trim()) {
+      throw new Error("Failed to generate OpenSSH public key (ssh-keygen required).");
+    }
+    fs.writeFileSync(DEFAULT_PUBLIC_KEY_PATH, String(pemToOpenSSH.stdout).trim() + "\n", { mode: 0o644 });
+  }
 
   // Keep settings pointed at generated keys so they survive restart/redeploy.
   const current = settingsSvc.getSettings() || {};
@@ -141,6 +161,13 @@ function execOverSsh(connectConfig, command, timeoutMs = 30000) {
     }, timeoutMs);
 
     conn
+      .on("keyboard-interactive", (name, instructions, instructionsLang, prompts, finish) => {
+        if (connectConfig && connectConfig.password) {
+          finish([String(connectConfig.password)]);
+          return;
+        }
+        finish([]);
+      })
       .on("ready", () => {
         conn.exec(command, (err, stream) => {
           if (err) {
@@ -206,7 +233,7 @@ async function onboardTakSshWithPassword({ host, port, username, password }) {
       username: u,
       password: p,
       readyTimeout: 15000,
-      tryKeyboard: false,
+      tryKeyboard: true,
     },
     addKeyCommand
   );
