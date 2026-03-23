@@ -182,61 +182,6 @@
       </details>
     </div>
 
-    <!-- SSH Remote Command Runner -->
-    <div class="card">
-      <details class="settings-section">
-        <summary class="settings-summary">SSH Remote Command Runner</summary>
-
-        <div class="settings-body">
-          <p class="settings-help">
-            Flow: set target host, username, and port; generate keypair; enter password one time to install the public key; then run commands using key-based SSH.
-          </p>
-
-          <div class="grid2">
-            <label class="settings-field">
-              <span class="settings-label">Target Host / IP</span>
-              <input id="sshHostInput" type="text" value="<%= settings.TAK_SSH_HOST || '' %>" placeholder="192.168.1.50" />
-            </label>
-
-            <label class="settings-field">
-              <span class="settings-label">SSH Port</span>
-              <input id="sshPortInput" type="text" value="<%= settings.TAK_SSH_PORT || '22' %>" placeholder="22" />
-            </label>
-
-            <label class="settings-field">
-              <span class="settings-label">SSH Username</span>
-              <input id="sshUserInput" type="text" value="<%= settings.TAK_SSH_USER || '' %>" placeholder="takadmin" />
-            </label>
-
-            <label class="settings-field">
-              <span class="settings-label">One-Time Password (not saved)</span>
-              <input id="sshPasswordInput" type="password" value="" autocomplete="new-password" placeholder="Used once for handshake" />
-            </label>
-          </div>
-
-          <div style="margin-top:.75rem;display:flex;gap:.5rem;flex-wrap:wrap;">
-            <button type="button" class="btn" id="sshHandshakeBtn">Generate Key + Run One-Time Handshake</button>
-            <button type="button" class="btn" id="sshRefreshStatusBtn">Refresh SSH Status</button>
-          </div>
-
-          <div id="sshStatusBox" class="settings-help" style="margin-top:.5rem;"></div>
-
-          <hr style="margin:1rem 0;opacity:.35;" />
-
-          <label class="settings-field">
-            <span class="settings-label">Remote Command</span>
-            <textarea id="sshCommandInput" rows="5" style="width:100%;font-family:monospace;" placeholder="sudo -u tak bash -c 'cd /opt/tak/certs && ./makeCert.sh client testuser'"></textarea>
-          </label>
-
-          <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
-            <button type="button" class="btn" id="sshRunCommandBtn">Run Command Over SSH</button>
-          </div>
-
-          <pre id="sshCommandOutput" style="margin-top:.75rem;background:#0b1020;color:#d1d5db;padding:.75rem;border-radius:.5rem;max-height:300px;overflow:auto;white-space:pre-wrap;"></pre>
-        </div>
-      </details>
-    </div>
-
     <!-- TAK Server -->
     <div class="card">
       <details class="settings-section">
@@ -312,6 +257,57 @@
             <% renderField("DASHBOARD_TAK_STATS_REFRESH_SECONDS","Dashboard TAK stats refresh (seconds)","How often the server refreshes cached TAK metrics for the dashboard in the background. Lower = fresher numbers; the dashboard page does not wait on TAK. Server restart required for changes to take effect."); %>
             <% renderField("CLOUDTAK_URL","CloudTAK URL","Optional. Base URL for CloudTAK web (e.g. https://cloudtak.example.gov)."); %>
           </div>
+
+          <hr style="margin:1rem 0;opacity:.35;" />
+
+          <p class="settings-help" style="margin:0 0 .5rem 0;">
+            SSH onboarding for TAK server automation: set host/user/port, then run a one-time password handshake to install this portal's public key.
+          </p>
+
+          <div class="grid2">
+            <label class="settings-field">
+              <span class="settings-label">SSH Target Host / IP</span>
+              <input id="sshHostInput" type="text" value="<%= settings.TAK_SSH_HOST || '' %>" placeholder="192.168.1.50" />
+            </label>
+
+            <label class="settings-field">
+              <span class="settings-label">SSH Port</span>
+              <input id="sshPortInput" type="text" value="<%= settings.TAK_SSH_PORT || '22' %>" placeholder="22" />
+            </label>
+
+            <label class="settings-field">
+              <span class="settings-label">SSH Username</span>
+              <input id="sshUserInput" type="text" value="<%= settings.TAK_SSH_USER || '' %>" placeholder="takadmin" />
+            </label>
+
+            <label class="settings-field">
+              <span class="settings-label">One-Time Password (not saved)</span>
+              <div class="passwordWrap">
+                <input
+                  id="sshPasswordInput"
+                  type="password"
+                  value=""
+                  autocomplete="new-password"
+                  placeholder="Used once for handshake"
+                />
+                <button
+                  type="button"
+                  id="sshPasswordToggle"
+                  class="passwordToggle"
+                  aria-label="Show one-time password"
+                  title="Show one-time password"
+                >
+                  👁
+                </button>
+              </div>
+            </label>
+          </div>
+
+          <div style="margin-top:.75rem;display:flex;gap:.5rem;flex-wrap:wrap;">
+            <button type="button" class="btn" id="sshHandshakeBtn">Generate Key + Run One-Time Handshake</button>
+          </div>
+
+          <div id="sshStatusBox" class="settings-help" style="margin-top:.5rem;"></div>
         </div>
       </details>
     </div>
@@ -1312,27 +1308,19 @@
   document.addEventListener("DOMContentLoaded", () => {
     wirePasswordToggle("authentikTokenInput", "authentikTokenToggle");
     wirePasswordToggle("p12PassphraseInput", "p12PassphraseToggle");
+    wirePasswordToggle("sshPasswordInput", "sshPasswordToggle");
 
     const statusBox = document.getElementById("sshStatusBox");
-    const output = document.getElementById("sshCommandOutput");
     const hostInput = document.getElementById("sshHostInput");
     const portInput = document.getElementById("sshPortInput");
     const userInput = document.getElementById("sshUserInput");
     const passInput = document.getElementById("sshPasswordInput");
-    const cmdInput = document.getElementById("sshCommandInput");
     const btnHandshake = document.getElementById("sshHandshakeBtn");
-    const btnStatus = document.getElementById("sshRefreshStatusBtn");
-    const btnRun = document.getElementById("sshRunCommandBtn");
 
     function setStatus(msg, isError) {
       if (!statusBox) return;
       statusBox.textContent = msg || "";
       statusBox.style.color = isError ? "#dc2626" : "";
-    }
-
-    function setOutput(msg) {
-      if (!output) return;
-      output.textContent = msg || "";
     }
 
     async function getStatus() {
@@ -1364,16 +1352,6 @@
       return data;
     }
 
-    if (btnStatus) {
-      btnStatus.addEventListener("click", async function () {
-        try {
-          await getStatus();
-        } catch (err) {
-          setStatus(err.message || String(err), true);
-        }
-      });
-    }
-
     if (btnHandshake) {
       btnHandshake.addEventListener("click", async function () {
         const host = (hostInput && hostInput.value || "").trim();
@@ -1396,37 +1374,6 @@
           setStatus(err.message || String(err), true);
         } finally {
           btnHandshake.disabled = false;
-        }
-      });
-    }
-
-    if (btnRun) {
-      btnRun.addEventListener("click", async function () {
-        const command = (cmdInput && cmdInput.value || "").trim();
-        if (!command) {
-          setOutput("Enter a command first.");
-          return;
-        }
-        try {
-          btnRun.disabled = true;
-          setOutput("Running...");
-          const data = await postJson("/api/ssh/run-command", { command });
-          const lines = [];
-          lines.push("Exit code: " + (data.exitCode == null ? "unknown" : data.exitCode));
-          if (data.stdout) {
-            lines.push("\nSTDOUT:\n" + data.stdout);
-          }
-          if (data.stderr) {
-            lines.push("\nSTDERR:\n" + data.stderr);
-          }
-          if (!data.stdout && !data.stderr) {
-            lines.push("\n(no output)");
-          }
-          setOutput(lines.join("\n"));
-        } catch (err) {
-          setOutput("Error: " + (err.message || String(err)));
-        } finally {
-          btnRun.disabled = false;
         }
       });
     }
