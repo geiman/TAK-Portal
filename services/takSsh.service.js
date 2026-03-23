@@ -128,13 +128,24 @@ async function storeIntegrationCertPairLocally(username, certPair) {
 
 async function provisionIntegrationCertFiles(username) {
   const un = sanitizeIntegrationUsername(username);
+  // First try to fetch existing cert files (covers integrations created before
+  // this feature, where certs may already exist on the TAK server).
+  try {
+    const existingPair = await fetchIntegrationCertPairFromRemote(un);
+    const existingStored = await storeIntegrationCertPairLocally(un, existingPair);
+    return { ok: true, username: un, ...existingStored, usedExistingRemoteFiles: true };
+  } catch (_) {
+    // If not present yet, continue with generation flow.
+  }
+
   const makeResult = await createTakClientCertForIntegration(un);
   if (!makeResult.ok) {
     throw new Error(makeResult.message || "makeCert.sh failed.");
   }
+
   const pair = await fetchIntegrationCertPairFromRemote(un);
   const stored = await storeIntegrationCertPairLocally(un, pair);
-  return { ok: true, username: un, ...stored };
+  return { ok: true, username: un, ...stored, usedExistingRemoteFiles: false };
 }
 
 async function getOrProvisionIntegrationCertFiles(username) {
