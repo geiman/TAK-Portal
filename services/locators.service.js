@@ -6,42 +6,10 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const https = require("https");
 const axios = require("axios");
-const { getString, getBool } = require("./env");
+const { getString } = require("./env");
 const settingsSvc = require("./settings.service");
-
-function resolvePathMaybe(p) {
-  if (!p || !String(p).trim()) return null;
-  const raw = String(p).trim();
-  return path.isAbsolute(raw) ? raw : path.join(process.cwd(), raw);
-}
-
-/**
- * HTTPS agent for outbound GETs to TAK /locate/api (same host as TAK_URL).
- * - Prefer TAK_CA_PATH (PEM) so Node trusts your TAK server chain.
- * - If the server uses self-signed TLS and you have no CA PEM, set
- *   TAK_LOCATE_RELAY_TLS_INSECURE=true in env or Server Settings (lab only).
- */
-function getLocateRelayHttpsAgent() {
-  const insecure = getBool("TAK_LOCATE_RELAY_TLS_INSECURE", false);
-  if (insecure) {
-    return new https.Agent({
-      rejectUnauthorized: false,
-      checkServerIdentity: () => undefined,
-    });
-  }
-
-  const caPath = resolvePathMaybe(getString("TAK_CA_PATH", ""));
-  const opts = {
-    rejectUnauthorized: true,
-    checkServerIdentity: () => undefined,
-  };
-  if (caPath && fs.existsSync(caPath)) {
-    opts.ca = fs.readFileSync(caPath);
-  }
-  return new https.Agent(opts);
-}
+const { buildTakMtlsHttpsAgent } = require("./takMetrics.service");
 
 const FILE = path.join(__dirname, "..", "data", "locators.json");
 
@@ -238,10 +206,18 @@ async function relayPingToTak({ latitude, longitude, name, remarks }) {
   u.searchParams.set("longitude", String(longitude));
   u.searchParams.set("name", name);
   u.searchParams.set("remarks", remarks || "");
+
+  let httpsAgent;
+  try {
+    httpsAgent = buildTakMtlsHttpsAgent();
+  } catch (setupErr) {
+    throw new Error(setupErr?.message || String(setupErr));
+  }
+
   try {
     const resp = await axios.get(u.toString(), {
       timeout: 25000,
-      httpsAgent: getLocateRelayHttpsAgent(),
+      httpsAgent,
       validateStatus: (s) => s >= 200 && s < 600,
     });
     if (resp.status < 200 || resp.status >= 300) {
@@ -251,6 +227,15 @@ async function relayPingToTak({ latitude, longitude, name, remarks }) {
     const msg = err?.message || String(err);
     const code = err?.code || "";
     if (
+      /ssl\/tls alert bad certificate|alert number 42|bad certificate/i.test(msg) ||
+      code === "ERR_SSL_SSLV3_ALERT_BAD_CERTIFICATE"
+    ) {
+      throw new Error(
+        "The TAK server rejected the TLS client certificate (mTLS). " +
+          "Use the same TAK_API_P12_PATH (or TAK_API_CERT_PATH + TAK_API_KEY_PATH) that works for Marti/API calls—a cert the TAK server trusts for HTTPS clients."
+      );
+    }
+    if (
       code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE" ||
       code === "CERT_HAS_EXPIRED" ||
       code === "SELF_SIGNED_CERT_IN_CHAIN" ||
@@ -259,7 +244,7 @@ async function relayPingToTak({ latitude, longitude, name, remarks }) {
     ) {
       throw new Error(
         "TLS verification failed when calling the TAK locate API. " +
-          "Upload your TAK CA to TAK_CA_PATH in Server Settings, or for lab systems only set TAK_LOCATE_RELAY_TLS_INSECURE=true."
+          "Set TAK_CA_PATH to your TAK CA PEM, or for lab only set TAK_LOCATE_RELAY_TLS_INSECURE=true (still requires client P12/cert)."
       );
     }
     throw err;

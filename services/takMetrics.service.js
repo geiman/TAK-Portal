@@ -146,6 +146,58 @@ function buildTakAxios() {
   return client;
 }
 
+/**
+ * Shared HTTPS agent for outbound requests to TAK (mTLS: same P12/cert as Marti API).
+ * Used by locate relay and anywhere else that needs GET/POST to TAK URLs without the Marti baseURL.
+ *
+ * @param {{ allowInsecureServerCert?: boolean }} [opts] - If true, sets rejectUnauthorized: false (lab); still sends client cert.
+ */
+function buildTakMtlsHttpsAgent(opts = {}) {
+  const allowInsecureServer =
+    opts.allowInsecureServerCert === true || getBool("TAK_LOCATE_RELAY_TLS_INSECURE", false);
+
+  const p12Path = resolvePathMaybe(getString("TAK_API_P12_PATH", ""));
+  const p12Pass = String(getString("TAK_API_P12_PASSPHRASE", ""));
+
+  const certPath = resolvePathMaybe(getString("TAK_API_CERT_PATH", ""));
+  const keyPath = resolvePathMaybe(getString("TAK_API_KEY_PATH", ""));
+  const keyPass = getString("TAK_API_KEY_PASSPHRASE", "")
+    ? String(getString("TAK_API_KEY_PASSPHRASE", ""))
+    : undefined;
+
+  const caPath = resolvePathMaybe(getString("TAK_CA_PATH", ""));
+
+  if (!p12Path && (!certPath || !keyPath)) {
+    throw new Error(
+      "TAK API client certificate is required (TAK_API_P12_PATH or TAK_API_CERT_PATH + TAK_API_KEY_PATH). " +
+        "The locate relay uses the same mTLS credentials as other TAK API calls."
+    );
+  }
+
+  const agentOptions = {
+    ca: caPath ? fs.readFileSync(caPath) : undefined,
+    rejectUnauthorized: !allowInsecureServer,
+    checkServerIdentity: () => undefined,
+  };
+
+  if (p12Path) {
+    const { getPemFromP12 } = require("p12-pem");
+    const certs = getPemFromP12(p12Path, p12Pass);
+
+    if (!certs?.pemCertificate) throw new Error("TAK locate relay: Unable to extract certificate(s) from P12");
+    if (!certs?.pemKey) throw new Error("TAK locate relay: Unable to extract private key from P12");
+
+    agentOptions.cert = normalizePemCertificateChain(certs.pemCertificate);
+    agentOptions.key = normalizePemKey(certs.pemKey);
+  } else {
+    agentOptions.cert = fs.readFileSync(certPath);
+    agentOptions.key = fs.readFileSync(keyPath);
+    if (keyPass) agentOptions.passphrase = keyPass;
+  }
+
+  return new https.Agent(agentOptions);
+}
+
 function pickNumber(obj, keys) {
   if (!obj || typeof obj !== "object") return null;
   for (const k of keys) {
@@ -472,4 +524,5 @@ async function getSubscriptionsAll() {
 module.exports = {
   getTakMetricsSnapshot,
   getSubscriptionsAll,
+  buildTakMtlsHttpsAgent,
 };
