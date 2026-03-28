@@ -79,7 +79,7 @@
             <% } %>
             <a href="/email" class="<%= isActive('/email') ? 'active' : '' %>">Email Users</a>
             <% if (_isGlobalAdmin && betaModeEnabled) { %>
-              <a href="/locate" class="<%= isActive('/locate') ? 'active' : '' %>">Locate</a>
+              <a href="/locate" class="<%= isActive('/locate') ? 'active' : '' %>">Locate Persons</a>
             <% } %>
             <% if (_isGlobalAdmin) { %>
               <a href="/audit-log" class="<%= isActive('/audit-log') ? 'active' : '' %>">Audit Log</a>

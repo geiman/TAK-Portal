@@ -2,7 +2,7 @@
 <%- include("partials/sidebar") %>
 
 <main class="main">
-  <h1>Locate</h1>
+  <h1>Locate Missing Persons</h1>
 
   <div class="card">
     <h2 style="margin-top:0;">TAK Server locate</h2>
@@ -12,7 +12,12 @@
       The group name sent to the server does not include the <code>tak_</code> prefix.
     </p>
 
-    <div id="locateSshWarn" class="msg" style="display:none;"></div>
+    <div
+      id="locateSshWarn"
+      class="msg bad"
+      role="alert"
+      style="display:none; margin-left:0; margin-bottom:1rem; padding:10px 12px; border-radius:6px; background:rgba(255,80,80,.12); border:1px solid rgba(255,120,120,.35);"
+    ></div>
 
     <div class="row" style="flex-wrap: wrap; align-items: flex-end; gap: 12px;">
       <label style="min-width: 200px;">
@@ -36,7 +41,12 @@
       </label>
     </div>
 
-    <div id="locateMsg" class="msg" style="margin-top:12px;"></div>
+    <div
+      id="locateMsg"
+      class="msg"
+      aria-live="polite"
+      style="margin-top:12px; margin-left:0;"
+    ></div>
   </div>
 </main>
 
@@ -47,6 +57,27 @@
     return n.toLowerCase().indexOf("tak_") === 0 ? n.slice(4) : n;
   }
 
+  async function readApiError(res) {
+    var text = await res.text();
+    if (!text) {
+      return res.status ? "HTTP " + res.status + " " + (res.statusText || "") : "Request failed.";
+    }
+    try {
+      var j = JSON.parse(text);
+      if (j && typeof j.error === "string" && j.error) return j.error;
+      if (j && typeof j.message === "string" && j.message) return j.message;
+    } catch (e) {}
+    if (looksLikeHtml(text)) {
+      return "The server returned an error (HTML response). Check the portal logs or try again.";
+    }
+    return text.length > 800 ? text.slice(0, 800) + "…" : text;
+  }
+
+  function looksLikeHtml(s) {
+    var t = String(s || "").trim().slice(0, 80).toLowerCase();
+    return t.indexOf("<!doctype") === 0 || t.indexOf("<html") === 0;
+  }
+
   var enabledSelect = document.getElementById("locateEnabledSelect");
   var groupWrap = document.getElementById("locateGroupWrap");
   var groupSelect = document.getElementById("locateGroupSelect");
@@ -54,13 +85,25 @@
   var msg = document.getElementById("locateMsg");
   var sshWarn = document.getElementById("locateSshWarn");
 
-  function setMsg(text, isError) {
+  /** @type {boolean} */
+  var sshConfigured = false;
+
+  function setMsg(text, kind) {
     msg.textContent = text || "";
     msg.style.display = text ? "block" : "none";
-    if (isError) {
-      msg.style.color = "var(--danger, #f66)";
+    msg.classList.remove("ok", "bad");
+    if (kind === "error") msg.classList.add("bad");
+    else if (kind === "success") msg.classList.add("ok");
+  }
+
+  function setSshWarning(show) {
+    if (show) {
+      sshWarn.style.display = "block";
+      sshWarn.textContent =
+        "SSH is not configured. Open Server Settings, complete the TAK Server SSH handshake (host, user, and key), and test the connection before you can apply locate changes. Until then, Apply is disabled.";
     } else {
-      msg.style.color = "";
+      sshWarn.style.display = "none";
+      sshWarn.textContent = "";
     }
   }
 
@@ -69,19 +112,29 @@
     groupWrap.style.display = on ? "" : "none";
   }
 
-  enabledSelect.addEventListener("change", syncGroupVisibility);
+  enabledSelect.addEventListener("change", function () {
+    syncGroupVisibility();
+    if (enabledSelect.value === "true" && !sshConfigured) {
+      setMsg(
+        "Locate cannot be applied until SSH is configured under Server Settings. Connected TAK changes require a working SSH session to the TAK Server.",
+        "error"
+      );
+    }
+  });
 
   async function loadGroups() {
     var res = await fetch("/api/groups");
-    if (!res.ok) throw new Error("Failed to load groups.");
+    if (!res.ok) {
+      throw new Error(await readApiError(res));
+    }
     var data = await res.json();
-    if (!Array.isArray(data)) throw new Error("Invalid groups response.");
+    if (!Array.isArray(data)) throw new Error("Invalid groups response from server.");
 
     var takGroups = data.filter(function (g) {
       return String(g.name || "").toLowerCase().indexOf("tak_") === 0;
     });
     takGroups.sort(function (a, b) {
-      return String(a.name || "").localeCompare(String(b.name || ""));
+      return stripTakPrefix(a.name).localeCompare(stripTakPrefix(b.name));
     });
 
     var prev = groupSelect.value;
@@ -90,7 +143,7 @@
       var opt = document.createElement("option");
       var shortName = stripTakPrefix(g.name);
       opt.value = shortName;
-      opt.textContent = g.name;
+      opt.textContent = shortName;
       groupSelect.appendChild(opt);
     });
     if (prev && Array.prototype.some.call(groupSelect.options, function (o) { return o.value === prev; })) {
@@ -101,18 +154,26 @@
 
   async function loadConfig() {
     var res = await fetch("/api/locate/config");
-    var data = await res.json();
-    if (!res.ok || !data.ok) {
-      throw new Error(data.error || "Failed to load locate config.");
+    var text = await res.text();
+    var data;
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch (e) {
+      throw new Error(
+        looksLikeHtml(text)
+          ? "Server returned an HTML error page instead of JSON when loading locate config."
+          : "Invalid response from /api/locate/config."
+      );
     }
+    if (!res.ok || !data.ok) {
+      throw new Error((data && data.error) || text.slice(0, 600) || "Failed to load locate config.");
+    }
+    sshConfigured = !!data.sshConfigured;
     if (!data.sshConfigured) {
-      sshWarn.style.display = "block";
-      sshWarn.textContent =
-        "SSH is not configured. Configure the TAK Server SSH connection under Server Settings before applying locate changes.";
+      setSshWarning(true);
       applyBtn.disabled = true;
     } else {
-      sshWarn.style.display = "none";
-      sshWarn.textContent = "";
+      setSshWarning(false);
       applyBtn.disabled = false;
     }
     enabledSelect.value = data.enabled ? "true" : "false";
@@ -124,13 +185,31 @@
 
   applyBtn.addEventListener("click", async function () {
     setMsg("");
+    if (!sshConfigured) {
+      setMsg("SSH is not configured. Configure SSH under Server Settings first.", "error");
+      return;
+    }
     var enabled = enabledSelect.value === "true";
     var group = String(groupSelect.value || "").trim();
     if (enabled && !group) {
-      setMsg("Select a TAK group for locate notifications.", true);
+      setMsg("Select a TAK group for locate notifications, or set Locate to Disabled.", "error");
       return;
     }
+
+    var confirmText =
+      "This will update CoreConfig.xml on the TAK Server over SSH and run: sudo systemctl restart takserver\n\n" +
+      "Connected ATAK / TAK clients may lose connection temporarily while the service restarts.\n\n" +
+      "Do you want to continue?";
+    if (!window.confirm(confirmText)) {
+      return;
+    }
+
     applyBtn.disabled = true;
+    setMsg(
+      "Updating CoreConfig.xml on the TAK Server and restarting the takserver service. Please wait—this step can take up to a minute. Do not close this tab.",
+      "info"
+    );
+
     try {
       var res = await fetch("/api/locate/apply", {
         method: "POST",
@@ -140,16 +219,35 @@
           group: enabled ? group : "",
         }),
       });
-      var data = await res.json();
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error || "Apply failed.");
+      var text = await res.text();
+      var data;
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch (parseErr) {
+        throw new Error(
+          looksLikeHtml(text)
+            ? "The server returned an error page instead of JSON. Check portal logs or network connectivity to the TAK Server host."
+            : (text.slice(0, 600) || "Invalid response from apply.")
+        );
       }
-      setMsg(data.message || "Saved.", false);
+      if (!res.ok || !data.ok) {
+        throw new Error((data && data.error) ? data.error : text.slice(0, 600) || "Apply failed.");
+      }
+
+      setMsg(
+        (data.message ? data.message + " " : "") +
+          "The TAK Server restart has completed from the portal’s perspective. Wait about 2 minutes before making more locate changes here, using other SSH actions, or expecting stable TAK/ATAK connectivity—services need time to come back fully.",
+        "success"
+      );
       await loadConfig();
     } catch (e) {
-      setMsg(e.message || String(e), true);
+      var errText = e && e.message ? e.message : String(e);
+      setMsg(
+        "Apply failed: " + errText + " If SSH works in Server Settings, check portal logs and that the portal user can sudo on the TAK Server.",
+        "error"
+      );
     } finally {
-      if (!sshWarn.textContent) applyBtn.disabled = false;
+      if (sshConfigured) applyBtn.disabled = false;
     }
   });
 
@@ -161,7 +259,8 @@
         syncGroupVisibility();
       }
     } catch (e) {
-      setMsg(e.message || String(e), true);
+      var errText = e && e.message ? e.message : String(e);
+      setMsg("Could not load this page: " + errText, "error");
     }
   })();
 })();
