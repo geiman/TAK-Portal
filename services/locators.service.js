@@ -154,6 +154,10 @@ function listLocatorsForAdmin() {
       lastCoordsAt: lastWithCoords ? lastWithCoords.at : null,
       lastLatitude: lastWithCoords != null ? Number(lastWithCoords.latitude) : null,
       lastLongitude: lastWithCoords != null ? Number(lastWithCoords.longitude) : null,
+      lastAccuracyMeters:
+        lastWithCoords != null && lastWithCoords.accuracyMeters != null
+          ? Number(lastWithCoords.accuracyMeters)
+          : null,
       hasPositionPing: !!lastWithCoords,
     };
   });
@@ -249,14 +253,19 @@ function permanentDelete(id) {
   save(data);
 }
 
-function addHistoryEntry({ locatorId, latitude, longitude, name, remarks, kind }) {
+function addHistoryEntry({ locatorId, latitude, longitude, name, remarks, kind, accuracyMeters }) {
   const data = load();
+  const acc =
+    accuracyMeters != null && Number.isFinite(Number(accuracyMeters))
+      ? Number(accuracyMeters)
+      : null;
   const entry = {
     id: crypto.randomUUID(),
     locatorId,
     at: new Date().toISOString(),
     latitude: latitude == null ? null : Number(latitude),
     longitude: longitude == null ? null : Number(longitude),
+    accuracyMeters: acc,
     name: String(name || "").trim(),
     remarks: String(remarks || "").trim(),
     kind: kind === "manual" ? "manual" : "interval",

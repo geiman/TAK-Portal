@@ -323,6 +323,11 @@ app.post("/api/public/locate/:slug/ping", async (req, res) => {
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
       return res.status(400).json({ ok: false, error: "Valid latitude and longitude are required." });
     }
+    const accuracyMeters = Number(body.accuracyMeters);
+    const acc =
+      Number.isFinite(accuracyMeters) && accuracyMeters >= 0 && accuracyMeters < 1e7
+        ? accuracyMeters
+        : null;
     const last = String(body.lastName || "").trim();
     const first = String(body.firstName || "").trim();
     const name = locatorsSvc.formatLocatePingNameForTak(first, last);
@@ -342,6 +347,7 @@ app.post("/api/public/locate/:slug/ping", async (req, res) => {
       name,
       remarks,
       kind: "interval",
+      accuracyMeters: acc,
     });
 
     res.json({ ok: true });

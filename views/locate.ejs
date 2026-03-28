@@ -403,8 +403,8 @@
     return "https://www.google.com/maps?q=" + encodeURIComponent(la + "," + ln);
   }
 
-  /** Same visual as plain coordinate text; opens Google Maps in a new tab. */
-  function coordsLinkEl(lat, lng) {
+  /** Same visual as plain coordinate text; opens Google Maps in a new tab. Optional accuracy from Geolocation API (meters). */
+  function coordsLinkEl(lat, lng, accuracyMeters) {
     var wrap = document.createElement("div");
     wrap.className = "settings-help";
     wrap.style.marginTop = "2px";
@@ -418,6 +418,15 @@
     a.style.textDecoration = "none";
     a.style.cursor = "pointer";
     wrap.appendChild(a);
+    if (accuracyMeters != null && Number.isFinite(Number(accuracyMeters))) {
+      var acc = document.createElement("div");
+      acc.className = "settings-help";
+      acc.style.marginTop = "2px";
+      acc.style.fontSize = "0.85em";
+      acc.style.opacity = "0.9";
+      acc.textContent = "±" + Math.round(Number(accuracyMeters)) + " m (GPS estimate)";
+      wrap.appendChild(acc);
+    }
     return wrap;
   }
 
@@ -447,7 +456,7 @@
       rel.setAttribute("data-at", loc.lastCoordsAt);
       rel.textContent = formatRelative(loc.lastCoordsAt);
       tdRecent.appendChild(rel);
-      tdRecent.appendChild(coordsLinkEl(loc.lastLatitude, loc.lastLongitude));
+      tdRecent.appendChild(coordsLinkEl(loc.lastLatitude, loc.lastLongitude, loc.lastAccuracyMeters));
       return;
     }
     if (!loc.lastPingAt) {
@@ -493,7 +502,7 @@
           cell(h.name);
           var tdPos = document.createElement("td");
           if (h.latitude != null && h.longitude != null) {
-            tdPos.appendChild(coordsLinkEl(h.latitude, h.longitude));
+            tdPos.appendChild(coordsLinkEl(h.latitude, h.longitude, h.accuracyMeters));
           } else {
             tdPos.textContent = "—";
           }

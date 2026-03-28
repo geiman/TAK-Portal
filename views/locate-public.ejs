@@ -68,7 +68,6 @@ var msg=document.getElementById("lpMsg");
 var beforeShare=document.getElementById("lpBeforeShare");
 var keepOpen=document.getElementById("lpKeepOpen");
 var timer=null,sending=false;
-var GEO={enableHighAccuracy:true,maximumAge:120000,timeout:45000};
 function setMsg(t,bad){
   msg.textContent=t||"";
   msg.className="m on"+(bad?" bad":"");
@@ -78,16 +77,18 @@ function setSharingUi(on){
   if(beforeShare)beforeShare.style.display=on?"none":"";
   if(keepOpen)keepOpen.className=on?"keep on":"keep";
 }
-function postPing(lat,lng){
+function postPing(lat,lng,accuracy){
+  var body={
+    latitude:lat,longitude:lng,
+    firstName:document.getElementById("lpFirst").value.trim(),
+    lastName:document.getElementById("lpLast").value.trim(),
+    remarks:document.getElementById("lpRemarks").value.trim()
+  };
+  if(accuracy!=null&&Number.isFinite(accuracy))body.accuracyMeters=accuracy;
   return fetch("/api/public/locate/"+encodeURIComponent(slug)+"/ping",{
     method:"POST",
     headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({
-      latitude:lat,longitude:lng,
-      firstName:document.getElementById("lpFirst").value.trim(),
-      lastName:document.getElementById("lpLast").value.trim(),
-      remarks:document.getElementById("lpRemarks").value.trim()
-    })
+    body:JSON.stringify(body)
   }).then(function(res){
     return res.text().then(function(text){
       var d={};try{d=text?JSON.parse(text):{}}catch(e){}
@@ -96,30 +97,47 @@ function postPing(lat,lng){
     });
   });
 }
+/** Fresh GPS (no stale cache), long timeout, optional 2nd sample if first accuracy is poor. */
+function getBestFix(onOk,onErr){
+  var opt={enableHighAccuracy:true,maximumAge:0,timeout:60000};
+  navigator.geolocation.getCurrentPosition(function(p1){
+    var a1=p1.coords.accuracy;
+    if(a1!=null&&a1>50&&a1<1e5){
+      setTimeout(function(){
+        navigator.geolocation.getCurrentPosition(function(p2){
+          var a2=p2.coords.accuracy;
+          if(a2!=null&&a1!=null&&a2<a1)onOk(p2);else onOk(p1);
+        },function(){onOk(p1);},opt);
+      },2000);
+      return;
+    }
+    onOk(p1);
+  },onErr,opt);
+}
 function restartSharingTimer(){if(!timer)return;clearInterval(timer);timer=setInterval(tick,intervalMs);}
 function tick(){
   if(!navigator.geolocation){setMsg("Location is not available in this browser.",true);stop();return;}
   if(sending)return;
   sending=true;
-  navigator.geolocation.getCurrentPosition(function(pos){
-    postPing(pos.coords.latitude,pos.coords.longitude).then(function(){
+  getBestFix(function(pos){
+    postPing(pos.coords.latitude,pos.coords.longitude,pos.coords.accuracy).then(function(){
       setMsg("",false);
     }).catch(function(e){setMsg(String(e.message||e),true);}).then(function(){sending=false;});
-  },function(err){sending=false;setMsg("Could not read GPS/location: "+(err&&err.message||"denied or unavailable"),true);},GEO);
+  },function(err){sending=false;setMsg("Could not read GPS/location: "+(err&&err.message||"denied or unavailable"),true);});
 }
 function start(){
   var f=document.getElementById("lpFirst").value.trim(),l=document.getElementById("lpLast").value.trim();
   if(!f||!l){setMsg("Please enter your first and last name.",true);return;}
   setMsg("Requesting location…",false);
   sending=true;
-  navigator.geolocation.getCurrentPosition(function(pos){
-    postPing(pos.coords.latitude,pos.coords.longitude).then(function(){
+  getBestFix(function(pos){
+    postPing(pos.coords.latitude,pos.coords.longitude,pos.coords.accuracy).then(function(){
       setMsg("",false);
       sendBtn.style.display="none";stopBtn.style.display="";
       setSharingUi(true);
       if(timer)clearInterval(timer);timer=setInterval(tick,intervalMs);
     }).catch(function(e){setMsg(String(e.message||e),true);}).then(function(){sending=false;});
-  },function(err){sending=false;setMsg("Could not read GPS/location: "+(err&&err.message||"denied or unavailable"),true);},GEO);
+  },function(err){sending=false;setMsg("Could not read GPS/location: "+(err&&err.message||"denied or unavailable"),true);});
 }
 function stop(){if(timer)clearInterval(timer);timer=null;sendBtn.style.display="";stopBtn.style.display="none";setSharingUi(false);setMsg("Sharing stopped.",false);}
 function pollConfig(){
