@@ -128,12 +128,13 @@
         <button type="button" class="btn" id="sendLinkCloseBtn">Close</button>
       </div>
       <div class="modalBody">
-        <p class="settings-help" style="margin-top:0;">Send the public locate page to the missing person or a contact.</p>
-        <p id="sendLinkPreview" style="word-break:break-all;font-size:0.9rem;margin:12px 0;padding:8px 10px;background:var(--panel-bg, #1e1e1e);border-radius:6px;border:1px solid rgba(255,255,255,.08);"></p>
-        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
-          <button type="button" class="btn" id="sendLinkSmsBtn" disabled title="Not available yet">SMS</button>
-          <button type="button" class="btn" id="sendLinkEmailBtn">Email</button>
+        <p class="settings-help" style="margin-top:0;">Recipients receive the locate link and standard message via the portal email server. Enter addresses separated by commas.</p>
+        <label for="sendLinkRecipientsIn" style="display:block;margin-top:10px;font-weight:600;">Email addresses</label>
+        <input type="text" id="sendLinkRecipientsIn" autocomplete="email" placeholder="one@example.com, two@example.com" style="width:100%;box-sizing:border-box;margin-top:6px;padding:8px 10px;border-radius:6px;border:1px solid rgba(255,255,255,.12);background:var(--panel-bg, #1e1e1e);color:inherit;" />
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:14px;">
+          <button type="button" class="btn success" id="sendLinkEmailBtn">Send email</button>
           <button type="button" class="btn" id="sendLinkCopyBtn">Copy link</button>
+          <button type="button" class="btn" id="sendLinkSmsBtn" disabled title="Not available yet">SMS</button>
         </div>
         <p class="settings-help" style="margin-top:12px;margin-bottom:0;">SMS sending is not wired up yet; it will be added in a future update.</p>
       </div>
@@ -373,10 +374,11 @@
   var histClose = document.getElementById("locHistCloseBtn");
   var sendLinkOverlay = document.getElementById("sendLinkOverlay");
   var sendLinkCloseBtn = document.getElementById("sendLinkCloseBtn");
-  var sendLinkPreview = document.getElementById("sendLinkPreview");
+  var sendLinkRecipientsIn = document.getElementById("sendLinkRecipientsIn");
   var sendLinkEmailBtn = document.getElementById("sendLinkEmailBtn");
   var sendLinkCopyBtn = document.getElementById("sendLinkCopyBtn");
   var sendLinkCurrentUrl = "";
+  var sendLinkCurrentLocatorId = "";
 
   function setListMsg(text, bad) {
     listMsg.textContent = text || "";
@@ -430,12 +432,21 @@
 
   function openSendLinkModal(loc) {
     sendLinkCurrentUrl = publicUrl(loc.slug);
-    if (sendLinkPreview) sendLinkPreview.textContent = sendLinkCurrentUrl;
+    sendLinkCurrentLocatorId = loc.id ? String(loc.id) : "";
+    if (sendLinkRecipientsIn) sendLinkRecipientsIn.value = "";
+    if (sendLinkEmailBtn) sendLinkEmailBtn.disabled = false;
     if (sendLinkOverlay) {
       sendLinkOverlay.style.display = "flex";
       sendLinkOverlay.setAttribute("aria-hidden", "false");
     }
     document.body.style.overflow = "hidden";
+    if (sendLinkRecipientsIn) {
+      setTimeout(function () {
+        try {
+          sendLinkRecipientsIn.focus();
+        } catch (e) {}
+      }, 0);
+    }
   }
 
   function copySendLinkToClipboard() {
@@ -469,14 +480,50 @@
     document.body.removeChild(ta);
   }
 
-  function openSendLinkEmail() {
-    var url = sendLinkCurrentUrl;
-    if (!url) return;
-    var subject = "Share your location";
-    var body =
-      "Please open this link on your phone to share your location with responders:\r\n\r\n" + url;
-    window.location.href =
-      "mailto:?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(body);
+  function sendLocateLinkEmail() {
+    var id = sendLinkCurrentLocatorId;
+    var recipients = sendLinkRecipientsIn ? String(sendLinkRecipientsIn.value || "").trim() : "";
+    if (!id) {
+      setListMsg("Missing locator; close and open Send link again.", true);
+      return;
+    }
+    if (!recipients) {
+      setListMsg("Enter at least one email address.", true);
+      return;
+    }
+    if (sendLinkEmailBtn) sendLinkEmailBtn.disabled = true;
+    fetch(
+      "/api/locate/locators/" + encodeURIComponent(id) + "/send-link-email",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recipients: recipients }),
+      }
+    )
+      .then(function (r) {
+        return r.json().then(function (j) {
+          return { ok: r.ok, j: j };
+        });
+      })
+      .then(function (x) {
+        if (sendLinkEmailBtn) sendLinkEmailBtn.disabled = false;
+        if (x.ok && x.j && x.j.ok) {
+          setListMsg(
+            "Email sent" +
+              (typeof x.j.count === "number" ? " to " + x.j.count + " address(es)." : "."),
+            false
+          );
+          closeSendLinkModal();
+          return;
+        }
+        var err =
+          (x.j && (x.j.error || x.j.message)) || (x.ok ? "Send failed." : "Request failed.");
+        setListMsg(err, true);
+      })
+      .catch(function () {
+        if (sendLinkEmailBtn) sendLinkEmailBtn.disabled = false;
+        setListMsg("Network error.", true);
+      });
   }
 
   function googleMapsPinUrl(lat, lng) {
@@ -900,7 +947,7 @@
     });
   }
   if (sendLinkEmailBtn) {
-    sendLinkEmailBtn.addEventListener("click", openSendLinkEmail);
+    sendLinkEmailBtn.addEventListener("click", sendLocateLinkEmail);
   }
   if (sendLinkCopyBtn) {
     sendLinkCopyBtn.addEventListener("click", copySendLinkToClipboard);
