@@ -165,7 +165,7 @@ function listLocatorsForAdmin() {
 
 function create({ title, pingIntervalSeconds }) {
   let titleStr = String(title || "").trim();
-  if (!titleStr) titleStr = "Missing person";
+  if (!titleStr) titleStr = "Missing Person";
   const ping = Math.max(10, Math.min(86400, Number(pingIntervalSeconds) || 60));
 
   let slug = titleToSlug(titleStr);
