@@ -73,17 +73,12 @@ function getTakLocateApiBase() {
 }
 
 /**
- * Display name sent to TAK locate API: "Last, First M/D/YY HH:MM:SS" (local time).
+ * Name sent to TAK locate API and stored in history: "Last, First" (or single name / Unknown).
  */
 function formatLocatePingNameForTak(firstName, lastName) {
   const last = String(lastName || "").trim();
   const first = String(firstName || "").trim();
-  const label = last && first ? `${last}, ${first}` : last || first || "Unknown";
-  const d = new Date();
-  // Hyphens avoid "/" in query values (some TAK builds mishandle slashes in the name param).
-  const md = `${d.getMonth() + 1}-${d.getDate()}-${String(d.getFullYear()).slice(-2)}`;
-  const hm = d.toTimeString().slice(0, 8);
-  return `${label} ${md} ${hm}`;
+  return last && first ? `${last}, ${first}` : last || first || "Unknown";
 }
 
 function summarizeTakResponseBody(data) {
