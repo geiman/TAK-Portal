@@ -6,7 +6,7 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const { getString, getBool } = require("./env");
+const { getString } = require("./env");
 const settingsSvc = require("./settings.service");
 const { buildTakAxios } = require("./tak.service");
 
@@ -233,9 +233,7 @@ async function relayPingToTak({ latitude, longitude, name, remarks }) {
 
   let client;
   try {
-    client = buildTakAxios({
-      allowInsecureServer: getBool("TAK_LOCATE_RELAY_TLS_INSECURE", false),
-    });
+    client = buildTakAxios({ allowInsecureServer: true });
   } catch (setupErr) {
     throw new Error(setupErr?.message || String(setupErr));
   }
