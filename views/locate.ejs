@@ -47,11 +47,11 @@
   <div class="card" style="margin-top:1.25rem;">
     <h2 style="margin-top:0;">Create Locator</h2>
     <div class="row" style="flex-wrap: wrap; align-items: flex-end; gap: 12px;">
+      <label style="flex:1; min-width:200px;">Title (optional)
+        <input id="newLocTitle" type="text" placeholder="e.g. Missing Person — or leave blank" style="width:100%; box-sizing:border-box;" />
+      </label>
       <label style="min-width: 160px;">Ping interval (seconds)
         <input id="newLocPing" type="number" min="10" max="86400" value="60" style="width:100%; box-sizing:border-box;" />
-      </label>
-      <label style="flex:1; min-width:200px;">Label (optional)
-        <input id="newLocTitle" type="text" placeholder="e.g. Smith County SAR — or leave blank" style="width:100%; box-sizing:border-box;" />
       </label>
       <label>
         &nbsp;
@@ -128,7 +128,6 @@
         <button type="button" class="btn" id="sendLinkCloseBtn">Close</button>
       </div>
       <div class="modalBody">
-        <p class="settings-help" style="margin-top:0;">Send the public locate link. Subject, SMS text, and email body are filled in on the server.</p>
         <label for="sendLinkPhonesIn" style="display:block;margin-top:12px;font-weight:600;">Phone numbers (SMS)</label>
         <input type="text" id="sendLinkPhonesIn" autocomplete="tel" placeholder="+15551234567, 5559876543" style="width:100%;box-sizing:border-box;margin-top:6px;padding:8px 10px;border-radius:6px;border:1px solid rgba(255,255,255,.12);background:var(--panel-bg, #1e1e1e);color:inherit;" />
         <div style="margin-top:10px;">
@@ -137,10 +136,10 @@
         <label for="sendLinkRecipientsIn" style="display:block;margin-top:18px;font-weight:600;">Email addresses</label>
         <input type="text" id="sendLinkRecipientsIn" autocomplete="email" placeholder="one@example.com, two@example.com" style="width:100%;box-sizing:border-box;margin-top:6px;padding:8px 10px;border-radius:6px;border:1px solid rgba(255,255,255,.12);background:var(--panel-bg, #1e1e1e);color:inherit;" />
         <div style="margin-top:10px;">
-          <button type="button" class="btn success" id="sendLinkEmailBtn">Send email</button>
+          <button type="button" class="btn success" id="sendLinkEmailBtn">Send Email</button>
         </div>
         <div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(255,255,255,.08);">
-          <button type="button" class="btn" id="sendLinkCopyBtn">Copy link</button>
+          <button type="button" class="btn" id="sendLinkCopyBtn">Copy Link</button>
         </div>
       </div>
     </div>
@@ -493,7 +492,7 @@
     var id = sendLinkCurrentLocatorId;
     var phones = sendLinkPhonesIn ? String(sendLinkPhonesIn.value || "").trim() : "";
     if (!id) {
-      setListMsg("Missing locator; close and open Send link again.", true);
+      setListMsg("Missing locator; close and open Send Link again.", true);
       return;
     }
     if (!phones) {
@@ -536,7 +535,7 @@
     var id = sendLinkCurrentLocatorId;
     var recipients = sendLinkRecipientsIn ? String(sendLinkRecipientsIn.value || "").trim() : "";
     if (!id) {
-      setListMsg("Missing locator; close and open Send link again.", true);
+      setListMsg("Missing locator; close and open Send Link again.", true);
       return;
     }
     if (!recipients) {
@@ -765,6 +764,10 @@
         tdAct.appendChild(b);
       }
 
+      addBtn("Send Link", function () {
+        openSendLinkModal(loc);
+      });
+
       addBtn("Edit Interval", function () {
         var p = window.prompt("Ping interval (seconds, 10–86400)", String(loc.pingIntervalSeconds));
         if (p === null) return;
@@ -791,10 +794,6 @@
           .catch(function (e) {
             setListMsg(e.message || String(e), true);
           });
-      });
-
-      addBtn("Send link", function () {
-        openSendLinkModal(loc);
       });
 
       addBtn("History", function () {
