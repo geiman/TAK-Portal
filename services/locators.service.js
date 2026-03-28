@@ -49,24 +49,25 @@ function titleToSlug(title) {
 
 /**
  * Base URL for locate pings (no trailing slash, no query string).
- * Override when your TAK install serves locate somewhere other than /locate/api on the origin:
- *   TAK_LOCATE_API_BASE=https://tak.example.com:8443/Marti/locate/api
+ * Derived from TAK_URL: hostname + scheme, ignoring the Marti path. Port 8443 is
+ * dropped so the relay matches the built-in locate tab (HTTPS on default 443), e.g.
+ *   https://tak.example.com:8443/Marti → https://tak.example.com/locate/api
  */
 function getTakLocateApiBase() {
-  const override = String(getString("TAK_LOCATE_API_BASE", "") || getString("TAK_LOCATE_API_URL", "")).trim();
-  if (override) {
-    try {
-      const u = new URL(override);
-      return u.toString().replace(/\/+$/, "");
-    } catch {
-      return "";
-    }
-  }
   const raw = String(settingsSvc.getSettings()?.TAK_URL || getString("TAK_URL", "") || "").trim();
   if (!raw) return "";
   try {
     const u = new URL(raw);
-    return `${u.origin}/locate/api`;
+    const proto = u.protocol === "http:" || u.protocol === "https:" ? u.protocol : "https:";
+    const hostname = u.hostname;
+    if (!hostname) return "";
+
+    const p = String(u.port || "");
+    const useDefaultPort =
+      !p || p === "8443" || p === "443" || (proto === "https:" && !u.port);
+    const hostPart = useDefaultPort ? hostname : `${hostname}:${p}`;
+
+    return `${proto}//${hostPart}/locate/api`;
   } catch {
     return "";
   }
@@ -239,11 +240,12 @@ async function relayPingToTak({ latitude, longitude, name, remarks }) {
   }
 
   try {
-    const resp = await axios.get(u.toString(), {
+    const resp = await axios.post(u.toString(), null, {
       timeout: 25000,
       httpsAgent,
       headers: {
         Accept: "*/*",
+        "X-Requested-With": "XMLHttpRequest",
         "User-Agent": "TAK-Portal-LocateRelay/1.0",
       },
       validateStatus: (s) => s >= 200 && s < 600,
@@ -254,12 +256,11 @@ async function relayPingToTak({ latitude, longitude, name, remarks }) {
       if (bodyHint) msg += `. Server response: ${bodyHint}`;
       if (resp.status === 403) {
         msg +=
-          ". HTTP 403 (forbidden) often means: (1) CoreConfig <locate> has requireLogin=\"true\" — set requireLogin=\"false\" and restart TAK; " +
-          "(2) the request URL is wrong — try TAK_LOCATE_API_BASE to match your server (e.g. …/Marti/locate/api if locate is under the Marti context); " +
-          "(3) the API client cert is not permitted for this path — check takserver-api logs.";
+          ". HTTP 403: ensure CoreConfig <locate requireLogin=\"false\" /> and TAK was restarted, " +
+          "and that the relay URL (derived from TAK_URL: host without :8443, path /locate/api) matches your deployment. " +
+          "Check takserver-api logs and client-cert rules for /locate/api.";
       } else if (resp.status === 404) {
-        msg +=
-          ". HTTP 404 — confirm the locate endpoint path; set TAK_LOCATE_API_BASE to the full base URL your server exposes.";
+        msg += ". HTTP 404 — confirm locate is enabled and reachable at https://<host>/locate/api on port 443.";
       }
       throw new Error(msg);
     }
