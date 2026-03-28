@@ -15,6 +15,16 @@
     Import failed: <%= importError %>
   </div>
 <% } %>
+<% if (typeof smsTest !== 'undefined' && smsTest === 'ok') { %>
+  <div class="alert success" style="margin-top: 12px;">
+    Test SMS sent successfully.
+  </div>
+<% } %>
+<% if (typeof smsTest !== 'undefined' && smsTest === 'fail' && smsErr) { %>
+  <div class="alert error" style="margin-top: 12px;">
+    SMS test failed: <%= smsErr %>
+  </div>
+<% } %>
 
   <form id="settingsForm" method="post" action="/settings" autocomplete="off" enctype="multipart/form-data">
     <%
@@ -124,6 +134,14 @@
         "EMAIL_SEND_COPY_TO",
         "EMAIL_FAIL_HARD",
         "BETA_MODE",
+
+        "SMS_PROVIDER",
+        "SMS_TWILIO_ACCOUNT_SID",
+        "SMS_TWILIO_AUTH_TOKEN",
+        "SMS_TWILIO_FROM",
+        "SMS_BREVO_API_KEY",
+        "SMS_BREVO_SENDER",
+        "SMS_TEST_TO",
 
         ...bookmarkKeys,
         ...additionalAgencyTypeKeys,
@@ -476,6 +494,118 @@
         </details>
       </div>
     <% } %>
+
+    <!-- SMS (Twilio / Brevo) -->
+    <div class="card" id="sms-settings">
+      <details class="settings-section sms-settings-section">
+        <summary class="settings-summary">SMS</summary>
+        <div class="settings-body">
+          <p class="settings-help" style="margin-top:0;">
+            Use Twilio or Brevo to send SMS for critical alerts and locate links. No SMS?
+            Alerts still go to the email address above; set up push notifications in your email app on your phone to get alerts on the go.
+          </p>
+
+          <%
+            const smsProv = String((settings && settings.SMS_PROVIDER) || "disabled").toLowerCase();
+          %>
+          <label class="settings-field" style="max-width:320px;">
+            <span class="settings-label">SMS provider</span>
+            <select id="smsProviderSelect" name="settings[SMS_PROVIDER]">
+              <option value="disabled" <%= smsProv === "disabled" ? "selected" : "" %>>Disabled</option>
+              <option value="twilio" <%= smsProv === "twilio" ? "selected" : "" %>>Twilio</option>
+              <option value="brevo" <%= smsProv === "brevo" ? "selected" : "" %>>Brevo</option>
+            </select>
+            <small class="settings-help">SMS is off until you pick Twilio or Brevo and save settings.</small>
+          </label>
+
+          <div id="smsTwilioFields" style="margin-top:1rem;display:<%= smsProv === 'twilio' ? 'block' : 'none' %>;">
+            <div class="grid2">
+              <label class="settings-field">
+                <span class="settings-label">Account SID</span>
+                <input type="text" name="settings[SMS_TWILIO_ACCOUNT_SID]" value="<%= settings.SMS_TWILIO_ACCOUNT_SID || '' %>" placeholder="Account SID" autocomplete="off" />
+              </label>
+              <label class="settings-field">
+                <span class="settings-label">Auth Token</span>
+                <input type="password" name="settings[SMS_TWILIO_AUTH_TOKEN]" value="<%= settings.SMS_TWILIO_AUTH_TOKEN || '' %>" placeholder="Auth Token" autocomplete="new-password" />
+              </label>
+              <label class="settings-field" style="grid-column: 1 / -1;">
+                <span class="settings-label">From number</span>
+                <input type="text" name="settings[SMS_TWILIO_FROM]" value="<%= settings.SMS_TWILIO_FROM || '' %>" placeholder="From number (e.g. +15551234567)" autocomplete="off" />
+              </label>
+            </div>
+            <small class="settings-help">
+              To (test): digits + country code, comma-separated (e.g. <code>15551234567, +15559876543</code>).
+            </small>
+          </div>
+
+          <div id="smsBrevoFields" style="margin-top:1rem;display:<%= smsProv === 'brevo' ? 'block' : 'none' %>;">
+            <div class="grid2">
+              <label class="settings-field" style="grid-column: 1 / -1;">
+                <span class="settings-label">API key</span>
+                <input type="password" name="settings[SMS_BREVO_API_KEY]" value="<%= settings.SMS_BREVO_API_KEY || '' %>" placeholder="Brevo API key" autocomplete="new-password" />
+              </label>
+              <label class="settings-field">
+                <span class="settings-label">Sender</span>
+                <input type="text" name="settings[SMS_BREVO_SENDER]" value="<%= settings.SMS_BREVO_SENDER || '' %>" placeholder="Sender (max 11 chars)" maxlength="11" autocomplete="off" />
+              </label>
+            </div>
+            <small class="settings-help">
+              To (test): digits + country code (e.g. <code>15551234567</code>). Sender: up to 11 letters/numbers.
+              If the test reports sent but no text arrives, check Brevo → Campaigns → SMS or Statistics for delivery status.
+            </small>
+            <div style="margin-top:.5rem;">
+              <button type="button" class="btn" id="smsBrevoDeliveryBtn">Check delivery status (Brevo)</button>
+              <small class="settings-help" style="display:block;margin-top:.35rem;">Opens the Brevo app in a new tab.</small>
+            </div>
+          </div>
+
+          <label class="settings-field" style="margin-top:1rem;max-width:100%;">
+            <span class="settings-label">SMS test recipient(s)</span>
+            <input type="text" name="settings[SMS_TEST_TO]" value="<%= settings.SMS_TEST_TO || '' %>" placeholder="To number(s), comma-separated — used by Send test SMS" autocomplete="off" />
+          </label>
+
+          <div style="margin-top:1rem;display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;">
+            <button type="submit" class="btn">Save SMS settings</button>
+            <button
+              type="submit"
+              class="btn"
+              formaction="/settings/test-sms"
+              formmethod="post"
+              name="_testSms"
+              value="1"
+            >Send test SMS</button>
+          </div>
+          <small class="settings-help">
+            “Save SMS settings” saves the whole settings form (same as Save Settings at the bottom). “Send test SMS” uses the values currently in the form without requiring a save first.
+          </small>
+        </div>
+      </details>
+    </div>
+
+    <script>
+      (function () {
+        var sel = document.getElementById("smsProviderSelect");
+        var tw = document.getElementById("smsTwilioFields");
+        var br = document.getElementById("smsBrevoFields");
+        function syncSmsPanels() {
+          var v = sel && sel.value ? sel.value : "disabled";
+          if (tw) tw.style.display = v === "twilio" ? "block" : "none";
+          if (br) br.style.display = v === "brevo" ? "block" : "none";
+        }
+        if (sel) sel.addEventListener("change", syncSmsPanels);
+        syncSmsPanels();
+        var brevoBtn = document.getElementById("smsBrevoDeliveryBtn");
+        if (brevoBtn) {
+          brevoBtn.addEventListener("click", function () {
+            window.open("https://app.brevo.com/", "_blank", "noopener,noreferrer");
+          });
+        }
+        if (window.location.hash === "#sms-settings") {
+          var det = document.querySelector("#sms-settings details");
+          if (det) det.open = true;
+        }
+      })();
+    </script>
 
     <!-- Additional Agency Types -->
     <div class="card">

@@ -5,6 +5,7 @@ const emailSvc = require("../services/email.service");
 const auditSvc = require("../services/auditLog.service");
 const { renderTemplate, htmlToText } = require("../services/emailTemplates.service");
 const { toSafeApiError } = require("../services/apiErrorPayload.service");
+const smsSvc = require("../services/sms.service");
 
 const EMAIL_RE = /^\S+@\S+\.[A-Za-z]{2,}$/;
 
@@ -29,38 +30,6 @@ function parseRecipientEmails(raw) {
   }
   if (!emails.length) return { error: "Enter at least one email address." };
   return { emails };
-}
-
-/** Comma/semicolon-separated; normalizes to E.164-ish (+ and digits). */
-function parseSmsPhones(raw) {
-  const s = String(raw || "").trim();
-  if (!s) return { error: "Enter at least one phone number." };
-  const parts = s
-    .split(/[;,]/g)
-    .map((x) => String(x).trim())
-    .filter(Boolean);
-  if (!parts.length) return { error: "Enter at least one phone number." };
-  const seen = new Set();
-  const phones = [];
-  for (const p of parts) {
-    const digits = p.replace(/\D/g, "");
-    if (digits.length < 10 || digits.length > 15) {
-      return { error: `Invalid phone number: ${p}` };
-    }
-    let e164;
-    if (digits.length === 10) {
-      e164 = "+1" + digits;
-    } else if (digits.length === 11 && digits[0] === "1") {
-      e164 = "+" + digits;
-    } else {
-      e164 = "+" + digits;
-    }
-    if (seen.has(e164)) continue;
-    seen.add(e164);
-    phones.push(e164);
-  }
-  if (!phones.length) return { error: "Enter at least one phone number." };
-  return { phones };
 }
 
 router.get("/config", async (req, res) => {
@@ -291,16 +260,50 @@ router.post("/locators/:id/send-link-sms", async (req, res) => {
       return res.status(404).json({ ok: false, error: "Locator not found." });
     }
 
-    const parsed = parseSmsPhones(req.body?.phones ?? req.body?.numbers ?? "");
+    const parsed = smsSvc.parsePhoneList(req.body?.phones ?? req.body?.numbers ?? "");
     if (parsed.error) {
       return res.status(400).json({ ok: false, error: parsed.error });
     }
 
-    // Placeholder until an SMS provider (e.g. Twilio) is configured.
-    return res.status(503).json({
-      ok: false,
-      error: "SMS sending is not configured yet.",
+    if (!smsSvc.isSmsConfigured()) {
+      return res.status(503).json({
+        ok: false,
+        error:
+          "SMS is not configured. Choose Twilio or Brevo and add credentials under Server Settings → SMS.",
+      });
+    }
+
+    const proto = String(req.get("x-forwarded-proto") || req.protocol || "https")
+      .split(",")[0]
+      .trim() || "https";
+    const host = req.get("host") || "";
+    const url = `${proto}://${host}/locate/${encodeURIComponent(loc.slug)}`;
+    const text = `Please open this link on your phone to share your location with responders:\n\n${url}`;
+
+    for (const phone of parsed.phones) {
+      const out = await smsSvc.sendSmsFromSettings(phone, text);
+      if (!out.ok) {
+        return res.status(500).json({
+          ok: false,
+          error: out.error || "SMS send failed",
+        });
+      }
+    }
+
+    auditSvc.logEvent({
+      actor: req.authentikUser || null,
+      request: {
+        method: req.method,
+        path: req.originalUrl || req.path,
+        ip: req.ip,
+      },
+      action: "LOCATE_LINK_SMS_SENT",
+      targetType: "locator",
+      targetId: id,
+      details: { recipientCount: parsed.phones.length, slug: loc.slug },
     });
+
+    res.json({ ok: true, count: parsed.phones.length });
   } catch (err) {
     res.status(500).json({ ok: false, error: toSafeApiError(err) });
   }

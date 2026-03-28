@@ -13,6 +13,7 @@ const pkg = require("./package.json");
 const mutualAidSvc = require("./services/mutualAid.service");
 const portalAuth = require("./services/portalAuth.middleware");
 const emailSvc = require("./services/email.service");
+const smsSvc = require("./services/sms.service");
 const emailTemplatesSvc = require("./services/emailTemplates.service");
 const qrSvc = require("./services/qr.service");
 const agenciesStore = require("./services/agencies.service");
@@ -927,6 +928,8 @@ app.get("/settings", requireGlobalAdmin, (req, res) => {
   emailTemplates,
   importStatus: req.query.import,
   importError: req.query.error,
+  smsTest: req.query.smsTest || "",
+  smsErr: req.query.smsErr || "",
   p12Exists,
   caExists
   });
@@ -1184,6 +1187,79 @@ app.post("/settings/test-email", requireGlobalAdmin, async (req, res) => {
       .send("Failed to send test email. Check SMTP settings and server logs.");
   }
 });
+
+const uploadSmsTest = multer();
+app.post(
+  "/settings/test-sms",
+  requireGlobalAdmin,
+  uploadSmsTest.none(),
+  async (req, res) => {
+    try {
+      const bodySettings = smsSvc.collectBodySettings(req.body || {});
+      const current = settingsSvc.getSettings() || {};
+      const cfg = { ...current };
+      [
+        "SMS_PROVIDER",
+        "SMS_TWILIO_ACCOUNT_SID",
+        "SMS_TWILIO_AUTH_TOKEN",
+        "SMS_TWILIO_FROM",
+        "SMS_BREVO_API_KEY",
+        "SMS_BREVO_SENDER",
+        "SMS_TEST_TO",
+      ].forEach((k) => {
+        if (bodySettings[k] !== undefined) cfg[k] = bodySettings[k];
+      });
+
+      const provider = String(cfg.SMS_PROVIDER || "disabled").trim().toLowerCase();
+      if (provider !== "twilio" && provider !== "brevo") {
+        return res.redirect(
+          "/settings?smsTest=fail&smsErr=" +
+            encodeURIComponent("Choose Twilio or Brevo and enter credentials.") +
+            "#sms-settings"
+        );
+      }
+
+      const testToRaw = String(bodySettings.SMS_TEST_TO || "").trim();
+      if (!testToRaw) {
+        return res.redirect(
+          "/settings?smsTest=fail&smsErr=" +
+            encodeURIComponent(
+              "Enter a test number in “SMS test recipient(s)” (digits + country code, comma-separated for Twilio)."
+            ) +
+            "#sms-settings"
+        );
+      }
+
+      const parsed = smsSvc.parsePhoneList(testToRaw);
+      if (parsed.error) {
+        return res.redirect(
+          "/settings?smsTest=fail&smsErr=" + encodeURIComponent(parsed.error) + "#sms-settings"
+        );
+      }
+
+      const msg = "TAK Portal - SMS test";
+      for (const phone of parsed.phones) {
+        const out = await smsSvc.sendSmsUsingConfig(cfg, phone, msg);
+        if (!out.ok) {
+          return res.redirect(
+            "/settings?smsTest=fail&smsErr=" +
+              encodeURIComponent(out.error || "SMS failed") +
+              "#sms-settings"
+          );
+        }
+      }
+
+      return res.redirect("/settings?smsTest=ok#sms-settings");
+    } catch (err) {
+      console.error("[settings] Test SMS failed:", err?.message || err);
+      return res.redirect(
+        "/settings?smsTest=fail&smsErr=" +
+          encodeURIComponent(err?.message || String(err)) +
+          "#sms-settings"
+      );
+    }
+  }
+);
 
 
 // Import (restore) a zip into the data folder
