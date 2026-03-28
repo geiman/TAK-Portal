@@ -88,9 +88,9 @@
         <thead>
           <tr>
             <th>Title</th>
-            <th style="width:100px;">Ping (s)</th>
+            <th style="width:100px;">Ping Interval</th>
             <th style="width:120px;">Status</th>
-            <th style="width:220px;">Recent update</th>
+            <th style="width:220px;">Last Update</th>
             <th style="min-width:220px;">Actions</th>
           </tr>
         </thead>
@@ -396,6 +396,31 @@
     return window.location.origin + "/locate/" + encodeURIComponent(slug);
   }
 
+  function googleMapsPinUrl(lat, lng) {
+    var la = Number(lat);
+    var ln = Number(lng);
+    if (!Number.isFinite(la) || !Number.isFinite(ln)) return "#";
+    return "https://www.google.com/maps?q=" + encodeURIComponent(la + "," + ln);
+  }
+
+  /** Same visual as plain coordinate text; opens Google Maps in a new tab. */
+  function coordsLinkEl(lat, lng) {
+    var wrap = document.createElement("div");
+    wrap.className = "settings-help";
+    wrap.style.marginTop = "2px";
+    var a = document.createElement("a");
+    a.href = googleMapsPinUrl(lat, lng);
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.textContent = Number(lat).toFixed(7) + ", " + Number(lng).toFixed(7);
+    a.title = "Open in Google Maps";
+    a.style.color = "inherit";
+    a.style.textDecoration = "none";
+    a.style.cursor = "pointer";
+    wrap.appendChild(a);
+    return wrap;
+  }
+
   function setArchivedMsg(text, bad) {
     archivedListMsg.textContent = text || "";
     archivedListMsg.style.display = text ? "block" : "none";
@@ -422,12 +447,7 @@
       rel.setAttribute("data-at", loc.lastCoordsAt);
       rel.textContent = formatRelative(loc.lastCoordsAt);
       tdRecent.appendChild(rel);
-      var coords = document.createElement("div");
-      coords.className = "settings-help";
-      coords.style.marginTop = "2px";
-      coords.textContent =
-        Number(loc.lastLatitude).toFixed(7) + ", " + Number(loc.lastLongitude).toFixed(7);
-      tdRecent.appendChild(coords);
+      tdRecent.appendChild(coordsLinkEl(loc.lastLatitude, loc.lastLongitude));
       return;
     }
     if (!loc.lastPingAt) {
@@ -471,11 +491,13 @@
           }
           cell(formatTime(h.at));
           cell(h.name);
+          var tdPos = document.createElement("td");
           if (h.latitude != null && h.longitude != null) {
-            cell(h.latitude.toFixed(7) + ", " + h.longitude.toFixed(7));
+            tdPos.appendChild(coordsLinkEl(h.latitude, h.longitude));
           } else {
-            cell("—");
+            tdPos.textContent = "—";
           }
+          hr.appendChild(tdPos);
           cell(h.remarks);
           histTbody.appendChild(hr);
         });
