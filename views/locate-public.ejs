@@ -139,7 +139,14 @@ function start(){
     }).catch(function(e){setMsg(String(e.message||e),true);}).then(function(){sending=false;});
   },function(err){sending=false;setMsg("Could not read GPS/location: "+(err&&err.message||"denied or unavailable"),true);});
 }
-function stop(){if(timer)clearInterval(timer);timer=null;sendBtn.style.display="";stopBtn.style.display="none";setSharingUi(false);setMsg("Sharing stopped.",false);}
+function stop(byUser){
+  if(timer)clearInterval(timer);
+  timer=null;
+  sendBtn.style.display="";
+  stopBtn.style.display="none";
+  setSharingUi(false);
+  if(byUser)setMsg("Stopped by user.",false);
+}
 function pollConfig(){
   fetch("/api/public/locate/"+encodeURIComponent(slug)+"/client-config").then(function(r){return r.json().then(function(d){return{ok:r.ok,data:d};});}).then(function(out){
     var data=out.data;if(!data||!data.ok)return;
@@ -154,7 +161,7 @@ function pollConfig(){
 }
 if(active){
   sendBtn.addEventListener("click",start);
-  stopBtn.addEventListener("click",stop);
+  stopBtn.addEventListener("click",function(){stop(true);});
   setInterval(pollConfig,8000);
 }
 })();
