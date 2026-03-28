@@ -416,7 +416,6 @@ app.get("/locate/:slug", (req, res) => {
     return res.status(404).render("locate-not-found");
   }
   return res.render("locate-public", {
-    locatorTitle: loc.title,
     slug: loc.slug,
     pingIntervalSeconds: loc.pingIntervalSeconds,
     locatorActive: loc.active,

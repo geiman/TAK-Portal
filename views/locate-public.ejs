@@ -3,41 +3,49 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title><%= locatorTitle %> — Share location</title>
+    <title>Share Location</title>
     <style>
-      body{font-family:system-ui,-apple-system,sans-serif;margin:0;padding:1rem;max-width:36rem;margin-inline:auto;background:#141414;color:#e8e8e8;line-height:1.45;font-size:16px}
-      h1{font-size:1.25rem;margin:0 0 1rem;font-weight:600}
+      body{font-family:system-ui,-apple-system,sans-serif;margin:0;padding:1rem;max-width:36rem;margin-inline:auto;background:#f5f5f5;color:#1a1a1a;line-height:1.45;font-size:16px}
+      h1{font-size:1.35rem;margin:0 0 1rem;font-weight:600;color:#111}
       label{display:block;margin-top:.65rem}
-      input,textarea{width:100%;box-sizing:border-box;padding:.5rem;margin-top:.25rem;font:inherit;border:1px solid #444;border-radius:4px;background:#1e1e1e;color:inherit}
+      input,textarea{width:100%;box-sizing:border-box;padding:.5rem;margin-top:.25rem;font:inherit;border:1px solid #bbb;border-radius:4px;background:#fff;color:#111}
       textarea{min-height:4.5rem;resize:vertical}
       .r{display:flex;flex-wrap:wrap;gap:.75rem}
       .r>label{flex:1;min-width:8rem}
       .btns{margin-top:.85rem;display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}
-      button{font:inherit;padding:.55rem 1rem;border:0;border-radius:4px;cursor:pointer;background:#2d6a3f;color:#fff}
-      button.d{background:#8b2e2e}
+      button{font:inherit;padding:.55rem 1rem;border:0;border-radius:4px;cursor:pointer;background:#1a6b3a;color:#fff}
+      button.d{background:#a82a2a;color:#fff}
       .m{margin-top:.75rem;padding:.5rem;border-radius:4px;display:none}
       .m.on{display:block}
-      .bad{background:#3a2020;color:#fcc}
-      .h{font-size:.9rem;opacity:.85;margin:0 0 .75rem}
-      .warn{background:#3a2020;padding:.65rem;border-radius:4px;margin-bottom:1rem;color:#fcc}
+      .bad{background:#fde8e8;color:#8b1a1a;border:1px solid #f0b4b4}
+      .h{font-size:.95rem;margin:0 0 .75rem;color:#333}
+      .h strong{display:block;margin-top:.75rem;font-size:.95rem;letter-spacing:.02em;color:#111}
+      .warn{background:#fff8e6;border:1px solid #e6c96a;padding:.65rem;border-radius:4px;margin-bottom:1rem;color:#5c4a00}
+      .keep{display:none;margin:0 0 1rem;padding:.85rem 1rem;background:#e8f4fc;border:2px solid #2180c4;border-radius:6px;color:#0a3d5c;font-size:.95rem;line-height:1.4}
+      .keep.on{display:block}
+      .keep strong{display:block;margin-top:.4rem;font-size:1rem}
     </style>
   </head>
   <body>
 
 <main>
-  <h1><%= locatorTitle %></h1>
+  <h1>Share Location</h1>
 
   <% if (!locatorActive) { %>
     <div class="warn">This locator is inactive. Contact your agency if you need help.</div>
   <% } %>
 
-  <p class="h">Enter your name and an optional message, then send your location. Updates repeat every <strong id="lpIntervalHint"><%= pingIntervalSeconds %></strong> seconds until you stop.</p>
+  <div id="lpBeforeShare">
+    <p class="h">Enter your name and an optional message. <strong>PLEASE KEEP THIS PAGE OPEN UNTIL INSTRUCTED TO CLOSE BY RESPONDER.</strong></p>
 
-  <div class="r">
-    <label>First name<input id="lpFirst" type="text" autocomplete="given-name" <%= locatorActive ? "" : "disabled" %> /></label>
-    <label>Last name<input id="lpLast" type="text" autocomplete="family-name" <%= locatorActive ? "" : "disabled" %> /></label>
+    <div class="r">
+      <label>First name<input id="lpFirst" type="text" autocomplete="given-name" <%= locatorActive ? "" : "disabled" %> /></label>
+      <label>Last name<input id="lpLast" type="text" autocomplete="family-name" <%= locatorActive ? "" : "disabled" %> /></label>
+    </div>
+    <label>Message (optional)<textarea id="lpRemarks" rows="3" <%= locatorActive ? "" : "disabled" %>></textarea></label>
   </div>
-  <label>Message (optional)<textarea id="lpRemarks" rows="3" <%= locatorActive ? "" : "disabled" %>></textarea></label>
+
+  <p id="lpKeepOpen" class="keep" role="status">Location is being shared.<strong>PLEASE KEEP THIS PAGE OPEN UNTIL INSTRUCTED TO CLOSE BY RESPONDER.</strong></p>
 
   <div class="btns">
     <button type="button" id="lpSendBtn" <%= locatorActive ? "" : "disabled" %>>Send location</button>
@@ -57,13 +65,18 @@ var lastRemoteEpoch=<%= Number(remotePingEpoch)||1 %>;
 var sendBtn=document.getElementById("lpSendBtn");
 var stopBtn=document.getElementById("lpStopBtn");
 var msg=document.getElementById("lpMsg");
-var intervalHint=document.getElementById("lpIntervalHint");
+var beforeShare=document.getElementById("lpBeforeShare");
+var keepOpen=document.getElementById("lpKeepOpen");
 var timer=null,sending=false;
 var GEO={enableHighAccuracy:true,maximumAge:120000,timeout:45000};
 function setMsg(t,bad){
   msg.textContent=t||"";
   msg.className="m on"+(bad?" bad":"");
   if(!t)msg.className="m";
+}
+function setSharingUi(on){
+  if(beforeShare)beforeShare.style.display=on?"none":"";
+  if(keepOpen)keepOpen.className=on?"keep on":"keep";
 }
 function postPing(lat,lng){
   return fetch("/api/public/locate/"+encodeURIComponent(slug)+"/ping",{
@@ -90,7 +103,7 @@ function tick(){
   sending=true;
   navigator.geolocation.getCurrentPosition(function(pos){
     postPing(pos.coords.latitude,pos.coords.longitude).then(function(){
-      setMsg("Location sent. Next update in about "+Math.round(intervalMs/1000)+" seconds.",false);
+      setMsg("",false);
     }).catch(function(e){setMsg(String(e.message||e),true);}).then(function(){sending=false;});
   },function(err){sending=false;setMsg("Could not read GPS/location: "+(err&&err.message||"denied or unavailable"),true);},GEO);
 }
@@ -101,13 +114,14 @@ function start(){
   sending=true;
   navigator.geolocation.getCurrentPosition(function(pos){
     postPing(pos.coords.latitude,pos.coords.longitude).then(function(){
-      setMsg("Location sent. Next update in about "+Math.round(intervalMs/1000)+" seconds.",false);
+      setMsg("",false);
       sendBtn.style.display="none";stopBtn.style.display="";
+      setSharingUi(true);
       if(timer)clearInterval(timer);timer=setInterval(tick,intervalMs);
     }).catch(function(e){setMsg(String(e.message||e),true);}).then(function(){sending=false;});
   },function(err){sending=false;setMsg("Could not read GPS/location: "+(err&&err.message||"denied or unavailable"),true);},GEO);
 }
-function stop(){if(timer)clearInterval(timer);timer=null;sendBtn.style.display="";stopBtn.style.display="none";setMsg("Sharing stopped.",false);}
+function stop(){if(timer)clearInterval(timer);timer=null;sendBtn.style.display="";stopBtn.style.display="none";setSharingUi(false);setMsg("Sharing stopped.",false);}
 function pollConfig(){
   fetch("/api/public/locate/"+encodeURIComponent(slug)+"/client-config").then(function(r){return r.json().then(function(d){return{ok:r.ok,data:d};});}).then(function(out){
     var data=out.data;if(!data||!data.ok)return;
@@ -115,7 +129,6 @@ function pollConfig(){
     if(data.intervalEpoch!==lastIntervalEpoch){
       lastIntervalEpoch=data.intervalEpoch;
       intervalMs=Math.max(10,Number(data.pingIntervalSeconds)||60)*1000;
-      if(intervalHint)intervalHint.textContent=String(Math.round(intervalMs/1000));
       restartSharingTimer();
     }
     if(data.remotePingEpoch>lastRemoteEpoch){var wake=timer!=null;lastRemoteEpoch=data.remotePingEpoch;if(wake)tick();}
