@@ -4,208 +4,128 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title><%= locatorTitle %> — Share location</title>
-    <link rel="stylesheet" href="/styles.css" />
-    <% if (brandLogoUrl) { %>
-      <link rel="icon" href="<%= brandLogoUrl %>" type="image/png" />
-    <% } %>
+    <style>
+      body{font-family:system-ui,-apple-system,sans-serif;margin:0;padding:1rem;max-width:36rem;margin-inline:auto;background:#141414;color:#e8e8e8;line-height:1.45;font-size:16px}
+      h1{font-size:1.25rem;margin:0 0 1rem;font-weight:600}
+      label{display:block;margin-top:.65rem}
+      input,textarea{width:100%;box-sizing:border-box;padding:.5rem;margin-top:.25rem;font:inherit;border:1px solid #444;border-radius:4px;background:#1e1e1e;color:inherit}
+      textarea{min-height:4.5rem;resize:vertical}
+      .r{display:flex;flex-wrap:wrap;gap:.75rem}
+      .r>label{flex:1;min-width:8rem}
+      .btns{margin-top:.85rem;display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}
+      button{font:inherit;padding:.55rem 1rem;border:0;border-radius:4px;cursor:pointer;background:#2d6a3f;color:#fff}
+      button.d{background:#8b2e2e}
+      .m{margin-top:.75rem;padding:.5rem;border-radius:4px;display:none}
+      .m.on{display:block}
+      .bad{background:#3a2020;color:#fcc}
+      .h{font-size:.9rem;opacity:.85;margin:0 0 .75rem}
+      .warn{background:#3a2020;padding:.65rem;border-radius:4px;margin-bottom:1rem;color:#fcc}
+    </style>
   </head>
-  <body class="theme-<%= brandTheme || 'dark' %>">
+  <body>
 
-<main class="main" style="max-width: 640px; margin: 0 auto; padding: 1.5rem 1rem;">
-  <h1 style="margin-top:0;"><%= locatorTitle %></h1>
+<main>
+  <h1><%= locatorTitle %></h1>
 
   <% if (!locatorActive) { %>
-    <div class="msg bad" style="margin-left:0; margin-bottom:1rem;">
-      This locator is inactive. Contact your agency if you need help.
-    </div>
+    <div class="warn">This locator is inactive. Contact your agency if you need help.</div>
   <% } %>
 
-  <div class="card">
-    <p class="settings-help" style="margin-top:0;">
-      Enter your name and an optional message, then send your location. Your device will continue to report at the interval set by your agency (every <strong id="lpIntervalHint"><%= pingIntervalSeconds %></strong> seconds) until you stop.
-    </p>
+  <p class="h">Enter your name and an optional message, then send your location. Updates repeat every <strong id="lpIntervalHint"><%= pingIntervalSeconds %></strong> seconds until you stop.</p>
 
-    <div class="row" style="flex-wrap:wrap; gap:12px;">
-      <label style="flex:1; min-width:140px;">First name
-        <input id="lpFirst" type="text" autocomplete="given-name" <%= locatorActive ? "" : "disabled" %> />
-      </label>
-      <label style="flex:1; min-width:140px;">Last name
-        <input id="lpLast" type="text" autocomplete="family-name" <%= locatorActive ? "" : "disabled" %> />
-      </label>
-    </div>
-    <label style="display:block; margin-top:10px;">Message (optional)
-      <textarea id="lpRemarks" rows="3" style="width:100%; box-sizing:border-box;" <%= locatorActive ? "" : "disabled" %>></textarea>
-    </label>
-
-    <div class="row" style="margin-top:14px; align-items:center; gap:12px; flex-wrap:wrap;">
-      <button type="button" class="btn" id="lpSendBtn" <%= locatorActive ? "" : "disabled" %>>Send location</button>
-      <button type="button" class="btn danger" id="lpStopBtn" style="display:none;">Stop sharing</button>
-    </div>
-
-    <div id="lpMsg" class="msg" style="margin-left:0; margin-top:12px;" aria-live="polite"></div>
+  <div class="r">
+    <label>First name<input id="lpFirst" type="text" autocomplete="given-name" <%= locatorActive ? "" : "disabled" %> /></label>
+    <label>Last name<input id="lpLast" type="text" autocomplete="family-name" <%= locatorActive ? "" : "disabled" %> /></label>
   </div>
+  <label>Message (optional)<textarea id="lpRemarks" rows="3" <%= locatorActive ? "" : "disabled" %>></textarea></label>
+
+  <div class="btns">
+    <button type="button" id="lpSendBtn" <%= locatorActive ? "" : "disabled" %>>Send location</button>
+    <button type="button" class="d" id="lpStopBtn" style="display:none;">Stop sharing</button>
+  </div>
+
+  <div id="lpMsg" class="m" aria-live="polite"></div>
 </main>
 
 <script>
-(function () {
-  var slug = <%- JSON.stringify(slug) %>;
-  var intervalMs = <%= Math.max(10, Number(pingIntervalSeconds) || 60) %> * 1000;
-  var active = <%= locatorActive ? "true" : "false" %>;
-  var lastIntervalEpoch = <%= Number(intervalEpoch) || 1 %>;
-  var lastRemoteEpoch = <%= Number(remotePingEpoch) || 1 %>;
-
-  var sendBtn = document.getElementById("lpSendBtn");
-  var stopBtn = document.getElementById("lpStopBtn");
-  var msg = document.getElementById("lpMsg");
-  var intervalHint = document.getElementById("lpIntervalHint");
-  var timer = null;
-  var sending = false;
-
-  function setMsg(text, bad) {
-    msg.textContent = text || "";
-    msg.style.display = text ? "block" : "none";
-    msg.classList.toggle("bad", !!bad);
-  }
-
-  function postPing(lat, lng) {
-    var first = document.getElementById("lpFirst").value.trim();
-    var last = document.getElementById("lpLast").value.trim();
-    var remarks = document.getElementById("lpRemarks").value.trim();
-    return fetch("/api/public/locate/" + encodeURIComponent(slug) + "/ping", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        latitude: lat,
-        longitude: lng,
-        firstName: first,
-        lastName: last,
-        remarks: remarks
-      })
-    }).then(function (res) {
-      return res.text().then(function (text) {
-        var data;
-        try { data = text ? JSON.parse(text) : {}; } catch (e) { data = {}; }
-        if (!res.ok) throw new Error(data.error || text || "Request failed");
-        return data;
-      });
+(function(){
+var slug=<%- JSON.stringify(slug) %>;
+var intervalMs=<%= Math.max(10, Number(pingIntervalSeconds)||60) %>*1000;
+var active=<%= locatorActive?"true":"false" %>;
+var lastIntervalEpoch=<%= Number(intervalEpoch)||1 %>;
+var lastRemoteEpoch=<%= Number(remotePingEpoch)||1 %>;
+var sendBtn=document.getElementById("lpSendBtn");
+var stopBtn=document.getElementById("lpStopBtn");
+var msg=document.getElementById("lpMsg");
+var intervalHint=document.getElementById("lpIntervalHint");
+var timer=null,sending=false;
+var GEO={enableHighAccuracy:true,maximumAge:120000,timeout:45000};
+function setMsg(t,bad){
+  msg.textContent=t||"";
+  msg.className="m on"+(bad?" bad":"");
+  if(!t)msg.className="m";
+}
+function postPing(lat,lng){
+  return fetch("/api/public/locate/"+encodeURIComponent(slug)+"/ping",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({
+      latitude:lat,longitude:lng,
+      firstName:document.getElementById("lpFirst").value.trim(),
+      lastName:document.getElementById("lpLast").value.trim(),
+      remarks:document.getElementById("lpRemarks").value.trim()
+    })
+  }).then(function(res){
+    return res.text().then(function(text){
+      var d={};try{d=text?JSON.parse(text):{}}catch(e){}
+      if(!res.ok)throw new Error(d.error||text||"Request failed");
+      return d;
     });
-  }
-
-  function restartSharingTimer() {
-    if (!timer) return;
-    clearInterval(timer);
-    timer = setInterval(tick, intervalMs);
-  }
-
-  function tick() {
-    if (!navigator.geolocation) {
-      setMsg("Location is not available in this browser.", true);
-      stop();
-      return;
+  });
+}
+function restartSharingTimer(){if(!timer)return;clearInterval(timer);timer=setInterval(tick,intervalMs);}
+function tick(){
+  if(!navigator.geolocation){setMsg("Location is not available in this browser.",true);stop();return;}
+  if(sending)return;
+  sending=true;
+  navigator.geolocation.getCurrentPosition(function(pos){
+    postPing(pos.coords.latitude,pos.coords.longitude).then(function(){
+      setMsg("Location sent. Next update in about "+Math.round(intervalMs/1000)+" seconds.",false);
+    }).catch(function(e){setMsg(String(e.message||e),true);}).then(function(){sending=false;});
+  },function(err){sending=false;setMsg("Could not read GPS/location: "+(err&&err.message||"denied or unavailable"),true);},GEO);
+}
+function start(){
+  var f=document.getElementById("lpFirst").value.trim(),l=document.getElementById("lpLast").value.trim();
+  if(!f||!l){setMsg("Please enter your first and last name.",true);return;}
+  setMsg("Requesting location…",false);
+  sending=true;
+  navigator.geolocation.getCurrentPosition(function(pos){
+    postPing(pos.coords.latitude,pos.coords.longitude).then(function(){
+      setMsg("Location sent. Next update in about "+Math.round(intervalMs/1000)+" seconds.",false);
+      sendBtn.style.display="none";stopBtn.style.display="";
+      if(timer)clearInterval(timer);timer=setInterval(tick,intervalMs);
+    }).catch(function(e){setMsg(String(e.message||e),true);}).then(function(){sending=false;});
+  },function(err){sending=false;setMsg("Could not read GPS/location: "+(err&&err.message||"denied or unavailable"),true);},GEO);
+}
+function stop(){if(timer)clearInterval(timer);timer=null;sendBtn.style.display="";stopBtn.style.display="none";setMsg("Sharing stopped.",false);}
+function pollConfig(){
+  fetch("/api/public/locate/"+encodeURIComponent(slug)+"/client-config").then(function(r){return r.json().then(function(d){return{ok:r.ok,data:d};});}).then(function(out){
+    var data=out.data;if(!data||!data.ok)return;
+    if(data.active===false&&timer){stop();setMsg("This locator was disabled by your agency.",true);return;}
+    if(data.intervalEpoch!==lastIntervalEpoch){
+      lastIntervalEpoch=data.intervalEpoch;
+      intervalMs=Math.max(10,Number(data.pingIntervalSeconds)||60)*1000;
+      if(intervalHint)intervalHint.textContent=String(Math.round(intervalMs/1000));
+      restartSharingTimer();
     }
-    if (sending) return;
-    sending = true;
-    navigator.geolocation.getCurrentPosition(
-      function (pos) {
-        postPing(pos.coords.latitude, pos.coords.longitude)
-          .then(function () {
-            setMsg("Location sent. Next update in about " + Math.round(intervalMs / 1000) + " seconds.", false);
-          })
-          .catch(function (e) {
-            setMsg(String(e.message || e), true);
-          })
-          .then(function () {
-            sending = false;
-          });
-      },
-      function (err) {
-        sending = false;
-        setMsg("Could not read GPS/location: " + (err && err.message ? err.message : "denied or unavailable"), true);
-      },
-      { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 }
-    );
-  }
-
-  function start() {
-    var first = document.getElementById("lpFirst").value.trim();
-    var last = document.getElementById("lpLast").value.trim();
-    if (!first || !last) {
-      setMsg("Please enter your first and last name.", true);
-      return;
-    }
-    setMsg("Requesting location permission…", false);
-    sending = true;
-    navigator.geolocation.getCurrentPosition(
-      function (pos) {
-        postPing(pos.coords.latitude, pos.coords.longitude)
-          .then(function () {
-            setMsg("Location sent. Next update in about " + Math.round(intervalMs / 1000) + " seconds.", false);
-            sendBtn.style.display = "none";
-            stopBtn.style.display = "";
-            if (timer) clearInterval(timer);
-            timer = setInterval(tick, intervalMs);
-          })
-          .catch(function (e) {
-            setMsg(String(e.message || e), true);
-          })
-          .then(function () {
-            sending = false;
-          });
-      },
-      function (err) {
-        sending = false;
-        setMsg("Could not read GPS/location: " + (err && err.message ? err.message : "denied or unavailable"), true);
-      },
-      { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 }
-    );
-  }
-
-  function stop() {
-    if (timer) clearInterval(timer);
-    timer = null;
-    sendBtn.style.display = "";
-    stopBtn.style.display = "none";
-    setMsg("Sharing stopped.", false);
-  }
-
-  function pollConfig() {
-    fetch("/api/public/locate/" + encodeURIComponent(slug) + "/client-config")
-      .then(function (r) {
-        return r.json().then(function (data) {
-          return { ok: r.ok, data: data };
-        });
-      })
-      .then(function (out) {
-        var data = out.data;
-        if (!data || !data.ok) return;
-
-        if (data.active === false && timer) {
-          stop();
-          setMsg("This locator was disabled by your agency.", true);
-          return;
-        }
-
-        if (data.intervalEpoch !== lastIntervalEpoch) {
-          lastIntervalEpoch = data.intervalEpoch;
-          intervalMs = Math.max(10, Number(data.pingIntervalSeconds) || 60) * 1000;
-          if (intervalHint) intervalHint.textContent = String(Math.round(intervalMs / 1000));
-          restartSharingTimer();
-        }
-
-        if (data.remotePingEpoch > lastRemoteEpoch) {
-          var wake = timer != null;
-          lastRemoteEpoch = data.remotePingEpoch;
-          if (wake) tick();
-        }
-      })
-      .catch(function () {});
-  }
-
-  if (active) {
-    sendBtn.addEventListener("click", start);
-    stopBtn.addEventListener("click", stop);
-    setInterval(pollConfig, 4000);
-  }
+    if(data.remotePingEpoch>lastRemoteEpoch){var wake=timer!=null;lastRemoteEpoch=data.remotePingEpoch;if(wake)tick();}
+  }).catch(function(){});
+}
+if(active){
+  sendBtn.addEventListener("click",start);
+  stopBtn.addEventListener("click",stop);
+  setInterval(pollConfig,8000);
+}
 })();
 </script>
   </body>

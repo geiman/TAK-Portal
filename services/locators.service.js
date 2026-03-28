@@ -256,22 +256,15 @@ function addHistoryEntry({ locatorId, latitude, longitude, name, remarks, kind }
 
 function listHistory(locatorId, { limit = 200 } = {}) {
   const data = load();
-  return data.history
-    .filter((h) => h.locatorId === locatorId)
-    .sort((a, b) => String(b.at).localeCompare(String(a.at)))
-    .slice(0, limit);
+  const rows = data.history.filter((h) => h.locatorId === locatorId);
+  const newestFirst = rows.sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  const recent = newestFirst.slice(0, limit);
+  return recent.sort((a, b) => String(a.at).localeCompare(String(b.at)));
 }
 
+/** Wake devices only; no history row (admin dashboard "Manual ping"). */
 function addManualOperatorPing(locatorId) {
   bumpRemotePingEpoch(locatorId);
-  return addHistoryEntry({
-    locatorId,
-    latitude: null,
-    longitude: null,
-    name: "(operator)",
-    remarks: "Manual ping recorded from portal (no coordinates).",
-    kind: "manual",
-  });
 }
 
 /**

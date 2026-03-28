@@ -101,7 +101,7 @@ router.post("/locators/:id/manual-ping", async (req, res) => {
       return res.status(404).json({ ok: false, error: "Locator not found." });
     }
     locatorsSvc.addManualOperatorPing(id);
-    res.json({ ok: true, message: "Manual ping recorded in history." });
+    res.json({ ok: true, message: "Devices with this link open will send a location update soon." });
   } catch (err) {
     res.status(500).json({ ok: false, error: toSafeApiError(err) });
   }
