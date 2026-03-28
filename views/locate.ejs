@@ -45,7 +45,7 @@
   </div>
 
   <div class="card" style="margin-top:1.25rem;">
-    <h2 style="margin-top:0;">Create locator</h2>
+    <h2 style="margin-top:0;">Create Locator</h2>
     <div class="row" style="flex-wrap: wrap; align-items: flex-end; gap: 12px;">
       <label style="min-width: 160px;">Ping interval (seconds)
         <input id="newLocPing" type="number" min="10" max="86400" value="60" style="width:100%; box-sizing:border-box;" />
@@ -62,15 +62,15 @@
   </div>
 
   <div class="card" style="margin-top:1.25rem;">
-    <h2 style="margin-top:0;">Existing locators</h2>
+    <h2 style="margin-top:0;">Existing Locators</h2>
     <div id="locListMsg" class="msg" style="margin-left:0;"></div>
     <table class="table" style="margin-top:10px;">
       <thead>
         <tr>
           <th>Title</th>
-          <th style="width:100px;">Ping (s)</th>
+          <th style="width:100px;">Ping Interval</th>
           <th style="width:120px;">Status</th>
-          <th style="width:220px;">Recent update</th>
+          <th style="width:220px;">Last Update/th>
           <th style="min-width:260px;">Actions</th>
         </tr>
       </thead>
@@ -533,7 +533,7 @@
         tdAct.appendChild(b);
       }
 
-      addBtn("Edit interval", function () {
+      addBtn("Edit Interval", function () {
         var p = window.prompt("Ping interval (seconds, 10–86400)", String(loc.pingIntervalSeconds));
         if (p === null) return;
         var ping = parseInt(String(p), 10);
@@ -548,7 +548,7 @@
         patchLoc(loc.id, { active: !loc.active });
       });
 
-      addBtn("Manual ping", function () {
+      addBtn("Manual Ping", function () {
         fetch("/api/locate/locators/" + encodeURIComponent(loc.id) + "/manual-ping", { method: "POST" })
           .then(function (r) { return r.json(); })
           .then(function (data) {
