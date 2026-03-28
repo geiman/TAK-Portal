@@ -25,7 +25,7 @@ Below you will find a comprehensive list of items planned for implementation in 
 ## Locate Plans:
 - Locate settings will be in server settings.  Will need the ability to set the group that locate goes to, as well as data sync mission???.  Once configured, will need to SSH to TAK Server and add <locate enabled="true" requireLogin="false" cot-type="a-h-G" group="Group Name" addToMission="true" mission="Mission Name"/> before vbm setting at bottom of Core Config - /opt/tak/CoreConfig.xml
 - Locate page /locate only avaliable to global admins for now (look at access later for agency admins)
-- Admin creates Locator based off an event title and Sets Ping interval (can be adjusted later).  Link gets created takportal.agency.gov/locate/xyztitle
+- Admin creates Locator based off an event title and Sets Ping interval (can be adjusted later). Also add a manual ping button.  Link gets created takportal.agency.gov/locate/xyztitle
 - Possibly create a custom form editor?  Custom fields, photo upload?, etc?  But for now collect First name, Last name, and message field.
 - Displays Copy link, Send SMS (will need backend support), and Email options
 - Lost person clicks link and confirmation page displays their coordinates and last updated time.  Remove heavy css to help with minimal cell signal. Notify user to keep page open
