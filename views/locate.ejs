@@ -120,6 +120,25 @@
       </div>
     </div>
   </div>
+
+  <div id="sendLinkOverlay" class="modalOverlay" style="display:none;" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="sendLinkModalTitle" style="width:min(480px,96vw);">
+      <div class="modalHeader">
+        <h2 id="sendLinkModalTitle" style="margin:0;">Send share link</h2>
+        <button type="button" class="btn" id="sendLinkCloseBtn">Close</button>
+      </div>
+      <div class="modalBody">
+        <p class="settings-help" style="margin-top:0;">Send the public locate page to the missing person or a contact.</p>
+        <p id="sendLinkPreview" style="word-break:break-all;font-size:0.9rem;margin:12px 0;padding:8px 10px;background:var(--panel-bg, #1e1e1e);border-radius:6px;border:1px solid rgba(255,255,255,.08);"></p>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+          <button type="button" class="btn" id="sendLinkSmsBtn" disabled title="Not available yet">SMS</button>
+          <button type="button" class="btn" id="sendLinkEmailBtn">Email</button>
+          <button type="button" class="btn" id="sendLinkCopyBtn">Copy link</button>
+        </div>
+        <p class="settings-help" style="margin-top:12px;margin-bottom:0;">SMS sending is not wired up yet; it will be added in a future update.</p>
+      </div>
+    </div>
+  </div>
 </main>
 
 <script>
@@ -352,6 +371,12 @@
   var histOverlay = document.getElementById("locHistOverlay");
   var histTbody = document.getElementById("locHistTbody");
   var histClose = document.getElementById("locHistCloseBtn");
+  var sendLinkOverlay = document.getElementById("sendLinkOverlay");
+  var sendLinkCloseBtn = document.getElementById("sendLinkCloseBtn");
+  var sendLinkPreview = document.getElementById("sendLinkPreview");
+  var sendLinkEmailBtn = document.getElementById("sendLinkEmailBtn");
+  var sendLinkCopyBtn = document.getElementById("sendLinkCopyBtn");
+  var sendLinkCurrentUrl = "";
 
   function setListMsg(text, bad) {
     listMsg.textContent = text || "";
@@ -394,6 +419,64 @@
 
   function publicUrl(slug) {
     return window.location.origin + "/locate/" + encodeURIComponent(slug);
+  }
+
+  function closeSendLinkModal() {
+    if (!sendLinkOverlay) return;
+    sendLinkOverlay.style.display = "none";
+    sendLinkOverlay.setAttribute("aria-hidden", "true");
+    document.body.style.overflow = "";
+  }
+
+  function openSendLinkModal(loc) {
+    sendLinkCurrentUrl = publicUrl(loc.slug);
+    if (sendLinkPreview) sendLinkPreview.textContent = sendLinkCurrentUrl;
+    if (sendLinkOverlay) {
+      sendLinkOverlay.style.display = "flex";
+      sendLinkOverlay.setAttribute("aria-hidden", "false");
+    }
+    document.body.style.overflow = "hidden";
+  }
+
+  function copySendLinkToClipboard() {
+    var url = sendLinkCurrentUrl;
+    if (!url) return;
+    function done() {
+      setListMsg("Link copied to clipboard.", false);
+      closeSendLinkModal();
+    }
+    function fallback() {
+      window.prompt("Copy this link:", url);
+      closeSendLinkModal();
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(done).catch(fallback);
+      return;
+    }
+    var ta = document.createElement("textarea");
+    ta.value = url;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      if (document.execCommand("copy")) done();
+      else fallback();
+    } catch (e) {
+      fallback();
+    }
+    document.body.removeChild(ta);
+  }
+
+  function openSendLinkEmail() {
+    var url = sendLinkCurrentUrl;
+    if (!url) return;
+    var subject = "Share your location";
+    var body =
+      "Please open this link on your phone to share your location with responders:\r\n\r\n" + url;
+    window.location.href =
+      "mailto:?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(body);
   }
 
   function googleMapsPinUrl(lat, lng) {
@@ -611,6 +694,10 @@
           });
       });
 
+      addBtn("Send link", function () {
+        openSendLinkModal(loc);
+      });
+
       addBtn("History", function () {
         openHistoryForId(loc.id);
       });
@@ -803,6 +890,21 @@
       document.body.style.overflow = "";
     }
   });
+
+  if (sendLinkCloseBtn) {
+    sendLinkCloseBtn.addEventListener("click", closeSendLinkModal);
+  }
+  if (sendLinkOverlay) {
+    sendLinkOverlay.addEventListener("click", function (e) {
+      if (e.target === sendLinkOverlay) closeSendLinkModal();
+    });
+  }
+  if (sendLinkEmailBtn) {
+    sendLinkEmailBtn.addEventListener("click", openSendLinkEmail);
+  }
+  if (sendLinkCopyBtn) {
+    sendLinkCopyBtn.addEventListener("click", copySendLinkToClipboard);
+  }
 
   loadLocators();
   setInterval(function () {
