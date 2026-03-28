@@ -970,8 +970,11 @@
         if (!data.ok) throw new Error(data.error || "Create failed");
         titleIn.value = "";
         pingIn.value = "60";
-        setNewMsg("Created. Public link: " + publicUrl(data.locator.slug), false);
+        setNewMsg("Created.", false);
         loadLocators();
+        if (data.locator && data.locator.slug) {
+          openSendLinkModal(data.locator);
+        }
       })
       .catch(function (e) {
         setNewMsg(e.message || String(e), true);
