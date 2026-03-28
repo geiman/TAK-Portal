@@ -267,9 +267,13 @@ async function relayPingToTak({ latitude, longitude, name, remarks }) {
   } catch (err) {
     const msg = err?.message || String(err);
     const code = err?.code || "";
+    const causeMsg = String(err?.cause?.message || "");
+    const causeCode = err?.cause?.code || "";
+    const scan = `${msg} ${causeMsg}`;
+    const scanCode = code || causeCode;
     if (
-      /ssl\/tls alert bad certificate|alert number 42|bad certificate/i.test(msg) ||
-      code === "ERR_SSL_SSLV3_ALERT_BAD_CERTIFICATE"
+      /ssl\/tls alert bad certificate|alert number 42|bad certificate/i.test(scan) ||
+      scanCode === "ERR_SSL_SSLV3_ALERT_BAD_CERTIFICATE"
     ) {
       throw new Error(
         "The TAK server rejected the TLS client certificate (mTLS). " +
@@ -277,15 +281,18 @@ async function relayPingToTak({ latitude, longitude, name, remarks }) {
       );
     }
     if (
-      code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE" ||
-      code === "CERT_HAS_EXPIRED" ||
-      code === "SELF_SIGNED_CERT_IN_CHAIN" ||
-      /self-signed certificate/i.test(msg) ||
-      /unable to verify the first certificate/i.test(msg)
+      scanCode === "UNABLE_TO_VERIFY_LEAF_SIGNATURE" ||
+      scanCode === "UNABLE_TO_GET_ISSUER_CERT_LOCALLY" ||
+      scanCode === "CERT_HAS_EXPIRED" ||
+      scanCode === "SELF_SIGNED_CERT_IN_CHAIN" ||
+      /self-signed certificate/i.test(scan) ||
+      /unable to verify the first certificate/i.test(scan) ||
+      /unable to get local issuer certificate/i.test(scan)
     ) {
       throw new Error(
-        "TLS verification failed when calling the TAK locate API. " +
-          "Set TAK_CA_PATH to your TAK CA PEM, or for lab only set TAK_LOCATE_RELAY_TLS_INSECURE=true (still requires client P12/cert)."
+        "TLS verification failed when calling the TAK locate API (Node cannot build a trust chain to the server certificate). " +
+          "Set TAK_CA_PATH in Server Settings to a PEM file that includes your TAK CA and any intermediates needed to validate the server cert. " +
+          "For lab testing only, set TAK_LOCATE_RELAY_TLS_INSECURE=true to skip verifying the server cert (mTLS client cert is still used)."
       );
     }
     throw err;
