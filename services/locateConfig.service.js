@@ -32,11 +32,40 @@ function buildLocateTag(groupDisplayName) {
   return `<locate enabled="true" requireLogin="false" cot-type="a-h-G" group="${g}" addToMission="false" mission=""/>`;
 }
 
-function insertLocateBeforeVbm(xml, locateLine) {
+/**
+ * Insert <locate> on its own line after <cluster/> when present (matches typical CoreConfig layout).
+ * Handles <cluster/><vbm on one line so locate is not glued to cluster or vbm.
+ */
+function insertLocateInConfig(xml, locateLine) {
   const body = removeLocateElements(xml);
-  if (/<vbm\b/i.test(body)) {
-    return body.replace(/(\s*)<vbm\b/i, (_m, indent) => `${locateLine}\n${indent}<vbm`);
+
+  // <cluster/> and <vbm on the same line (no newline between)
+  if (/<cluster\s*\/>\s*<vbm\b/i.test(body)) {
+    return body.replace(
+      /([ \t]*)<cluster\s*\/>\s*(<vbm\b)/i,
+      (_full, spaces, vbmTag) => `${spaces}<cluster/>\n${spaces}${locateLine}\n${spaces}${vbmTag}`
+    );
   }
+
+  // <cluster/> with following content on later lines — add locate directly under cluster
+  if (/<cluster\s*\/>/i.test(body)) {
+    return body.replace(
+      /([ \t]*)<cluster\s*\/>/i,
+      (full, spaces) => `${spaces}<cluster/>\n${spaces}${locateLine}`
+    );
+  }
+
+  // No cluster: insert before <vbm>, matching indentation of the vbm line
+  if (/<vbm\b/i.test(body)) {
+    return body.replace(/(\s*)(<vbm\b)/i, (_full, ws, vbmTag) => {
+      const trimmed = String(ws || "");
+      const indMatch = trimmed.match(/([ \t]*)$/);
+      const indent = indMatch ? indMatch[1] : "    ";
+      const prefix = trimmed.slice(0, Math.max(0, trimmed.length - indent.length));
+      return `${prefix}${indent}${locateLine}\n${indent}${vbmTag}`;
+    });
+  }
+
   return body.replace(/(\s*)<\/Configuration>/i, (_m, indent) => `${locateLine}\n${indent}</Configuration>`);
 }
 
@@ -78,7 +107,7 @@ async function applyLocateConfiguration({ enabled, groupDisplayName }) {
       throw new Error("Group name is required when locate is enabled.");
     }
     const locateLine = buildLocateTag(g);
-    next = insertLocateBeforeVbm(xml, locateLine);
+    next = insertLocateInConfig(xml, locateLine);
   } else {
     next = removeLocateElements(xml);
   }
