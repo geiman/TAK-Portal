@@ -93,7 +93,7 @@ async function applyLocateConfiguration({ enabled, groupDisplayName }) {
     throw new Error(restartResult.message || "CoreConfig.xml was updated but TAK Server restart failed.");
   }
 
-  return { message: "Locate settings applied and TAK Server restarted." };
+  return { message: "Locate settings applied and TAK Server is currently restarting." };
 }
 
 module.exports = {

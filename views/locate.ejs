@@ -5,12 +5,7 @@
   <h1>Locate Missing Persons</h1>
 
   <div class="card">
-    <h2 style="margin-top:0;">TAK Server locate</h2>
-    <p class="settings-help" style="margin-bottom:1rem;">
-      When enabled, the portal updates <code>/opt/tak/CoreConfig.xml</code> on the TAK Server over SSH (same connection as Server Settings),
-      inserts the <code>&lt;locate&gt;</code> element before <code>&lt;vbm&gt;</code>, then runs <code>sudo systemctl restart takserver</code>.
-      The group name sent to the server does not include the <code>tak_</code> prefix.
-    </p>
+    <h2 style="margin-top:0;">TAK Server Locate Configuration</h2>
 
     <div
       id="locateSshWarn"
@@ -21,7 +16,7 @@
 
     <div class="row" style="flex-wrap: wrap; align-items: flex-end; gap: 12px;">
       <label style="min-width: 200px;">
-        Locate
+        Locate Status
         <select id="locateEnabledSelect" aria-label="Locate enabled">
           <option value="false">Disabled</option>
           <option value="true">Enabled</option>
@@ -29,7 +24,7 @@
       </label>
 
       <label id="locateGroupWrap" style="min-width: 280px; display: none;">
-        Notification group
+        Notification Group
         <select id="locateGroupSelect" style="min-width: 260px;">
           <option value="">Select a group</option>
         </select>
@@ -236,7 +231,7 @@
 
       setMsg(
         (data.message ? data.message + " " : "") +
-          "The TAK Server restart has completed from the portal’s perspective. Wait about 2 minutes before making more locate changes here, using other SSH actions, or expecting stable TAK/ATAK connectivity—services need time to come back fully.",
+          "The TAK Server restart is in progress. Wait about 2 minutes before making more locate changes here, using other SSH actions, or expecting stable TAK/ATAK connectivity.",
         "success"
       );
       await loadConfig();
