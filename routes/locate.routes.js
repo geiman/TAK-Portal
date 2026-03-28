@@ -31,6 +31,38 @@ function parseRecipientEmails(raw) {
   return { emails };
 }
 
+/** Comma/semicolon-separated; normalizes to E.164-ish (+ and digits). */
+function parseSmsPhones(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return { error: "Enter at least one phone number." };
+  const parts = s
+    .split(/[;,]/g)
+    .map((x) => String(x).trim())
+    .filter(Boolean);
+  if (!parts.length) return { error: "Enter at least one phone number." };
+  const seen = new Set();
+  const phones = [];
+  for (const p of parts) {
+    const digits = p.replace(/\D/g, "");
+    if (digits.length < 10 || digits.length > 15) {
+      return { error: `Invalid phone number: ${p}` };
+    }
+    let e164;
+    if (digits.length === 10) {
+      e164 = "+1" + digits;
+    } else if (digits.length === 11 && digits[0] === "1") {
+      e164 = "+" + digits;
+    } else {
+      e164 = "+" + digits;
+    }
+    if (seen.has(e164)) continue;
+    seen.add(e164);
+    phones.push(e164);
+  }
+  if (!phones.length) return { error: "Enter at least one phone number." };
+  return { phones };
+}
+
 router.get("/config", async (req, res) => {
   try {
     const ssh = locateConfig.isSshConfigured();
@@ -246,6 +278,29 @@ router.post("/locators/:id/send-link-email", async (req, res) => {
     });
 
     res.json({ ok: true, count: emails.length });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: toSafeApiError(err) });
+  }
+});
+
+router.post("/locators/:id/send-link-sms", async (req, res) => {
+  try {
+    const id = String(req.params.id || "").trim();
+    const loc = locatorsSvc.getById(id);
+    if (!loc || loc.archived) {
+      return res.status(404).json({ ok: false, error: "Locator not found." });
+    }
+
+    const parsed = parseSmsPhones(req.body?.phones ?? req.body?.numbers ?? "");
+    if (parsed.error) {
+      return res.status(400).json({ ok: false, error: parsed.error });
+    }
+
+    // Placeholder until an SMS provider (e.g. Twilio) is configured.
+    return res.status(503).json({
+      ok: false,
+      error: "SMS sending is not configured yet.",
+    });
   } catch (err) {
     res.status(500).json({ ok: false, error: toSafeApiError(err) });
   }

@@ -124,19 +124,24 @@
   <div id="sendLinkOverlay" class="modalOverlay" style="display:none;" aria-hidden="true">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="sendLinkModalTitle" style="width:min(480px,96vw);">
       <div class="modalHeader">
-        <h2 id="sendLinkModalTitle" style="margin:0;">Send share link</h2>
+        <h2 id="sendLinkModalTitle" style="margin:0;">Send Locator Link</h2>
         <button type="button" class="btn" id="sendLinkCloseBtn">Close</button>
       </div>
       <div class="modalBody">
-        <p class="settings-help" style="margin-top:0;">Recipients receive the locate link and standard message via the portal email server. Enter addresses separated by commas.</p>
-        <label for="sendLinkRecipientsIn" style="display:block;margin-top:10px;font-weight:600;">Email addresses</label>
-        <input type="text" id="sendLinkRecipientsIn" autocomplete="email" placeholder="one@example.com, two@example.com" style="width:100%;box-sizing:border-box;margin-top:6px;padding:8px 10px;border-radius:6px;border:1px solid rgba(255,255,255,.12);background:var(--panel-bg, #1e1e1e);color:inherit;" />
-        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:14px;">
-          <button type="button" class="btn success" id="sendLinkEmailBtn">Send email</button>
-          <button type="button" class="btn" id="sendLinkCopyBtn">Copy link</button>
-          <button type="button" class="btn" id="sendLinkSmsBtn" disabled title="Not available yet">SMS</button>
+        <p class="settings-help" style="margin-top:0;">Send the public locate link. Subject, SMS text, and email body are filled in on the server.</p>
+        <label for="sendLinkPhonesIn" style="display:block;margin-top:12px;font-weight:600;">Phone numbers (SMS)</label>
+        <input type="text" id="sendLinkPhonesIn" autocomplete="tel" placeholder="+15551234567, 5559876543" style="width:100%;box-sizing:border-box;margin-top:6px;padding:8px 10px;border-radius:6px;border:1px solid rgba(255,255,255,.12);background:var(--panel-bg, #1e1e1e);color:inherit;" />
+        <div style="margin-top:10px;">
+          <button type="button" class="btn success" id="sendLinkSmsBtn">Send SMS</button>
         </div>
-        <p class="settings-help" style="margin-top:12px;margin-bottom:0;">SMS sending is not wired up yet; it will be added in a future update.</p>
+        <label for="sendLinkRecipientsIn" style="display:block;margin-top:18px;font-weight:600;">Email addresses</label>
+        <input type="text" id="sendLinkRecipientsIn" autocomplete="email" placeholder="one@example.com, two@example.com" style="width:100%;box-sizing:border-box;margin-top:6px;padding:8px 10px;border-radius:6px;border:1px solid rgba(255,255,255,.12);background:var(--panel-bg, #1e1e1e);color:inherit;" />
+        <div style="margin-top:10px;">
+          <button type="button" class="btn success" id="sendLinkEmailBtn">Send email</button>
+        </div>
+        <div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(255,255,255,.08);">
+          <button type="button" class="btn" id="sendLinkCopyBtn">Copy link</button>
+        </div>
       </div>
     </div>
   </div>
@@ -374,7 +379,9 @@
   var histClose = document.getElementById("locHistCloseBtn");
   var sendLinkOverlay = document.getElementById("sendLinkOverlay");
   var sendLinkCloseBtn = document.getElementById("sendLinkCloseBtn");
+  var sendLinkPhonesIn = document.getElementById("sendLinkPhonesIn");
   var sendLinkRecipientsIn = document.getElementById("sendLinkRecipientsIn");
+  var sendLinkSmsBtn = document.getElementById("sendLinkSmsBtn");
   var sendLinkEmailBtn = document.getElementById("sendLinkEmailBtn");
   var sendLinkCopyBtn = document.getElementById("sendLinkCopyBtn");
   var sendLinkCurrentUrl = "";
@@ -433,17 +440,19 @@
   function openSendLinkModal(loc) {
     sendLinkCurrentUrl = publicUrl(loc.slug);
     sendLinkCurrentLocatorId = loc.id ? String(loc.id) : "";
+    if (sendLinkPhonesIn) sendLinkPhonesIn.value = "";
     if (sendLinkRecipientsIn) sendLinkRecipientsIn.value = "";
+    if (sendLinkSmsBtn) sendLinkSmsBtn.disabled = false;
     if (sendLinkEmailBtn) sendLinkEmailBtn.disabled = false;
     if (sendLinkOverlay) {
       sendLinkOverlay.style.display = "flex";
       sendLinkOverlay.setAttribute("aria-hidden", "false");
     }
     document.body.style.overflow = "hidden";
-    if (sendLinkRecipientsIn) {
+    if (sendLinkPhonesIn) {
       setTimeout(function () {
         try {
-          sendLinkRecipientsIn.focus();
+          sendLinkPhonesIn.focus();
         } catch (e) {}
       }, 0);
     }
@@ -478,6 +487,49 @@
       fallback();
     }
     document.body.removeChild(ta);
+  }
+
+  function sendLocateLinkSms() {
+    var id = sendLinkCurrentLocatorId;
+    var phones = sendLinkPhonesIn ? String(sendLinkPhonesIn.value || "").trim() : "";
+    if (!id) {
+      setListMsg("Missing locator; close and open Send link again.", true);
+      return;
+    }
+    if (!phones) {
+      setListMsg("Enter at least one phone number.", true);
+      return;
+    }
+    if (sendLinkSmsBtn) sendLinkSmsBtn.disabled = true;
+    fetch("/api/locate/locators/" + encodeURIComponent(id) + "/send-link-sms", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phones: phones }),
+    })
+      .then(function (r) {
+        return r.json().then(function (j) {
+          return { ok: r.ok, status: r.status, j: j };
+        });
+      })
+      .then(function (x) {
+        if (sendLinkSmsBtn) sendLinkSmsBtn.disabled = false;
+        if (x.ok && x.j && x.j.ok) {
+          setListMsg(
+            "SMS sent" +
+              (typeof x.j.count === "number" ? " to " + x.j.count + " number(s)." : "."),
+            false
+          );
+          closeSendLinkModal();
+          return;
+        }
+        var err =
+          (x.j && (x.j.error || x.j.message)) || (x.ok ? "Send failed." : "Request failed.");
+        setListMsg(err, true);
+      })
+      .catch(function () {
+        if (sendLinkSmsBtn) sendLinkSmsBtn.disabled = false;
+        setListMsg("Network error.", true);
+      });
   }
 
   function sendLocateLinkEmail() {
@@ -945,6 +997,9 @@
     sendLinkOverlay.addEventListener("click", function (e) {
       if (e.target === sendLinkOverlay) closeSendLinkModal();
     });
+  }
+  if (sendLinkSmsBtn) {
+    sendLinkSmsBtn.addEventListener("click", sendLocateLinkSms);
   }
   if (sendLinkEmailBtn) {
     sendLinkEmailBtn.addEventListener("click", sendLocateLinkEmail);
