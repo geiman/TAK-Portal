@@ -47,12 +47,36 @@ function titleToSlug(title) {
   return s || "locator";
 }
 
+/**
+ * Base URL for locate pings (no trailing slash, no query string).
+ * Override when your TAK install serves locate somewhere other than /locate/api on the origin:
+ *   TAK_LOCATE_API_BASE=https://tak.example.com:8443/Marti/locate/api
+ */
 function getTakLocateApiBase() {
+  const override = String(getString("TAK_LOCATE_API_BASE", "") || getString("TAK_LOCATE_API_URL", "")).trim();
+  if (override) {
+    try {
+      const u = new URL(override);
+      return u.toString().replace(/\/+$/, "");
+    } catch {
+      return "";
+    }
+  }
   const raw = String(settingsSvc.getSettings()?.TAK_URL || getString("TAK_URL", "") || "").trim();
   if (!raw) return "";
   try {
     const u = new URL(raw);
     return `${u.origin}/locate/api`;
+  } catch {
+    return "";
+  }
+}
+
+function summarizeTakResponseBody(data) {
+  if (data == null || data === "") return "";
+  if (typeof data === "string") return data.trim().slice(0, 500);
+  try {
+    return JSON.stringify(data).slice(0, 500);
   } catch {
     return "";
   }
@@ -218,10 +242,26 @@ async function relayPingToTak({ latitude, longitude, name, remarks }) {
     const resp = await axios.get(u.toString(), {
       timeout: 25000,
       httpsAgent,
+      headers: {
+        Accept: "*/*",
+        "User-Agent": "TAK-Portal-LocateRelay/1.0",
+      },
       validateStatus: (s) => s >= 200 && s < 600,
     });
     if (resp.status < 200 || resp.status >= 300) {
-      throw new Error(`TAK locate API returned HTTP ${resp.status}. Check TAK_URL and that locate is enabled on the server.`);
+      const bodyHint = summarizeTakResponseBody(resp.data);
+      let msg = `TAK locate API returned HTTP ${resp.status}`;
+      if (bodyHint) msg += `. Server response: ${bodyHint}`;
+      if (resp.status === 403) {
+        msg +=
+          ". HTTP 403 (forbidden) often means: (1) CoreConfig <locate> has requireLogin=\"true\" — set requireLogin=\"false\" and restart TAK; " +
+          "(2) the request URL is wrong — try TAK_LOCATE_API_BASE to match your server (e.g. …/Marti/locate/api if locate is under the Marti context); " +
+          "(3) the API client cert is not permitted for this path — check takserver-api logs.";
+      } else if (resp.status === 404) {
+        msg +=
+          ". HTTP 404 — confirm the locate endpoint path; set TAK_LOCATE_API_BASE to the full base URL your server exposes.";
+      }
+      throw new Error(msg);
     }
   } catch (err) {
     const msg = err?.message || String(err);
