@@ -162,10 +162,14 @@ function buildCallsign({
     expr = "{{agencyAbbreviation}}-{{lastNameUpper}}-{{badgeNumber}}";
   }
 
+  const fnTrim = String(firstName || "").trim();
+  const lnTrim = String(lastName || "").trim();
   const ctx = {
     firstName: firstName || "",
     lastName: lastName || "",
     lastNameUpper: lastNameUpper || "",
+    firstInitial: fnTrim ? fnTrim.charAt(0).toUpperCase() : "",
+    lastInitial: lnTrim ? lnTrim.charAt(0).toUpperCase() : "",
     badgeNumber: badgeNumber || "",
     agencyAbbreviation: agencyAbbreviation || "",
     agencyColor: agencyColor || "",
