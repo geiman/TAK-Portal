@@ -73,13 +73,57 @@ function setMsg(t,bad){
   msg.className="m on"+(bad?" bad":"");
   if(!t)msg.className="m";
 }
-/** iOS Safari often reports failed fetch as "Load failed" with little context. */
+/** Mobile browsers often surface fetch failures as "Load failed" / "Failed to fetch". */
 function friendlyNetworkError(e){
   var m=String(e&&e.message!=null?e.message:e||"");
-  if(/load failed|failed to fetch|networkerror/i.test(m)){
+  if(/load failed|failed to fetch|networkerror|timed out|network error/i.test(m)){
     return "Could not reach the server. Check signal or Wi‑Fi and try again. If the problem continues, wait a few seconds and tap Send location again.";
   }
   return m||"Request failed";
+}
+function apiBase(){
+  return String(window.location.origin||"").replace(/\/$/,"");
+}
+function pingUrl(){
+  return apiBase()+"/api/public/locate/"+encodeURIComponent(slug)+"/ping";
+}
+function clientConfigUrl(){
+  return apiBase()+"/api/public/locate/"+encodeURIComponent(slug)+"/client-config";
+}
+function parsePingResponse(res){
+  return res.text().then(function(text){
+    var d={};try{d=text?JSON.parse(text):{}}catch(e){}
+    if(!res.ok){
+      var he=new Error(d.error||text||"Request failed");
+      he.isHttpError=true;
+      throw he;
+    }
+    return d;
+  });
+}
+function shouldRetryPing(err){
+  if(err&&err.isHttpError)return false;
+  var m=String(err&&err.message!=null?err.message:err||"");
+  return /failed to fetch|load failed|networkerror|network error|timed out|aborted/i.test(m)||(typeof TypeError!=="undefined"&&err instanceof TypeError);
+}
+/** XHR fallback: some mobile WebViews / networks fail fetch() but succeed with XMLHttpRequest. */
+function postPingXHR(body){
+  return new Promise(function(resolve,reject){
+    var xhr=new XMLHttpRequest();
+    xhr.open("POST",pingUrl());
+    xhr.setRequestHeader("Content-Type","application/json");
+    xhr.setRequestHeader("Accept","application/json");
+    xhr.timeout=90000;
+    xhr.onload=function(){
+      var text=xhr.responseText||"",d={};
+      try{d=text?JSON.parse(text):{}}catch(e){}
+      if(xhr.status>=200&&xhr.status<300)resolve(d);
+      else{var he=new Error(d.error||text||"Request failed");he.isHttpError=true;reject(he);}
+    };
+    xhr.onerror=function(){reject(new Error("Failed to fetch"));};
+    xhr.ontimeout=function(){reject(new Error("Request timed out"));};
+    xhr.send(JSON.stringify(body));
+  });
 }
 function setSharingUi(on){
   if(beforeShare)beforeShare.style.display=on?"none":"";
@@ -93,18 +137,30 @@ function postPing(lat,lng,accuracy){
     remarks:document.getElementById("lpRemarks").value.trim()
   };
   if(accuracy!=null&&Number.isFinite(accuracy))body.accuracyMeters=accuracy;
-  return fetch("/api/public/locate/"+encodeURIComponent(slug)+"/ping",{
+  var payload=JSON.stringify(body);
+  var fetchOpts={
     method:"POST",
-    credentials:"same-origin",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify(body)
-  }).then(function(res){
-    return res.text().then(function(text){
-      var d={};try{d=text?JSON.parse(text):{}}catch(e){}
-      if(!res.ok)throw new Error(d.error||text||"Request failed");
-      return d;
+    credentials:"omit",
+    cache:"no-store",
+    headers:{"Content-Type":"application/json","Accept":"application/json"},
+    body:payload
+  };
+  function tryFetch(){
+    return fetch(pingUrl(),fetchOpts).then(parsePingResponse);
+  }
+  return tryFetch()
+    .catch(function(err){
+      if(!shouldRetryPing(err))throw err;
+      return new Promise(function(r){setTimeout(r,400);}).then(tryFetch);
+    })
+    .catch(function(err){
+      if(!shouldRetryPing(err))throw err;
+      return new Promise(function(r){setTimeout(r,1200);}).then(tryFetch);
+    })
+    .catch(function(err){
+      if(!shouldRetryPing(err))throw err;
+      return postPingXHR(body);
     });
-  });
 }
 /** Fresh GPS (no stale cache), long timeout, optional 2nd sample if first accuracy is poor. */
 function getBestFix(onOk,onErr){
@@ -157,7 +213,7 @@ function stop(byUser){
   if(byUser)setMsg("Stopped by user.",false);
 }
 function pollConfig(){
-  fetch("/api/public/locate/"+encodeURIComponent(slug)+"/client-config").then(function(r){return r.json().then(function(d){return{ok:r.ok,data:d};});}).then(function(out){
+  fetch(clientConfigUrl(),{credentials:"omit",cache:"no-store",headers:{Accept:"application/json"}}).then(function(r){return r.json().then(function(d){return{ok:r.ok,data:d};});}).then(function(out){
     var data=out.data;if(!data||!data.ok)return;
     if(data.active===false&&timer){stop();setMsg("This locator was disabled by your agency.",true);return;}
     if(data.intervalEpoch!==lastIntervalEpoch){
