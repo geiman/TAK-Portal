@@ -71,6 +71,7 @@
           <th style="width:100px;">Ping Interval</th>
           <th style="width:120px;">Status</th>
           <th style="width:220px;">Last Update</th>
+          <th style="width:100px;">Battery</th>
           <th style="min-width:260px;">Actions</th>
         </tr>
       </thead>
@@ -91,6 +92,7 @@
             <th style="width:100px;">Ping Interval</th>
             <th style="width:120px;">Status</th>
             <th style="width:220px;">Last Update</th>
+            <th style="width:100px;">Battery</th>
             <th style="min-width:220px;">Actions</th>
           </tr>
         </thead>
@@ -112,6 +114,7 @@
               <th>Time</th>
               <th>Name</th>
               <th>Position</th>
+              <th>Battery</th>
               <th>Remarks</th>
             </tr>
           </thead>
@@ -425,6 +428,13 @@
     return formatTime(iso);
   }
 
+  function formatBatteryLabel(level, charging) {
+    if (level == null || !Number.isFinite(Number(level))) return "—";
+    var s = Math.round(Number(level) * 100) + "%";
+    if (charging === true) s += " (charging)";
+    return s;
+  }
+
   function publicUrl(slug) {
     return window.location.origin + "/locate/" + encodeURIComponent(slug);
   }
@@ -688,6 +698,7 @@
             tdPos.textContent = "—";
           }
           hr.appendChild(tdPos);
+          cell(formatBatteryLabel(h.batteryLevel, h.batteryCharging));
           cell(h.remarks);
           histTbody.appendChild(hr);
         });
@@ -704,7 +715,7 @@
     if (!locators || !locators.length) {
       var tr = document.createElement("tr");
       var td = document.createElement("td");
-      td.colSpan = 5;
+      td.colSpan = 6;
       td.textContent = "No locators yet.";
       tr.appendChild(td);
       tbody.appendChild(tr);
@@ -749,6 +760,9 @@
 
       var tdRecent = document.createElement("td");
       appendRecentCell(tdRecent, loc);
+
+      var tdBattery = document.createElement("td");
+      tdBattery.textContent = formatBatteryLabel(loc.lastBatteryLevel, loc.lastBatteryCharging);
 
       var tdAct = document.createElement("td");
       tdAct.style.whiteSpace = "normal";
@@ -817,6 +831,7 @@
       tr.appendChild(tdPing);
       tr.appendChild(tdStatus);
       tr.appendChild(tdRecent);
+      tr.appendChild(tdBattery);
       tr.appendChild(tdAct);
       tbody.appendChild(tr);
     });
@@ -828,7 +843,7 @@
     if (!locators || !locators.length) {
       var tr0 = document.createElement("tr");
       var td0 = document.createElement("td");
-      td0.colSpan = 5;
+      td0.colSpan = 6;
       td0.textContent = "No archived locators.";
       tr0.appendChild(td0);
       archivedTbody.appendChild(tr0);
@@ -851,6 +866,8 @@
       tdStatus.appendChild(pill);
       var tdRecent = document.createElement("td");
       appendRecentCell(tdRecent, loc);
+      var tdBattery = document.createElement("td");
+      tdBattery.textContent = formatBatteryLabel(loc.lastBatteryLevel, loc.lastBatteryCharging);
       var tdAct = document.createElement("td");
       tdAct.style.whiteSpace = "normal";
       function addBtn(label, onClick, danger) {
@@ -909,6 +926,7 @@
       tr.appendChild(tdPing);
       tr.appendChild(tdStatus);
       tr.appendChild(tdRecent);
+      tr.appendChild(tdBattery);
       tr.appendChild(tdAct);
       archivedTbody.appendChild(tr);
     });
