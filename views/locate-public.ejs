@@ -85,10 +85,10 @@ function apiBase(){
   return String(window.location.origin||"").replace(/\/$/,"");
 }
 function pingUrl(){
-  return apiBase()+"/api/public/locate/"+encodeURIComponent(slug)+"/ping";
+  return apiBase()+"/locate/"+encodeURIComponent(slug)+"/ping";
 }
 function clientConfigUrl(){
-  return apiBase()+"/api/public/locate/"+encodeURIComponent(slug)+"/client-config";
+  return apiBase()+"/locate/"+encodeURIComponent(slug)+"/client-config";
 }
 function parsePingResponse(res){
   return res.text().then(function(text){

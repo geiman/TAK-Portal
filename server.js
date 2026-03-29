@@ -293,9 +293,8 @@ app.use(
   require("./routes/locate.routes")
 );
 
-// Public locate APIs: CORS + OPTIONS so mobile browsers / in-app WebViews that treat the
-// request as cross-origin (or require preflight) can still POST; same-origin pages ignore these headers.
-app.use("/api/public/locate", (req, res, next) => {
+// Public locate APIs: CORS + OPTIONS (preflight for JSON POST).
+function publicLocateApiCors(req, res, next) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader(
@@ -307,10 +306,9 @@ app.use("/api/public/locate", (req, res, next) => {
     return res.sendStatus(204);
   }
   next();
-});
+}
 
-// Public: client config poll (interval + wake signals; no auth)
-app.get("/api/public/locate/:slug/client-config", (req, res) => {
+function handlePublicLocateClientConfig(req, res) {
   try {
     const slug = String(req.params.slug || "").trim().toLowerCase();
     const cfg = locatorsSvc.getClientConfigForPublicSlug(slug);
@@ -321,10 +319,9 @@ app.get("/api/public/locate/:slug/client-config", (req, res) => {
   } catch (err) {
     res.status(500).json({ ok: false, error: toSafeApiError(err) });
   }
-});
+}
 
-// Public: missing-person locator ping (no auth; slug identifies session)
-app.post("/api/public/locate/:slug/ping", async (req, res) => {
+async function handlePublicLocatePing(req, res) {
   try {
     const slug = String(req.params.slug || "").trim().toLowerCase();
     const loc = locatorsSvc.getBySlug(slug);
@@ -350,9 +347,6 @@ app.post("/api/public/locate/:slug/ping", async (req, res) => {
     const name = locatorsSvc.formatLocatePingNameForTak(first, last);
     const remarks = String(body.remarks || "").trim();
 
-    // Persist immediately so the phone gets a fast JSON response. Relaying to the
-    // TAK locate API can take many seconds (TLS, mTLS, slow server); iOS Safari often
-    // surfaces stalled requests as "Load failed" if we await relay before responding.
     locatorsSvc.addHistoryEntry({
       locatorId: loc.id,
       latitude: lat,
@@ -383,7 +377,21 @@ app.post("/api/public/locate/:slug/ping", async (req, res) => {
   } catch (err) {
     res.status(500).json({ ok: false, error: toSafeApiError(err) });
   }
-});
+}
+
+app.use("/api/public/locate", publicLocateApiCors);
+app.get("/api/public/locate/:slug/client-config", handlePublicLocateClientConfig);
+app.post("/api/public/locate/:slug/ping", handlePublicLocatePing);
+
+// Same handlers under /locate/:slug/... so reverse proxies can expose only /locate/* as
+// public (bypassing forward_auth) without listing /api/public/locate/* — e.g. Caddy @public path /locate/*
+app.options("/locate/:slug/ping", publicLocateApiCors);
+app.get(
+  "/locate/:slug/client-config",
+  publicLocateApiCors,
+  handlePublicLocateClientConfig
+);
+app.post("/locate/:slug/ping", publicLocateApiCors, handlePublicLocatePing);
 app.use("/api/email", (req, res, next) => {
   const user = req.authentikUser;
   if (!user || (!user.isGlobalAdmin && !user.isAgencyAdmin)) {
