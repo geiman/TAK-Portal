@@ -112,13 +112,6 @@ function isMobileDevice(){
   if(navigator.platform==="MacIntel"&&typeof navigator.maxTouchPoints==="number"&&navigator.maxTouchPoints>1)return true;
   return false;
 }
-/** Chromium/Android/desktop often support this; iOS Safari usually does not. */
-function getBatterySnapshot(){
-  if(typeof navigator.getBattery!=="function")return Promise.resolve(null);
-  return navigator.getBattery().then(function(b){
-    return {level:b.level,charging:!!b.charging};
-  }).catch(function(){return null;});
-}
 var lpPingFormEl=null,lpPingIframeEl=null;
 /**
  * Mobile Safari often blocks fetch/XHR on cellular; a real HTML form POST (target=iframe)
@@ -139,7 +132,7 @@ function postPingFormIframe(body){
     lpPingFormEl.enctype="application/x-www-form-urlencoded";
     lpPingFormEl.style.display="none";
     lpPingFormEl.setAttribute("novalidate","novalidate");
-    ["latitude","longitude","firstName","lastName","remarks","accuracyMeters","batteryLevel","batteryCharging"].forEach(function(n){
+    ["latitude","longitude","firstName","lastName","remarks","accuracyMeters"].forEach(function(n){
       var inp=document.createElement("input");
       inp.type="hidden";
       inp.name=n;
@@ -160,15 +153,6 @@ function postPingFormIframe(body){
       accEl.value=String(body.accuracyMeters);
     }else{
       accEl.value="";
-    }
-    var blEl=document.getElementById("lpHidden_batteryLevel");
-    var bcEl=document.getElementById("lpHidden_batteryCharging");
-    if(body.batteryLevel!=null&&Number.isFinite(body.batteryLevel)){
-      blEl.value=String(body.batteryLevel);
-      bcEl.value=body.batteryCharging===true?"1":body.batteryCharging===false?"0":"";
-    }else{
-      blEl.value="";
-      bcEl.value="";
     }
     var to=setTimeout(function(){
       lpPingIframeEl.onload=null;
@@ -232,11 +216,6 @@ function postPingXHRUrlEncoded(body){
   if(body.accuracyMeters!=null&&Number.isFinite(body.accuracyMeters)){
     params.set("accuracyMeters",String(body.accuracyMeters));
   }
-  if(body.batteryLevel!=null&&Number.isFinite(body.batteryLevel)){
-    params.set("batteryLevel",String(body.batteryLevel));
-    if(body.batteryCharging===true)params.set("batteryCharging","1");
-    else if(body.batteryCharging===false)params.set("batteryCharging","0");
-  }
   var enc=params.toString();
   return new Promise(function(resolve,reject){
     var xhr=new XMLHttpRequest();
@@ -294,26 +273,20 @@ function postPingViaHttpApis(body){
     });
 }
 function postPing(lat,lng,accuracy){
-  return getBatterySnapshot().then(function(snap){
-    var body={
-      latitude:lat,longitude:lng,
-      firstName:document.getElementById("lpFirst").value.trim(),
-      lastName:document.getElementById("lpLast").value.trim(),
-      remarks:document.getElementById("lpRemarks").value.trim()
-    };
-    if(accuracy!=null&&Number.isFinite(accuracy))body.accuracyMeters=accuracy;
-    if(snap&&typeof snap.level==="number"&&Number.isFinite(snap.level)){
-      body.batteryLevel=Math.max(0,Math.min(1,snap.level));
-      body.batteryCharging=!!snap.charging;
-    }
-    if(isMobileDevice()){
-      return postPingFormIframe(body).catch(function(err){
-        if(err&&err.isHttpError)throw err;
-        return postPingViaHttpApis(body);
-      });
-    }
-    return postPingViaHttpApis(body);
-  });
+  var body={
+    latitude:lat,longitude:lng,
+    firstName:document.getElementById("lpFirst").value.trim(),
+    lastName:document.getElementById("lpLast").value.trim(),
+    remarks:document.getElementById("lpRemarks").value.trim()
+  };
+  if(accuracy!=null&&Number.isFinite(accuracy))body.accuracyMeters=accuracy;
+  if(isMobileDevice()){
+    return postPingFormIframe(body).catch(function(err){
+      if(err&&err.isHttpError)throw err;
+      return postPingViaHttpApis(body);
+    });
+  }
+  return postPingViaHttpApis(body);
 }
 /** Fresh GPS (no stale cache), long timeout, optional 2nd sample if first accuracy is poor. */
 function getBestFix(onOk,onErr){

@@ -347,7 +347,7 @@ async function handlePublicLocatePing(req, res) {
     const name = locatorsSvc.formatLocatePingNameForTak(first, last);
     const remarks = String(body.remarks || "").trim();
 
-    const entry = locatorsSvc.addHistoryEntry({
+    locatorsSvc.addHistoryEntry({
       locatorId: loc.id,
       latitude: lat,
       longitude: lng,
@@ -355,24 +355,17 @@ async function handlePublicLocatePing(req, res) {
       remarks,
       kind: "interval",
       accuracyMeters: acc,
-      batteryLevel: body.batteryLevel,
-      batteryCharging: body.batteryCharging,
     });
 
     res.json({ ok: true });
 
-    const remarksForTak = locatorsSvc.formatLocateRemarksForTak(
-      remarks,
-      entry.batteryLevel,
-      entry.batteryCharging
-    );
     setImmediate(() => {
       locatorsSvc
         .relayPingToTak({
           latitude: lat,
           longitude: lng,
           name,
-          remarks: remarksForTak,
+          remarks,
         })
         .catch((err) => {
           console.error(

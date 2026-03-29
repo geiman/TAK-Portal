@@ -158,12 +158,6 @@ function listLocatorsForAdmin() {
         lastWithCoords != null && lastWithCoords.accuracyMeters != null
           ? Number(lastWithCoords.accuracyMeters)
           : null,
-      lastBatteryLevel:
-        lastWithCoords != null && lastWithCoords.batteryLevel != null
-          ? normalizeBatteryLevel(lastWithCoords.batteryLevel)
-          : null,
-      lastBatteryCharging:
-        lastWithCoords != null ? normalizeBatteryCharging(lastWithCoords.batteryCharging) : null,
       hasPositionPing: !!lastWithCoords,
     };
   });
@@ -259,48 +253,12 @@ function permanentDelete(id) {
   save(data);
 }
 
-function normalizeBatteryLevel(v) {
-  if (v == null || v === "") return null;
-  const n = Number(v);
-  if (!Number.isFinite(n)) return null;
-  return Math.max(0, Math.min(1, n));
-}
-
-function normalizeBatteryCharging(v) {
-  if (v === true || v === "true" || v === "1" || v === "on") return true;
-  if (v === false || v === "false" || v === "0" || v === "off") return false;
-  return null;
-}
-
-/** Append battery line for TAK locate remarks (user remarks unchanged in stored history). */
-function formatLocateRemarksForTak(remarks, batteryLevel, batteryCharging) {
-  const r = String(remarks || "").trim();
-  const lvl = normalizeBatteryLevel(batteryLevel);
-  if (lvl == null) return r;
-  const pct = Math.round(lvl * 100);
-  let suffix = `Battery ${pct}%`;
-  if (batteryCharging === true) suffix += " (charging)";
-  return r ? `${r} · ${suffix}` : suffix;
-}
-
-function addHistoryEntry({
-  locatorId,
-  latitude,
-  longitude,
-  name,
-  remarks,
-  kind,
-  accuracyMeters,
-  batteryLevel,
-  batteryCharging,
-}) {
+function addHistoryEntry({ locatorId, latitude, longitude, name, remarks, kind, accuracyMeters }) {
   const data = load();
   const acc =
     accuracyMeters != null && Number.isFinite(Number(accuracyMeters))
       ? Number(accuracyMeters)
       : null;
-  const bl = normalizeBatteryLevel(batteryLevel);
-  const bc = normalizeBatteryCharging(batteryCharging);
   const entry = {
     id: crypto.randomUUID(),
     locatorId,
@@ -311,8 +269,6 @@ function addHistoryEntry({
     name: String(name || "").trim(),
     remarks: String(remarks || "").trim(),
     kind: kind === "manual" ? "manual" : "interval",
-    batteryLevel: bl,
-    batteryCharging: bc,
   };
   data.history.push(entry);
 
@@ -422,7 +378,6 @@ module.exports = {
   FILE,
   titleToSlug,
   formatLocatePingNameForTak,
-  formatLocateRemarksForTak,
   getTakLocateApiBase,
   getClientConfigForPublicSlug,
   getBySlug,
