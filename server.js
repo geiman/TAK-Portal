@@ -334,13 +334,9 @@ app.post("/api/public/locate/:slug/ping", async (req, res) => {
     const name = locatorsSvc.formatLocatePingNameForTak(first, last);
     const remarks = String(body.remarks || "").trim();
 
-    await locatorsSvc.relayPingToTak({
-      latitude: lat,
-      longitude: lng,
-      name,
-      remarks,
-    });
-
+    // Persist immediately so the phone gets a fast JSON response. Relaying to the
+    // TAK locate API can take many seconds (TLS, mTLS, slow server); iOS Safari often
+    // surfaces stalled requests as "Load failed" if we await relay before responding.
     locatorsSvc.addHistoryEntry({
       locatorId: loc.id,
       latitude: lat,
@@ -352,6 +348,22 @@ app.post("/api/public/locate/:slug/ping", async (req, res) => {
     });
 
     res.json({ ok: true });
+
+    setImmediate(() => {
+      locatorsSvc
+        .relayPingToTak({
+          latitude: lat,
+          longitude: lng,
+          name,
+          remarks,
+        })
+        .catch((err) => {
+          console.error(
+            "[locate ping] TAK relay failed (position saved in portal):",
+            err?.message || err
+          );
+        });
+    });
   } catch (err) {
     res.status(500).json({ ok: false, error: toSafeApiError(err) });
   }

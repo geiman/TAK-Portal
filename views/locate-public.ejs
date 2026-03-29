@@ -73,6 +73,14 @@ function setMsg(t,bad){
   msg.className="m on"+(bad?" bad":"");
   if(!t)msg.className="m";
 }
+/** iOS Safari often reports failed fetch as "Load failed" with little context. */
+function friendlyNetworkError(e){
+  var m=String(e&&e.message!=null?e.message:e||"");
+  if(/load failed|failed to fetch|networkerror/i.test(m)){
+    return "Could not reach the server. Check signal or Wi‑Fi and try again. If the problem continues, wait a few seconds and tap Send location again.";
+  }
+  return m||"Request failed";
+}
 function setSharingUi(on){
   if(beforeShare)beforeShare.style.display=on?"none":"";
   if(keepOpen)keepOpen.className=on?"keep on":"keep";
@@ -87,6 +95,7 @@ function postPing(lat,lng,accuracy){
   if(accuracy!=null&&Number.isFinite(accuracy))body.accuracyMeters=accuracy;
   return fetch("/api/public/locate/"+encodeURIComponent(slug)+"/ping",{
     method:"POST",
+    credentials:"same-origin",
     headers:{"Content-Type":"application/json"},
     body:JSON.stringify(body)
   }).then(function(res){
@@ -122,7 +131,7 @@ function tick(){
   getBestFix(function(pos){
     postPing(pos.coords.latitude,pos.coords.longitude,pos.coords.accuracy).then(function(){
       setMsg("",false);
-    }).catch(function(e){setMsg(String(e.message||e),true);}).then(function(){sending=false;});
+    }).catch(function(e){setMsg(friendlyNetworkError(e),true);}).then(function(){sending=false;});
   },function(err){sending=false;setMsg("Could not read GPS/location: "+(err&&err.message||"denied or unavailable"),true);});
 }
 function start(){
@@ -136,7 +145,7 @@ function start(){
       sendBtn.style.display="none";stopBtn.style.display="";
       setSharingUi(true);
       if(timer)clearInterval(timer);timer=setInterval(tick,intervalMs);
-    }).catch(function(e){setMsg(String(e.message||e),true);}).then(function(){sending=false;});
+    }).catch(function(e){setMsg(friendlyNetworkError(e),true);}).then(function(){sending=false;});
   },function(err){sending=false;setMsg("Could not read GPS/location: "+(err&&err.message||"denied or unavailable"),true);});
 }
 function stop(byUser){
