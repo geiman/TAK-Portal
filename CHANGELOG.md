@@ -12,6 +12,11 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.61 - 3/28/26
+🎉 `New Feature` - Added Locate Persons page (Beta mode must be enabled in settings).  This page will continue to get updates in the next few days, but can be used as a beta feature to send a link to a lost person and their location will report back and be logged in both TAK Portal and TAK Server (channels only right now, data sync to be added later this week).<br>
+✨ `Enhancement` - First Name Initial and Last Name Initial added as options in the callsign format settings.<br>
+✨ `Enhancement` - Added settings for Twillio and Brevo to use alongside Locate page, however testing has not been completed on this.
+
 ### v1.2.60 - 3/23/26
 ✨ `Enhancement` - When deleting an integration, TAK Portal will now delete the certificate files from TAK Server after revokation.
 
