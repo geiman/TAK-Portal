@@ -19,7 +19,7 @@ takportal.your-domain-here.com {  # Your TAK Portal DNS Address
 
         # Public paths that do NOT require authentication
         @public {
-            path /request-access* /lookup* /styles.css /favicon.ico /branding/* /public/*
+            path /request-access* /lookup* /locate/* /styles.css /favicon.ico /branding/* /public/*
         }
 
         # Allow public assets without auth

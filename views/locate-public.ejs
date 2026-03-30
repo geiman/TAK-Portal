@@ -32,11 +32,11 @@
   <h1>Share Location</h1>
 
   <% if (!locatorActive) { %>
-    <div class="warn">This locator is inactive. Contact your agency if you need help.</div>
+    <div class="warn">This locator is inactive.</div>
   <% } %>
 
   <div id="lpBeforeShare">
-    <p class="h">Enter your name and an optional message. <strong>PLEASE KEEP THIS PAGE OPEN UNTIL INSTRUCTED TO CLOSE BY RESPONDER.</strong></p>
+    <p class="h">Enter your name and an optional message. <strong>PLEASE KEEP THIS PAGE OPEN AND DO NOT CLOSE UNTIL INSTRUCTED TO CLOSE BY A RESPONDER.</strong></p>
 
     <div class="r">
       <label>First name<input id="lpFirst" type="text" autocomplete="given-name" <%= locatorActive ? "" : "disabled" %> /></label>
