@@ -118,12 +118,7 @@
 
       <div class="card" style="margin-top: 16px; background: var(--card);">
         <h3 style="margin: 0 0 8px 0; font-size: 1rem;">Mission password (optional)</h3>
-        <p class="muted" style="margin: 0 0 8px 0; font-size: 13px;">
-          Applies <code>PUT /Marti/api/missions/…/password</code> (plain body) and <code>DELETE …/password</code> to clear.
-        </p>
         <div class="row" style="flex-wrap: wrap; gap: 10px; align-items: flex-end;">
-          <label style="min-width: 220px; flex: 1;">
-            New password
             <input type="password" id="mNewPw" autocomplete="new-password" style="width: 100%; box-sizing: border-box;" />
           </label>
           <button type="button" class="btn success" id="mBtnSetPw">Set password</button>
@@ -592,7 +587,6 @@
     mContentsWrap.style.display = "none";
     mContentsTbody.innerHTML = "";
     setMissionModalMsg("", true);
-    mSaveHint.textContent = "Saving will call PUT /Marti/api/missions/{name} with the JSON body.";
 
     selectedGroupSet = new Set();
     loadGroups()
