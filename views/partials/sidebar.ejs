@@ -75,15 +75,17 @@
           </button>
           <div class="nav-section-links" id="nav-administration">
             <% if (_isGlobalAdmin) { %>
-              <a href="/mutual-aid" class="<%= isActive('/mutual-aid') ? 'active' : '' %>">Mutual Aid</a>
+              <a href="/audit-log" class="<%= isActive('/audit-log') ? 'active' : '' %>">Audit Log</a>
+            <% } %>
+            <% if (_isGlobalAdmin && betaModeEnabled) { %>
+              <a href="/data-sync" class="<%= isActive('/data-sync') ? 'active' : '' %>">Data Sync</a>
             <% } %>
             <a href="/email" class="<%= isActive('/email') ? 'active' : '' %>">Email Users</a>
             <% if (_isGlobalAdmin && betaModeEnabled) { %>
               <a href="/locate" class="<%= isActive('/locate') ? 'active' : '' %>">Locate Persons</a>
-              <a href="/data-sync" class="<%= isActive('/data-sync') ? 'active' : '' %>">Data Sync</a>
             <% } %>
             <% if (_isGlobalAdmin) { %>
-              <a href="/audit-log" class="<%= isActive('/audit-log') ? 'active' : '' %>">Audit Log</a>
+              <a href="/mutual-aid" class="<%= isActive('/mutual-aid') ? 'active' : '' %>">Mutual Aid</a>
             <% } %>
           </div>
         </div>
