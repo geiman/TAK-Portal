@@ -9,7 +9,7 @@
   <div id="statusBanner" class="card data-sync-status" style="display: none;" role="status"></div>
 
   <div class="card">
-    <h2 style="margin-top: 0;">Data Sync Mnager</h2>
+    <h2 style="margin-top: 0;">Data Sync Manager</h2>
 
     <div class="data-sync-toolbar row" style="flex-wrap: wrap; align-items: flex-end; gap: 12px;">
       <label style="min-width: 140px;">
@@ -39,7 +39,7 @@
             <th>Groups</th>
             <th>Password</th>
             <th>Created</th>
-            <th style="min-width: 220px;">Actions</th>
+            <th style="min-width: 280px;">Actions</th>
           </tr>
         </thead>
         <tbody id="missionsTbody"></tbody>
@@ -48,32 +48,48 @@
   </div>
 
   <div class="card">
-    <h2 style="margin-top: 0;">Upload to Data Sync</h2>
-    <div class="row" style="flex-wrap: wrap; align-items: flex-end; gap: 12px;">
+    <h2 style="margin-top: 0;">KML data sync packages</h2>
+    <p class="muted" style="margin-top: 0; max-width: 85ch;">
+      Upload and download <strong>entire Data Sync packages as KML</strong> (same style as ATAK exports, e.g. <code>nsi active incident.kml</code>).
+      Uploads go to <code>POST /Marti/sync/upload</code> with a <code>.kml</code> part; downloads use <code>GET /Marti/ExportMissionKML</code> on the TAK Server.
+    </p>
+    <div class="row" style="flex-wrap: wrap; align-items: flex-end; gap: 14px;">
       <label style="min-width: 220px;">
-        Target mission
-        <select id="uploadMissionSelect" style="min-width: 200px;">
+        Mission
+        <select id="kmlMissionSelect" style="min-width: 200px;">
           <option value="">Select a mission…</option>
         </select>
       </label>
-      <label style="min-width: 200px;">
-        Form field for file
-        <input type="text" id="uploadFileField" value="file" style="width: 100%; box-sizing: border-box;" />
-      </label>
-      <label style="min-width: 200px;">
-        Mission field name
-        <input type="text" id="uploadMissionField" value="mission" style="width: 100%; box-sizing: border-box;" />
-      </label>
       <label style="min-width: 240px;">
-        File
-        <input type="file" id="uploadFileInput" />
+        KML package (.kml)
+        <input type="file" id="kmlUploadInput" accept=".kml,application/vnd.google-earth.kml+xml,text/xml,application/xml" />
       </label>
       <label>
         &nbsp;
-        <button type="button" class="btn" id="btnUpload">Upload</button>
+        <button type="button" class="btn success" id="btnKmlUpload">Upload KML</button>
       </label>
     </div>
-    <div id="uploadMsg" class="msg" style="margin-top: 10px;"></div>
+    <div id="kmlUploadMsg" class="msg" style="margin-top: 10px;"></div>
+
+    <hr style="border: none; border-top: 1px solid var(--line); margin: 1.25rem 0;" />
+
+    <div class="row" style="flex-wrap: wrap; align-items: flex-end; gap: 14px;">
+      <label style="min-width: 220px;">
+        Download mission KML
+        <select id="kmlDownloadMissionSelect" style="min-width: 200px;">
+          <option value="">Select a mission…</option>
+        </select>
+      </label>
+      <label style="min-width: 220px;">
+        Password (if mission is protected)
+        <input type="password" id="kmlDownloadPassword" autocomplete="off" placeholder="Optional" style="width: 100%; box-sizing: border-box;" />
+      </label>
+      <label>
+        &nbsp;
+        <button type="button" class="btn" id="btnKmlDownload">Download .kml</button>
+      </label>
+    </div>
+    <div id="kmlDownloadMsg" class="msg" style="margin-top: 10px;"></div>
   </div>
 </main>
 
@@ -119,6 +135,7 @@
       <div class="card" style="margin-top: 16px; background: var(--card);">
         <h3 style="margin: 0 0 8px 0; font-size: 1rem;">Mission password (optional)</h3>
         <div class="row" style="flex-wrap: wrap; gap: 10px; align-items: flex-end;">
+          <label style="flex: 1; min-width: 200px;">New password
             <input type="password" id="mNewPw" autocomplete="new-password" style="width: 100%; box-sizing: border-box;" />
           </label>
           <button type="button" class="btn success" id="mBtnSetPw">Set password</button>
@@ -126,9 +143,16 @@
         </div>
       </div>
 
+      <div class="row" style="margin-top: 14px; flex-wrap: wrap; gap: 10px; align-items: flex-end;">
+        <button type="button" class="btn" id="mBtnExportKml">Download mission KML (.kml)</button>
+        <label style="min-width: 200px; flex: 1;">Password for export (if protected)
+          <input type="password" id="mExportKmlPw" autocomplete="off" placeholder="Optional" style="width: 100%; box-sizing: border-box;" />
+        </label>
+      </div>
+
       <div id="mContentsWrap" style="margin-top: 16px; display: none;">
         <h3 style="margin: 0 0 8px 0; font-size: 1rem;">Contents</h3>
-        <p class="muted" style="margin: 0 0 8px 0; font-size: 13px;">Download via <code>GET /Marti/sync/content</code> (proxied). Parameters depend on your server build.</p>
+        <p class="muted" style="margin: 0 0 8px 0; font-size: 13px;">Per-item downloads use <code>GET /Marti/sync/content</code> (may not be KML). For a full Data Sync package as KML, use <strong>Download mission KML</strong> above.</p>
         <div style="overflow-x: auto;">
           <table class="table" style="margin: 0;">
             <thead>
@@ -143,7 +167,7 @@
       </div>
 
       <div class="row" style="margin-top: 18px; gap: 10px; flex-wrap: wrap;">
-        <button type="button" class="btn success" id="mBtnSave">Save mission</button>
+        <button type="button" class="btn success" id="mBtnSave">Save Mission</button>
         <span id="mSaveHint" class="muted" style="font-size: 13px;"></span>
       </div>
     </div>
@@ -192,12 +216,14 @@
   var btnRefreshMissions = document.getElementById("btnRefreshMissions");
   var btnCreateMission = document.getElementById("btnCreateMission");
 
-  var uploadMissionSelect = document.getElementById("uploadMissionSelect");
-  var uploadFileField = document.getElementById("uploadFileField");
-  var uploadMissionField = document.getElementById("uploadMissionField");
-  var uploadFileInput = document.getElementById("uploadFileInput");
-  var btnUpload = document.getElementById("btnUpload");
-  var uploadMsg = document.getElementById("uploadMsg");
+  var kmlMissionSelect = document.getElementById("kmlMissionSelect");
+  var kmlUploadInput = document.getElementById("kmlUploadInput");
+  var btnKmlUpload = document.getElementById("btnKmlUpload");
+  var kmlUploadMsg = document.getElementById("kmlUploadMsg");
+  var kmlDownloadMissionSelect = document.getElementById("kmlDownloadMissionSelect");
+  var kmlDownloadPassword = document.getElementById("kmlDownloadPassword");
+  var btnKmlDownload = document.getElementById("btnKmlDownload");
+  var kmlDownloadMsg = document.getElementById("kmlDownloadMsg");
 
   var missionModal = document.getElementById("missionModal");
   var missionModalClose = document.getElementById("missionModalClose");
@@ -216,6 +242,8 @@
   var mContentsTbody = document.getElementById("mContentsTbody");
   var mBtnSave = document.getElementById("mBtnSave");
   var mSaveHint = document.getElementById("mSaveHint");
+  var mBtnExportKml = document.getElementById("mBtnExportKml");
+  var mExportKmlPw = document.getElementById("mExportKmlPw");
 
   var deleteModal = document.getElementById("deleteModal");
   var deleteModalClose = document.getElementById("deleteModalClose");
@@ -243,9 +271,14 @@
     missionsMsg.className = "msg " + (ok === true ? "ok" : ok === false ? "bad" : "");
   }
 
-  function setUploadMsg(text, ok) {
-    uploadMsg.textContent = text || "";
-    uploadMsg.className = "msg " + (ok === true ? "ok" : ok === false ? "bad" : "");
+  function setKmlUploadMsg(text, ok) {
+    kmlUploadMsg.textContent = text || "";
+    kmlUploadMsg.className = "msg " + (ok === true ? "ok" : ok === false ? "bad" : "");
+  }
+
+  function setKmlDownloadMsg(text, ok) {
+    kmlDownloadMsg.textContent = text || "";
+    kmlDownloadMsg.className = "msg " + (ok === true ? "ok" : ok === false ? "bad" : "");
   }
 
   function setMissionModalMsg(text, ok) {
@@ -393,7 +426,7 @@
       if (!res.ok) throw new Error((j && j.error) || text.slice(0, 400));
       missionsCache = unwrapList(j);
       renderMissionsTable();
-      populateUploadSelect();
+      populateKmlMissionSelects();
       setMissionsMsg(missionsCache.length ? "" : "No missions returned for this filter.", true);
     } catch (e) {
       setMissionsMsg(e.message || "Failed to load missions", false);
@@ -441,7 +474,28 @@
         return function () { openDeleteMission(nm); };
       }(name));
 
+      var bKml = document.createElement("button");
+      bKml.type = "button";
+      bKml.className = "btn";
+      bKml.textContent = "KML";
+      bKml.title = "Download Data Sync package as KML";
+      bKml.addEventListener("click", function (nm) {
+        return function () {
+          setKmlDownloadMsg("Downloading…", undefined);
+          var pw = (kmlDownloadPassword && kmlDownloadPassword.value) || "";
+          fetchMissionKmlBlob(nm, pw)
+            .then(function (blob) {
+              triggerBrowserKmlDownload(blob, nm);
+              setKmlDownloadMsg("Download started.", true);
+            })
+            .catch(function (e) {
+              setKmlDownloadMsg(e.message || "Download failed", false);
+            });
+        };
+      }(name));
+
       wrap.appendChild(bEdit);
+      wrap.appendChild(bKml);
       wrap.appendChild(bDel);
       tdAct.appendChild(wrap);
 
@@ -449,13 +503,14 @@
     }
   }
 
-  function populateUploadSelect() {
-    var v = uploadMissionSelect.value;
-    uploadMissionSelect.innerHTML = "";
+  function fillMissionSelect(selectEl, previousValue) {
+    if (!selectEl) return;
+    var v = previousValue !== undefined ? previousValue : selectEl.value;
+    selectEl.innerHTML = "";
     var opt0 = document.createElement("option");
     opt0.value = "";
     opt0.textContent = "Select a mission…";
-    uploadMissionSelect.appendChild(opt0);
+    selectEl.appendChild(opt0);
     for (var i = 0; i < missionsCache.length; i++) {
       var m = missionsCache[i];
       var name = m && m.name != null ? String(m.name) : "";
@@ -463,9 +518,51 @@
       var opt = document.createElement("option");
       opt.value = name;
       opt.textContent = name;
-      uploadMissionSelect.appendChild(opt);
+      selectEl.appendChild(opt);
     }
-    if (v) uploadMissionSelect.value = v;
+    if (v) selectEl.value = v;
+  }
+
+  function populateKmlMissionSelects() {
+    var uv = kmlMissionSelect ? kmlMissionSelect.value : "";
+    var dv = kmlDownloadMissionSelect ? kmlDownloadMissionSelect.value : "";
+    fillMissionSelect(kmlMissionSelect, uv);
+    fillMissionSelect(kmlDownloadMissionSelect, dv);
+  }
+
+  function sanitizeKmlFilename(name) {
+    var s = String(name || "mission")
+      .replace(/[^\w.\- ()\[\]]+/g, "_")
+      .trim()
+      .slice(0, 120);
+    return s || "mission";
+  }
+
+  async function fetchMissionKmlBlob(missionName, password) {
+    var url = API + "/missions/" + encodeURIComponent(missionName) + "/export-kml";
+    if (password) url += "?password=" + encodeURIComponent(password);
+    var res = await fetch(url);
+    if (!res.ok) {
+      var j = await res.json().catch(function () { return {}; });
+      throw new Error((j && j.error) || "Export failed (HTTP " + res.status + ")");
+    }
+    return res.blob();
+  }
+
+  function triggerBrowserKmlDownload(blob, missionName) {
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = sanitizeKmlFilename(missionName) + ".kml";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () {
+      try {
+        URL.revokeObjectURL(a.href);
+      } catch (_) {
+        /* ignore */
+      }
+    }, 2500);
   }
 
   function renderGroupCheckboxes() {
@@ -719,18 +816,19 @@
     }
   }
 
-  async function doUpload() {
-    setUploadMsg("Uploading…", undefined);
+  async function doKmlUpload() {
+    setKmlUploadMsg("Uploading…", undefined);
     try {
-      var missionName = (uploadMissionSelect && uploadMissionSelect.value) || "";
-      var file = uploadFileInput && uploadFileInput.files && uploadFileInput.files[0];
-      if (!file) throw new Error("Choose a file.");
-      var fileField = (uploadFileField.value || "file").trim() || "file";
-      var missionField = (uploadMissionField.value || "mission").trim() || "mission";
+      var missionName = (kmlMissionSelect && kmlMissionSelect.value) || "";
+      var file = kmlUploadInput && kmlUploadInput.files && kmlUploadInput.files[0];
+      if (!missionName) throw new Error("Select a mission.");
+      if (!file) throw new Error("Choose a .kml Data Sync package.");
+      var fn = (file.name || "").toLowerCase();
+      if (!fn.endsWith(".kml")) throw new Error("Only .kml files are allowed.");
 
       var fd = new FormData();
-      fd.append(fileField, file, file.name);
-      if (missionName) fd.append(missionField, missionName);
+      fd.append("file", file, file.name);
+      fd.append("mission", missionName);
 
       var res = await fetch(API + "/sync/upload", {
         method: "POST",
@@ -744,11 +842,25 @@
         j = { raw: text };
       }
       if (!res.ok) throw new Error((j && j.error) || text.slice(0, 600) || "Upload failed");
-      setUploadMsg("Upload completed.", true);
-      uploadFileInput.value = "";
+      setKmlUploadMsg("KML package uploaded.", true);
+      kmlUploadInput.value = "";
       await loadMissions();
     } catch (e) {
-      setUploadMsg(e.message || "Upload failed", false);
+      setKmlUploadMsg(e.message || "Upload failed", false);
+    }
+  }
+
+  async function doKmlDownload() {
+    setKmlDownloadMsg("Downloading…", undefined);
+    try {
+      var missionName = (kmlDownloadMissionSelect && kmlDownloadMissionSelect.value) || "";
+      if (!missionName) throw new Error("Select a mission to download.");
+      var pw = (kmlDownloadPassword && kmlDownloadPassword.value) || "";
+      var blob = await fetchMissionKmlBlob(missionName, pw);
+      triggerBrowserKmlDownload(blob, missionName);
+      setKmlDownloadMsg("Download started.", true);
+    } catch (e) {
+      setKmlDownloadMsg(e.message || "Download failed", false);
     }
   }
 
@@ -782,7 +894,24 @@
   if (qPasswordProtected) qPasswordProtected.addEventListener("change", loadMissions);
   if (qDefaultRole) qDefaultRole.addEventListener("change", loadMissions);
 
-  if (btnUpload) btnUpload.addEventListener("click", doUpload);
+  if (btnKmlUpload) btnKmlUpload.addEventListener("click", doKmlUpload);
+  if (btnKmlDownload) btnKmlDownload.addEventListener("click", doKmlDownload);
+  if (mBtnExportKml && mName) {
+    mBtnExportKml.addEventListener("click", function () {
+      var nm = (mName.value || "").trim();
+      if (!nm) return setMissionModalMsg("Mission name missing.", false);
+      setMissionModalMsg("Downloading KML…", undefined);
+      var pw = (mExportKmlPw && mExportKmlPw.value) || "";
+      fetchMissionKmlBlob(nm, pw)
+        .then(function (blob) {
+          triggerBrowserKmlDownload(blob, nm);
+          setMissionModalMsg("KML download started.", true);
+        })
+        .catch(function (e) {
+          setMissionModalMsg(e.message || "Download failed", false);
+        });
+    });
+  }
 
   if (deleteModalClose) deleteModalClose.addEventListener("click", closeDeleteModal);
   if (deleteModalConfirm) deleteModalConfirm.addEventListener("click", confirmDelete);

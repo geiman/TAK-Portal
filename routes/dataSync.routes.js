@@ -75,6 +75,55 @@ router.get("/missions", async (req, res) => {
   }
 });
 
+/** Full Data Sync / mission export as KML (TAK GET /Marti/ExportMissionKML). Query params forwarded (e.g. password). */
+router.get("/missions/:missionName/export-kml", async (req, res) => {
+  try {
+    const missionName = req.params.missionName;
+    const q = { ...req.query };
+    const r = await dataSyncSvc.exportMissionKmlStream(missionName, q);
+
+    if (r.status >= 400) {
+      const chunks = [];
+      await new Promise((resolve, reject) => {
+        r.data.on("data", (c) => chunks.push(c));
+        r.data.on("end", resolve);
+        r.data.on("error", reject);
+      });
+      const buf = Buffer.concat(chunks);
+      let msg = buf.toString("utf8").slice(0, 2000);
+      try {
+        const j = JSON.parse(msg);
+        msg = j.error || j.message || msg;
+      } catch (_) {
+        /* ignore */
+      }
+      return res.status(r.status).json({ error: msg || "TAK ExportMissionKML failed" });
+    }
+
+    res.status(r.status);
+    const ct = r.headers["content-type"];
+    if (ct) res.setHeader("Content-Type", ct);
+    else res.setHeader("Content-Type", dataSyncSvc.KML_MIME);
+
+    const cd = r.headers["content-disposition"];
+    if (cd) {
+      res.setHeader("Content-Disposition", cd);
+    } else {
+      const safe =
+        String(missionName).replace(/[^\w.\- ()\[\]]+/g, "_").trim().slice(0, 120) || "mission";
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${safe}.kml"; filename*=UTF-8''${encodeURIComponent(safe + ".kml")}`
+      );
+    }
+    const cl = r.headers["content-length"];
+    if (cl) res.setHeader("Content-Length", cl);
+    r.data.pipe(res);
+  } catch (err) {
+    return sendTakError(res, err);
+  }
+});
+
 router.get("/missions/:missionName", async (req, res) => {
   try {
     const data = await dataSyncSvc.getMission(req.params.missionName);
@@ -203,11 +252,21 @@ router.post("/sync/upload", upload.any(), async (req, res) => {
     dataSyncSvc.assertTakAvailable();
     const form = new FormData();
     const files = req.files || [];
+    if (!files.length) {
+      return res.status(400).json({ error: "No file uploaded. Data Sync packages must be a .kml file." });
+    }
     const BlobCtor = global.Blob || require("node:buffer").Blob;
+    const kmlMime = dataSyncSvc.KML_MIME;
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
-      const blob = new BlobCtor([f.buffer], { type: "application/octet-stream" });
-      form.append(f.fieldname, blob, f.originalname || "upload.bin");
+      const lower = String(f.originalname || "").toLowerCase();
+      if (!lower.endsWith(".kml")) {
+        return res.status(400).json({
+          error: "Only .kml Data Sync packages are accepted (application/vnd.google-earth.kml+xml).",
+        });
+      }
+      const blob = new BlobCtor([f.buffer], { type: kmlMime });
+      form.append(f.fieldname, blob, f.originalname || "package.kml");
     }
     if (req.body && typeof req.body === "object") {
       Object.keys(req.body).forEach((k) => {
