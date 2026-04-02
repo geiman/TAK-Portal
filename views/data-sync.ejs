@@ -3,22 +3,13 @@
 
 <main class="main data-sync-page">
   <div class="data-sync-hero">
-    <h1>Data Sync</h1>
-    <p class="data-sync-lead">
-      Manage TAK Server missions and Data Sync feeds via the Marti API (same mTLS credentials as Server Settings).
-      API surface aligns with the
-      <a href="https://docs.opentakserver.io/marti_api.html" target="_blank" rel="noopener noreferrer">Marti / mission endpoints</a>
-      documented for OpenTAKServer.
-    </p>
+    <h1>Data Sync Manager</h1>
   </div>
 
   <div id="statusBanner" class="card data-sync-status" style="display: none;" role="status"></div>
 
   <div class="card">
-    <h2 style="margin-top: 0;">Mission manager</h2>
-    <p class="muted" style="margin-top: 0;">
-      Lists missions from <code>/Marti/api/pagedmissions</code>. Create and edit missions, control which TAK groups may subscribe, set passwords, and upload packages to Data Sync.
-    </p>
+    <h2 style="margin-top: 0;">Data Sync Mnager</h2>
 
     <div class="data-sync-toolbar row" style="flex-wrap: wrap; align-items: flex-end; gap: 12px;">
       <label style="min-width: 140px;">
@@ -58,9 +49,6 @@
 
   <div class="card">
     <h2 style="margin-top: 0;">Upload to Data Sync</h2>
-    <p class="muted" style="margin-top: 0;">
-      Proxies <code>POST /Marti/sync/upload</code> with your file and form fields. Many servers expect the mission name as a text field (often <code>mission</code> or <code>missionName</code>)—adjust if your TAK build differs.
-    </p>
     <div class="row" style="flex-wrap: wrap; align-items: flex-end; gap: 12px;">
       <label style="min-width: 220px;">
         Target mission
