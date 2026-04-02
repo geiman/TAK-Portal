@@ -122,9 +122,9 @@ async function getSyncSearch(params) {
 const KML_MIME = "application/vnd.google-earth.kml+xml";
 
 /**
- * Full mission / data sync package as KML — TAK Marti GET /ExportMissionKML (parameter names vary by build).
- * @param {string} missionName
- * @param {Record<string, string>} queryParams - e.g. { password: "..." } for protected missions
+ * Full mission / data sync package as KML — TAK Marti:
+ * GET /Marti/api/missions/{missionName}/kml?download=true
+ * (Optional query params e.g. password for protected missions are merged from queryParams.)
  */
 async function exportMissionKmlStream(missionName, queryParams = {}) {
   assertTakAvailable();
@@ -135,28 +135,12 @@ async function exportMissionKmlStream(missionName, queryParams = {}) {
     e.code = "INVALID_MISSION_NAME";
     throw e;
   }
-  const base = { ...queryParams };
-
-  const attempts = [
-    { path: "/ExportMissionKML", params: { ...base, mission: name } },
-    { path: "/ExportMissionKML", params: { ...base, missionName: name } },
-    { path: "/ExportMissionKML", params: { ...base, name: name } },
-    { path: `/ExportMissionKML/${encodeURIComponent(name)}`, params: { ...base } },
-  ];
-
-  let lastRes = null;
-  for (let i = 0; i < attempts.length; i++) {
-    const a = attempts[i];
-    const res = await client.get(a.path, {
-      params: a.params,
-      responseType: "stream",
-      validateStatus: () => true,
-    });
-    lastRes = res;
-    if (res.status >= 200 && res.status < 300) return res;
-    if (res.status !== 404) return res;
-  }
-  return lastRes;
+  const params = { ...queryParams, download: "true" };
+  return client.get(`${missionPath(name)}/kml`, {
+    params,
+    responseType: "stream",
+    validateStatus: () => true,
+  });
 }
 
 module.exports = {

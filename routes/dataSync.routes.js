@@ -75,7 +75,7 @@ router.get("/missions", async (req, res) => {
   }
 });
 
-/** Full Data Sync / mission export as KML (TAK GET /Marti/ExportMissionKML). Query params forwarded (e.g. password). */
+/** Full Data Sync / mission export as KML (TAK GET /Marti/api/missions/:name/kml?download=true). Extra query params forwarded (e.g. password). */
 router.get("/missions/:missionName/export-kml", async (req, res) => {
   try {
     const missionName = req.params.missionName;
@@ -97,7 +97,7 @@ router.get("/missions/:missionName/export-kml", async (req, res) => {
       } catch (_) {
         /* ignore */
       }
-      return res.status(r.status).json({ error: msg || "TAK ExportMissionKML failed" });
+      return res.status(r.status).json({ error: msg || "TAK mission KML export failed" });
     }
 
     res.status(r.status);

@@ -51,7 +51,7 @@
     <h2 style="margin-top: 0;">KML data sync packages</h2>
     <p class="muted" style="margin-top: 0; max-width: 85ch;">
       Upload and download <strong>entire Data Sync packages as KML</strong> (same style as ATAK exports, e.g. <code>nsi active incident.kml</code>).
-      Uploads go to <code>POST /Marti/sync/upload</code> with a <code>.kml</code> part; downloads use <code>GET /Marti/ExportMissionKML</code> on the TAK Server.
+      Uploads go to <code>POST /Marti/sync/upload</code> with a <code>.kml</code> part; downloads use <code>GET /Marti/api/missions/&lt;name&gt;/kml?download=true</code>.
     </p>
     <div class="row" style="flex-wrap: wrap; align-items: flex-end; gap: 14px;">
       <label style="min-width: 220px;">
@@ -70,26 +70,6 @@
       </label>
     </div>
     <div id="kmlUploadMsg" class="msg" style="margin-top: 10px;"></div>
-
-    <hr style="border: none; border-top: 1px solid var(--line); margin: 1.25rem 0;" />
-
-    <div class="row" style="flex-wrap: wrap; align-items: flex-end; gap: 14px;">
-      <label style="min-width: 220px;">
-        Download mission KML
-        <select id="kmlDownloadMissionSelect" style="min-width: 200px;">
-          <option value="">Select a mission…</option>
-        </select>
-      </label>
-      <label style="min-width: 220px;">
-        Password (if mission is protected)
-        <input type="password" id="kmlDownloadPassword" autocomplete="off" placeholder="Optional" style="width: 100%; box-sizing: border-box;" />
-      </label>
-      <label>
-        &nbsp;
-        <button type="button" class="btn" id="btnKmlDownload">Download .kml</button>
-      </label>
-    </div>
-    <div id="kmlDownloadMsg" class="msg" style="margin-top: 10px;"></div>
   </div>
 </main>
 
@@ -220,11 +200,6 @@
   var kmlUploadInput = document.getElementById("kmlUploadInput");
   var btnKmlUpload = document.getElementById("btnKmlUpload");
   var kmlUploadMsg = document.getElementById("kmlUploadMsg");
-  var kmlDownloadMissionSelect = document.getElementById("kmlDownloadMissionSelect");
-  var kmlDownloadPassword = document.getElementById("kmlDownloadPassword");
-  var btnKmlDownload = document.getElementById("btnKmlDownload");
-  var kmlDownloadMsg = document.getElementById("kmlDownloadMsg");
-
   var missionModal = document.getElementById("missionModal");
   var missionModalClose = document.getElementById("missionModalClose");
   var missionModalTitle = document.getElementById("missionModalTitle");
@@ -274,11 +249,6 @@
   function setKmlUploadMsg(text, ok) {
     kmlUploadMsg.textContent = text || "";
     kmlUploadMsg.className = "msg " + (ok === true ? "ok" : ok === false ? "bad" : "");
-  }
-
-  function setKmlDownloadMsg(text, ok) {
-    kmlDownloadMsg.textContent = text || "";
-    kmlDownloadMsg.className = "msg " + (ok === true ? "ok" : ok === false ? "bad" : "");
   }
 
   function setMissionModalMsg(text, ok) {
@@ -481,15 +451,14 @@
       bKml.title = "Download Data Sync package as KML";
       bKml.addEventListener("click", function (nm) {
         return function () {
-          setKmlDownloadMsg("Downloading…", undefined);
-          var pw = (kmlDownloadPassword && kmlDownloadPassword.value) || "";
-          fetchMissionKmlBlob(nm, pw)
+          setMissionsMsg("Downloading KML…", undefined);
+          fetchMissionKmlBlob(nm, "")
             .then(function (blob) {
               triggerBrowserKmlDownload(blob, nm);
-              setKmlDownloadMsg("Download started.", true);
+              setMissionsMsg("KML download started.", true);
             })
             .catch(function (e) {
-              setKmlDownloadMsg(e.message || "Download failed", false);
+              setMissionsMsg(e.message || "KML download failed", false);
             });
         };
       }(name));
@@ -525,9 +494,7 @@
 
   function populateKmlMissionSelects() {
     var uv = kmlMissionSelect ? kmlMissionSelect.value : "";
-    var dv = kmlDownloadMissionSelect ? kmlDownloadMissionSelect.value : "";
     fillMissionSelect(kmlMissionSelect, uv);
-    fillMissionSelect(kmlDownloadMissionSelect, dv);
   }
 
   function sanitizeKmlFilename(name) {
@@ -540,11 +507,21 @@
 
   async function fetchMissionKmlBlob(missionName, password) {
     var url = API + "/missions/" + encodeURIComponent(missionName) + "/export-kml";
-    if (password) url += "?password=" + encodeURIComponent(password);
+    var qs = [];
+    if (password) qs.push("password=" + encodeURIComponent(password));
+    if (qs.length) url += "?" + qs.join("&");
     var res = await fetch(url);
     if (!res.ok) {
-      var j = await res.json().catch(function () { return {}; });
-      throw new Error((j && j.error) || "Export failed (HTTP " + res.status + ")");
+      var text = await res.text().catch(function () { return ""; });
+      var err = "Export failed (HTTP " + res.status + ")";
+      try {
+        var j = JSON.parse(text);
+        if (j && j.error) err = j.error;
+      } catch (_) {
+        var m = text.match(/<title>([^<]+)<\/title>/i);
+        if (m) err = m[1].trim();
+      }
+      throw new Error(err);
     }
     return res.blob();
   }
@@ -850,20 +827,6 @@
     }
   }
 
-  async function doKmlDownload() {
-    setKmlDownloadMsg("Downloading…", undefined);
-    try {
-      var missionName = (kmlDownloadMissionSelect && kmlDownloadMissionSelect.value) || "";
-      if (!missionName) throw new Error("Select a mission to download.");
-      var pw = (kmlDownloadPassword && kmlDownloadPassword.value) || "";
-      var blob = await fetchMissionKmlBlob(missionName, pw);
-      triggerBrowserKmlDownload(blob, missionName);
-      setKmlDownloadMsg("Download started.", true);
-    } catch (e) {
-      setKmlDownloadMsg(e.message || "Download failed", false);
-    }
-  }
-
   if (missionModalClose) missionModalClose.addEventListener("click", closeModal);
   if (missionModal) {
     missionModal.addEventListener("click", function (e) {
@@ -895,7 +858,6 @@
   if (qDefaultRole) qDefaultRole.addEventListener("change", loadMissions);
 
   if (btnKmlUpload) btnKmlUpload.addEventListener("click", doKmlUpload);
-  if (btnKmlDownload) btnKmlDownload.addEventListener("click", doKmlDownload);
   if (mBtnExportKml && mName) {
     mBtnExportKml.addEventListener("click", function () {
       var nm = (mName.value || "").trim();
