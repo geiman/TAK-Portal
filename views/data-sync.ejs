@@ -3,13 +3,13 @@
 
 <main class="main data-sync-page">
   <div class="data-sync-hero">
-    <h1>Data Sync Manager</h1>
+    <h1>Data Sync Mission Manager</h1>
   </div>
 
   <div id="statusBanner" class="card data-sync-status" style="display: none;" role="status"></div>
 
   <div class="card">
-    <h2 style="margin-top: 0;">Create mission</h2>
+    <h2 style="margin-top: 0;">Create Data Sync Mission</h2>
     <div class="grid2">
       <label>Mission name
         <input type="text" id="createMissionName" autocomplete="off" placeholder="e.g. Incident Alpha" />
@@ -24,15 +24,17 @@
       <label style="grid-column: 1 / -1;">Description
         <textarea id="createMissionDescription" rows="2" placeholder="Mission description" style="width: 100%; box-sizing: border-box; resize: vertical;"></textarea>
       </label>
-      <div style="grid-column: 1 / -1;">
-        <strong>Groups with access</strong>
-        <input type="search" id="createGroupFilter" placeholder="Filter groups…" style="width: 100%; max-width: 260px; box-sizing: border-box; margin-top: 6px;" />
-        <div id="createMissionGroupsBox" class="groupsBox" style="margin-top: 8px;"></div>
+      <div class="create-mission-groups-wrap" style="grid-column: 1 / -1;">
+        <label class="create-mission-groups-label">Groups with access
+          <input type="search" id="createGroupFilter" placeholder="Search groups..." autocomplete="off" />
+          <div id="createMissionGroupsBox" class="groupsBox">
+            <div id="createMissionGroupsInner" class="groupsInner"></div>
+          </div>
+        </label>
       </div>
       <label>Password (optional)
         <input type="password" id="createMissionPw" autocomplete="new-password" />
       </label>
-      <p class="muted" style="margin: 0; grid-column: 1 / -1; font-size: 12px;">Tool is always <code>public</code> for Data Sync missions.</p>
       <div style="grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
         <button type="button" class="btn success" id="btnCreateMissionSubmit">Create mission</button>
         <span id="createMissionMsg" class="msg"></span>
@@ -41,7 +43,7 @@
   </div>
 
   <div class="card">
-    <h2 style="margin-top: 0;">Data Sync missions</h2>
+    <h2 style="margin-top: 0;">Existing Data Sync Missions</h2>
 
     <div class="data-sync-toolbar row" style="flex-wrap: wrap; align-items: flex-end; gap: 12px;">
       <label style="min-width: 140px;">
@@ -192,6 +194,60 @@
   .data-sync-table code { font-size: 11px; }
   .mission-action-row { display: flex; flex-wrap: wrap; gap: 6px; }
   .muted { color: var(--muted); }
+
+  /* Create card: manual groups picker — match users-manage.ejs (outer scroll + inner multicolumn) */
+  .data-sync-page .create-mission-groups-label {
+    display: block;
+    font-weight: 600;
+  }
+  .data-sync-page .create-mission-groups-label input[type="search"] {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    margin-top: 6px;
+  }
+  .data-sync-page .create-mission-groups-wrap .groupsBox {
+    margin-top: 10px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    border-radius: 12px;
+    padding: 10px;
+    max-height: 320px;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  .data-sync-page .create-mission-groups-wrap .groupsInner {
+    column-width: 310px;
+    column-gap: 14px;
+    column-count: 4;
+  }
+  .data-sync-page .create-mission-groups-wrap .groupItem {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 10px;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+    break-inside: avoid;
+  }
+  .data-sync-page .create-mission-groups-wrap .groupItem:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+  .data-sync-page .create-mission-groups-wrap .groupItem input {
+    margin: 0;
+    width: 16px;
+    height: 16px;
+    flex: 0 0 auto;
+  }
+  .data-sync-page .create-mission-groups-wrap .groupItem span {
+    display: inline-block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 </style>
 
 <script>
@@ -208,6 +264,7 @@
   var createMissionDefaultRole = document.getElementById("createMissionDefaultRole");
   var createGroupFilter = document.getElementById("createGroupFilter");
   var createMissionGroupsBox = document.getElementById("createMissionGroupsBox");
+  var createMissionGroupsInner = document.getElementById("createMissionGroupsInner");
   var createMissionPw = document.getElementById("createMissionPw");
   var btnCreateMissionSubmit = document.getElementById("btnCreateMissionSubmit");
   var createMissionMsg = document.getElementById("createMissionMsg");
@@ -677,9 +734,10 @@
   }
 
   function renderCreateGroupCheckboxes() {
-    if (!createMissionGroupsBox) return;
+    var host = createMissionGroupsInner || createMissionGroupsBox;
+    if (!host) return;
     var filt = (createGroupFilter && createGroupFilter.value || "").trim().toLowerCase();
-    createMissionGroupsBox.innerHTML = "";
+    host.innerHTML = "";
     for (var i = 0; i < groupsCache.length; i++) {
       var g = groupsCache[i];
       if (filt && g.toLowerCase().indexOf(filt) === -1) continue;
@@ -693,7 +751,7 @@
       span.textContent = g;
       label.appendChild(cb);
       label.appendChild(span);
-      createMissionGroupsBox.appendChild(label);
+      host.appendChild(label);
     }
   }
 
