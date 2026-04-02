@@ -212,7 +212,6 @@ if (!isPublicPath) {
       "/groups",
       "/templates",
       "/email",
-      "/getting-started",
       "/plugins",
       "/setup-my-device",
       "/pending-user-requests",

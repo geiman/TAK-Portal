@@ -518,13 +518,10 @@ app.get("/plugin-manager", requireGlobalAdmin, async (req, res) => {
   return res.render("plugin-manager", { takGovLink, plugins });
 });
 
-// Beta: Onboarding pages (any authenticated user, beta mode)
-app.get("/getting-started", (req, res) => {
-  const cfg = settingsSvc.getSettings() || {};
-  const beta = String(cfg.BETA_MODE || "").toLowerCase() === "true";
-  if (!beta) return res.status(404).render("access-denied", { username: req.authentikUser?.username || "" });
-  return res.render("getting-started");
-});
+// Beta: Getting Started (global admins only, beta mode)
+app.get("/getting-started", requireStrictGlobalAdmin, requireBetaMode, (req, res) =>
+  res.render("getting-started")
+);
 
 // Plugins page (any authenticated user)
 app.get("/plugins", (req, res) => {
