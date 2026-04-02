@@ -901,8 +901,9 @@
         mNewPw.value = "";
       }
 
-      setMissionModalMsg("Saved.", true);
-      await Promise.all([loadMissions({ silent: true }), openEditMission(payload.name)]);
+      closeModal();
+      setMissionsMsg("Mission saved.", true);
+      loadMissions({ silent: true });
     } catch (e) {
       setMissionModalMsg(e.message || "Save failed", false);
     }
@@ -923,8 +924,7 @@
       if (!res.ok) throw new Error((j && j.error) || "Request failed");
       mNewPw.value = "";
       setMissionModalMsg("Password updated.", true);
-      await loadMissions();
-      await openEditMission(name);
+      await Promise.all([loadMissions({ silent: true }), openEditMission(name)]);
     } catch (e) {
       setMissionModalMsg(e.message || "Failed to set password", false);
     }
@@ -941,8 +941,7 @@
       var j = await res.json().catch(function () { return {}; });
       if (!res.ok) throw new Error((j && j.error) || "Request failed");
       setMissionModalMsg("Password removed.", true);
-      await loadMissions();
-      await openEditMission(name);
+      await Promise.all([loadMissions({ silent: true }), openEditMission(name)]);
     } catch (e) {
       setMissionModalMsg(e.message || "Failed to remove password", false);
     }
