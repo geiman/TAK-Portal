@@ -293,6 +293,13 @@ app.use(
   require("./routes/locate.routes")
 );
 
+app.use(
+  "/api/data-sync",
+  requireStrictGlobalAdminApi,
+  requireBetaModeApi,
+  require("./routes/dataSync.routes")
+);
+
 // Public locate APIs: CORS + OPTIONS (preflight for JSON POST).
 function publicLocateApiCors(req, res, next) {
   res.setHeader("Access-Control-Allow-Origin", "*");

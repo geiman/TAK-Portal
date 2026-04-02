@@ -425,4 +425,5 @@ module.exports = {
   isTakConfigured,
   revokeCertsForUser,
   buildTakAxios,
+  getTakBaseUrl,
 };

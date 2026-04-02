@@ -1,6 +1,773 @@
 <%- include("partials/header") %>
 <%- include("partials/sidebar") %>
 
-<main class="main">
-  <h1>Data Sync</h1>
+<main class="main data-sync-page">
+  <div class="data-sync-hero">
+    <h1>Data Sync</h1>
+    <p class="data-sync-lead">
+      Manage TAK Server missions and Data Sync feeds via the Marti API (same mTLS credentials as Server Settings).
+      API surface aligns with the
+      <a href="https://docs.opentakserver.io/marti_api.html" target="_blank" rel="noopener noreferrer">Marti / mission endpoints</a>
+      documented for OpenTAKServer.
+    </p>
+  </div>
+
+  <div id="statusBanner" class="card data-sync-status" style="display: none;" role="status"></div>
+
+  <div class="card">
+    <h2 style="margin-top: 0;">Mission manager</h2>
+    <p class="muted" style="margin-top: 0;">
+      Lists missions from <code>/Marti/api/pagedmissions</code>. Create and edit missions, control which TAK groups may subscribe, set passwords, and upload packages to Data Sync.
+    </p>
+
+    <div class="data-sync-toolbar row" style="flex-wrap: wrap; align-items: flex-end; gap: 12px;">
+      <label style="min-width: 140px;">
+        List filter
+        <input type="search" id="missionTableFilter" placeholder="Filter by name…" style="width: 100%; box-sizing: border-box;" autocomplete="off" />
+      </label>
+      <label class="chk-inline">
+        <input type="checkbox" id="qPasswordProtected" checked />
+        passwordProtected=true
+      </label>
+      <label class="chk-inline">
+        <input type="checkbox" id="qDefaultRole" checked />
+        defaultRole=true
+      </label>
+      <button type="button" class="btn" id="btnRefreshMissions">Refresh</button>
+      <button type="button" class="btn success" id="btnCreateMission">Create mission</button>
+    </div>
+
+    <div id="missionsMsg" class="msg" style="margin: 12px 0 0 0;"></div>
+
+    <div style="overflow-x: auto; margin-top: 12px;">
+      <table class="table data-sync-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Tool</th>
+            <th>Groups</th>
+            <th>Password</th>
+            <th>Created</th>
+            <th style="min-width: 220px;">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="missionsTbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top: 0;">Upload to Data Sync</h2>
+    <p class="muted" style="margin-top: 0;">
+      Proxies <code>POST /Marti/sync/upload</code> with your file and form fields. Many servers expect the mission name as a text field (often <code>mission</code> or <code>missionName</code>)—adjust if your TAK build differs.
+    </p>
+    <div class="row" style="flex-wrap: wrap; align-items: flex-end; gap: 12px;">
+      <label style="min-width: 220px;">
+        Target mission
+        <select id="uploadMissionSelect" style="min-width: 200px;">
+          <option value="">Select a mission…</option>
+        </select>
+      </label>
+      <label style="min-width: 200px;">
+        Form field for file
+        <input type="text" id="uploadFileField" value="file" style="width: 100%; box-sizing: border-box;" />
+      </label>
+      <label style="min-width: 200px;">
+        Mission field name
+        <input type="text" id="uploadMissionField" value="mission" style="width: 100%; box-sizing: border-box;" />
+      </label>
+      <label style="min-width: 240px;">
+        File
+        <input type="file" id="uploadFileInput" />
+      </label>
+      <label>
+        &nbsp;
+        <button type="button" class="btn" id="btnUpload">Upload</button>
+      </label>
+    </div>
+    <div id="uploadMsg" class="msg" style="margin-top: 10px;"></div>
+  </div>
 </main>
+
+<!-- Create / Edit mission -->
+<div class="modalOverlay" id="missionModal" style="display: none;">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="missionModalTitle" style="width: min(900px, 96vw);">
+    <div class="modalHeader">
+      <h2 id="missionModalTitle" style="margin: 0;">Edit mission</h2>
+      <button type="button" class="btn" id="missionModalClose">Close</button>
+    </div>
+    <div class="modalBody">
+      <div id="missionModalMsg" class="msg" style="margin-bottom: 10px;"></div>
+
+      <div class="row" style="flex-wrap: wrap; gap: 12px;">
+        <label style="flex: 1; min-width: 200px;">
+          Mission name
+          <input type="text" id="mName" readonly style="width: 100%; box-sizing: border-box; opacity: 0.85;" />
+        </label>
+        <label style="min-width: 160px;">
+          Tool
+          <input type="text" id="mTool" placeholder="public" style="width: 100%; box-sizing: border-box;" />
+        </label>
+      </div>
+
+      <label style="display: block; margin-top: 12px;">
+        Keywords (comma-separated)
+        <input type="text" id="mKeywords" placeholder="e.g. incident, ops" style="width: 100%; box-sizing: border-box;" />
+      </label>
+
+      <div style="margin-top: 14px;">
+        <div class="row" style="justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+          <strong>Groups with access</strong>
+          <input type="search" id="groupFilter" placeholder="Filter groups…" style="max-width: 260px; width: 100%; box-sizing: border-box;" />
+        </div>
+        <div id="mGroupsBox" class="groupsBox" style="margin-top: 8px;"></div>
+      </div>
+
+      <label class="chk-inline" style="margin-top: 12px;">
+        <input type="checkbox" id="mInviteOnly" />
+        Invite only
+      </label>
+
+      <div class="card" style="margin-top: 16px; background: var(--card);">
+        <h3 style="margin: 0 0 8px 0; font-size: 1rem;">Mission password (optional)</h3>
+        <p class="muted" style="margin: 0 0 8px 0; font-size: 13px;">
+          Applies <code>PUT /Marti/api/missions/…/password</code> (plain body) and <code>DELETE …/password</code> to clear.
+        </p>
+        <div class="row" style="flex-wrap: wrap; gap: 10px; align-items: flex-end;">
+          <label style="min-width: 220px; flex: 1;">
+            New password
+            <input type="password" id="mNewPw" autocomplete="new-password" style="width: 100%; box-sizing: border-box;" />
+          </label>
+          <button type="button" class="btn success" id="mBtnSetPw">Set password</button>
+          <button type="button" class="btn danger" id="mBtnClearPw">Remove password</button>
+        </div>
+      </div>
+
+      <div id="mContentsWrap" style="margin-top: 16px; display: none;">
+        <h3 style="margin: 0 0 8px 0; font-size: 1rem;">Contents</h3>
+        <p class="muted" style="margin: 0 0 8px 0; font-size: 13px;">Download via <code>GET /Marti/sync/content</code> (proxied). Parameters depend on your server build.</p>
+        <div style="overflow-x: auto;">
+          <table class="table" style="margin: 0;">
+            <thead>
+              <tr>
+                <th>Label</th>
+                <th style="min-width: 140px;">Download</th>
+              </tr>
+            </thead>
+            <tbody id="mContentsTbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top: 18px; gap: 10px; flex-wrap: wrap;">
+        <button type="button" class="btn success" id="mBtnSave">Save mission</button>
+        <span id="mSaveHint" class="muted" style="font-size: 13px;"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Delete confirm -->
+<div class="modalOverlay" id="deleteModal" style="display: none;">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="deleteTitle" style="width: min(480px, 94vw);">
+    <div class="modalHeader">
+      <h2 id="deleteTitle" style="margin: 0;">Delete mission</h2>
+      <button type="button" class="btn" id="deleteModalClose">Cancel</button>
+    </div>
+    <div class="modalBody">
+      <p id="deleteModalText" style="margin-top: 0;"></p>
+      <div class="row" style="gap: 10px;">
+        <button type="button" class="btn danger" id="deleteModalConfirm">Delete</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .data-sync-page .data-sync-lead { color: var(--muted); max-width: 72ch; line-height: 1.45; margin: 0.35rem 0 0 0; }
+  .data-sync-page .data-sync-lead a { color: var(--btn); }
+  .data-sync-status.msg { margin-left: 0; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line); }
+  .data-sync-status.bad { border-color: rgba(255,80,80,.45); background: rgba(255,80,80,.08); }
+  .data-sync-status.ok { border-color: rgba(24,179,90,.35); background: rgba(24,179,90,.08); }
+  .chk-inline { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); user-select: none; cursor: pointer; }
+  .chk-inline input { margin: 0; }
+  .data-sync-table code { font-size: 11px; }
+  .mission-action-row { display: flex; flex-wrap: wrap; gap: 6px; }
+  .muted { color: var(--muted); }
+</style>
+
+<script>
+(function () {
+  var API = "/api/data-sync";
+
+  var statusBanner = document.getElementById("statusBanner");
+  var missionsMsg = document.getElementById("missionsMsg");
+  var missionsTbody = document.getElementById("missionsTbody");
+  var missionTableFilter = document.getElementById("missionTableFilter");
+  var qPasswordProtected = document.getElementById("qPasswordProtected");
+  var qDefaultRole = document.getElementById("qDefaultRole");
+  var btnRefreshMissions = document.getElementById("btnRefreshMissions");
+  var btnCreateMission = document.getElementById("btnCreateMission");
+
+  var uploadMissionSelect = document.getElementById("uploadMissionSelect");
+  var uploadFileField = document.getElementById("uploadFileField");
+  var uploadMissionField = document.getElementById("uploadMissionField");
+  var uploadFileInput = document.getElementById("uploadFileInput");
+  var btnUpload = document.getElementById("btnUpload");
+  var uploadMsg = document.getElementById("uploadMsg");
+
+  var missionModal = document.getElementById("missionModal");
+  var missionModalClose = document.getElementById("missionModalClose");
+  var missionModalTitle = document.getElementById("missionModalTitle");
+  var missionModalMsg = document.getElementById("missionModalMsg");
+  var mName = document.getElementById("mName");
+  var mTool = document.getElementById("mTool");
+  var mKeywords = document.getElementById("mKeywords");
+  var mGroupsBox = document.getElementById("mGroupsBox");
+  var groupFilter = document.getElementById("groupFilter");
+  var mInviteOnly = document.getElementById("mInviteOnly");
+  var mNewPw = document.getElementById("mNewPw");
+  var mBtnSetPw = document.getElementById("mBtnSetPw");
+  var mBtnClearPw = document.getElementById("mBtnClearPw");
+  var mContentsWrap = document.getElementById("mContentsWrap");
+  var mContentsTbody = document.getElementById("mContentsTbody");
+  var mBtnSave = document.getElementById("mBtnSave");
+  var mSaveHint = document.getElementById("mSaveHint");
+
+  var deleteModal = document.getElementById("deleteModal");
+  var deleteModalClose = document.getElementById("deleteModalClose");
+  var deleteModalText = document.getElementById("deleteModalText");
+  var deleteModalConfirm = document.getElementById("deleteModalConfirm");
+
+  var missionsCache = [];
+  var groupsCache = [];
+  var missionDetail = null;
+  var editingOriginalName = "";
+  var isCreateMode = false;
+  var pendingDeleteName = "";
+  var selectedGroupSet = new Set();
+
+  function esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function setMissionsMsg(text, ok) {
+    missionsMsg.textContent = text || "";
+    missionsMsg.className = "msg " + (ok === true ? "ok" : ok === false ? "bad" : "");
+  }
+
+  function setUploadMsg(text, ok) {
+    uploadMsg.textContent = text || "";
+    uploadMsg.className = "msg " + (ok === true ? "ok" : ok === false ? "bad" : "");
+  }
+
+  function setMissionModalMsg(text, ok) {
+    missionModalMsg.textContent = text || "";
+    missionModalMsg.className = "msg " + (ok === true ? "ok" : ok === false ? "bad" : "");
+  }
+
+  function unwrapList(payload) {
+    if (!payload) return [];
+    if (Array.isArray(payload.data)) return payload.data;
+    if (Array.isArray(payload)) return payload;
+    return [];
+  }
+
+  function unwrapMission(payload) {
+    if (!payload) return null;
+    if (payload.data && typeof payload.data === "object" && !Array.isArray(payload.data)) return payload.data;
+    if (payload.Mission && typeof payload.Mission === "object") return payload.Mission;
+    return payload;
+  }
+
+  function normalizeGroupNames(payload) {
+    var raw = unwrapList(payload);
+    var out = [];
+    for (var i = 0; i < raw.length; i++) {
+      var g = raw[i];
+      var n = typeof g === "string" ? g : (g && (g.name || g.groupName || g.group));
+      if (n) out.push(String(n));
+    }
+    return out.sort(function (a, b) { return a.localeCompare(b); });
+  }
+
+  async function loadStatus() {
+    try {
+      var res = await fetch(API + "/status");
+      var j = await res.json();
+      if (!res.ok) throw new Error((j && j.error) || "Status failed");
+      if (!j.configured) {
+        statusBanner.style.display = "block";
+        statusBanner.className = "card data-sync-status msg bad";
+        statusBanner.innerHTML =
+          "<strong>TAK is not available from the portal.</strong> " +
+          (j.bypassed
+            ? "TAK_BYPASS_ENABLED is on, or TAK_URL / client certificates are not configured. " +
+              "Configure <strong>Server Settings</strong> (TAK URL and API certificate) and disable bypass."
+            : "Set <strong>TAK_URL</strong> and upload the <strong>TAK API PKCS#12</strong> (or PEM cert/key) so the portal can call Marti.");
+        return false;
+      }
+      statusBanner.style.display = "block";
+      statusBanner.className = "card data-sync-status msg ok";
+      statusBanner.innerHTML =
+        "<strong>Connected to TAK.</strong> " +
+        (j.takHost ? "Host <code>" + esc(j.takHost) + "</code>. " : "") +
+        "Requests use the portal&rsquo;s mTLS identity to Marti.";
+      return true;
+    } catch (e) {
+      statusBanner.style.display = "block";
+      statusBanner.className = "card data-sync-status msg bad";
+      statusBanner.textContent = e.message || "Could not load status.";
+      return false;
+    }
+  }
+
+  async function loadGroups() {
+    var res = await fetch(API + "/groups");
+    var j = await res.json();
+    if (!res.ok) throw new Error((j && j.error) || "Failed to load groups");
+    groupsCache = normalizeGroupNames(j);
+    return groupsCache;
+  }
+
+  function missionQueryParams() {
+    var q = {};
+    if (qPasswordProtected.checked) q.passwordProtected = "true";
+    if (qDefaultRole.checked) q.defaultRole = "true";
+    return q;
+  }
+
+  function buildQueryString(obj) {
+    var parts = [];
+    Object.keys(obj).forEach(function (k) {
+      parts.push(encodeURIComponent(k) + "=" + encodeURIComponent(obj[k]));
+    });
+    return parts.length ? "?" + parts.join("&") : "";
+  }
+
+  async function loadMissions() {
+    setMissionsMsg("Loading missions…", undefined);
+    try {
+      var qs = buildQueryString(missionQueryParams());
+      var res = await fetch(API + "/missions" + qs);
+      var text = await res.text();
+      var j;
+      try {
+        j = JSON.parse(text);
+      } catch (_) {
+        throw new Error("Invalid JSON from server");
+      }
+      if (!res.ok) throw new Error((j && j.error) || text.slice(0, 400));
+      missionsCache = unwrapList(j);
+      renderMissionsTable();
+      populateUploadSelect();
+      setMissionsMsg(missionsCache.length ? "" : "No missions returned for this filter.", true);
+    } catch (e) {
+      setMissionsMsg(e.message || "Failed to load missions", false);
+    }
+  }
+
+  function renderMissionsTable() {
+    var filter = (missionTableFilter && missionTableFilter.value || "").trim().toLowerCase();
+    missionsTbody.innerHTML = "";
+    for (var i = 0; i < missionsCache.length; i++) {
+      var m = missionsCache[i];
+      var name = m && m.name != null ? String(m.name) : "";
+      if (filter && name.toLowerCase().indexOf(filter) === -1) continue;
+
+      var tr = document.createElement("tr");
+      var groups = Array.isArray(m.groups) ? m.groups : [];
+      var pw = m.passwordProtected === true ? "Yes" : "No";
+      var ct = m.createTime ? String(m.createTime) : "";
+
+      tr.innerHTML =
+        "<td><strong>" + esc(name) + "</strong></td>" +
+        "<td>" + esc(m.tool != null ? m.tool : "") + "</td>" +
+        "<td>" + groups.length + "</td>" +
+        "<td>" + esc(pw) + "</td>" +
+        "<td style=\"font-size:12px;white-space:nowrap;\">" + esc(ct) + "</td>" +
+        "<td></td>";
+
+      var tdAct = tr.querySelector("td:last-child");
+      var wrap = document.createElement("div");
+      wrap.className = "mission-action-row";
+
+      var bEdit = document.createElement("button");
+      bEdit.type = "button";
+      bEdit.className = "btn";
+      bEdit.textContent = "Edit";
+      bEdit.addEventListener("click", function (nm) {
+        return function () { openEditMission(nm); };
+      }(name));
+
+      var bDel = document.createElement("button");
+      bDel.type = "button";
+      bDel.className = "btn danger";
+      bDel.textContent = "Delete";
+      bDel.addEventListener("click", function (nm) {
+        return function () { openDeleteMission(nm); };
+      }(name));
+
+      wrap.appendChild(bEdit);
+      wrap.appendChild(bDel);
+      tdAct.appendChild(wrap);
+
+      missionsTbody.appendChild(tr);
+    }
+  }
+
+  function populateUploadSelect() {
+    var v = uploadMissionSelect.value;
+    uploadMissionSelect.innerHTML = "";
+    var opt0 = document.createElement("option");
+    opt0.value = "";
+    opt0.textContent = "Select a mission…";
+    uploadMissionSelect.appendChild(opt0);
+    for (var i = 0; i < missionsCache.length; i++) {
+      var m = missionsCache[i];
+      var name = m && m.name != null ? String(m.name) : "";
+      if (!name) continue;
+      var opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      uploadMissionSelect.appendChild(opt);
+    }
+    if (v) uploadMissionSelect.value = v;
+  }
+
+  function renderGroupCheckboxes() {
+    var filt = (groupFilter && groupFilter.value || "").trim().toLowerCase();
+    mGroupsBox.innerHTML = "";
+    for (var i = 0; i < groupsCache.length; i++) {
+      var g = groupsCache[i];
+      if (filt && g.toLowerCase().indexOf(filt) === -1) continue;
+      var label = document.createElement("label");
+      label.className = "groupItem";
+      var cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.value = g;
+      cb.checked = selectedGroupSet.has(g);
+      var span = document.createElement("span");
+      span.textContent = g;
+      label.appendChild(cb);
+      label.appendChild(span);
+      mGroupsBox.appendChild(label);
+    }
+  }
+
+  function getSelectedGroupsFromBox() {
+    return Array.from(selectedGroupSet);
+  }
+
+  function openModal() {
+    missionModal.style.display = "flex";
+    document.body.classList.add("noScroll");
+  }
+
+  function closeModal() {
+    missionModal.style.display = "none";
+    document.body.classList.remove("noScroll");
+    missionDetail = null;
+    isCreateMode = false;
+    editingOriginalName = "";
+  }
+
+  async function openEditMission(name) {
+    isCreateMode = false;
+    missionModalTitle.textContent = "Edit mission";
+    mName.readOnly = true;
+    setMissionModalMsg("Loading…", undefined);
+    mSaveHint.textContent = "";
+    mNewPw.value = "";
+    openModal();
+    try {
+      if (!groupsCache.length) await loadGroups();
+      var res = await fetch(API + "/missions/" + encodeURIComponent(name));
+      var text = await res.text();
+      var j = JSON.parse(text);
+      if (!res.ok) throw new Error((j && j.error) || text.slice(0, 400));
+      missionDetail = unwrapMission(j);
+      if (!missionDetail || !missionDetail.name) missionDetail = { name: name };
+
+      editingOriginalName = String(missionDetail.name);
+      mName.value = missionDetail.name;
+      mTool.value = missionDetail.tool != null ? missionDetail.tool : "public";
+      var kw = Array.isArray(missionDetail.keywords) ? missionDetail.keywords : [];
+      mKeywords.value = kw.join(", ");
+      mInviteOnly.checked = missionDetail.inviteOnly === true;
+
+      selectedGroupSet = new Set();
+      var mg = Array.isArray(missionDetail.groups) ? missionDetail.groups : [];
+      for (var i = 0; i < mg.length; i++) selectedGroupSet.add(String(mg[i]));
+
+      groupFilter.value = "";
+      renderGroupCheckboxes();
+
+      mContentsTbody.innerHTML = "";
+      var contents = Array.isArray(missionDetail.contents) ? missionDetail.contents : [];
+      if (contents.length) {
+        mContentsWrap.style.display = "block";
+        for (var c = 0; c < contents.length; c++) {
+          var item = contents[c];
+          var tr = document.createElement("tr");
+          var label = (item && (item.name || item.filename || item.downloadName)) || ("Item " + (c + 1));
+          var hash =
+            (item && (item.hash || item.Hash || item.contentHash || item.uid || item.UUID)) || "";
+          var linkHtml = "";
+          if (hash) {
+            var u = API + "/sync/content?hash=" + encodeURIComponent(String(hash));
+            linkHtml =
+              "<a href=\"" +
+              u.replace(/&/g, "&amp;").replace(/"/g, "&quot;") +
+              "\" target=\"_blank\" rel=\"noopener\">Download</a>";
+          } else {
+            linkHtml = "<span class=\"muted\">No hash in payload</span>";
+          }
+          tr.innerHTML = "<td>" + esc(label) + "</td><td>" + linkHtml + "</td>";
+          mContentsTbody.appendChild(tr);
+        }
+      } else {
+        mContentsWrap.style.display = "none";
+      }
+
+      setMissionModalMsg("", true);
+    } catch (e) {
+      setMissionModalMsg(e.message || "Failed to load mission", false);
+    }
+  }
+
+  function openCreateMission() {
+    isCreateMode = true;
+    missionModalTitle.textContent = "Create mission";
+    mName.readOnly = false;
+    missionDetail = { name: "", tool: "public", keywords: [], groups: [], inviteOnly: false };
+    editingOriginalName = "";
+    mName.value = "";
+    mTool.value = "public";
+    mKeywords.value = "";
+    mInviteOnly.checked = false;
+    mNewPw.value = "";
+    mContentsWrap.style.display = "none";
+    mContentsTbody.innerHTML = "";
+    setMissionModalMsg("", true);
+    mSaveHint.textContent = "Saving will call PUT /Marti/api/missions/{name} with the JSON body.";
+
+    selectedGroupSet = new Set();
+    loadGroups()
+      .then(function () {
+        groupFilter.value = "";
+        renderGroupCheckboxes();
+        openModal();
+      })
+      .catch(function (e) {
+        setMissionModalMsg(e.message || "Failed to load groups", false);
+        openModal();
+      });
+  }
+
+  function buildSavePayload() {
+    var base = missionDetail && typeof missionDetail === "object" ? JSON.parse(JSON.stringify(missionDetail)) : {};
+    var name = (mName.value || "").trim();
+    var kws = (mKeywords.value || "")
+      .split(",")
+      .map(function (s) { return s.trim(); })
+      .filter(Boolean);
+
+    base.name = name;
+    base.tool = (mTool.value || "").trim() || "public";
+    base.keywords = kws;
+    base.groups = getSelectedGroupsFromBox();
+    base.inviteOnly = mInviteOnly.checked;
+
+    delete base.contents;
+    delete base.uids;
+
+    return base;
+  }
+
+  async function saveMission() {
+    setMissionModalMsg("Saving…", undefined);
+    try {
+      var payload = buildSavePayload();
+      if (!payload.name) throw new Error("Mission name is required.");
+
+      var url = API + "/missions/" + encodeURIComponent(payload.name);
+      var res = await fetch(url, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(payload),
+      });
+      var text = await res.text();
+      var j;
+      try {
+        j = JSON.parse(text);
+      } catch (_) {
+        j = { raw: text };
+      }
+      if (!res.ok) throw new Error((j && j.error) || text.slice(0, 500) || "Save failed");
+
+      setMissionModalMsg("Saved.", true);
+      await loadMissions();
+      if (!isCreateMode) await openEditMission(payload.name);
+    } catch (e) {
+      setMissionModalMsg(e.message || "Save failed", false);
+    }
+  }
+
+  async function setMissionPassword() {
+    var name = (mName.value || "").trim();
+    if (!name) return setMissionModalMsg("Mission name missing.", false);
+    var pw = mNewPw.value || "";
+    setMissionModalMsg("Setting password…", undefined);
+    try {
+      var res = await fetch(API + "/missions/" + encodeURIComponent(name) + "/password", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: pw }),
+      });
+      var j = await res.json().catch(function () { return {}; });
+      if (!res.ok) throw new Error((j && j.error) || "Request failed");
+      mNewPw.value = "";
+      setMissionModalMsg("Password updated.", true);
+      await loadMissions();
+      if (!isCreateMode) await openEditMission(name);
+    } catch (e) {
+      setMissionModalMsg(e.message || "Failed to set password", false);
+    }
+  }
+
+  async function clearMissionPassword() {
+    var name = (mName.value || "").trim();
+    if (!name) return setMissionModalMsg("Mission name missing.", false);
+    setMissionModalMsg("Removing password…", undefined);
+    try {
+      var res = await fetch(API + "/missions/" + encodeURIComponent(name) + "/password", {
+        method: "DELETE",
+      });
+      var j = await res.json().catch(function () { return {}; });
+      if (!res.ok) throw new Error((j && j.error) || "Request failed");
+      setMissionModalMsg("Password removed.", true);
+      await loadMissions();
+      await openEditMission(name);
+    } catch (e) {
+      setMissionModalMsg(e.message || "Failed to remove password", false);
+    }
+  }
+
+  function openDeleteMission(name) {
+    pendingDeleteName = name;
+    deleteModalText.textContent = "Delete mission \"" + name + "\" on the TAK Server? This cannot be undone.";
+    deleteModal.style.display = "flex";
+    document.body.classList.add("noScroll");
+  }
+
+  function closeDeleteModal() {
+    deleteModal.style.display = "none";
+    document.body.classList.remove("noScroll");
+    pendingDeleteName = "";
+  }
+
+  async function confirmDelete() {
+    var name = pendingDeleteName;
+    if (!name) return;
+    try {
+      var res = await fetch(API + "/missions/" + encodeURIComponent(name), { method: "DELETE" });
+      var j = await res.json().catch(function () { return {}; });
+      if (!res.ok) throw new Error((j && j.error) || "Delete failed");
+      closeDeleteModal();
+      setMissionsMsg("Mission deleted.", true);
+      await loadMissions();
+    } catch (e) {
+      setMissionsMsg(e.message || "Delete failed", false);
+      closeDeleteModal();
+    }
+  }
+
+  async function doUpload() {
+    setUploadMsg("Uploading…", undefined);
+    try {
+      var missionName = (uploadMissionSelect && uploadMissionSelect.value) || "";
+      var file = uploadFileInput && uploadFileInput.files && uploadFileInput.files[0];
+      if (!file) throw new Error("Choose a file.");
+      var fileField = (uploadFileField.value || "file").trim() || "file";
+      var missionField = (uploadMissionField.value || "mission").trim() || "mission";
+
+      var fd = new FormData();
+      fd.append(fileField, file, file.name);
+      if (missionName) fd.append(missionField, missionName);
+
+      var res = await fetch(API + "/sync/upload", {
+        method: "POST",
+        body: fd,
+      });
+      var text = await res.text();
+      var j;
+      try {
+        j = JSON.parse(text);
+      } catch (_) {
+        j = { raw: text };
+      }
+      if (!res.ok) throw new Error((j && j.error) || text.slice(0, 600) || "Upload failed");
+      setUploadMsg("Upload completed.", true);
+      uploadFileInput.value = "";
+      await loadMissions();
+    } catch (e) {
+      setUploadMsg(e.message || "Upload failed", false);
+    }
+  }
+
+  if (missionModalClose) missionModalClose.addEventListener("click", closeModal);
+  if (missionModal) {
+    missionModal.addEventListener("click", function (e) {
+      if (e.target === missionModal) closeModal();
+    });
+  }
+  if (mBtnSave) mBtnSave.addEventListener("click", saveMission);
+  if (mBtnSetPw) mBtnSetPw.addEventListener("click", setMissionPassword);
+  if (mBtnClearPw) mBtnClearPw.addEventListener("click", clearMissionPassword);
+  if (groupFilter) {
+    groupFilter.addEventListener("input", function () {
+      renderGroupCheckboxes();
+    });
+  }
+
+  if (mGroupsBox) {
+    mGroupsBox.addEventListener("change", function (e) {
+      var t = e.target;
+      if (!t || t.type !== "checkbox") return;
+      if (t.checked) selectedGroupSet.add(t.value);
+      else selectedGroupSet.delete(t.value);
+    });
+  }
+
+  if (btnRefreshMissions) btnRefreshMissions.addEventListener("click", loadMissions);
+  if (btnCreateMission) btnCreateMission.addEventListener("click", openCreateMission);
+  if (missionTableFilter) missionTableFilter.addEventListener("input", renderMissionsTable);
+  if (qPasswordProtected) qPasswordProtected.addEventListener("change", loadMissions);
+  if (qDefaultRole) qDefaultRole.addEventListener("change", loadMissions);
+
+  if (btnUpload) btnUpload.addEventListener("click", doUpload);
+
+  if (deleteModalClose) deleteModalClose.addEventListener("click", closeDeleteModal);
+  if (deleteModalConfirm) deleteModalConfirm.addEventListener("click", confirmDelete);
+  if (deleteModal) {
+    deleteModal.addEventListener("click", function (e) {
+      if (e.target === deleteModal) closeDeleteModal();
+    });
+  }
+
+  loadStatus().then(function (ok) {
+    if (ok) {
+      loadGroups()
+        .catch(function () { /* sidebar may still work */ })
+        .finally(function () {
+          loadMissions();
+        });
+    }
+  });
+})();
+</script>
