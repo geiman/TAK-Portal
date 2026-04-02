@@ -483,6 +483,10 @@ app.get("/locate", requireStrictGlobalAdmin, requireBetaMode, (req, res) =>
   res.render("locate")
 );
 
+app.get("/data-sync", requireStrictGlobalAdmin, requireBetaMode, (req, res) =>
+  res.render("data-sync")
+);
+
 // Public share link for a locator (no auth)
 app.get("/locate/:slug", (req, res) => {
   const slug = String(req.params.slug || "").trim().toLowerCase();
