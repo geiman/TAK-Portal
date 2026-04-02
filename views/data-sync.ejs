@@ -9,23 +9,46 @@
   <div id="statusBanner" class="card data-sync-status" style="display: none;" role="status"></div>
 
   <div class="card">
-    <h2 style="margin-top: 0;">Data Sync Manager</h2>
+    <h2 style="margin-top: 0;">Create mission</h2>
+    <div class="grid2">
+      <label>Mission name
+        <input type="text" id="createMissionName" autocomplete="off" placeholder="e.g. Incident Alpha" />
+      </label>
+      <label>Default role for subscribers
+        <select id="createMissionDefaultRole" style="width: 100%; box-sizing: border-box;">
+          <option value="MISSION_SUBSCRIBER">Mission subscriber (MISSION_SUBSCRIBER)</option>
+          <option value="MISSION_OWNER">Mission owner (MISSION_OWNER)</option>
+          <option value="MISSION_READONLY_SUBSCRIBER">Read-only (MISSION_READONLY_SUBSCRIBER)</option>
+        </select>
+      </label>
+      <label style="grid-column: 1 / -1;">Description
+        <textarea id="createMissionDescription" rows="2" placeholder="Mission description" style="width: 100%; box-sizing: border-box; resize: vertical;"></textarea>
+      </label>
+      <div style="grid-column: 1 / -1;">
+        <strong>Groups with access</strong>
+        <input type="search" id="createGroupFilter" placeholder="Filter groups…" style="width: 100%; max-width: 260px; box-sizing: border-box; margin-top: 6px;" />
+        <div id="createMissionGroupsBox" class="groupsBox" style="margin-top: 8px;"></div>
+      </div>
+      <label>Password (optional)
+        <input type="password" id="createMissionPw" autocomplete="new-password" />
+      </label>
+      <p class="muted" style="margin: 0; grid-column: 1 / -1; font-size: 12px;">Tool is always <code>public</code> for Data Sync missions.</p>
+      <div style="grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+        <button type="button" class="btn success" id="btnCreateMissionSubmit">Create mission</button>
+        <span id="createMissionMsg" class="msg"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top: 0;">Data Sync missions</h2>
 
     <div class="data-sync-toolbar row" style="flex-wrap: wrap; align-items: flex-end; gap: 12px;">
       <label style="min-width: 140px;">
         List filter
         <input type="search" id="missionTableFilter" placeholder="Filter by name…" style="width: 100%; box-sizing: border-box;" autocomplete="off" />
       </label>
-      <label class="chk-inline">
-        <input type="checkbox" id="qPasswordProtected" checked />
-        passwordProtected=true
-      </label>
-      <label class="chk-inline">
-        <input type="checkbox" id="qDefaultRole" checked />
-        defaultRole=true
-      </label>
       <button type="button" class="btn" id="btnRefreshMissions">Refresh</button>
-      <button type="button" class="btn success" id="btnCreateMission">Create mission</button>
     </div>
 
     <div id="missionsMsg" class="msg" style="margin: 12px 0 0 0;"></div>
@@ -49,10 +72,6 @@
 
   <div class="card">
     <h2 style="margin-top: 0;">KML data sync packages</h2>
-    <p class="muted" style="margin-top: 0; max-width: 85ch;">
-      Upload and download <strong>entire Data Sync packages as KML</strong> (same style as ATAK exports, e.g. <code>nsi active incident.kml</code>).
-      Uploads go to <code>POST /Marti/sync/upload</code> with a <code>.kml</code> part. Downloads use <code>GET /Marti/api/missions/&lt;name&gt;/archive</code> (HTML) and <code>…/kml?download=true</code> (KML).
-    </p>
     <div class="row" style="flex-wrap: wrap; align-items: flex-end; gap: 14px;">
       <label style="min-width: 220px;">
         Mission
@@ -122,17 +141,9 @@
         </div>
       </div>
 
-      <div class="row" style="margin-top: 14px; flex-wrap: wrap; gap: 10px; align-items: flex-end;">
-        <button type="button" class="btn" id="mBtnExportHtml">HTML (archive)</button>
-        <button type="button" class="btn" id="mBtnExportKml">KML</button>
-        <label style="min-width: 200px; flex: 1;">Password for download (if protected)
-          <input type="password" id="mExportKmlPw" autocomplete="off" placeholder="Optional" style="width: 100%; box-sizing: border-box;" />
-        </label>
-      </div>
-
       <div id="mContentsWrap" style="margin-top: 16px; display: none;">
         <h3 style="margin: 0 0 8px 0; font-size: 1rem;">Contents</h3>
-        <p class="muted" style="margin: 0 0 8px 0; font-size: 13px;">Per-item downloads use <code>GET /Marti/sync/content</code> (may not be KML). For a full Data Sync package as KML, use <strong>Download mission KML</strong> above.</p>
+        <p class="muted" style="margin: 0 0 8px 0; font-size: 13px;">Per-item downloads use <code>GET /Marti/sync/content</code> (may not be KML). For a full package as KML, use the <strong>KML</strong> button on the mission row.</p>
         <div style="overflow-x: auto;">
           <table class="table" style="margin: 0;">
             <thead>
@@ -191,10 +202,15 @@
   var missionsMsg = document.getElementById("missionsMsg");
   var missionsTbody = document.getElementById("missionsTbody");
   var missionTableFilter = document.getElementById("missionTableFilter");
-  var qPasswordProtected = document.getElementById("qPasswordProtected");
-  var qDefaultRole = document.getElementById("qDefaultRole");
   var btnRefreshMissions = document.getElementById("btnRefreshMissions");
-  var btnCreateMission = document.getElementById("btnCreateMission");
+  var createMissionName = document.getElementById("createMissionName");
+  var createMissionDescription = document.getElementById("createMissionDescription");
+  var createMissionDefaultRole = document.getElementById("createMissionDefaultRole");
+  var createGroupFilter = document.getElementById("createGroupFilter");
+  var createMissionGroupsBox = document.getElementById("createMissionGroupsBox");
+  var createMissionPw = document.getElementById("createMissionPw");
+  var btnCreateMissionSubmit = document.getElementById("btnCreateMissionSubmit");
+  var createMissionMsg = document.getElementById("createMissionMsg");
 
   var kmlMissionSelect = document.getElementById("kmlMissionSelect");
   var kmlUploadInput = document.getElementById("kmlUploadInput");
@@ -216,9 +232,6 @@
   var mContentsTbody = document.getElementById("mContentsTbody");
   var mBtnSave = document.getElementById("mBtnSave");
   var mSaveHint = document.getElementById("mSaveHint");
-  var mBtnExportHtml = document.getElementById("mBtnExportHtml");
-  var mBtnExportKml = document.getElementById("mBtnExportKml");
-  var mExportKmlPw = document.getElementById("mExportKmlPw");
 
   var deleteModal = document.getElementById("deleteModal");
   var deleteModalClose = document.getElementById("deleteModalClose");
@@ -229,9 +242,9 @@
   var groupsCache = [];
   var missionDetail = null;
   var editingOriginalName = "";
-  var isCreateMode = false;
   var pendingDeleteName = "";
   var selectedGroupSet = new Set();
+  var createSelectedGroupSet = new Set();
 
   function esc(s) {
     return String(s == null ? "" : s)
@@ -254,6 +267,12 @@
   function setMissionModalMsg(text, ok) {
     missionModalMsg.textContent = text || "";
     missionModalMsg.className = "msg " + (ok === true ? "ok" : ok === false ? "bad" : "");
+  }
+
+  function setCreateMissionMsg(text, ok) {
+    if (!createMissionMsg) return;
+    createMissionMsg.textContent = text || "";
+    createMissionMsg.className = "msg " + (ok === true ? "ok" : ok === false ? "bad" : "");
   }
 
   function unwrapList(payload) {
@@ -396,14 +415,12 @@
     var j = await res.json();
     if (!res.ok) throw new Error((j && j.error) || "Failed to load groups");
     groupsCache = normalizeGroupNames(j);
+    renderCreateGroupCheckboxes();
     return groupsCache;
   }
 
   function missionQueryParams() {
-    var q = {};
-    if (qPasswordProtected.checked) q.passwordProtected = "true";
-    if (qDefaultRole.checked) q.defaultRole = "true";
-    return q;
+    return {};
   }
 
   function buildQueryString(obj) {
@@ -430,7 +447,7 @@
       missionsCache = unwrapList(j);
       renderMissionsTable();
       populateKmlMissionSelects();
-      setMissionsMsg(missionsCache.length ? "" : "No missions returned for this filter.", true);
+      setMissionsMsg(missionsCache.length ? "" : "No missions.", true);
     } catch (e) {
       setMissionsMsg(e.message || "Failed to load missions", false);
     }
@@ -658,6 +675,97 @@
     return Array.from(selectedGroupSet);
   }
 
+  function renderCreateGroupCheckboxes() {
+    if (!createMissionGroupsBox) return;
+    var filt = (createGroupFilter && createGroupFilter.value || "").trim().toLowerCase();
+    createMissionGroupsBox.innerHTML = "";
+    for (var i = 0; i < groupsCache.length; i++) {
+      var g = groupsCache[i];
+      if (filt && g.toLowerCase().indexOf(filt) === -1) continue;
+      var label = document.createElement("label");
+      label.className = "groupItem";
+      var cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.value = g;
+      cb.checked = createSelectedGroupSet.has(g);
+      var span = document.createElement("span");
+      span.textContent = g;
+      label.appendChild(cb);
+      label.appendChild(span);
+      createMissionGroupsBox.appendChild(label);
+    }
+  }
+
+  function clearCreateMissionForm() {
+    if (createMissionName) createMissionName.value = "";
+    if (createMissionDescription) createMissionDescription.value = "";
+    if (createMissionDefaultRole) createMissionDefaultRole.value = "MISSION_SUBSCRIBER";
+    if (createMissionPw) createMissionPw.value = "";
+    if (createGroupFilter) createGroupFilter.value = "";
+    createSelectedGroupSet = new Set();
+    renderCreateGroupCheckboxes();
+  }
+
+  async function submitCreateMission() {
+    var name = (createMissionName && createMissionName.value || "").trim();
+    if (!name) {
+      setCreateMissionMsg("Mission name is required.", false);
+      return;
+    }
+    setCreateMissionMsg("Creating…", undefined);
+    try {
+      var payload = {
+        name: name,
+        tool: "public",
+        description: createMissionDescription ? String(createMissionDescription.value || "") : "",
+        defaultRole: buildDefaultRoleObject(createMissionDefaultRole && createMissionDefaultRole.value),
+        groups: Array.from(createSelectedGroupSet),
+        keywords: [],
+        inviteOnly: false,
+      };
+      var url = API + "/missions/" + encodeURIComponent(payload.name);
+      var res = await fetch(url, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(payload),
+      });
+      var text = await res.text();
+      var j;
+      try {
+        j = JSON.parse(text);
+      } catch (_) {
+        j = { raw: text };
+      }
+      if (!res.ok) throw new Error((j && j.error) || text.slice(0, 500) || "Create failed");
+
+      var pwApply = (createMissionPw && createMissionPw.value) || "";
+      if (pwApply) {
+        var pr = await fetch(API + "/missions/" + encodeURIComponent(payload.name) + "/password", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password: pwApply }),
+        });
+        var ptext = await pr.text();
+        var pj;
+        try {
+          pj = JSON.parse(ptext);
+        } catch (_) {
+          pj = {};
+        }
+        if (!pr.ok) {
+          throw new Error((pj && pj.error) || "Mission created but password could not be set.");
+        }
+        if (createMissionPw) createMissionPw.value = "";
+      }
+
+      clearCreateMissionForm();
+      setCreateMissionMsg("Mission created.", true);
+      await loadMissions();
+    } catch (e) {
+      setCreateMissionMsg(e.message || "Create failed", false);
+    }
+  }
+
   function openModal() {
     missionModal.style.display = "flex";
     document.body.classList.add("noScroll");
@@ -667,12 +775,10 @@
     missionModal.style.display = "none";
     document.body.classList.remove("noScroll");
     missionDetail = null;
-    isCreateMode = false;
     editingOriginalName = "";
   }
 
   async function openEditMission(name) {
-    isCreateMode = false;
     missionModalTitle.textContent = "Edit mission";
     mName.readOnly = true;
     setMissionModalMsg("Loading…", undefined);
@@ -737,41 +843,6 @@
     }
   }
 
-  function openCreateMission() {
-    isCreateMode = true;
-    missionModalTitle.textContent = "Create mission";
-    mName.readOnly = false;
-    missionDetail = {
-      name: "",
-      tool: "public",
-      description: "",
-      keywords: [],
-      groups: [],
-      inviteOnly: false,
-      defaultRole: buildDefaultRoleObject("MISSION_SUBSCRIBER"),
-    };
-    editingOriginalName = "";
-    mName.value = "";
-    if (mDescription) mDescription.value = "";
-    if (mDefaultRole) mDefaultRole.value = "MISSION_SUBSCRIBER";
-    mNewPw.value = "";
-    mContentsWrap.style.display = "none";
-    mContentsTbody.innerHTML = "";
-    setMissionModalMsg("", true);
-
-    selectedGroupSet = new Set();
-    loadGroups()
-      .then(function () {
-        groupFilter.value = "";
-        renderGroupCheckboxes();
-        openModal();
-      })
-      .catch(function (e) {
-        setMissionModalMsg(e.message || "Failed to load groups", false);
-        openModal();
-      });
-  }
-
   function buildSavePayload() {
     var base = missionDetail && typeof missionDetail === "object" ? JSON.parse(JSON.stringify(missionDetail)) : {};
     var name = (mName.value || "").trim();
@@ -833,7 +904,7 @@
 
       setMissionModalMsg("Saved.", true);
       await loadMissions();
-      if (!isCreateMode) await openEditMission(payload.name);
+      await openEditMission(payload.name);
     } catch (e) {
       setMissionModalMsg(e.message || "Save failed", false);
     }
@@ -855,7 +926,7 @@
       mNewPw.value = "";
       setMissionModalMsg("Password updated.", true);
       await loadMissions();
-      if (!isCreateMode) await openEditMission(name);
+      await openEditMission(name);
     } catch (e) {
       setMissionModalMsg(e.message || "Failed to set password", false);
     }
@@ -967,45 +1038,23 @@
   }
 
   if (btnRefreshMissions) btnRefreshMissions.addEventListener("click", loadMissions);
-  if (btnCreateMission) btnCreateMission.addEventListener("click", openCreateMission);
   if (missionTableFilter) missionTableFilter.addEventListener("input", renderMissionsTable);
-  if (qPasswordProtected) qPasswordProtected.addEventListener("change", loadMissions);
-  if (qDefaultRole) qDefaultRole.addEventListener("change", loadMissions);
+  if (btnCreateMissionSubmit) btnCreateMissionSubmit.addEventListener("click", submitCreateMission);
+  if (createGroupFilter) {
+    createGroupFilter.addEventListener("input", function () {
+      renderCreateGroupCheckboxes();
+    });
+  }
+  if (createMissionGroupsBox) {
+    createMissionGroupsBox.addEventListener("change", function (e) {
+      var t = e.target;
+      if (!t || t.type !== "checkbox") return;
+      if (t.checked) createSelectedGroupSet.add(t.value);
+      else createSelectedGroupSet.delete(t.value);
+    });
+  }
 
   if (btnKmlUpload) btnKmlUpload.addEventListener("click", doKmlUpload);
-  function modalExportPw() {
-    return (mExportKmlPw && mExportKmlPw.value) || "";
-  }
-  if (mBtnExportHtml && mName) {
-    mBtnExportHtml.addEventListener("click", function () {
-      var nm = (mName.value || "").trim();
-      if (!nm) return setMissionModalMsg("Mission name missing.", false);
-      setMissionModalMsg("Downloading HTML…", undefined);
-      fetchMissionArchiveBlob(nm, modalExportPw())
-        .then(function (blob) {
-          triggerBrowserHtmlDownload(blob, nm);
-          setMissionModalMsg("HTML download started.", true);
-        })
-        .catch(function (e) {
-          setMissionModalMsg(e.message || "Download failed", false);
-        });
-    });
-  }
-  if (mBtnExportKml && mName) {
-    mBtnExportKml.addEventListener("click", function () {
-      var nm = (mName.value || "").trim();
-      if (!nm) return setMissionModalMsg("Mission name missing.", false);
-      setMissionModalMsg("Downloading KML…", undefined);
-      fetchMissionKmlBlob(nm, modalExportPw())
-        .then(function (blob) {
-          triggerBrowserKmlDownload(blob, nm);
-          setMissionModalMsg("KML download started.", true);
-        })
-        .catch(function (e) {
-          setMissionModalMsg(e.message || "Download failed", false);
-        });
-    });
-  }
 
   if (deleteModalClose) deleteModalClose.addEventListener("click", closeDeleteModal);
   if (deleteModalConfirm) deleteModalConfirm.addEventListener("click", confirmDelete);
