@@ -419,11 +419,12 @@
         ]
       : isItak
       ? [
-          "Open iTAK on your iPhone or iPad.",
-          "Navigate to the TAK Server enrollment or registration screen in the app.",
-          "Choose the option to scan a QR code from inside iTAK.",
-          "Use iTAK's built-in scanner to scan this QR code.",
-          "Complete enrollment in iTAK and confirm the registration succeeds."
+          "Open iTAK on your iOS device.",
+          "When prompted, allow Location access and set it to 'Always Allow'.",
+          "Follow initial setup to set Call Sign / Team / Role (per your welcome email).",
+          "Tap the settings gear in the upper right corner of the map screen",
+          "Tap 'Network', 'Servers', '+' in bottom right, then choose 'Scan QR'",
+          "Allow camera access and scan the QR until it register.",
         ]
       : mode === "ott"
       ? [
@@ -491,7 +492,6 @@
           "Name: Your choice",
           "Address: <strong><%= takHost || 'your TAK server hostname' %></strong>",
           `Enter your username and password: <strong>${CURRENT_USERNAME}</strong>`,
-          "Enter the server connection string: <strong><%= takHost || 'your TAK server hostname' %>:8089:ssl</strong>",
           "Tap 'Connect', if successful, you should see the server connected."
         ]
       : [
