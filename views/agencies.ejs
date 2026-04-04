@@ -295,6 +295,8 @@
   </div>
 
 <script>
+/** Same list as Add Agency type dropdown (core + settings extras + Other); PATCH /api/agencies/:index/type */
+const AGENCY_TYPE_OPTIONS = <%- JSON.stringify(Array.isArray(agencyTypeOptions) ? agencyTypeOptions : []) %>;
 const msg = document.getElementById("msg");
 const tbody = document.getElementById("tbody");
 const addForm = document.getElementById("addForm");
@@ -368,6 +370,108 @@ async function updateAgencyColor(agencyIndex, newColor) {
     await loadAgenciesWithCounts();
   }
 }
+
+function buildAgencyTypeCellHtml(a) {
+  const idx = a._id ?? a.id;
+  const current = String(a.type || "").trim();
+  let opts = "";
+  if (!current) {
+    opts += `<option value="" disabled selected>Choose type…</option>`;
+  }
+  opts += AGENCY_TYPE_OPTIONS.map((t) => {
+    const sel = t === current ? " selected" : "";
+    return `<option value="${esc(t)}"${sel}>${esc(t)}</option>`;
+  }).join("");
+  const legacyExtra =
+    current && !AGENCY_TYPE_OPTIONS.includes(current)
+      ? `<option value="${esc(current)}" selected>${esc(current)} (current)</option>`
+      : "";
+  const label = current ? esc(current) : "—";
+  const aria = esc(a.name || "Agency");
+  return `<div class="agency-type-cell" data-agency-index="${Number(idx)}">
+    <button type="button" class="agency-type-view" title="Change type" onclick="agencyTypeStartEdit(${Number(idx)})">${label}</button>
+    <select
+      class="agency-type-select"
+      aria-label="Type for ${aria}"
+      style="display:none"
+      onchange="agencyTypeCommit(${Number(idx)}, this)"
+      onkeydown="agencyTypeSelectKey(${Number(idx)}, event)"
+      onblur="agencyTypeSelectBlur(${Number(idx)}, this)"
+    >${legacyExtra}${opts}</select>
+  </div>`;
+}
+
+window.agencyTypeStartEdit = function (agencyIndex) {
+  const wrap = tbody.querySelector('.agency-type-cell[data-agency-index="' + String(agencyIndex) + '"]');
+  if (!wrap) return;
+  const view = wrap.querySelector(".agency-type-view");
+  const sel = wrap.querySelector(".agency-type-select");
+  if (!view || !sel) return;
+  wrap.dataset.origType = sel.value;
+  view.style.display = "none";
+  sel.style.display = "block";
+  wrap.classList.add("agency-type-editing");
+  try {
+    sel.focus();
+  } catch (e) {}
+};
+
+window.agencyTypeCancel = function (agencyIndex) {
+  const wrap = tbody.querySelector('.agency-type-cell[data-agency-index="' + String(agencyIndex) + '"]');
+  if (!wrap) return;
+  const view = wrap.querySelector(".agency-type-view");
+  const sel = wrap.querySelector(".agency-type-select");
+  const orig = wrap.dataset.origType;
+  if (sel && orig !== undefined) sel.value = orig;
+  if (view) view.style.display = "";
+  if (sel) sel.style.display = "none";
+  wrap.classList.remove("agency-type-editing");
+};
+
+window.agencyTypeCommit = async function (agencyIndex, sel) {
+  const v = String(sel.value || "").trim();
+  if (!v) return;
+  const wrap = sel.closest(".agency-type-cell");
+  const orig = wrap && wrap.dataset.origType;
+  if (v === orig) {
+    window.agencyTypeCancel(agencyIndex);
+    return;
+  }
+  try {
+    const res = await fetch("/api/agencies/" + encodeURIComponent(agencyIndex) + "/type", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: v }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Failed to update agency type");
+    setMsg("Type saved.", true);
+    const row = agencies.find((x) => String(x._id ?? x.id) === String(agencyIndex));
+    if (row) row.type = v;
+    renderAgencies();
+  } catch (e) {
+    setMsg(e.message || String(e), false);
+    await loadAgenciesWithCounts();
+  }
+};
+
+window.agencyTypeSelectKey = function (agencyIndex, ev) {
+  if (ev.key === "Escape") {
+    ev.preventDefault();
+    window.agencyTypeCancel(agencyIndex);
+  }
+};
+
+var agencyTypeBlurTimer = null;
+window.agencyTypeSelectBlur = function (agencyIndex, sel) {
+  clearTimeout(agencyTypeBlurTimer);
+  agencyTypeBlurTimer = setTimeout(function () {
+    const wrap = sel.closest(".agency-type-cell");
+    if (!wrap || !wrap.classList.contains("agency-type-editing")) return;
+    if (document.activeElement === sel) return;
+    window.agencyTypeCancel(agencyIndex);
+  }, 150);
+};
 
 function normalizeVal(v){
   if (v === null || v === undefined) return "";
@@ -501,7 +605,7 @@ function renderAgencies(){
           : `<button class="btn" type="button" onclick="openCountyAbbrevModal('${esc(a._id ?? a.id ?? "")}')">Update</button>`
       }</td>
       <td>${esc(a.state || "")}</td>
-      <td>${esc(a.type)}</td>
+      <td>${buildAgencyTypeCellHtml(a)}</td>
       <td>${buildAgencyColorCellHtml(a)}</td>
       <td>
         <div class="row agencyActionsCell" style="gap: 10px; flex-wrap: wrap;">
@@ -1275,6 +1379,36 @@ if (addForm) {
   position: absolute;
   right: 0.5rem;
   opacity: 0.7;
+}
+
+/* Agency type: compact text until user clicks to edit (full-width select only while editing) */
+.agency-type-cell {
+  min-width: 0;
+  max-width: 100%;
+}
+.agency-type-view {
+  display: inline;
+  max-width: 100%;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+.agency-type-view:hover {
+  opacity: 0.9;
+}
+.agency-type-editing .agency-type-select {
+  display: block;
+  width: 100%;
+  min-width: min(22rem, 100%);
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 /* Grey button for Disable Lookup */
