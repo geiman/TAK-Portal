@@ -12,6 +12,9 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.67 - 4/4/26
+🐛 `Bug Fix` - Fixes issue with locate failing if user inputs characters such as apostrophes and other special characters.  Handling added to remove and replace characters. (TAK Server limitation)
+
 ### v1.2.66 - 4/3/26
 ✨ `Enhancement` - Added ability to edit agency type for existing agencies and adds an "Edit Agency Attributes" button.
 
