@@ -202,7 +202,7 @@
             <button class="btn" type="button" id="setupQrCopyBtn" disabled>Copy URL</button>
             <button class="btn" type="button" id="setupQrSaveBtn" disabled>Save Image</button>
           </div>
-          <div id="setupQrOpenBtnNote" style="display:none; margin-top: 8px; font-size: 0.9rem; color: #7a7f87;">Open URL support for iTAK is coming soon.</div>
+          <div id="setupQrOpenBtnNote" style="display:none; margin-top: 8px; font-size: 0.9rem; color: #7a7f87;">Open URL support for iTAK disabled.</div>
         </div>
         <div style="min-width: 320px;">
           <h3 style="margin-top:0;" id="setupQrInstructionsTitle">How to Scan</h3>
@@ -643,7 +643,7 @@
   function updateOpenUrlButtonState(app, hasUrl) {
     const enabled = !!hasUrl && app !== "itak";
     openUrlBtn.disabled = !enabled;
-    openUrlBtn.textContent = app === "itak" ? "Open URL (Coming Soon)" : "Open URL";
+    openUrlBtn.textContent = "Open URL";
     openUrlBtn.style.opacity = enabled ? "1" : "0.55";
     openUrlBtn.style.cursor = enabled ? "pointer" : "not-allowed";
     if (openUrlBtnNote) {
@@ -663,7 +663,9 @@
     details.innerHTML = chips.join(" ");
 
     updateOpenUrlButtonState(currentQrApp, !!url);
-    copyBtn.disabled = !url;
+    copyBtn.disabled = currentQrApp === "itak" || !url;
+    copyBtn.style.opacity = currentQrApp === "itak" || !url ? "0.55" : "1";
+    copyBtn.style.cursor = currentQrApp === "itak" || !url ? "not-allowed" : "pointer";
     saveBtn.disabled = !(obj.qrCode || (obj.username && obj.token));
     setMsg(msg, "QR ready.", true);
 
@@ -682,6 +684,8 @@
     if (enrollUrlHolder) enrollUrlHolder.dataset.enrollUrl = "";
     updateOpenUrlButtonState(app, false);
     copyBtn.disabled = true;
+    copyBtn.style.opacity = "0.55";
+    copyBtn.style.cursor = "not-allowed";
     saveBtn.disabled = true;
     countdownEl.textContent = "";
     setMsg(msg, "Generating enrollment QR...", true);
@@ -724,7 +728,9 @@
     if (isItak) chips.push(`<span class="chip">Scan from inside iTAK</span>`);
     details.innerHTML = chips.join(" ");
     updateOpenUrlButtonState(app, !!url);
-    copyBtn.disabled = !url;
+    copyBtn.disabled = isItak || !url;
+    copyBtn.style.opacity = isItak || !url ? "0.55" : "1";
+    copyBtn.style.cursor = isItak || !url ? "not-allowed" : "pointer";
     saveBtn.disabled = isOtt ? true : !(obj.qrCode || (obj.username && obj.token));
     setMsg(msg, "QR ready.", true);
     startCountdown(obj.expiresAt);
