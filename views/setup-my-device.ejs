@@ -97,6 +97,14 @@
             </button>
           </div>
         </div>
+
+        <div class="card">
+          <h2>Step 3: Configure Device Preferences - iTAK</h2>
+          <button type="button" class="btn tile" id="itakPreferenceManualBtn">
+            <span class="title">Manual Configuration</span>
+            <span class="desc">Enter your callsign, team, and role in iTAK settings.</span>
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -194,6 +202,7 @@
             <button class="btn" type="button" id="setupQrCopyBtn" disabled>Copy URL</button>
             <button class="btn" type="button" id="setupQrSaveBtn" disabled>Save Image</button>
           </div>
+          <div id="setupQrOpenBtnNote" style="display:none; margin-top: 8px; font-size: 0.9rem; color: #7a7f87;">Open URL support for iTAK is coming soon.</div>
         </div>
         <div style="min-width: 320px;">
           <h3 style="margin-top:0;" id="setupQrInstructionsTitle">How to Scan</h3>
@@ -292,6 +301,22 @@
   </div>
 </div>
 
+<!-- iOS Step 3: Configure Device Preferences (iTAK) -->
+<div class="modalOverlay" id="itakPreferenceManualOverlay" style="display:none;">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="itakPreferenceManualTitle">
+    <div class="modalHeader">
+      <h2 id="itakPreferenceManualTitle" style="margin:0;">Configure Device Preferences - iTAK</h2>
+      <button class="btn" id="itakPreferenceManualCloseBtn" type="button">Close</button>
+    </div>
+    <div class="modalBody">
+      <div style="max-width: 600px;">
+        <p style="margin: 0 0 12px;">If not already completed during device setup, please complete the following:</p>
+        <ol id="itakPreferenceManualInstructions" style="margin-top: 6px;"></ol>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
   // CloudTAK URL (from settings.json via server render)
   const cloudtakUrl = <%- JSON.stringify((settings && typeof settings.CLOUDTAK_URL === "string") ? settings.CLOUDTAK_URL.trim() : "") %>;
@@ -342,6 +367,7 @@
   const qrImg = document.getElementById("setupQrImg");
   const enrollUrlHolder = document.getElementById("setupQrEnrollUrlHolder");
   const openUrlBtn = document.getElementById("setupQrOpenBtn");
+  const openUrlBtnNote = document.getElementById("setupQrOpenBtnNote");
   const copyBtn = document.getElementById("setupQrCopyBtn");
   const saveBtn = document.getElementById("setupQrSaveBtn");
 
@@ -459,12 +485,14 @@
       : isItak
       ? [
           "Open iTAK on your iPhone or iPad.",
-          "Navigate to the TAK Server connection or registration screen.",
-          "Choose the manual setup or manual login option.",
+          "Follow initial setup to set Call Sign / Team / Role (per your welcome email).",
+          "Tap the settings gear in the upper right corner of the map screen",
+          "Tap Network, Servers, + symbol in bottom right, Connect with Credentials",
+          "Name: Your choice",
+          "Address: <strong><%= takHost || 'your TAK server hostname' %></strong>",
+          `Enter your username and password: <strong>${CURRENT_USERNAME}</strong>`,
           "Enter the server connection string: <strong><%= takHost || 'your TAK server hostname' %>:8089:ssl</strong>",
-          `Enter your username: <strong>${CURRENT_USERNAME}</strong>`,
-          "Enter your TAK Portal password when prompted.",
-          "Complete registration in iTAK and confirm the enrollment succeeds."
+          "Tap 'Connect', if successful, you should see the server connected."
         ]
       : [
           "Open ATAK on your Android device.",
@@ -612,6 +640,17 @@
     document.body.classList.remove("noScroll");
   }
 
+  function updateOpenUrlButtonState(app, hasUrl) {
+    const enabled = !!hasUrl && app !== "itak";
+    openUrlBtn.disabled = !enabled;
+    openUrlBtn.textContent = app === "itak" ? "Open URL (Coming Soon)" : "Open URL";
+    openUrlBtn.style.opacity = enabled ? "1" : "0.55";
+    openUrlBtn.style.cursor = enabled ? "pointer" : "not-allowed";
+    if (openUrlBtnNote) {
+      openUrlBtnNote.style.display = app === "itak" ? "block" : "none";
+    }
+  }
+
   function renderFromCache(obj) {
     cached = obj;
     currentQrApp = obj.app || "atak";
@@ -623,7 +662,7 @@
     if (obj.username) chips.push(`<span class="chip">User: ${obj.username}</span>`);
     details.innerHTML = chips.join(" ");
 
-    openUrlBtn.disabled = currentQrApp === "itak" || !url;
+    updateOpenUrlButtonState(currentQrApp, !!url);
     copyBtn.disabled = !url;
     saveBtn.disabled = !(obj.qrCode || (obj.username && obj.token));
     setMsg(msg, "QR ready.", true);
@@ -641,7 +680,7 @@
     qrImg.src = "";
     details.innerHTML = "";
     if (enrollUrlHolder) enrollUrlHolder.dataset.enrollUrl = "";
-    openUrlBtn.disabled = true;
+    updateOpenUrlButtonState(app, false);
     copyBtn.disabled = true;
     saveBtn.disabled = true;
     countdownEl.textContent = "";
@@ -684,7 +723,7 @@
     if (obj.username) chips.push(`<span class="chip">User: ${obj.username}</span>`);
     if (isItak) chips.push(`<span class="chip">Scan from inside iTAK</span>`);
     details.innerHTML = chips.join(" ");
-    openUrlBtn.disabled = isItak || !url;
+    updateOpenUrlButtonState(app, !!url);
     copyBtn.disabled = !url;
     saveBtn.disabled = isOtt ? true : !(obj.qrCode || (obj.username && obj.token));
     setMsg(msg, "QR ready.", true);
@@ -873,6 +912,10 @@
   const iosPreferenceManualOverlay = document.getElementById("iosPreferenceManualOverlay");
   const iosPreferenceManualCloseBtn = document.getElementById("iosPreferenceManualCloseBtn");
   const iosPreferenceManualInstructions = document.getElementById("iosPreferenceManualInstructions");
+  const itakPreferenceManualBtn = document.getElementById("itakPreferenceManualBtn");
+  const itakPreferenceManualOverlay = document.getElementById("itakPreferenceManualOverlay");
+  const itakPreferenceManualCloseBtn = document.getElementById("itakPreferenceManualCloseBtn");
+  const itakPreferenceManualInstructions = document.getElementById("itakPreferenceManualInstructions");
 
   function openIosPreferenceManualModal() {
     iosPreferenceManualOverlay.style.display = "flex";
@@ -881,6 +924,16 @@
 
   function closeIosPreferenceManualModal() {
     iosPreferenceManualOverlay.style.display = "none";
+    document.body.classList.remove("noScroll");
+  }
+
+  function openItakPreferenceManualModal() {
+    itakPreferenceManualOverlay.style.display = "flex";
+    document.body.classList.add("noScroll");
+  }
+
+  function closeItakPreferenceManualModal() {
+    itakPreferenceManualOverlay.style.display = "none";
     document.body.classList.remove("noScroll");
   }
 
@@ -907,9 +960,35 @@
     }
   }
 
+  async function handleItakPreferenceManualClick() {
+    itakPreferenceManualInstructions.innerHTML = "<li>Loading...</li>";
+    openItakPreferenceManualModal();
+    try {
+      const data = await fetchPreferenceData();
+      const callsign = (data.callsign && escapeHtml(data.callsign)) || "";
+      const team = (data.teamLabel && escapeHtml(data.teamLabel)) || "";
+      const role = (data.roleLabel && escapeHtml(data.roleLabel)) || "Team Member";
+      itakPreferenceManualInstructions.innerHTML = [
+        "Open the iTAK app on your Apple device.",
+        "Select the settings gear icon in the top right.",
+        "Select the Callsign menu at the top.",
+        "Select Callsign and enter: <strong>" + callsign + "</strong>",
+        "Select Team and select: <strong>" + team + "</strong>",
+        "Select Role and select: <strong>" + role + "</strong>",
+        "Once complete you may select Save and close the settings window.",
+        "It is also recommended from the settings menu to open Map Source and change the Base Map to \"Apple - Hybrid\"."
+      ].map(function (s) { return "<li>" + s + "</li>"; }).join("");
+    } catch (err) {
+      itakPreferenceManualInstructions.innerHTML = "<li class=\"msg bad\">" + escapeHtml(err?.message || "Failed to load preference data") + "</li>";
+    }
+  }
+
   iosPreferenceManualBtn.addEventListener("click", handleIosPreferenceManualClick);
   iosPreferenceManualCloseBtn.addEventListener("click", closeIosPreferenceManualModal);
   iosPreferenceManualOverlay.addEventListener("click", (e) => { if (e.target === iosPreferenceManualOverlay) closeIosPreferenceManualModal(); });
+  if (itakPreferenceManualBtn) itakPreferenceManualBtn.addEventListener("click", handleItakPreferenceManualClick);
+  if (itakPreferenceManualCloseBtn) itakPreferenceManualCloseBtn.addEventListener("click", closeItakPreferenceManualModal);
+  if (itakPreferenceManualOverlay) itakPreferenceManualOverlay.addEventListener("click", (e) => { if (e.target === itakPreferenceManualOverlay) closeItakPreferenceManualModal(); });
 
   preferenceQrOpenBtn.addEventListener("click", () => {
     var url = getCurrentPreferenceUrl();
@@ -969,6 +1048,7 @@
       if (preferenceQrOverlay.style.display !== "none") closePreferenceQrModal();
       if (preferenceManualOverlay.style.display !== "none") closePreferenceManualModal();
       if (iosPreferenceManualOverlay.style.display !== "none") closeIosPreferenceManualModal();
+      if (itakPreferenceManualOverlay.style.display !== "none") closeItakPreferenceManualModal();
     }
   });
 
