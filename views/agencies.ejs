@@ -295,6 +295,8 @@
   </div>
 
 <script>
+/** Same list as create-agency type dropdown and PATCH /api/agencies/:index/type */
+const AGENCY_TYPE_OPTIONS = <%- JSON.stringify(Array.isArray(agencyTypeOptions) ? agencyTypeOptions : []) %>;
 const msg = document.getElementById("msg");
 const tbody = document.getElementById("tbody");
 const addForm = document.getElementById("addForm");
@@ -362,6 +364,45 @@ async function updateAgencyColor(agencyIndex, newColor) {
     setMsg("Color saved.", true);
     const row = agencies.find((x) => String(x._id ?? x.id) === String(agencyIndex));
     if (row) row.color = newColor;
+    renderAgencies();
+  } catch (e) {
+    setMsg(e.message || String(e), false);
+    await loadAgenciesWithCounts();
+  }
+}
+
+function buildAgencyTypeCellHtml(a) {
+  const idx = a._id ?? a.id;
+  const current = String(a.type || "").trim();
+  let opts = "";
+  if (!current) {
+    opts += `<option value="" disabled selected>Choose type…</option>`;
+  }
+  opts += AGENCY_TYPE_OPTIONS.map((t) => {
+    const sel = t === current ? " selected" : "";
+    return `<option value="${esc(t)}"${sel}>${esc(t)}</option>`;
+  }).join("");
+  const legacyExtra =
+    current && !AGENCY_TYPE_OPTIONS.includes(current)
+      ? `<option value="${esc(current)}" selected>${esc(current)} (current)</option>`
+      : "";
+  const aria = esc(a.name || "Agency");
+  return `<select aria-label="Type for ${aria}" onchange="updateAgencyType(${Number(idx)}, this.value)">${legacyExtra}${opts}</select>`;
+}
+
+async function updateAgencyType(agencyIndex, newType) {
+  if (!String(newType || "").trim()) return;
+  try {
+    const res = await fetch(`/api/agencies/${encodeURIComponent(agencyIndex)}/type`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: newType }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Failed to update agency type");
+    setMsg("Type saved.", true);
+    const row = agencies.find((x) => String(x._id ?? x.id) === String(agencyIndex));
+    if (row) row.type = newType;
     renderAgencies();
   } catch (e) {
     setMsg(e.message || String(e), false);
@@ -501,7 +542,7 @@ function renderAgencies(){
           : `<button class="btn" type="button" onclick="openCountyAbbrevModal('${esc(a._id ?? a.id ?? "")}')">Update</button>`
       }</td>
       <td>${esc(a.state || "")}</td>
-      <td>${esc(a.type)}</td>
+      <td>${buildAgencyTypeCellHtml(a)}</td>
       <td>${buildAgencyColorCellHtml(a)}</td>
       <td>
         <div class="row agencyActionsCell" style="gap: 10px; flex-wrap: wrap;">

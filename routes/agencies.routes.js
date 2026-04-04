@@ -1,5 +1,6 @@
 const router = require("express").Router();
 const store = require("../services/agencies.service");
+const agencyTypesSvc = require("../services/agencyTypes.service");
 const accessSvc = require("../services/access.service");
 const usersService = require("../services/users.service");
 const groupsService = require("../services/groups.service");
@@ -266,6 +267,44 @@ router.patch("/:index/color", (req, res) => {
   });
 
   res.json({ success: true, color: raw });
+});
+
+router.patch("/:index/type", (req, res) => {
+  const idx = Number(req.params.index);
+  const agencies = store.load();
+  if (!Number.isInteger(idx) || !agencies[idx]) {
+    return res.status(404).json({ error: "Not found" });
+  }
+
+  const agency = agencies[idx];
+  if (!accessSvc.isSuffixAllowed(req.authentikUser, agency.suffix)) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+
+  const allowed = new Set(agencyTypesSvc.getAgencyTypeOptions());
+  const raw = String(req.body?.type ?? "").trim();
+  if (!raw || !allowed.has(raw)) {
+    return res.status(400).json({ error: "Invalid agency type" });
+  }
+
+  const before = String(agency.type || "").trim();
+  if (before === raw) {
+    return res.json({ success: true, type: raw });
+  }
+
+  agencies[idx] = { ...agency, type: raw };
+  store.save(agencies);
+
+  auditSvc.logEvent({
+    actor: req.authentikUser || null,
+    request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+    action: "UPDATE_AGENCY_TYPE",
+    targetType: "agency",
+    targetId: String(agency.suffix || ""),
+    details: { before, after: raw },
+  });
+
+  res.json({ success: true, type: raw });
 });
 
 router.put("/:index", async (req, res) => {
