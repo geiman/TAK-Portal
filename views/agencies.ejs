@@ -330,32 +330,9 @@ const AGENCY_COLOR_OPTIONS = [
   "Orange", "Purple", "Red", "Teal", "White", "Yellow",
 ];
 
-const AGENCY_COLOR_HEX = {
-  "Blue": "#2563eb",
-  "Dark Blue": "#1e3a8a",
-  "Brown": "#92400e",
-  "Cyan": "#06b6d4",
-  "Green": "#22c55e",
-  "Dark Green": "#14532d",
-  "Magenta": "#d946ef",
-  "Maroon": "#881337",
-  "Orange": "#f97316",
-  "Purple": "#a855f7",
-  "Red": "#ef4444",
-  "Teal": "#14b8a6",
-  "White": "#e2e8f0",
-  "Yellow": "#eab308",
-};
-
-function agencyColorHex(name) {
-  const n = String(name || "").trim();
-  return AGENCY_COLOR_HEX[n] || "#64748b";
-}
-
 function buildAgencyColorCellHtml(a) {
   const idx = a._id ?? a.id;
   const current = String(a.color || "").trim();
-  const border = agencyColorHex(current);
   let opts = "";
   if (!current) {
     opts += `<option value="" disabled selected>Choose color…</option>`;
@@ -369,15 +346,7 @@ function buildAgencyColorCellHtml(a) {
       ? `<option value="${esc(current)}" selected>${esc(current)} (current)</option>`
       : "";
   const aria = esc(a.name || "Agency");
-  return `<div class="agency-color-cell">
-    <span class="agency-color-swatch" style="background:${border}" title="Color swatch" aria-hidden="true"></span>
-    <select
-      class="agency-color-select"
-      aria-label="Color for ${aria}"
-      style="border-left:4px solid ${border}"
-      onchange="updateAgencyColor(${Number(idx)}, this.value)"
-    >${legacyExtra}${opts}</select>
-  </div>`;
+  return `<select aria-label="Color for ${aria}" onchange="updateAgencyColor(${Number(idx)}, this.value)">${legacyExtra}${opts}</select>`;
 }
 
 async function updateAgencyColor(agencyIndex, newColor) {
@@ -1306,29 +1275,6 @@ if (addForm) {
   position: absolute;
   right: 0.5rem;
   opacity: 0.7;
-}
-
-.agency-color-cell {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-.agency-color-swatch {
-  display: inline-block;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  box-sizing: border-box;
-}
-.agency-color-select {
-  min-width: 7.5rem;
-  max-width: 100%;
-  font-size: 13px;
-  padding: 6px 8px;
-  border-radius: 8px;
 }
 
 /* Grey button for Disable Lookup */
