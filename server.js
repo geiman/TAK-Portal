@@ -286,12 +286,9 @@ app.use("/api/audit-log", requireGlobalAdmin, require("./routes/auditLog.routes"
 app.use("/api/plugins", requireGlobalAdmin, require("./routes/plugins.routes"));
 app.use("/api/integrations", requireGlobalAdmin, require("./routes/integrations.routes"));
 app.use("/api/ssh", requireGlobalAdmin, require("./routes/ssh.routes"));
-app.use(
-  "/api/locate",
-  requireStrictGlobalAdminApi,
-  requireBetaModeApi,
-  require("./routes/locate.routes")
-);
+// Locate (admin console + JSON APIs): strict global admin only. Intentionally not gated by BETA_MODE
+// (Data Sync / Getting Started remain beta + global admin).
+app.use("/api/locate", requireStrictGlobalAdminApi, require("./routes/locate.routes"));
 
 app.use(
   "/api/data-sync",
@@ -506,9 +503,8 @@ app.get("/locate-persons", (req, res) => {
   res.redirect(301, "/locate");
 });
 
-app.get("/locate", requireStrictGlobalAdmin, requireBetaMode, (req, res) =>
-  res.render("locate")
-);
+// Locate admin page: global admins only (not beta-gated).
+app.get("/locate", requireStrictGlobalAdmin, (req, res) => res.render("locate"));
 
 app.get("/data-sync", requireStrictGlobalAdmin, requireBetaMode, (req, res) =>
   res.render("data-sync")

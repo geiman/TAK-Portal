@@ -498,6 +498,7 @@
     return missions;
   }
 
+  /** Fetches CoreConfig from the TAK Server over SSH (GET /api/locate/config). Only for initial full page load — not for polling or background refresh. */
   async function loadConfig() {
     var res = await fetch("/api/locate/config");
     var text = await res.text();
@@ -654,7 +655,14 @@
           "The TAK Server restart is in progress. Wait about 2 minutes before making more locate changes here, using other SSH actions, or expecting stable TAK/ATAK connectivity.",
         "success"
       );
-      await loadConfig();
+      /* Do not call loadConfig() here — that re-reads CoreConfig over SSH. The form already matches what was applied; reload the page to re-sync from the server file. */
+      if (mode === "disabled") {
+        missionSelect.value = "";
+        groupSelect.innerHTML = "";
+      } else if (mode === "group_only") {
+        missionSelect.value = "";
+      }
+      syncLocateModeUi();
     } catch (e) {
       var errText = e && e.message ? e.message : String(e);
       setMsg(
@@ -1264,13 +1272,54 @@
       });
   }
 
-  function loadLocators() {
-    setListMsg("");
-    setArchivedMsg("");
-    return fetch("/api/locate/locators")
-      .then(function (r) { return r.json(); })
+  function isTransientNetworkError(err) {
+    if (!err) return false;
+    if (err.name === "TypeError") return true;
+    var m = String(err.message || err || "");
+    return /failed to fetch|load failed|networkerror|network error|timed out|aborted/i.test(m);
+  }
+
+  function parseLocateLocatorsResponse(r) {
+    if (r.status === 401) {
+      return Promise.reject(
+        new Error("Session expired or not signed in. Refresh the page to continue.")
+      );
+    }
+    if (r.status === 403) {
+      return Promise.reject(new Error("Access denied. Refresh the page."));
+    }
+    var ct = (r.headers.get("content-type") || "").toLowerCase();
+    if (ct.indexOf("application/json") === -1) {
+      return r.text().then(function (t) {
+        var s = (t && String(t).trim()) || "";
+        throw new Error(s.slice(0, 200) || "HTTP " + r.status);
+      });
+    }
+    return r.json().then(function (data) {
+      if (!r.ok) {
+        throw new Error((data && (data.error || data.message)) || "HTTP " + r.status);
+      }
+      if (!data || data.ok !== true) {
+        throw new Error((data && data.error) || "Failed to load locators");
+      }
+      return data;
+    });
+  }
+
+  /**
+   * @param {boolean} [silent] - background poll: do not clear messages first; retry transient network errors; only surface errors after retries
+   * @param {number} [attempt] - internal retry counter
+   */
+  function loadLocators(silent, attempt) {
+    silent = !!silent;
+    attempt = attempt || 0;
+    if (!silent) {
+      setListMsg("");
+      setArchivedMsg("");
+    }
+    return fetch("/api/locate/locators", { credentials: "same-origin" })
+      .then(parseLocateLocatorsResponse)
       .then(function (data) {
-        if (!data.ok) throw new Error(data.error || "Failed to load locators");
         var all = data.locators || [];
         var active = all.filter(function (l) {
           return !l.archived;
@@ -1281,9 +1330,35 @@
         renderRows(active);
         renderArchivedRows(archived);
         tickRecentLiveCells();
+        if (silent) {
+          setListMsg("");
+          setArchivedMsg("");
+        }
       })
       .catch(function (e) {
-        setListMsg(e.message || String(e), true);
+        var msg = e.message || String(e);
+        if (silent && isTransientNetworkError(e) && attempt < 2) {
+          return new Promise(function (resolve) {
+            setTimeout(function () {
+              resolve(loadLocators(true, attempt + 1));
+            }, 1500 * (attempt + 1));
+          });
+        }
+        if (!silent && isTransientNetworkError(e) && attempt < 1) {
+          return new Promise(function (resolve) {
+            setTimeout(function () {
+              resolve(loadLocators(false, attempt + 1));
+            }, 1200);
+          });
+        }
+        if (silent && isTransientNetworkError(e)) {
+          setListMsg(
+            "Could not refresh the list (connection issue). Will retry when you focus this tab or refresh the page.",
+            true
+          );
+          return;
+        }
+        setListMsg(msg, true);
       });
   }
 
@@ -1347,14 +1422,15 @@
     sendLinkCopyBtn.addEventListener("click", copySendLinkToClipboard);
   }
 
-  loadLocators();
+  loadLocators(false);
   document.addEventListener("visibilitychange", function () {
     if (document.visibilityState === "visible") {
-      loadLocators();
+      loadLocators(true);
     }
   });
+  /* Locator list only — does not call /api/locate/config (no SSH CoreConfig read). */
   setInterval(function () {
-    if (document.visibilityState === "visible") loadLocators();
+    if (document.visibilityState === "visible") loadLocators(true);
   }, 8000);
   setInterval(function () {
     if (document.visibilityState === "visible") tickRecentLiveCells();
