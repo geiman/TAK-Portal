@@ -55,6 +55,28 @@ function buildEnrollUrl({ username, token }) {
   );
 }
 
+function buildItakEnrollPayload({ username, token, registrationId }) {
+  const u = String(username || "").trim();
+  const t = String(token || "").trim();
+  const rid = String(registrationId || "").trim();
+  const host = getTakHost();
+
+  if (!u || !t || !rid || !host) return null;
+
+  return JSON.stringify({
+    passphrase: "false",
+    type: "registration",
+    serverCredentials: {
+      connectionString: `${host}:8089:ssl`,
+    },
+    userCredentials: {
+      username: u,
+      password: t,
+      registrationId: rid,
+    },
+  });
+}
+
 /**
  * Build Open TAK Tracker enrollment URL (enrollment + callsign/team/role in one).
  * Format: opentaktracker://enroll?host=SERVER&username=USER&token=TOKEN&callsign=CALLSIGN&team=TEAM&role=ROLE
@@ -249,6 +271,7 @@ module.exports = {
   getTakUrl,
   getTakHost,
   buildEnrollUrl,
+  buildItakEnrollPayload,
   buildOttEnrollUrl,
   buildPreferenceUrl,
   generateDisplayQrDataUrl,
