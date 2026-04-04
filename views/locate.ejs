@@ -38,7 +38,7 @@
 
       <label class="locate-apply-wrap">
         <span class="locate-apply-spacer" aria-hidden="true">&nbsp;</span>
-        <button class="btn success locate-apply-btn" type="button" id="locateApplyBtn">Apply Changes &amp; Restart TAK Server</button>
+        <button class="btn locate-apply-btn" type="button" id="locateApplyBtn">Apply Changes &amp; Restart TAK Server</button>
       </label>
     </div>
 
@@ -1092,10 +1092,10 @@
         tdAct.appendChild(b);
       }
 
-      /* success: primary share/enable (matches Assign / Save elsewhere); qr: ops accent (Mutual Aid QR) */
+      /* qr: purple accent (same as Mutual Aid QR); success on Activate; danger on Archive */
       addBtn("Send Link", function () {
         openSendLinkModal(loc);
-      }, "success");
+      }, "qr");
 
       addBtn("Edit Interval", function () {
         var p = window.prompt("Ping interval (seconds, 10–86400)", String(loc.pingIntervalSeconds));
@@ -1127,7 +1127,7 @@
           .catch(function (e) {
             setListMsg(e.message || String(e), true);
           });
-      }, "qr");
+      });
 
       addBtn("History", function () {
         openHistoryForId(loc.id);
@@ -1144,7 +1144,7 @@
           .catch(function (e) {
             setListMsg(e.message || String(e), true);
           });
-      });
+      }, "danger");
 
       tr.appendChild(tdTitle);
       tr.appendChild(tdPing);
