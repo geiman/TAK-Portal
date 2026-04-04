@@ -38,7 +38,7 @@
 
       <label class="locate-apply-wrap">
         <span class="locate-apply-spacer" aria-hidden="true">&nbsp;</span>
-        <button class="btn locate-apply-btn" type="button" id="locateApplyBtn">Apply Changes &amp; Restart TAK Server</button>
+        <button class="btn success locate-apply-btn" type="button" id="locateApplyBtn">Apply Changes &amp; Restart TAK Server</button>
       </label>
     </div>
 
@@ -1083,18 +1083,19 @@
       var tdAct = document.createElement("td");
       tdAct.className = "locate-col-actions locate-actions-cell";
 
-      function addBtn(label, onClick) {
+      function addBtn(label, onClick, extraClass) {
         var b = document.createElement("button");
         b.type = "button";
-        b.className = "btn";
+        b.className = extraClass ? "btn " + String(extraClass).trim() : "btn";
         b.textContent = label;
         b.addEventListener("click", onClick);
         tdAct.appendChild(b);
       }
 
+      /* success: primary share/enable (matches Assign / Save elsewhere); qr: ops accent (Mutual Aid QR) */
       addBtn("Send Link", function () {
         openSendLinkModal(loc);
-      });
+      }, "success");
 
       addBtn("Edit Interval", function () {
         var p = window.prompt("Ping interval (seconds, 10–86400)", String(loc.pingIntervalSeconds));
@@ -1107,9 +1108,13 @@
         patchLoc(loc.id, { pingIntervalSeconds: ping });
       });
 
-      addBtn(loc.active ? "Deactivate" : "Activate", function () {
-        patchLoc(loc.id, { active: !loc.active });
-      });
+      addBtn(
+        loc.active ? "Deactivate" : "Activate",
+        function () {
+          patchLoc(loc.id, { active: !loc.active });
+        },
+        loc.active ? "" : "success"
+      );
 
       addBtn("Manual Ping", function () {
         fetch("/api/locate/locators/" + encodeURIComponent(loc.id) + "/manual-ping", { method: "POST" })
@@ -1122,7 +1127,7 @@
           .catch(function (e) {
             setListMsg(e.message || String(e), true);
           });
-      });
+      }, "qr");
 
       addBtn("History", function () {
         openHistoryForId(loc.id);
@@ -1184,10 +1189,10 @@
       appendRecentCell(tdRecent, loc);
       var tdAct = document.createElement("td");
       tdAct.className = "locate-col-actions locate-actions-cell";
-      function addBtn(label, onClick, danger) {
+      function addBtn(label, onClick, extraClass) {
         var b = document.createElement("button");
         b.type = "button";
-        b.className = danger ? "btn danger" : "btn";
+        b.className = extraClass ? "btn " + String(extraClass).trim() : "btn";
         b.textContent = label;
         b.addEventListener("click", onClick);
         tdAct.appendChild(b);
@@ -1208,7 +1213,7 @@
           .catch(function (e) {
             setArchivedMsg(e.message || String(e), true);
           });
-      });
+      }, "success");
       addBtn(
         "Permanently delete",
         function () {
@@ -1232,7 +1237,7 @@
               setArchivedMsg(e.message || String(e), true);
             });
         },
-        true
+        "danger"
       );
       tr.appendChild(tdTitle);
       tr.appendChild(tdPing);
