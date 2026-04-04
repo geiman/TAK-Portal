@@ -10,9 +10,7 @@ TAK Portal is a lightweight, modern user-management portal designed to integrate
 
 It is certainly not a requirement, but if you have found TAK Portal helpful to you or your agency, please consider supporting me.  My goal is to serve the TAK community and to solve real world problems.
 
-<a href="https://buymeacoffee.com/justintdavis">
-  <img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=&slug=YOURUSERNAME&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" />
-</a>
+<script type="text/javascript" src="https://cdnjs.buymeacoffee.com/1.0.0/button.prod.min.js" data-name="bmc-button" data-slug="justintdavis" data-color="#FFDD00" data-emoji="💻"  data-font="Cookie" data-text="Buy Me A Coffee" data-outline-color="#000000" data-font-color="#000000" data-coffee-color="#ffffff" ></script>
 
 ## Architecture Overview
 
