@@ -143,8 +143,17 @@
   </div>
 
   <div class="card">
-    <div class="row" style="justify-content: space-between;">
+    <div class="row" style="justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
       <h2 style="margin:0;">Current Agencies</h2>
+      <button
+        type="button"
+        class="btn"
+        id="agencyAttributesEditBtn"
+        aria-pressed="false"
+        aria-controls="agencyTable"
+      >
+        Edit Agency Attributes
+      </button>
     </div>
 
     <table class="table" id="agencyTable">
@@ -301,6 +310,7 @@ const msg = document.getElementById("msg");
 const tbody = document.getElementById("tbody");
 const addForm = document.getElementById("addForm");
 const refreshBtn = document.getElementById("refreshBtn");
+const agencyAttributesEditBtn = document.getElementById("agencyAttributesEditBtn");
 const agencyTable = document.getElementById("agencyTable");
 
 // Admins modal (mirrors Groups page View Members)
@@ -312,6 +322,8 @@ const adminsList = document.getElementById("adminsList");
 const adminsHint = document.getElementById("adminsHint");
 
 let agencies = [];
+/** When true, Type and Color columns use dropdowns; otherwise plain text. */
+let agencyAttributesEditMode = false;
 let sortState = { key: "name", dir: 1 }; // default: Agency asc
 
 function setMsg(text, ok=true){
@@ -542,8 +554,12 @@ function renderAgencies(){
           : `<button class="btn" type="button" onclick="openCountyAbbrevModal('${esc(a._id ?? a.id ?? "")}')">Update</button>`
       }</td>
       <td>${esc(a.state || "")}</td>
-      <td class="agency-type-td">${buildAgencyTypeCellHtml(a)}</td>
-      <td>${buildAgencyColorCellHtml(a)}</td>
+      <td${agencyAttributesEditMode ? " class=\"agency-type-td\"" : ""}>${
+        agencyAttributesEditMode ? buildAgencyTypeCellHtml(a) : esc(a.type || "")
+      }</td>
+      <td>${
+        agencyAttributesEditMode ? buildAgencyColorCellHtml(a) : esc(a.color || "")
+      }</td>
       <td>
         <div class="row agencyActionsCell" style="gap: 10px; flex-wrap: wrap;">
           <button class="btn" type="button"
@@ -1091,6 +1107,17 @@ addForm.onsubmit = async (e) => {
 };
 
 if (refreshBtn) refreshBtn.onclick = () => loadAgenciesWithCounts();
+
+if (agencyAttributesEditBtn) {
+  agencyAttributesEditBtn.addEventListener("click", function () {
+    agencyAttributesEditMode = !agencyAttributesEditMode;
+    agencyAttributesEditBtn.textContent = agencyAttributesEditMode
+      ? "Done editing"
+      : "Edit Agency Attributes";
+    agencyAttributesEditBtn.setAttribute("aria-pressed", agencyAttributesEditMode ? "true" : "false");
+    renderAgencies();
+  });
+}
 
 // ---- Access Groups modal ----
 const accessGroupsOverlay = document.getElementById("accessGroupsOverlay");
