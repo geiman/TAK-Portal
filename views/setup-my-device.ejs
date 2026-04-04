@@ -660,8 +660,6 @@
 
     const chips = [];
     if (obj.username) chips.push(`<span class="chip">User: ${obj.username}</span>`);
-    if (currentQrApp === "itak") chips.push("<br>");
-    if (currentQrApp === "itak") chips.push(`<span class="chip"><strong>Scan from inside iTAK</strong></span>`);
     details.innerHTML = chips.join(" ");
 
     updateOpenUrlButtonState(currentQrApp, !!url);
@@ -727,8 +725,6 @@
     if (enrollUrlHolder) enrollUrlHolder.dataset.enrollUrl = url;
     const chips = [];
     if (obj.username) chips.push(`<span class="chip">User: ${obj.username}</span>`);
-    if (isItak) chips.push("<br>");
-    if (isItak) chips.push(`<span class="chip"><strong>Scan from inside iTAK</strong></span>`);
     details.innerHTML = chips.join(" ");
     updateOpenUrlButtonState(app, !!url);
     copyBtn.disabled = isItak || !url;
