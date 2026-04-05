@@ -36,7 +36,9 @@
         "SMTP_SECURE",
         "EMAIL_FAIL_HARD",
         "PORTAL_AUTH_ENABLED",
-        "BETA_MODE"
+        "BETA_MODE",
+        "ONBOARDING_IOS_TAKAWARE_ENABLED",
+        "ONBOARDING_IOS_ITAK_ENABLED"
       ]);
 
       function renderField(key, label, helpText, defaultValue) {
@@ -134,6 +136,8 @@
         "EMAIL_SEND_COPY_TO",
         "EMAIL_FAIL_HARD",
         "BETA_MODE",
+        "ONBOARDING_IOS_TAKAWARE_ENABLED",
+        "ONBOARDING_IOS_ITAK_ENABLED",
 
         "SMS_PROVIDER",
         "SMS_TWILIO_ACCOUNT_SID",
@@ -606,6 +610,25 @@
         }
       })();
     </script>
+
+    <!-- Device Onboarding -->
+    <div class="card">
+      <details class="settings-section">
+        <summary class="settings-summary">Device Onboarding</summary>
+
+        <div class="settings-body">
+          <h3 style="margin-top:0;">Enabled iOS Applications</h3>
+          <p class="settings-help" style="margin-top:0;">
+            Enable or disable applications to control which one(s) the user can see in the device onboarding page.
+          </p>
+
+          <div class="grid2">
+            <% renderField("ONBOARDING_IOS_TAKAWARE_ENABLED","TAK Aware","Show TAK Aware in the Apple/iOS onboarding flow."); %>
+            <% renderField("ONBOARDING_IOS_ITAK_ENABLED","iTAK","Show iTAK in the Apple/iOS onboarding flow."); %>
+          </div>
+        </div>
+      </details>
+    </div>
 
     <!-- Additional Agency Types -->
     <div class="card">

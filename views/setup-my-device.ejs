@@ -4,15 +4,41 @@
 <main class="main">
   <h1>Setup My Device</h1>
 
+  <%
+    function isEnabled(val, fallback) {
+      if (typeof val === "string") {
+        const normalized = val.trim().toLowerCase();
+        if (normalized === "true") return true;
+        if (normalized === "false") return false;
+      }
+      return fallback;
+    }
+
+    const takAwareEnabled = isEnabled(settings && settings.ONBOARDING_IOS_TAKAWARE_ENABLED, true);
+    const itakEnabled = isEnabled(settings && settings.ONBOARDING_IOS_ITAK_ENABLED, true);
+    const anyIosEnabled = takAwareEnabled || itakEnabled;
+    const hasWebOption = !!(settings && settings.CLOUDTAK_URL && settings.CLOUDTAK_URL.trim());
+    const deviceGridClass = anyIosEnabled && hasWebOption ? "grid3" : "grid2";
+
+    let appleButtonDesc = "Use TAK Aware or iTAK on iOS devices.";
+    if (takAwareEnabled && !itakEnabled) {
+      appleButtonDesc = "Use TAK Aware on iOS devices.";
+    } else if (!takAwareEnabled && itakEnabled) {
+      appleButtonDesc = "Use iTAK on iOS devices.";
+    }
+  %>
+
   <!-- Device selector -->
   <div class="card" id="deviceSelectCard">
     <h2>Select Your Device Type</h2>
 
-    <div class="<%= (settings && settings.CLOUDTAK_URL && settings.CLOUDTAK_URL.trim()) ? 'grid3' : 'grid2' %>">
-      <button type="button" class="btn tile deviceTile deviceTile-ios" id="selectIOS">
-        <span class="title">Apple (iPhone / iPad)</span>
-        <span class="desc">Use TAK Aware or iTAK on iOS devices.</span>
-      </button>
+    <div class="<%= deviceGridClass %>">
+      <% if (anyIosEnabled) { %>
+        <button type="button" class="btn tile deviceTile deviceTile-ios" id="selectIOS">
+          <span class="title">Apple (iPhone / iPad)</span>
+          <span class="desc"><%= appleButtonDesc %></span>
+        </button>
+      <% } %>
 
       <button type="button" class="btn tile deviceTile deviceTile-android" id="selectAndroid">
         <span class="title">Android (Phone / Tablet)</span>
@@ -33,79 +59,87 @@
     <div class="card">
       <h2>Step 1: Download the TAK App</h2>
       <div class="grid2">
-        <div>
-          <a
-            href="https://apps.apple.com/us/app/tak-aware/id6738631659"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="btn tile"
-          >
-            <span class="title">iOS - TAK Aware</span>
-            <span class="desc">Download TAK Aware for iPhone or iPad.</span>
-          </a>
-        </div>
-        <div>
-          <a
-            href="https://apps.apple.com/us/app/itak/id1561656396"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="btn tile"
-          >
-            <span class="title">iOS - iTAK</span>
-            <span class="desc">Download iTAK for iPhone or iPad.</span>
-          </a>
-        </div>
+        <% if (takAwareEnabled) { %>
+          <div>
+            <a
+              href="https://apps.apple.com/us/app/tak-aware/id6738631659"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="btn tile"
+            >
+              <span class="title">iOS - TAK Aware</span>
+              <span class="desc">Download TAK Aware for iPhone or iPad.</span>
+            </a>
+          </div>
+        <% } %>
+        <% if (itakEnabled) { %>
+          <div>
+            <a
+              href="https://apps.apple.com/us/app/itak/id1561656396"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="btn tile"
+            >
+              <span class="title">iOS - iTAK</span>
+              <span class="desc">Download iTAK for iPhone or iPad.</span>
+            </a>
+          </div>
+        <% } %>
       </div>
     </div>
 
     <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-top: 0.5rem;">
-      <div>
-        <div class="card">
-          <h2>Step 2: Enroll Your Device - TAK Aware</h2>
-          <div class="grid2">
-            <button type="button" class="btn tile" id="scanQrBtnTakAware">
-              <span class="title">Scan QR Code (Recommended)</span>
-              <span class="desc">Scan an enrollment QR code to automatically connect TAK Aware.</span>
-            </button>
-            <button type="button" class="btn tile" id="manualLoginBtnTakAware">
-              <span class="title">Manual Login</span>
-              <span class="desc">Manually connect TAK Aware to the TAK Server.</span>
+      <% if (takAwareEnabled) { %>
+        <div>
+          <div class="card">
+            <h2>Step 2: Enroll Your Device - TAK Aware</h2>
+            <div class="grid2">
+              <button type="button" class="btn tile" id="scanQrBtnTakAware">
+                <span class="title">Scan QR Code (Recommended)</span>
+                <span class="desc">Scan an enrollment QR code to automatically connect TAK Aware.</span>
+              </button>
+              <button type="button" class="btn tile" id="manualLoginBtnTakAware">
+                <span class="title">Manual Login</span>
+                <span class="desc">Manually connect TAK Aware to the TAK Server.</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>Step 3: Configure Device Preferences - TAK Aware</h2>
+            <button type="button" class="btn tile" id="iosPreferenceManualBtn">
+              <span class="title">Manual Configuration</span>
+              <span class="desc">Enter your callsign, team, and role in TAK Aware settings.</span>
             </button>
           </div>
         </div>
+      <% } %>
 
-        <div class="card">
-          <h2>Step 3: Configure Device Preferences - TAK Aware</h2>
-          <button type="button" class="btn tile" id="iosPreferenceManualBtn">
-            <span class="title">Manual Configuration</span>
-            <span class="desc">Enter your callsign, team, and role in TAK Aware settings.</span>
-          </button>
-        </div>
-      </div>
+      <% if (itakEnabled) { %>
+        <div>
+          <div class="card">
+            <h2>Step 2: Enroll Your Device - iTAK</h2>
+            <div class="grid2">
+              <button type="button" class="btn tile" id="scanQrBtnItak">
+                <span class="title">Scan QR Code</span>
+                <span class="desc">Scan the enrollment QR code from inside the iTAK app.</span>
+              </button>
+              <button type="button" class="btn tile" id="manualLoginBtnItak">
+                <span class="title">Manual Login</span>
+                <span class="desc">Manually connect iTAK to the TAK Server.</span>
+              </button>
+            </div>
+          </div>
 
-      <div>
-        <div class="card">
-          <h2>Step 2: Enroll Your Device - iTAK</h2>
-          <div class="grid2">
-            <button type="button" class="btn tile" id="scanQrBtnItak">
-              <span class="title">Scan QR Code</span>
-              <span class="desc">Scan the enrollment QR code from inside the iTAK app.</span>
-            </button>
-            <button type="button" class="btn tile" id="manualLoginBtnItak">
-              <span class="title">Manual Login</span>
-              <span class="desc">Manually connect iTAK to the TAK Server.</span>
+          <div class="card">
+            <h2>Step 3: Configure Device Preferences - iTAK</h2>
+            <button type="button" class="btn tile" id="itakPreferenceManualBtn">
+              <span class="title">Manual Configuration</span>
+              <span class="desc">Enter your callsign, team, and role in iTAK settings.</span>
             </button>
           </div>
         </div>
-
-        <div class="card">
-          <h2>Step 3: Configure Device Preferences - iTAK</h2>
-          <button type="button" class="btn tile" id="itakPreferenceManualBtn">
-            <span class="title">Manual Configuration</span>
-            <span class="desc">Enter your callsign, team, and role in iTAK settings.</span>
-          </button>
-        </div>
-      </div>
+      <% } %>
     </div>
   </div>
 
@@ -331,7 +365,7 @@
   function showIOS() {
     iosFlow.style.display = "block";
     androidFlow.style.display = "none";
-    setScanInstructions("takaware");
+    setScanInstructions("<%= takAwareEnabled ? 'takaware' : 'itak' %>");
     // optional: scroll to the revealed content
     iosFlow.scrollIntoView({ behavior: "smooth", block: "start" });
   }
@@ -354,7 +388,7 @@
     androidFlow.style.display = "none";
   })();
 
-  selectIOS.addEventListener("click", showIOS);
+  if (selectIOS) selectIOS.addEventListener("click", showIOS);
   selectAndroid.addEventListener("click", showAndroid);
   if (selectWeb) selectWeb.addEventListener("click", openCloudTAK);
 
@@ -988,9 +1022,9 @@
     }
   }
 
-  iosPreferenceManualBtn.addEventListener("click", handleIosPreferenceManualClick);
-  iosPreferenceManualCloseBtn.addEventListener("click", closeIosPreferenceManualModal);
-  iosPreferenceManualOverlay.addEventListener("click", (e) => { if (e.target === iosPreferenceManualOverlay) closeIosPreferenceManualModal(); });
+  if (iosPreferenceManualBtn) iosPreferenceManualBtn.addEventListener("click", handleIosPreferenceManualClick);
+  if (iosPreferenceManualCloseBtn) iosPreferenceManualCloseBtn.addEventListener("click", closeIosPreferenceManualModal);
+  if (iosPreferenceManualOverlay) iosPreferenceManualOverlay.addEventListener("click", (e) => { if (e.target === iosPreferenceManualOverlay) closeIosPreferenceManualModal(); });
   if (itakPreferenceManualBtn) itakPreferenceManualBtn.addEventListener("click", handleItakPreferenceManualClick);
   if (itakPreferenceManualCloseBtn) itakPreferenceManualCloseBtn.addEventListener("click", closeItakPreferenceManualModal);
   if (itakPreferenceManualOverlay) itakPreferenceManualOverlay.addEventListener("click", (e) => { if (e.target === itakPreferenceManualOverlay) closeItakPreferenceManualModal(); });
@@ -1023,10 +1057,10 @@
   });
 
   // Attach handlers (buttons exist in DOM even when flows are hidden)
-  scanQrBtnTakAware.addEventListener("click", () => handleScanClick("takaware"));
+  if (scanQrBtnTakAware) scanQrBtnTakAware.addEventListener("click", () => handleScanClick("takaware"));
   scanQrBtnAtak.addEventListener("click", () => handleScanClick("atak"));
   if (scanQrBtnItak) scanQrBtnItak.addEventListener("click", () => handleScanClick("itak"));
-  manualLoginBtnTakAware.addEventListener("click", () => handleManualLoginClick("takaware"));
+  if (manualLoginBtnTakAware) manualLoginBtnTakAware.addEventListener("click", () => handleManualLoginClick("takaware"));
   manualLoginBtnAtak.addEventListener("click", () => handleManualLoginClick("atak"));
   if (manualLoginBtnItak) manualLoginBtnItak.addEventListener("click", () => handleManualLoginClick("itak"));
 
