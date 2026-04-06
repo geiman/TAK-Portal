@@ -6,6 +6,12 @@ TAK Portal is a lightweight, modern user-management portal designed to integrate
 
 ---
 
+## Support My Work
+
+It is certainly not a requirement, but if you have found TAK Portal helpful to you or your agency, please consider supporting me.  My goal is to serve the TAK community and to solve real world problems.
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-yellow?logo=buy-me-a-coffee&logoColor=black)](https://www.buymeacoffee.com/justintdavis)
+
 ## Architecture Overview
 
 TAK Portal runs as a lightweight Docker container and is designed to interface with self hosted versions of:
@@ -17,8 +23,6 @@ TAK Portal runs as a lightweight Docker container and is designed to interface w
 ---
 
 ## Prerequisites
-
-*TAK Portal will run without a TAK Server connected, but certificates will **not** be revoked when users are disabled or deleted.*
 
 Before installing, you should have:
 
@@ -35,6 +39,11 @@ Before installing, you should have:
 ---
 
 ## Quick Start
+
+**The best way to deploy TAK Portal, Authentik, and all other components is to deploy https://github.com/takwerx/infra-TAK**
+
+
+For manual deployment of TAK Portal: 
 
 On your Docker machine, run:
 
