@@ -21,6 +21,7 @@
   "CLOUDTAK_URL": "",
   "TAK_SSH_HOST": "",
   "TAK_SSH_PORT": "22",
+  "TAK_CLIENT_CONNECTION_PORT": "8089",
   "TAK_SSH_USER": "",
   "TAK_SSH_PRIVATE_KEY_PATH": "data/ssh/tak_ssh_ed25519",
   "TAK_SSH_PUBLIC_KEY_PATH": "data/ssh/tak_ssh_ed25519.pub",

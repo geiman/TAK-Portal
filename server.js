@@ -671,7 +671,11 @@ app.get("/audit-log", requireGlobalAdmin, async (req, res) => {
 app.get("/setup-my-device", (req, res) => {
   // Used by the Setup My Device page to display the correct TAK server hostname.
   const takHost = qrSvc.getTakHost();
-  return res.render("setup-my-device", { takHost });
+  const settings = (res.locals && res.locals.settings)
+    ? res.locals.settings
+    : (settingsSvc.getSettings() || {});
+  const takClientConnectionPort = String(settings.TAK_CLIENT_CONNECTION_PORT || "8089").trim() || "8089";
+  return res.render("setup-my-device", { takHost, takClientConnectionPort });
 });
 
 
