@@ -2222,6 +2222,16 @@ async function getUserById(userId) {
   return res.data;
 }
 
+// Update specific attributes on a user (merging with existing)
+async function updateUserAttributes(userId, changes) {
+  await assertUserNotActionLocked(userId, { ignoreLocks: true });
+  const user = await getUserById(userId);
+  const newAttrs = { ...(user.attributes || {}), ...changes };
+  await api.patch(`/core/users/${userId}/`, { attributes: newAttrs });
+  invalidateUsersCache();
+  return newAttrs;
+}
+
 // Add groups to a user (merge)
 async function addUserGroups(userId, groupIds) {
   await assertUserNotActionLocked(userId);
@@ -2449,6 +2459,7 @@ module.exports = {
   updateEmail,
   updateName,
   setUserGroups,
+  updateUserAttributes,
   toggleUserActive,
   deleteUser,
   addUserGroups,

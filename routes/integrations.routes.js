@@ -4,6 +4,7 @@ const users = require("../services/users.service");
 const groupsSvc = require("../services/groups.service");
 const auditSvc = require("../services/auditLog.service");
 const takSshSvc = require("../services/takSsh.service");
+const takSvc = require("../services/tak.service");
 const { toSafeApiError } = require("../services/apiErrorPayload.service");
 const archiver = require("archiver");
 
@@ -47,6 +48,7 @@ router.get("/", async (req, res) => {
         groups: groupPks,
         groupNames,
         certBundleReady: takSshSvc.hasStoredIntegrationCertFiles(u.username),
+        dataFeedName: u.attributes?.tak_data_feed_name || null,
       };
     });
 
@@ -63,7 +65,7 @@ router.get("/", async (req, res) => {
  */
 router.post("/", async (req, res) => {
   try {
-    const { type, title, groupId, state, county, agencySuffix } = req.body || {};
+    const { type, title, groupId, state, county, agencySuffix, skipDataFeed, dataFeedName, protocol, authType, port, coreVersion, coreVersion2TlsVersions, multicastGroup, iface, syncCacheRetention, archive, anongroup, archiveOnly, sync, federated, tags, filterGroups } = req.body || {};
     const authUser = req.authentikUser || null;
     const createdBy = authUser
       ? {
@@ -93,6 +95,57 @@ router.post("/", async (req, res) => {
       certError = certErr?.message || String(certErr);
     }
 
+    let dataFeedError = "";
+    const isSkipDataFeed = String(skipDataFeed) === "true";
+    let finalDataFeedName = (result && result.user && result.user.username) || dataFeedName;
+    if (finalDataFeedName) {
+        finalDataFeedName = finalDataFeedName.replace(/-/g, "_");
+    }
+
+    if (!isSkipDataFeed && finalDataFeedName && takSvc.isTakConfigured()) {
+      try {
+        const payloadTags = tags ? tags.split(/[\n,]+/).map(t => t.trim()).filter(Boolean) : [];
+        const strippedGroups = Array.isArray(filterGroups) ? filterGroups.map(stripTakPrefix) : [];
+        
+        const dataFeedPayload = {
+          type: "Streaming",
+          name: finalDataFeedName,
+          protocol: protocol || "tls",
+          auth: authType || "X_509",
+          port: port ? parseInt(port, 10) : 8089,
+          coreVersion: coreVersion || "2",
+          coreVersion2TlsVersions: coreVersion2TlsVersions || "",
+          group: multicastGroup || "",
+          iface: iface || "",
+          syncCacheRetentionSeconds: syncCacheRetention ? String(syncCacheRetention) : "3600",
+          archive: archive === "true",
+          anongroup: anongroup === "true",
+          archiveOnly: archiveOnly === "true",
+          sync: sync === "true",
+          federated: federated === "true",
+          tag: payloadTags,
+          filtergroup: strippedGroups
+        };
+
+        const takClient = takSvc.buildTakAxios();
+        await takClient.post("/api/datafeeds", dataFeedPayload);
+
+        try {
+          if (result && result.user && result.user.pk) {
+            await users.updateUserAttributes(result.user.pk, { tak_data_feed_name: finalDataFeedName });
+          }
+        } catch (attrsErr) {
+           console.warn("Failed to securely hook data feed name into Authentik attributes:", attrsErr);
+        }
+      } catch (feedErr) {
+        let det = null;
+        if (feedErr.response && feedErr.response.data) {
+           det = typeof feedErr.response.data === 'object' ? JSON.stringify(feedErr.response.data) : String(feedErr.response.data);
+        }
+        dataFeedError = (feedErr.message || "TAK API failed") + (det ? " | " + det : "");
+      }
+    }
+
     const groupName =
       Array.isArray(result?.groups) && result.groups[0]
         ? result.groups[0].name
@@ -116,7 +169,7 @@ router.post("/", async (req, res) => {
       },
     });
 
-    res.json({ success: true, certBundleReady, certError, ...result });
+    res.json({ success: true, certBundleReady, certError, dataFeedError, ...result });
   } catch (err) {
     res.status(400).json({ error: toErrorPayload(err) });
   }
@@ -236,6 +289,17 @@ router.delete("/:userId", async (req, res) => {
     if (!username.startsWith("nodered-")) {
       return res.status(403).json({ error: "Not an integration user." });
     }
+
+    const dataFeedName = user.attributes?.tak_data_feed_name;
+    if (dataFeedName && takSvc.isTakConfigured()) {
+       try {
+           const takClient = takSvc.buildTakAxios();
+           await takClient.delete(`/api/datafeeds/${encodeURIComponent(dataFeedName)}`);
+       } catch (err) {
+           console.warn(`Failed to inherently delete associated data feed '${dataFeedName}' for user '${username}':`, err.message);
+       }
+    }
+
     await takSshSvc.revokeIntegrationCertViaSshScript(username);
     await users.deleteUser(userId, { ignoreLocks: true });
     const authUser = req.authentikUser || null;
@@ -254,6 +318,102 @@ router.delete("/:userId", async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     res.status(400).json({ error: toErrorPayload(err) });
+  }
+});
+
+/**
+ * GET /api/integrations/:username/datafeed
+ * Fetches the upstream TAK Server Data Feed payload for a matching integration.
+ */
+router.get("/:username/datafeed", async (req, res) => {
+  try {
+    const list = await users.findIntegrationUsers();
+    const user = list.find((u) => u.username === req.params.username);
+    if (!user) {
+      return res.status(404).json({ error: "Integration user not found." });
+    }
+
+    const dataFeedName = user.attributes?.tak_data_feed_name;
+    if (!dataFeedName) {
+      return res.status(404).json({ error: "No Data Feed is associated with this integration." });
+    }
+
+    if (!takSvc.isTakConfigured()) {
+      return res.status(503).json({ error: "TAK Server connection is not configured." });
+    }
+
+    const takClient = takSvc.buildTakAxios();
+    // TAK API: GET /api/datafeeds/{name}
+    const dfRes = await takClient.get(`/api/datafeeds/${encodeURIComponent(dataFeedName)}`);
+    const dataFeedPayload = dfRes.data?.data || dfRes.data;
+    
+    res.json({ dataFeed: dataFeedPayload });
+  } catch (err) {
+    console.error("Error pulling retroactive Data Feed properties:", err);
+    let msg = err.message || "Failed reading from upstream Data Feed API";
+    if (err.response && err.response.data) {
+       msg += " | " + (typeof err.response.data === 'object' ? JSON.stringify(err.response.data) : String(err.response.data));
+    }
+    return res.status(500).json({ error: msg });
+  }
+});
+
+/**
+ * POST /api/integrations/:username/datafeed
+ * Creates a TAK Server Data Feed retroactively for an integration that doesn't have one.
+ */
+router.post("/:username/datafeed", async (req, res) => {
+  try {
+    const list = await users.findIntegrationUsers();
+    const user = list.find((u) => u.username === req.params.username);
+    if (!user) {
+      return res.status(404).json({ error: "Integration user not found." });
+    }
+
+    if (user.attributes?.tak_data_feed_name) {
+      return res.status(400).json({ error: "Integration already has an associated Data Feed." });
+    }
+
+    const { protocol, authType, port, coreVersion, coreVersion2TlsVersions, multicastGroup, iface, syncCacheRetention, archive, anongroup, archiveOnly, sync, federated, tags, filterGroups } = req.body || {};
+
+    const dataFeedName = user.username ? user.username.replace(/-/g, "_") : undefined;
+
+    if (!takSvc.isTakConfigured()) {
+      return res.status(503).json({ error: "TAK Server connection is not configured." });
+    }
+
+    const payloadTags = tags ? tags.split(/[\n,]+/).map(t => t.trim()).filter(Boolean) : [];
+    const strippedGroups = Array.isArray(filterGroups) ? filterGroups.map(stripTakPrefix) : [];
+    
+    const dataFeedPayload = {
+      type: "Streaming",
+      name: dataFeedName,
+      protocol: protocol || "tls",
+      auth: authType || "X_509",
+      port: port ? parseInt(port, 10) : 8089,
+      coreVersion: coreVersion || "2",
+      coreVersion2TlsVersions: coreVersion2TlsVersions || "",
+      group: multicastGroup || "",
+      iface: iface || "",
+      syncCacheRetentionSeconds: syncCacheRetention ? String(syncCacheRetention) : "3600",
+      archive: archive === "true",
+      anongroup: anongroup === "true",
+      archiveOnly: archiveOnly === "true",
+      sync: sync === "true",
+      federated: federated === "true",
+      tag: payloadTags,
+      filtergroup: strippedGroups
+    };
+
+    const takClient = takSvc.buildTakAxios();
+    await takClient.post("/api/datafeeds", dataFeedPayload);
+
+    await users.updateUserAttributes(user.pk, { tak_data_feed_name: dataFeedName });
+
+    res.json({ message: "Data Feed successfully created and bound to Integration." });
+  } catch (err) {
+    const upstreamError = err?.response?.data?.message || err?.message || String(err);
+    res.status(500).json({ error: "TAK Server Error: " + upstreamError });
   }
 });
 
