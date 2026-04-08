@@ -97,14 +97,16 @@ router.post("/", async (req, res) => {
 
     let dataFeedError = "";
     const isSkipDataFeed = String(skipDataFeed) === "true";
-    if (!isSkipDataFeed && dataFeedName && takSvc.isTakConfigured()) {
+    const finalDataFeedName = (result && result.user && result.user.username) || dataFeedName;
+
+    if (!isSkipDataFeed && finalDataFeedName && takSvc.isTakConfigured()) {
       try {
         const payloadTags = tags ? tags.split(/[\n,]+/).map(t => t.trim()).filter(Boolean) : [];
         const strippedGroups = Array.isArray(filterGroups) ? filterGroups.map(stripTakPrefix) : [];
         
         const dataFeedPayload = {
           type: "Streaming",
-          name: dataFeedName,
+          name: finalDataFeedName,
           protocol: protocol || "tls",
           auth: authType || "X_509",
           port: port ? parseInt(port, 10) : 8089,
@@ -127,7 +129,7 @@ router.post("/", async (req, res) => {
 
         try {
           if (result && result.user && result.user.pk) {
-            await users.updateUserAttributes(result.user.pk, { tak_data_feed_name: dataFeedName });
+            await users.updateUserAttributes(result.user.pk, { tak_data_feed_name: finalDataFeedName });
           }
         } catch (attrsErr) {
            console.warn("Failed to securely hook data feed name into Authentik attributes:", attrsErr);
@@ -358,11 +360,9 @@ router.post("/:username/datafeed", async (req, res) => {
       return res.status(400).json({ error: "Integration already has an associated Data Feed." });
     }
 
-    const { dataFeedName, protocol, authType, port, coreVersion, coreVersion2TlsVersions, multicastGroup, iface, syncCacheRetention, archive, anongroup, archiveOnly, sync, federated, tags, filterGroups } = req.body || {};
+    const { protocol, authType, port, coreVersion, coreVersion2TlsVersions, multicastGroup, iface, syncCacheRetention, archive, anongroup, archiveOnly, sync, federated, tags, filterGroups } = req.body || {};
 
-    if (!dataFeedName) {
-      return res.status(400).json({ error: "Data Feed Name is required." });
-    }
+    const dataFeedName = user.username;
 
     if (!takSvc.isTakConfigured()) {
       return res.status(503).json({ error: "TAK Server connection is not configured." });
