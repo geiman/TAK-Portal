@@ -45,6 +45,13 @@
             <option value="">Select a group</option>
           </select>
         </label>
+        
+        <label style="min-width: 250px;">Make Streaming Data Feed?
+          <select name="makeDataFeed" id="makeDataFeed" style="min-width: 100px;">
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+        </label>
 
         <label>&nbsp;
           <button class="btn" type="submit">Create Integration</button>
@@ -70,6 +77,7 @@
         <tr>
           <th>Username</th>
           <th>Group</th>
+          <th>Data Feed</th>
           <th>Status</th>
           <th>Actions</th>
         </tr>
@@ -104,6 +112,129 @@
           <span id="editIntegrationMsg" class="msg"></span>
         </div>
       </div>
+    </div>
+</div>
+</div>
+
+<!-- Data Feed Modal -->
+<div class="modalOverlay" id="dataFeedModalOverlay" style="display: none;">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="dataFeedTitle">
+    <div class="modalHeader">
+      <h2 id="dataFeedTitle" style="margin: 0;">Create Streaming Data Feed</h2>
+      <button class="btn" id="dataFeedCloseBtn" type="button">Close</button>
+    </div>
+    <div class="modalBody">
+      <form id="dataFeedForm" autocomplete="off" style="margin: 0;">
+        <div class="card" style="margin: 0;">
+          <h2 style="margin-top: 0; font-size: 1.1em; color: var(--text-muted);">Enter Data Feed Details</h2>
+          
+          <div class="row">
+            <label style="flex: 1; min-width: 200px;">*Name
+              <input type="text" name="dataFeedName" required style="width: 100%;" />
+            </label>
+          </div>
+          <div class="row" style="margin-top: 12px;">
+            <label style="flex: 1; min-width: 200px;">Tags
+              <textarea name="tags" rows="2" style="width: 100%; resize: vertical;" placeholder="Provide 0 or more tags separated by newlines. Example:&#10;red&#10;green"></textarea>
+            </label>
+          </div>
+          <div class="row" style="margin-top: 12px;">
+            <label style="flex: 1; min-width: 200px;">*Protocol
+              <select name="protocol" style="width: 100%;" required>
+                <option value="tls" selected>Secure Streaming TCP (TLS) CoT or Protobuf</option>
+                <option value="tcp">Streaming TCP CoT or Protobuf</option>
+                <option value="stcp">Streaming TCP (Legacy)</option>
+              </select>
+            </label>
+            <label style="flex: 1; min-width: 140px;">*Authentication Type
+              <select name="authType" style="width: 100%;" required>
+                <option value="X_509" selected>X.509</option>
+                <option value="ANONYMOUS">Anonymous</option>
+                <option value="BEARER">Bearer</option>
+              </select>
+            </label>
+          </div>
+          <div class="row" style="margin-top: 12px;">
+             <label style="flex: 1; min-width: 200px;">*Port
+              <input type="number" name="port" required style="width: 100%;" placeholder="e.g. 8089" min="1" max="65535" />
+            </label>
+            <label style="flex: 1; min-width: 200px;">Core Messaging Version
+              <select name="coreVersion" style="width: 100%;">
+                <option value="2" selected>2 (high performance)</option>
+                <option value="1">1</option>
+              </select>
+              <div style="font-size: 0.85em; margin-top: 6px; display: flex; gap: 10px; align-items: center;">
+                <span>TLS Versions:</span>
+                <label style="font-weight: normal; margin: 0;"><input type="checkbox" name="tlsv1" /> TLSv1</label>
+                <label style="font-weight: normal; margin: 0;"><input type="checkbox" name="tlsv1_1" /> TLSv1.1</label>
+                <label style="font-weight: normal; margin: 0;"><input type="checkbox" name="tlsv1_2" checked /> TLSv1.2</label>
+                <label style="font-weight: normal; margin: 0;"><input type="checkbox" name="tlsv1_3" checked /> TLSv1.3</label>
+              </div>
+            </label>
+          </div>
+          <div class="row" style="margin-top: 12px;">
+            <label style="flex: 1; min-width: 200px;">Multicast Group
+              <input type="text" name="multicastGroup" style="width: 100%;" />
+            </label>
+            <label style="flex: 1; min-width: 140px;">Interface
+              <input type="text" name="interface" style="width: 100%;" />
+            </label>
+          </div>
+          
+          <div class="row" style="margin-top: 12px;">
+             <label style="flex: 1; min-width: 200px;">Sync Cache Retention
+              <input type="number" name="syncCacheRetention" value="3600" style="width: 100%;" />
+            </label>
+             <label style="flex: 1; min-width: 140px;">Archive
+              <select name="archive" style="width: 100%;">
+                <option value="true" selected>True</option>
+                <option value="false">False</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="row" style="margin-top: 12px;">
+             <label style="flex: 1; min-width: 200px;">Anonymous Group
+              <select name="anongroup" style="width: 100%;">
+                <option value="true">True</option>
+                <option value="false" selected>False</option>
+              </select>
+            </label>
+             <label style="flex: 1; min-width: 140px;">Archive Only
+              <select name="archiveOnly" style="width: 100%;">
+                <option value="true">True</option>
+                <option value="false" selected>False</option>
+              </select>
+            </label>
+          </div>
+
+          <div style="margin-top: 16px;">
+            <label style="display: block; margin-bottom: 8px; font-weight: bold;">Filter Groups</label>
+            <div id="filterGroupsCheckboxList" style="max-height: 150px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 4px; padding: 8px;">
+              <!-- Checkboxes populate here -->
+            </div>
+          </div>
+          
+           <div class="row" style="margin-top: 12px;">
+             <label style="flex: 1; min-width: 200px;">Sync
+              <select name="sync" style="width: 100%;">
+                <option value="true">True</option>
+                <option value="false" selected>False</option>
+              </select>
+            </label>
+             <label style="flex: 1; min-width: 140px;">Federated
+              <select name="federated" style="width: 100%;">
+                <option value="true" selected>True</option>
+                <option value="false">False</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="row" style="margin-top: 16px; align-items: center;">
+            <button class="btn success" type="submit">Submit & Create Integration</button>
+          </div>
+        </div>
+      </form>
     </div>
   </div>
 </div>
@@ -261,9 +392,18 @@
         var statusPill = isConnected
           ? "<span class=\"status-pill status-connected\">Connected</span>"
           : "<span class=\"status-pill status-disconnected\">Disconnected</span>";
+
+        var dataFeedButtonHtml;
+        if (u.dataFeedName) {
+          dataFeedButtonHtml = "<button class=\"btn success\" type=\"button\" data-action=\"data-feed\" data-mode=\"view\" data-username=\"" + esc(u.username) + "\">DF Enabled</button>";
+        } else {
+          dataFeedButtonHtml = "<button class=\"btn danger\" type=\"button\" data-action=\"data-feed\" data-mode=\"create\" data-username=\"" + esc(u.username) + "\" data-grouppk=\"" + esc(currentGroupPk) + "\" data-title=\"" + esc(u.name || "") + "\">No DF</button>";
+        }
+
         return "<tr>" +
           "<td>" + esc(u.username) + "</td>" +
           "<td>" + esc(groupDisplay) + "</td>" +
+          "<td>" + dataFeedButtonHtml + "</td>" +
           "<td>" + statusPill + "</td>" +
           "<td><div class=\"row\" style=\"gap:8px; flex-wrap:wrap;\">" +
           "<button class=\"btn success\" type=\"button\" data-action=\"download-certs\" data-pk=\"" + esc(u.pk) + "\" data-username=\"" + esc(u.username) + "\">Download Certs</button>" +
@@ -356,6 +496,87 @@
         var username = btn.getAttribute("data-username");
         var groupPk = btn.getAttribute("data-group");
         openEditModal(pk, username, groupPk);
+      });
+    });
+    tbody.querySelectorAll("button[data-action=\"data-feed\"]").forEach(function (btn) {
+      btn.addEventListener("click", async function () {
+        const username = btn.getAttribute("data-username");
+        const mode = btn.getAttribute("data-mode");
+        const title = btn.getAttribute("data-title");
+        const groupPk = btn.getAttribute("data-grouppk");
+        
+        if (mode === "create") {
+            integrationRetroactiveUsername = username;
+            filterGroupsCheckboxList.innerHTML = groupsCache.map(function(g) {
+               const isChecked = (g.pk === groupPk) ? "checked" : "";
+               const displayName = stripTakPrefix(g.name) || g.pk;
+               return `<label style="display: flex; flex-direction: row; align-items: center; font-weight: normal; margin-bottom: 6px; width: 100%;">
+                         <input type="checkbox" value="${esc(g.name)}" style="margin-right: 8px; margin-top: 0;" ${isChecked} />
+                         ${esc(displayName)}
+                       </label>`;
+            }).join("");
+            
+            dataFeedForm.reset();
+            Array.from(dataFeedForm.elements).forEach(el => el.disabled = false);
+            document.getElementById("dataFeedSubmitBtn").style.display = "block";
+            dataFeedForm.dataFeedName.value = title || "";
+            dataFeedModalOverlay.style.display = "flex";
+            
+        } else if (mode === "view") {
+            try {
+              btn.disabled = true;
+              setTableMsg("Fetching mapped Data Feed for " + username + "...");
+              const res = await fetch(`/api/integrations/${encodeURIComponent(username)}/datafeed`);
+              const feed = await res.json();
+              if (res.ok && feed.dataFeed) {
+                 const f = feed.dataFeed;
+                 
+                 dataFeedForm.reset();
+                 document.getElementById("dataFeedSubmitBtn").style.display = "none";
+                 
+                 dataFeedForm.dataFeedName.value = f.name || "";
+                 dataFeedForm.tags.value = (f.tag || []).join("\n");
+                 dataFeedForm.protocol.value = f.protocol || "tls";
+                 dataFeedForm.authType.value = f.auth || "X_509";
+                 dataFeedForm.port.value = f.port || 8089;
+                 dataFeedForm.coreVersion.value = f.coreVersion || "2";
+
+                 const tls = String(f.coreVersion2TlsVersions || "").split(",");
+                 dataFeedForm.tlsv1.checked = tls.includes("TLSv1");
+                 dataFeedForm.tlsv1_1.checked = tls.includes("TLSv1.1");
+                 dataFeedForm.tlsv1_2.checked = tls.includes("TLSv1.2");
+                 dataFeedForm.tlsv1_3.checked = tls.includes("TLSv1.3");
+
+                 dataFeedForm.multicastGroup.value = f.group || "";
+                 dataFeedForm.interface.value = f.iface || "";
+                 dataFeedForm.syncCacheRetention.value = f.syncCacheRetentionSeconds || "3600";
+                 dataFeedForm.archive.value = f.archive === true ? "true" : "false";
+                 dataFeedForm.anongroup.value = f.anongroup === true ? "true" : "false";
+                 dataFeedForm.archiveOnly.value = f.archiveOnly === true ? "true" : "false";
+                 dataFeedForm.sync.value = f.sync === true ? "true" : "false";
+                 dataFeedForm.federated.value = f.federated === true ? "true" : "false";
+
+                 filterGroupsCheckboxList.innerHTML = ((f.filtergroup || [])).map(function(grp) {
+                     const displayName = stripTakPrefix(grp);
+                     return `<label style="display: flex; flex-direction: row; align-items: center; font-weight: normal; margin-bottom: 6px; width: 100%;">
+                               <input type="checkbox" checked disabled style="margin-right: 8px; margin-top: 0;"/>
+                               ${esc(displayName)}
+                             </label>`;
+                 }).join("");
+                 
+                 Array.from(dataFeedForm.elements).forEach(el => el.disabled = true);
+                 document.getElementById("dataFeedCloseBtn").disabled = false;
+                 dataFeedModalOverlay.style.display = "flex";
+                 setTableMsg("");
+              } else {
+                 setTableMsg("Could not load Data Feed.", false);
+              }
+            } catch (err) {
+              setTableMsg("Failed fetching external Data Feed metadata", false);
+            } finally {
+              btn.disabled = false;
+            }
+        }
       });
     });
     tbody.querySelectorAll("button[data-action=\"download-certs\"]").forEach(function (btn) {
@@ -461,6 +682,138 @@
     if (type === "agency") payload.agencySuffix = agencySelect.value;
     if (type === "county") payload.county = countySelect.value;
     if (type === "state") payload.state = stateSelect.value;
+
+    const mkFeeds = document.getElementById("makeDataFeed");
+    const isSkipDataFeed = mkFeeds && mkFeeds.value === "no";
+    
+    if (isSkipDataFeed) {
+       payload.skipDataFeed = true;
+       submitIntegration(payload);
+       return;
+    }
+
+    integrationPayloadCache = payload;
+    integrationRetroactiveUsername = null;
+    
+    // Render Filter Groups checkboxes for standard flow
+    filterGroupsCheckboxList.innerHTML = groupsCache.map(function(g) {
+        const isChecked = (g.pk === groupId) ? "checked" : "";
+        const displayName = stripTakPrefix(g.name) || g.pk;
+        return `<label style="display: flex; flex-direction: row; align-items: center; font-weight: normal; margin-bottom: 6px; width: 100%;">
+                  <input type="checkbox" value="${esc(g.name)}" style="margin-right: 8px; margin-top: 0;" ${isChecked} />
+                  ${esc(displayName)}
+                </label>`;
+    }).join("");
+
+    dataFeedForm.reset();
+    Array.from(dataFeedForm.elements).forEach(el => el.disabled = false);
+    document.getElementById("dataFeedSubmitBtn").style.display = "block";
+    dataFeedForm.dataFeedName.value = title;
+    
+    dataFeedModalOverlay.style.display = "flex";
+  });
+
+  let integrationPayloadCache = null;
+  let integrationRetroactiveUsername = null;
+  const dataFeedModalOverlay = document.getElementById("dataFeedModalOverlay");
+  const dataFeedCloseBtn = document.getElementById("dataFeedCloseBtn");
+  const dataFeedForm = document.getElementById("dataFeedForm");
+  const filterGroupsCheckboxList = document.getElementById("filterGroupsCheckboxList");
+
+  if (dataFeedCloseBtn) {
+    dataFeedCloseBtn.addEventListener("click", function() {
+      dataFeedModalOverlay.style.display = "none";
+      integrationPayloadCache = null;
+      integrationRetroactiveUsername = null;
+    });
+  }
+
+  dataFeedForm.addEventListener("submit", async function(e) {
+    e.preventDefault();
+    if (!integrationPayloadCache) return;
+
+    const payload = integrationPayloadCache;
+    
+    payload.dataFeedName = dataFeedForm.dataFeedName.value.trim();
+    payload.tags = dataFeedForm.tags.value;
+    payload.protocol = dataFeedForm.protocol.value;
+    payload.authType = dataFeedForm.authType.value;
+    payload.port = dataFeedForm.port.value;
+    payload.coreVersion = dataFeedForm.coreVersion.value;
+    
+    const tlsVersions = [];
+    if (dataFeedForm.tlsv1.checked) tlsVersions.push("TLSv1");
+    if (dataFeedForm.tlsv1_1.checked) tlsVersions.push("TLSv1.1");
+    if (dataFeedForm.tlsv1_2.checked) tlsVersions.push("TLSv1.2");
+    if (dataFeedForm.tlsv1_3.checked) tlsVersions.push("TLSv1.3");
+    payload.coreVersion2TlsVersions = tlsVersions.join(",");
+
+    payload.multicastGroup = dataFeedForm.multicastGroup.value.trim();
+    payload.iface = dataFeedForm.interface.value.trim();
+    payload.syncCacheRetention = dataFeedForm.syncCacheRetention.value;
+    payload.archive = dataFeedForm.archive.value;
+    payload.anongroup = dataFeedForm.anongroup.value;
+    payload.archiveOnly = dataFeedForm.archiveOnly.value;
+    payload.sync = dataFeedForm.sync.value;
+    payload.federated = dataFeedForm.federated.value;
+
+    const checkedBoxes = filterGroupsCheckboxList.querySelectorAll('input[type="checkbox"]:checked');
+    const filterGroups = [];
+    checkedBoxes.forEach(function(box) {
+        filterGroups.push(box.value);
+    });
+    
+    const dataFeedPayloadSegment = {
+      dataFeedName: dataFeedForm.dataFeedName.value.trim(),
+      tags: dataFeedForm.tags.value,
+      protocol: dataFeedForm.protocol.value,
+      authType: dataFeedForm.authType.value,
+      port: dataFeedForm.port.value,
+      coreVersion: dataFeedForm.coreVersion.value,
+      coreVersion2TlsVersions: tlsVersions.join(","),
+      multicastGroup: dataFeedForm.multicastGroup.value.trim(),
+      iface: dataFeedForm.interface.value.trim(),
+      syncCacheRetention: dataFeedForm.syncCacheRetention.value,
+      archive: dataFeedForm.archive.value,
+      anongroup: dataFeedForm.anongroup.value,
+      archiveOnly: dataFeedForm.archiveOnly.value,
+      sync: dataFeedForm.sync.value,
+      federated: dataFeedForm.federated.value,
+      filterGroups: filterGroups
+    };
+
+    dataFeedModalOverlay.style.display = "none";
+
+    // Handle Retroactive Data Feed mode
+    if (integrationRetroactiveUsername) {
+       setTableMsg("Generating Data Feed for " + integrationRetroactiveUsername + "...", false);
+       try {
+         const res = await fetch(`/api/integrations/${encodeURIComponent(integrationRetroactiveUsername)}/datafeed`, {
+           method: "POST",
+           headers: { "Content-Type": "application/json" },
+           body: JSON.stringify(dataFeedPayloadSegment)
+         });
+         const out = await res.json();
+         if (!res.ok) {
+           setTableMsg(out.error || "Retroactive Data Feed creation failed", false);
+         } else {
+           setTableMsg("Successfully created and mapped Data Feed.", true);
+           loadIntegrations();
+         }
+       } catch (err) {
+         setTableMsg(err.message || "Request failed", false);
+       }
+       integrationRetroactiveUsername = null;
+       return;
+    }
+
+    // Default Creation Flow
+    Object.assign(payload, dataFeedPayloadSegment);
+    submitIntegration(payload);
+  });
+
+  async function submitIntegration(payload) {
+    setCreateMsg("Creating integration...", true);
     try {
       const res = await fetch("/api/integrations", {
         method: "POST",
@@ -473,11 +826,21 @@
         return;
       }
       const username = (out.user && out.user.username) || "";
+      
+      let msgStr = "Integration \"" + username + "\" created successfully.";
       if (out.certError) {
-        setCreateMsg("Integration \"" + username + "\" created, but cert automation failed: " + out.certError, false);
-      } else {
-        setCreateMsg("Integration \"" + username + "\" created successfully. Downloading cert bundle...", true);
+        msgStr += " Cert automation failed: " + out.certError + ".";
       }
+      if (out.dataFeedError) {
+        msgStr += " Data feed creation failed: " + out.dataFeedError + ".";
+      }
+
+      if (out.certError || out.dataFeedError) {
+        setCreateMsg(msgStr, false);
+      } else {
+        setCreateMsg(msgStr + " Downloading cert bundle...", true);
+      }
+      
       createForm.reset();
       groupSelect.value = "";
       integrationType.value = "global";
@@ -494,7 +857,7 @@
     } catch (err) {
       setCreateMsg(err.message || "Create failed", false);
     }
-  });
+  }
 
   (async function init() {
     try {
