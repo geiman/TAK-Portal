@@ -23,7 +23,7 @@ const PUBLIC_PATHS = new Set([
   "/setup-my-device",
   "/request-access",
   "/request-access/confirmation",
-  "/api/setup-my-device/enroll-qr",
+  // Token in query is the credential; session may be expired when saving high-res QR.
   "/api/qr/download",
   "/styles.css",
   "/favicon.ico",

@@ -668,10 +668,48 @@ app.get("/audit-log", requireGlobalAdmin, async (req, res) => {
   }
 });
 
-app.get("/setup-my-device", (req, res) => {
+app.get("/setup-my-device", async (req, res) => {
   // Used by the Setup My Device page to display the correct TAK server hostname.
   const takHost = qrSvc.getTakHost();
-  return res.render("setup-my-device", { takHost });
+  let enrollQrBootstrap = null;
+  const user = req.authentikUser;
+  const u = user && String(user.username || "").trim();
+  // Precompute standard (ATAK / TAK Aware) enrollment QR on the server so the first
+  // "Scan QR" click does not rely on a client fetch (avoids intermittent failures when
+  // reverse proxies or sessions mishandle XHR/fetch to the same API).
+  if (
+    u &&
+    u !== "bootstrap" &&
+    qrSvc.getTakUrl()
+  ) {
+    try {
+      const tokensSvc = require("./services/authentikTokens.service");
+      const { identifier, key, expiresAt } =
+        await tokensSvc.getOrCreateEnrollmentAppPassword({
+          username: u,
+          userId: user.uid || null,
+        });
+      const enrollUrl = qrSvc.buildEnrollUrl({ username: u, token: key });
+      const qrCode = enrollUrl
+        ? await qrSvc.generateDisplayQrDataUrl(enrollUrl)
+        : "";
+      enrollQrBootstrap = {
+        username: u,
+        tokenIdentifier: identifier,
+        token: key,
+        expiresAt,
+        enrollUrl: enrollUrl || "",
+        qrCode,
+      };
+    } catch (err) {
+      console.warn(
+        "[setup-my-device] enroll QR bootstrap failed:",
+        err?.message || err
+      );
+      enrollQrBootstrap = null;
+    }
+  }
+  return res.render("setup-my-device", { takHost, enrollQrBootstrap });
 });
 
 
