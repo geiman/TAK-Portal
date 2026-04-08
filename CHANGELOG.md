@@ -12,6 +12,11 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.68 - 4/8/26
+✨ `Enhancement` - Integrations page now includes a way to create Data Feeds on TAK Server (additions compliments of cfd2474)<br>
+🐛 `Bug Fix` - Fixes issue with QR code behavior for standard users failing to load the enrollment QR code on the setup my device page (bug reported by dfndr13)
+
+
 ### v1.2.67 - 4/4/26
 🐛 `Bug Fix` - Fixes issue with locate failing if user inputs characters such as apostrophes and other special characters.  Handling added to remove and replace characters. (TAK Server limitation)
 
