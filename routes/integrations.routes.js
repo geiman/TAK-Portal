@@ -289,6 +289,17 @@ router.delete("/:userId", async (req, res) => {
     if (!username.startsWith("nodered-")) {
       return res.status(403).json({ error: "Not an integration user." });
     }
+
+    const dataFeedName = user.attributes?.tak_data_feed_name;
+    if (dataFeedName && takSvc.isTakConfigured()) {
+       try {
+           const takClient = takSvc.buildTakAxios();
+           await takClient.delete(`/api/datafeeds/${encodeURIComponent(dataFeedName)}`);
+       } catch (err) {
+           console.warn(`Failed to inherently delete associated data feed '${dataFeedName}' for user '${username}':`, err.message);
+       }
+    }
+
     await takSshSvc.revokeIntegrationCertViaSshScript(username);
     await users.deleteUser(userId, { ignoreLocks: true });
     const authUser = req.authentikUser || null;

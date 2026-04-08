@@ -60,6 +60,6 @@ When an administrator creates a new Integration user, they frequently need a str
 ## 5. Aspects for Code Optimization & Developer Review
 If you decide to accept, tweak, or optimize these concepts, please consider the following contexts:
 
-1. **Transaction State / Rollbacks**: The current model assumes that an integration surviving without a data stream is better than failing abruptly. If you'd prefer strict transactional fidelity, you might consider invoking `takSshSvc.revoke...` or sweeping the Authentik hooks to kill the user immediately if the data feed HTTP POST fails.
+1. **Transaction State / Deletions**: The deletion sequence (`DELETE /api/integrations/:userId`) automatically hooks into Authentik to pull the mapped `tak_data_feed_name`, securely querying `takSvc` to permanently cascade and delete the streaming data feed *prior* to wiping the Integration Account. This guarantees orphan profiles do not clutter the TAK Server schema. If creation endpoints drop...
 2. **TAK Node Clusters (CoreConfig)**: `POST /api/datafeeds` in clustered environments depends upon Ignite clustering propagation. The current flow waits for HTTP 200 sequentially. If your environments experience heavy node delays, injecting standard timeout/retry architectures here could be beneficial.
 3. **Internal `takSvc` Axios Context**: The payload is using `takSvc.buildTakAxios()`. Feel free to review its Base URL handling regarding `/Marti` context roots to ensure maximum compatibility with user configurations leveraging standalone endpoints versus proxies.
