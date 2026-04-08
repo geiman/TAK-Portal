@@ -518,9 +518,11 @@
             }).join("");
             
             dataFeedForm.reset();
-            Array.from(dataFeedForm.elements).forEach(el => el.disabled = false);
+            Array.from(dataFeedForm.elements).forEach(el => {
+                if (el.name !== "dataFeedName") el.disabled = false;
+            });
             document.getElementById("dataFeedSubmitBtn").style.display = "block";
-            dataFeedForm.dataFeedName.value = title || "";
+            dataFeedForm.dataFeedName.value = "";
             dataFeedModalOverlay.style.display = "flex";
             
         } else if (mode === "view") {
@@ -707,9 +709,11 @@
     }).join("");
 
     dataFeedForm.reset();
-    Array.from(dataFeedForm.elements).forEach(el => el.disabled = false);
+    Array.from(dataFeedForm.elements).forEach(el => {
+        if (el.name !== "dataFeedName") el.disabled = false;
+    });
     document.getElementById("dataFeedSubmitBtn").style.display = "block";
-    dataFeedForm.dataFeedName.value = title;
+    dataFeedForm.dataFeedName.value = "";
     
     dataFeedModalOverlay.style.display = "flex";
   });
