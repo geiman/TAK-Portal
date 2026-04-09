@@ -5,6 +5,7 @@ Below you will find a comprehensive list of items planned for implementation in 
 ***If you have suggestions for how to make TAK Portal better, please reach out to me directly or by opening an "Issue" on Github! I always want to know how this can better serve you and your agency.***
 
 ## High / In Progress
+- Create MOU / Documents Section
 - Create Getting Started / Basic User Guides for TAK Aware, ATAK, and Open TAK Tracker
 - Add access level between Agency and Global that has Global Admin access, but without access to server settings or audit log.  (Helpful for trusted EOC high level users)
 
