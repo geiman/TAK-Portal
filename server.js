@@ -1079,6 +1079,10 @@ app.post(
     { name: "BRAND_LOGO_UPLOAD", maxCount: 1 },
   ]),
   (req, res) => {
+    const wantsJson =
+      String(req.get("Accept") || "").includes("application/json") ||
+      req.get("X-Requested-With") === "XMLHttpRequest";
+
     const rawBody = req.body || {};
 
     // Grab the current full settings object
@@ -1249,7 +1253,18 @@ app.post(
     // so it stays whatever it was before.
 
     // Save the FULL merged settings object
-    settingsSvc.saveSettings(merged);
+    try {
+      settingsSvc.saveSettings(merged);
+    } catch (err) {
+      console.error("[settings] saveSettings failed:", err);
+      if (wantsJson) {
+        return res.status(500).json({
+          ok: false,
+          error: err?.message || "Save failed",
+        });
+      }
+      return res.status(500).send("Failed to save settings");
+    }
 
     try {
       // Audit: record which keys changed (avoid storing secrets/content)
@@ -1296,7 +1311,10 @@ app.post(
       // never block settings save
     }
 
-    res.redirect("/settings");
+    if (wantsJson) {
+      return res.json({ ok: true });
+    }
+    return res.redirect("/settings");
   }
 );
 
