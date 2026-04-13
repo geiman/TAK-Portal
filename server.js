@@ -216,6 +216,22 @@ function requireBetaMode(req, res, next) {
   next();
 }
 
+/** Beta + global or agency admin (for Documents page + shared MOU workflows). */
+function requireBetaDocumentsPage(req, res, next) {
+  const cfg = settingsSvc.getSettings() || {};
+  if (String(cfg.BETA_MODE || "").toLowerCase() !== "true") {
+    return res.status(404).render("access-denied", {
+      username: req.authentikUser?.username || "",
+    });
+  }
+  const u = req.authentikUser;
+  if (!u || (!u.isGlobalAdmin && !u.isAgencyAdmin)) {
+    const username = u && u.username ? u.username : "";
+    return res.status(403).render("access-denied", { username });
+  }
+  next();
+}
+
 function requireStrictGlobalAdminApi(req, res, next) {
   const user = req.authentikUser;
   if (!user || !user.isGlobalAdmin) {
@@ -296,6 +312,8 @@ app.use(
   requireBetaModeApi,
   require("./routes/dataSync.routes")
 );
+
+app.use("/api/documents", require("./routes/documents.routes"));
 
 // Public locate APIs: CORS + OPTIONS (preflight for JSON POST).
 function publicLocateApiCors(req, res, next) {
@@ -543,10 +561,8 @@ app.get("/getting-started", requireStrictGlobalAdmin, requireBetaMode, (req, res
   res.render("getting-started")
 );
 
-// Beta: Documents (global admins only, beta mode)
-app.get("/documents", requireStrictGlobalAdmin, requireBetaMode, (req, res) =>
-  res.render("documents")
-);
+// Beta: Documents (global + agency admins; per-document ACL in API)
+app.get("/documents", requireBetaDocumentsPage, (req, res) => res.render("documents"));
 
 // Beta: Data Packages (global admins only, beta mode)
 app.get("/data-packages", requireStrictGlobalAdmin, requireBetaMode, (req, res) =>

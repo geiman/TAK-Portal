@@ -215,6 +215,7 @@ if (!isPublicPath) {
       "/plugins",
       "/setup-my-device",
       "/pending-user-requests",
+      "/documents",
       "/api/users",
       "/api/groups",
       "/api/templates",
@@ -223,6 +224,7 @@ if (!isPublicPath) {
       "/api/setup-my-device",
       "/api/user-requests",
       "/api/tak",
+      "/api/documents",
     ];
 
     const allowed = allowedAgencyAdminPrefixes.some(prefix =>

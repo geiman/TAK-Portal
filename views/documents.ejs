@@ -1,9 +1,904 @@
 <%- include("partials/header") %>
 <%- include("partials/sidebar") %>
 
-<main class="main">
+<main class="main documents-page">
   <h1>Documents</h1>
-  <div class="card">
-    <p>MOUs, agreements, and pre-onboarding materials. (Coming soon.)</p>
+  <p class="muted" style="margin: 0 0 16px 0; max-width: 52rem;">
+    Store MOUs, policies, and onboarding files. Global admins can publish to specific agencies or keep documents internal.
+    Agency admins see only documents shared with their agency. Acknowledgments generate a saved receipt file.
+  </p>
+
+  <div id="documentsBanner" class="msg" style="display: none; margin-bottom: 12px;"></div>
+
+  <div class="card" style="margin-bottom: 14px;">
+    <div class="row" style="justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+      <div class="row" style="gap: 10px; flex-wrap: wrap; align-items: center;">
+        <input type="search" id="docFilter" placeholder="Filter by title…" style="min-width: 220px; max-width: 360px;" autocomplete="off" />
+        <% if (typeof isGlobalAdmin !== "undefined" && isGlobalAdmin) { %>
+          <button type="button" class="btn success" id="btnNewDoc">New document</button>
+        <% } %>
+      </div>
+      <button type="button" class="btn" id="btnRefreshDocs">Refresh</button>
+    </div>
+  </div>
+
+  <div class="card" style="overflow-x: auto;">
+    <table class="table documents-table" style="margin: 0;">
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th style="width: 110px;">Category</th>
+          <th style="min-width: 140px;">Access</th>
+          <th style="width: 90px;">Versions</th>
+          <th style="width: 160px;">Updated</th>
+          <th style="min-width: 120px;">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="documentsTbody">
+        <tr><td colspan="6" class="muted">Loading…</td></tr>
+      </tbody>
+    </table>
   </div>
 </main>
+
+<!-- New document -->
+<div class="modalOverlay" id="createModal" style="display: none;" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="createModalTitle" style="width: min(560px, 96vw);">
+    <div class="modalHeader">
+      <h2 id="createModalTitle" style="margin: 0;">New document</h2>
+      <button type="button" class="btn" data-close-create>Close</button>
+    </div>
+    <div class="modalBody">
+      <div id="createMsg" class="msg" style="display: none;"></div>
+      <form id="createForm">
+        <label class="settings-field" style="display: block;">
+          <span class="settings-label">Title</span>
+          <input type="text" name="title" required placeholder="e.g. Regional MOU 2026" style="width: 100%; box-sizing: border-box;" />
+        </label>
+        <label class="settings-field" style="display: block; margin-top: 10px;">
+          <span class="settings-label">Category</span>
+          <select name="category" style="width: 100%; max-width: 280px;">
+            <option value="MOU">MOU</option>
+            <option value="Policy">Policy</option>
+            <option value="SOP">SOP</option>
+            <option value="Other">Other</option>
+          </select>
+        </label>
+        <label class="settings-field" style="display: block; margin-top: 10px;">
+          <span class="settings-label">Description</span>
+          <textarea name="description" rows="3" placeholder="Optional context" style="width: 100%; box-sizing: border-box; resize: vertical;"></textarea>
+        </label>
+        <label class="settings-field" style="display: block; margin-top: 10px;">
+          <span class="settings-label">File (optional)</span>
+          <input type="file" name="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" />
+          <small class="settings-help">PDF, Word, PNG, or JPEG — up to 40 MB. You can add a file later.</small>
+        </label>
+        <div style="margin-top: 12px;">
+          <strong class="settings-label" style="display: block; margin-bottom: 6px;">Agency access</strong>
+          <p class="muted" style="margin: 0 0 8px 0; font-size: 13px;">
+            Leave all unchecked to restrict this document to <strong>global admins only</strong>. Select one or more agencies to grant their agency admins access.
+          </p>
+          <div id="createAgencyChecks" class="doc-agency-box"></div>
+        </div>
+        <div class="row" style="margin-top: 16px; gap: 8px;">
+          <button type="submit" class="btn success">Create</button>
+          <button type="button" class="btn" data-close-create>Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Detail -->
+<div class="modalOverlay" id="detailModal" style="display: none;" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="detailModalTitle" style="width: min(820px, 98vw);">
+    <div class="modalHeader">
+      <h2 id="detailModalTitle" style="margin: 0;">Document</h2>
+      <button type="button" class="btn" id="detailCloseBtn">Close</button>
+    </div>
+    <div class="modalBody">
+      <div id="detailMsg" class="msg" style="display: none;"></div>
+      <div id="detailBody"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Upload version -->
+<div class="modalOverlay" id="uploadModal" style="display: none;" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="uploadModalTitle" style="width: min(480px, 96vw);">
+    <div class="modalHeader">
+      <h2 id="uploadModalTitle" style="margin: 0;">Upload new version</h2>
+      <button type="button" class="btn" data-close-upload>Close</button>
+    </div>
+    <div class="modalBody">
+      <div id="uploadMsg" class="msg" style="display: none;"></div>
+      <form id="uploadForm">
+        <input type="hidden" id="uploadDocId" name="docId" />
+        <label class="settings-field" style="display: block;">
+          <span class="settings-label">File</span>
+          <input type="file" name="file" required accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" />
+        </label>
+        <div class="row" style="margin-top: 14px; gap: 8px;">
+          <button type="submit" class="btn success">Upload</button>
+          <button type="button" class="btn" data-close-upload>Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Email -->
+<div class="modalOverlay" id="emailModal" style="display: none;" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="emailModalTitle" style="width: min(480px, 96vw);">
+    <div class="modalHeader">
+      <h2 id="emailModalTitle" style="margin: 0;">Email document</h2>
+      <button type="button" class="btn" data-close-email>Close</button>
+    </div>
+    <div class="modalBody">
+      <div id="emailMsg" class="msg" style="display: none;"></div>
+      <form id="emailForm">
+        <input type="hidden" id="emailDocId" />
+        <input type="hidden" id="emailVersionId" />
+        <label class="settings-field" style="display: block;">
+          <span class="settings-label">To</span>
+          <input type="email" id="emailTo" required placeholder="recipient@example.gov" style="width: 100%; box-sizing: border-box;" autocomplete="off" />
+        </label>
+        <label class="settings-field" style="display: block; margin-top: 10px;">
+          <span class="settings-label">Short note (optional)</span>
+          <textarea id="emailNote" rows="3" style="width: 100%; box-sizing: border-box; resize: vertical;"></textarea>
+        </label>
+        <p class="muted" style="font-size: 12px; margin: 8px 0 0 0;">Uses server email settings. If email is disabled, the request may be skipped.</p>
+        <div class="row" style="margin-top: 14px; gap: 8px;">
+          <button type="submit" class="btn success">Send</button>
+          <button type="button" class="btn" data-close-email>Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Acknowledge -->
+<div class="modalOverlay" id="signModal" style="display: none;" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="signModalTitle" style="width: min(520px, 96vw);">
+    <div class="modalHeader">
+      <h2 id="signModalTitle" style="margin: 0;">Acknowledge document</h2>
+      <button type="button" class="btn" data-close-sign>Close</button>
+    </div>
+    <div class="modalBody">
+      <div id="signMsg" class="msg" style="display: none;"></div>
+      <p class="muted" style="margin-top: 0;">Type a clear acknowledgment. A receipt file (.txt) is stored with this document.</p>
+      <form id="signForm">
+        <input type="hidden" id="signDocId" />
+        <input type="hidden" id="signVersionId" />
+        <label class="settings-field" style="display: block;">
+          <span class="settings-label">Your acknowledgment</span>
+          <textarea id="signText" rows="5" required minlength="8" placeholder="e.g. I acknowledge that I have read and agree to the terms in this MOU as of this date." style="width: 100%; box-sizing: border-box; resize: vertical;"></textarea>
+        </label>
+        <div class="row" style="margin-top: 14px; gap: 8px;">
+          <button type="submit" class="btn success">Submit &amp; save receipt</button>
+          <button type="button" class="btn" data-close-sign>Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Edit meta -->
+<div class="modalOverlay" id="editModal" style="display: none;" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="editModalTitle" style="width: min(560px, 96vw);">
+    <div class="modalHeader">
+      <h2 id="editModalTitle" style="margin: 0;">Edit document</h2>
+      <button type="button" class="btn" data-close-edit>Close</button>
+    </div>
+    <div class="modalBody">
+      <div id="editMsg" class="msg" style="display: none;"></div>
+      <form id="editForm">
+        <input type="hidden" id="editDocId" />
+        <label class="settings-field" style="display: block;">
+          <span class="settings-label">Title</span>
+          <input type="text" id="editTitle" required style="width: 100%; box-sizing: border-box;" />
+        </label>
+        <label class="settings-field" style="display: block; margin-top: 10px;">
+          <span class="settings-label">Category</span>
+          <select id="editCategory" style="width: 100%; max-width: 280px;">
+            <option value="MOU">MOU</option>
+            <option value="Policy">Policy</option>
+            <option value="SOP">SOP</option>
+            <option value="Other">Other</option>
+          </select>
+        </label>
+        <label class="settings-field" style="display: block; margin-top: 10px;">
+          <span class="settings-label">Description</span>
+          <textarea id="editDescription" rows="3" style="width: 100%; box-sizing: border-box; resize: vertical;"></textarea>
+        </label>
+        <div style="margin-top: 12px;">
+          <strong class="settings-label" style="display: block; margin-bottom: 6px;">Agency access</strong>
+          <div id="editAgencyChecks" class="doc-agency-box"></div>
+        </div>
+        <div class="row" style="margin-top: 16px; gap: 8px;">
+          <button type="submit" class="btn success">Save</button>
+          <button type="button" class="btn" data-close-edit>Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Delete -->
+<div class="modalOverlay" id="deleteModal" style="display: none;" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="deleteModalTitle" style="width: min(440px, 94vw);">
+    <div class="modalHeader">
+      <h2 id="deleteModalTitle" style="margin: 0;">Delete document</h2>
+      <button type="button" class="btn" id="deleteModalClose">Cancel</button>
+    </div>
+    <div class="modalBody">
+      <p id="deleteModalText" style="margin-top: 0;"></p>
+      <div class="row" style="gap: 8px; margin-top: 12px;">
+        <button type="button" class="btn danger" id="deleteConfirmBtn">Delete</button>
+        <button type="button" class="btn" id="deleteCancelBtn">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .documents-page .doc-agency-box {
+    max-height: 200px;
+    overflow: auto;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+    background: var(--panel);
+  }
+  .documents-page .doc-agency-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 6px 0;
+    font-size: 14px;
+  }
+  .documents-page .documents-table td {
+    vertical-align: middle;
+  }
+  .documents-page .badge-access {
+    display: inline-block;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--line);
+    color: var(--muted);
+  }
+  .documents-page .detail-section {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+  }
+  .documents-page .detail-section h3 {
+    margin: 0 0 8px 0;
+    font-size: 1rem;
+  }
+</style>
+
+<script>
+(function () {
+  var API = "/api/documents";
+  var IS_GLOBAL = <%= typeof isGlobalAdmin !== "undefined" && isGlobalAdmin ? "true" : "false" %>;
+
+  var tbody = document.getElementById("documentsTbody");
+  var filterEl = document.getElementById("docFilter");
+  var banner = document.getElementById("documentsBanner");
+  var agenciesCache = [];
+
+  function showBanner(text, ok) {
+    if (!banner) return;
+    if (!text) {
+      banner.style.display = "none";
+      banner.textContent = "";
+      banner.className = "msg";
+      return;
+    }
+    banner.style.display = "block";
+    banner.textContent = text;
+    banner.className = "msg " + (ok === true ? "ok" : ok === false ? "bad" : "");
+  }
+
+  function esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function formatBytes(n) {
+    var x = Number(n) || 0;
+    if (x < 1024) return x + " B";
+    if (x < 1024 * 1024) return (x / 1024).toFixed(1) + " KB";
+    return (x / 1024 / 1024).toFixed(1) + " MB";
+  }
+
+  function formatAccess(row) {
+    var suf = row.agencySuffixes || [];
+    if (!suf.length) {
+      return '<span class="badge-access">Global admins only</span>';
+    }
+    return '<span class="badge-access" title="' + esc(suf.join(", ")) + '">' + suf.length + " agenc" + (suf.length === 1 ? "y" : "ies") + "</span>";
+  }
+
+  function formatWhen(iso) {
+    if (!iso) return "—";
+    try {
+      return new Date(iso).toLocaleString();
+    } catch (_) {
+      return iso;
+    }
+  }
+
+  var listRows = [];
+
+  function renderTable(rows) {
+    listRows = rows || [];
+    applyFilter();
+  }
+
+  function applyFilter() {
+    var q = (filterEl && filterEl.value || "").trim().toLowerCase();
+    var rows = listRows.filter(function (r) {
+      if (!q) return true;
+      return String(r.title || "")
+        .toLowerCase()
+        .indexOf(q) >= 0;
+    });
+    if (!tbody) return;
+    if (!rows.length) {
+      tbody.innerHTML =
+        '<tr><td colspan="6" class="muted">No documents match.</td></tr>';
+      return;
+    }
+    var html = "";
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      html +=
+        "<tr data-id=\"" +
+        esc(r.id) +
+        "\">" +
+        "<td><strong>" +
+        esc(r.title) +
+        "</strong></td>" +
+        "<td>" +
+        esc(r.category || "—") +
+        "</td>" +
+        "<td>" +
+        formatAccess(r) +
+        "</td>" +
+        "<td>" +
+        (r.versionCount || 0) +
+        "</td>" +
+        "<td style=\"font-size:12px;white-space:nowrap;\">" +
+        esc(formatWhen(r.updatedAt)) +
+        "</td>" +
+        "<td><button type=\"button\" class=\"btn\" data-open-detail=\"" +
+        esc(r.id) +
+        "\">View</button></td>" +
+        "</tr>";
+    }
+    tbody.innerHTML = html;
+  }
+
+  function loadList() {
+    showBanner("Loading…", undefined);
+    fetch(API, { credentials: "same-origin" })
+      .then(function (res) {
+        return res.json().then(function (j) {
+          if (!res.ok) throw new Error((j && j.error) || "Failed to load");
+          return j.data || [];
+        });
+      })
+      .then(function (data) {
+        showBanner("", undefined);
+        renderTable(data);
+      })
+      .catch(function (e) {
+        showBanner(e.message || "Failed to load documents", false);
+        if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="muted">Could not load.</td></tr>';
+      });
+  }
+
+  function loadAgenciesForChecks(container, selectedSet) {
+    if (!container) return;
+    container.innerHTML = '<span class="muted">Loading agencies…</span>';
+    fetch("/api/agencies", { credentials: "same-origin" })
+      .then(function (res) {
+        return res.json();
+      })
+      .then(function (arr) {
+        agenciesCache = Array.isArray(arr) ? arr : [];
+        container.innerHTML = "";
+        for (var i = 0; i < agenciesCache.length; i++) {
+          var a = agenciesCache[i];
+          var sfx = String(a.suffix || "")
+            .trim()
+            .toLowerCase();
+          if (!sfx) continue;
+          var label =
+            (a.name ? String(a.name) : "") +
+            " (" +
+            sfx +
+            ")";
+          var id = "agchk_" + sfx.replace(/[^a-z0-9]/gi, "_") + "_" + i;
+          var row = document.createElement("div");
+          row.className = "doc-agency-row";
+          var cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.value = sfx;
+          cb.id = id;
+          if (selectedSet && selectedSet[sfx]) cb.checked = true;
+          var lab = document.createElement("label");
+          lab.htmlFor = id;
+          lab.textContent = label;
+          lab.style.cursor = "pointer";
+          row.appendChild(cb);
+          row.appendChild(lab);
+          container.appendChild(row);
+        }
+        if (!container.children.length) {
+          container.innerHTML = '<span class="muted">No agencies found.</span>';
+        }
+      })
+      .catch(function () {
+        container.innerHTML = '<span class="muted">Could not load agencies.</span>';
+      });
+  }
+
+  function getSelectedSuffixes(container) {
+    var out = [];
+    if (!container) return out;
+    var cbs = container.querySelectorAll('input[type="checkbox"]');
+    for (var i = 0; i < cbs.length; i++) {
+      if (cbs[i].checked) out.push(cbs[i].value);
+    }
+    return out;
+  }
+
+  function setSelectedFromArray(container, suffixes) {
+    var set = {};
+    if (Array.isArray(suffixes)) {
+      for (var i = 0; i < suffixes.length; i++) {
+        set[String(suffixes[i]).toLowerCase()] = true;
+      }
+    }
+    loadAgenciesForChecks(container, set);
+  }
+
+  /* Modals */
+  function openOverlay(el) {
+    if (!el) return;
+    el.style.display = "flex";
+    el.setAttribute("aria-hidden", "false");
+  }
+  function closeOverlay(el) {
+    if (!el) return;
+    el.style.display = "none";
+    el.setAttribute("aria-hidden", "true");
+  }
+
+  var createModal = document.getElementById("createModal");
+  var detailModal = document.getElementById("detailModal");
+  var uploadModal = document.getElementById("uploadModal");
+  var emailModal = document.getElementById("emailModal");
+  var signModal = document.getElementById("signModal");
+  var editModal = document.getElementById("editModal");
+  var deleteModal = document.getElementById("deleteModal");
+
+  document.querySelectorAll("[data-close-create]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      closeOverlay(createModal);
+    });
+  });
+  document.getElementById("detailCloseBtn").addEventListener("click", function () {
+    closeOverlay(detailModal);
+  });
+  document.querySelectorAll("[data-close-upload]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      closeOverlay(uploadModal);
+    });
+  });
+  document.querySelectorAll("[data-close-email]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      closeOverlay(emailModal);
+    });
+  });
+  document.querySelectorAll("[data-close-sign]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      closeOverlay(signModal);
+    });
+  });
+  document.querySelectorAll("[data-close-edit]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      closeOverlay(editModal);
+    });
+  });
+
+  var btnNew = document.getElementById("btnNewDoc");
+  if (btnNew) {
+    btnNew.addEventListener("click", function () {
+      var form = document.getElementById("createForm");
+      if (form) form.reset();
+      var msg = document.getElementById("createMsg");
+      if (msg) {
+        msg.style.display = "none";
+        msg.textContent = "";
+      }
+      loadAgenciesForChecks(document.getElementById("createAgencyChecks"), {});
+      openOverlay(createModal);
+    });
+  }
+
+  document.getElementById("btnRefreshDocs").addEventListener("click", loadList);
+  if (filterEl) filterEl.addEventListener("input", applyFilter);
+
+  document.getElementById("createForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var msg = document.getElementById("createMsg");
+    var fd = new FormData(e.target);
+    var suffixes = getSelectedSuffixes(document.getElementById("createAgencyChecks"));
+    fd.append("agencySuffixes", suffixes.join(","));
+    msg.style.display = "block";
+    msg.className = "msg";
+    msg.textContent = "Saving…";
+    fetch(API, { method: "POST", body: fd, credentials: "same-origin" })
+      .then(function (res) {
+        return res.json().then(function (j) {
+          if (!res.ok) throw new Error((j && j.error) || "Failed");
+          return j.data;
+        });
+      })
+      .then(function () {
+        msg.className = "msg ok";
+        msg.textContent = "Created.";
+        closeOverlay(createModal);
+        loadList();
+      })
+      .catch(function (err) {
+        msg.className = "msg bad";
+        msg.textContent = err.message || "Failed";
+      });
+  });
+
+  tbody.addEventListener("click", function (ev) {
+    var t = ev.target;
+    if (t && t.getAttribute && t.getAttribute("data-open-detail")) {
+      openDetail(t.getAttribute("data-open-detail"));
+    }
+  });
+
+  var currentDetailId = null;
+
+  function openDetail(id) {
+    currentDetailId = id;
+    var body = document.getElementById("detailBody");
+    var title = document.getElementById("detailModalTitle");
+    body.innerHTML = '<p class="muted">Loading…</p>';
+    openOverlay(detailModal);
+    fetch(API + "/" + encodeURIComponent(id), { credentials: "same-origin" })
+      .then(function (res) {
+        return res.json().then(function (j) {
+          if (!res.ok) throw new Error((j && j.error) || "Failed");
+          return j.data;
+        });
+      })
+      .then(function (d) {
+        if (title) title.textContent = d.title || "Document";
+        var html = "";
+        html += "<p class=\"muted\" style=\"margin-top:0;\">" + esc(d.description || "") + "</p>";
+        html += "<div class=\"row\" style=\"flex-wrap:wrap;gap:8px;margin-bottom:10px;\">";
+        html += "<span class=\"badge-access\">" + esc(d.category || "") + "</span>";
+        html += "<span class=\"muted\" style=\"font-size:13px;\">Access: " + (d.agencySuffixes && d.agencySuffixes.length ? esc(d.agencySuffixes.join(", ")) : "Global admins only") + "</span>";
+        html += "</div>";
+
+        if (IS_GLOBAL) {
+          html += '<div class="row" style="flex-wrap:wrap;gap:8px;margin-bottom:12px;">';
+          html += '<button type="button" class="btn success" id="detailBtnUpload">Upload version</button>';
+          html += '<button type="button" class="btn" id="detailBtnEdit">Edit details</button>';
+          html += '<button type="button" class="btn danger" id="detailBtnDelete">Delete</button>';
+          html += "</div>";
+        }
+
+        html += '<div class="detail-section"><h3>Versions</h3>';
+        var vers = d.versions || [];
+        if (!vers.length) {
+          html += '<p class="muted">No files yet.</p>';
+        } else {
+          html += '<table class="table" style="margin:0;"><thead><tr><th>Ver</th><th>File</th><th>Size</th><th>Uploaded</th><th>Actions</th></tr></thead><tbody>';
+          for (var i = 0; i < vers.length; i++) {
+            var v = vers[i];
+            html += "<tr>";
+            html += "<td>" + esc(String(v.version)) + "</td>";
+            html += "<td>" + esc(v.fileName) + "</td>";
+            html += "<td>" + esc(formatBytes(v.size)) + "</td>";
+            html += "<td style=\"font-size:12px;\">" + esc(formatWhen(v.uploadedAt)) + "</td>";
+            html += "<td><div class=\"row\" style=\"gap:6px;flex-wrap:wrap;\">";
+            html +=
+              '<a class="btn" href="' +
+              API +
+              "/" +
+              encodeURIComponent(d.id) +
+              "/versions/" +
+              encodeURIComponent(v.id) +
+              '/download">Download</a>';
+            html += '<button type="button" class="btn" data-email-ver="' + esc(v.id) + '">Email</button>';
+            html += '<button type="button" class="btn success" data-sign-ver="' + esc(v.id) + '">Acknowledge</button>';
+            html += "</div></td>";
+            html += "</tr>";
+          }
+          html += "</tbody></table>";
+        }
+        html += "</div>";
+
+        html += '<div class="detail-section"><h3>Acknowledgments</h3>';
+        var sigs = d.signatures || [];
+        if (!sigs.length) {
+          html += '<p class="muted">None yet.</p>';
+        } else {
+          html += '<table class="table" style="margin:0;"><thead><tr><th>When</th><th>User</th><th>Receipt</th></tr></thead><tbody>';
+          for (var j = 0; j < sigs.length; j++) {
+            var s = sigs[j];
+            html += "<tr>";
+            html += "<td style=\"font-size:12px;white-space:nowrap;\">" + esc(formatWhen(s.signedAt)) + "</td>";
+            html += "<td>" + esc(s.displayName || s.username) + "</td>";
+            html +=
+              '<td><a class="btn" href="' +
+              API +
+              "/" +
+              encodeURIComponent(d.id) +
+              "/receipts/" +
+              encodeURIComponent(s.id) +
+              '/download">Download .txt</a></td>';
+            html += "</tr>";
+          }
+          html += "</tbody></table>";
+        }
+        html += "</div>";
+
+        body.innerHTML = html;
+
+        var btnUp = document.getElementById("detailBtnUpload");
+        if (btnUp) {
+          btnUp.onclick = function () {
+            document.getElementById("uploadDocId").value = d.id;
+            document.getElementById("uploadMsg").style.display = "none";
+            document.getElementById("uploadForm").reset();
+            document.getElementById("uploadDocId").value = d.id;
+            closeOverlay(detailModal);
+            openOverlay(uploadModal);
+          };
+        }
+        var btnEd = document.getElementById("detailBtnEdit");
+        if (btnEd) {
+          btnEd.onclick = function () {
+            document.getElementById("editDocId").value = d.id;
+            document.getElementById("editTitle").value = d.title || "";
+            document.getElementById("editCategory").value = d.category || "Other";
+            document.getElementById("editDescription").value = d.description || "";
+            document.getElementById("editMsg").style.display = "none";
+            setSelectedFromArray(document.getElementById("editAgencyChecks"), d.agencySuffixes);
+            closeOverlay(detailModal);
+            openOverlay(editModal);
+          };
+        }
+        var btnDel = document.getElementById("detailBtnDelete");
+        if (btnDel) {
+          btnDel.onclick = function () {
+            document.getElementById("deleteModalText").textContent =
+              'Delete "' + (d.title || "") + '" and all versions? This cannot be undone.';
+            deleteModal.dataset.docId = d.id;
+            closeOverlay(detailModal);
+            openOverlay(deleteModal);
+          };
+        }
+
+        body.querySelectorAll("[data-email-ver]").forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            document.getElementById("emailDocId").value = d.id;
+            document.getElementById("emailVersionId").value = btn.getAttribute("data-email-ver");
+            document.getElementById("emailTo").value = "";
+            document.getElementById("emailNote").value = "";
+            document.getElementById("emailMsg").style.display = "none";
+            openOverlay(emailModal);
+          });
+        });
+        body.querySelectorAll("[data-sign-ver]").forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            document.getElementById("signDocId").value = d.id;
+            document.getElementById("signVersionId").value = btn.getAttribute("data-sign-ver");
+            document.getElementById("signText").value = "";
+            document.getElementById("signMsg").style.display = "none";
+            openOverlay(signModal);
+          });
+        });
+      })
+      .catch(function (err) {
+        body.innerHTML = '<p class="msg bad">' + esc(err.message) + "</p>";
+      });
+  }
+
+  document.getElementById("uploadForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var docId = document.getElementById("uploadDocId").value;
+    var fd = new FormData();
+    var fileInput = e.target.querySelector('input[type="file"]');
+    if (!fileInput || !fileInput.files || !fileInput.files[0]) return;
+    fd.append("file", fileInput.files[0]);
+    var msg = document.getElementById("uploadMsg");
+    msg.style.display = "block";
+    msg.className = "msg";
+    msg.textContent = "Uploading…";
+    fetch(API + "/" + encodeURIComponent(docId) + "/versions", {
+      method: "POST",
+      body: fd,
+      credentials: "same-origin",
+    })
+      .then(function (res) {
+        return res.json().then(function (j) {
+          if (!res.ok) throw new Error((j && j.error) || "Upload failed");
+          return j.data;
+        });
+      })
+      .then(function () {
+        msg.className = "msg ok";
+        msg.textContent = "Uploaded.";
+        closeOverlay(uploadModal);
+        loadList();
+        if (currentDetailId === docId) openDetail(docId);
+      })
+      .catch(function (err) {
+        msg.className = "msg bad";
+        msg.textContent = err.message || "Failed";
+      });
+  });
+
+  document.getElementById("emailForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var docId = document.getElementById("emailDocId").value;
+    var versionId = document.getElementById("emailVersionId").value;
+    var payload = {
+      to: document.getElementById("emailTo").value.trim(),
+      versionId: versionId,
+      message: document.getElementById("emailNote").value,
+    };
+    var msg = document.getElementById("emailMsg");
+    msg.style.display = "block";
+    msg.className = "msg";
+    msg.textContent = "Sending…";
+    fetch(API + "/" + encodeURIComponent(docId) + "/email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      credentials: "same-origin",
+    })
+      .then(function (res) {
+        return res.json().then(function (j) {
+          if (!res.ok) throw new Error((j && j.error) || "Failed");
+          return j;
+        });
+      })
+      .then(function (r) {
+        msg.className = "msg ok";
+        if (r.skipped) msg.textContent = "Email skipped (SMTP not enabled or not configured).";
+        else msg.textContent = "Sent.";
+        closeOverlay(emailModal);
+      })
+      .catch(function (err) {
+        msg.className = "msg bad";
+        msg.textContent = err.message || "Failed";
+      });
+  });
+
+  document.getElementById("signForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var docId = document.getElementById("signDocId").value;
+    var versionId = document.getElementById("signVersionId").value;
+    var payload = {
+      versionId: versionId,
+      acknowledgmentText: document.getElementById("signText").value.trim(),
+    };
+    var msg = document.getElementById("signMsg");
+    msg.style.display = "block";
+    msg.className = "msg";
+    msg.textContent = "Saving…";
+    fetch(API + "/" + encodeURIComponent(docId) + "/sign", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      credentials: "same-origin",
+    })
+      .then(function (res) {
+        return res.json().then(function (j) {
+          if (!res.ok) throw new Error((j && j.error) || "Failed");
+          return j.data;
+        });
+      })
+      .then(function () {
+        msg.className = "msg ok";
+        msg.textContent = "Acknowledgment saved.";
+        closeOverlay(signModal);
+        loadList();
+        openDetail(docId);
+      })
+      .catch(function (err) {
+        msg.className = "msg bad";
+        msg.textContent = err.message || "Failed";
+      });
+  });
+
+  document.getElementById("editForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var docId = document.getElementById("editDocId").value;
+    var payload = {
+      title: document.getElementById("editTitle").value,
+      category: document.getElementById("editCategory").value,
+      description: document.getElementById("editDescription").value,
+      agencySuffixes: getSelectedSuffixes(document.getElementById("editAgencyChecks")),
+    };
+    var msg = document.getElementById("editMsg");
+    msg.style.display = "block";
+    msg.className = "msg";
+    msg.textContent = "Saving…";
+    fetch(API + "/" + encodeURIComponent(docId), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      credentials: "same-origin",
+    })
+      .then(function (res) {
+        return res.json().then(function (j) {
+          if (!res.ok) throw new Error((j && j.error) || "Failed");
+          return j.data;
+        });
+      })
+      .then(function () {
+        msg.className = "msg ok";
+        msg.textContent = "Saved.";
+        closeOverlay(editModal);
+        loadList();
+        openDetail(docId);
+      })
+      .catch(function (err) {
+        msg.className = "msg bad";
+        msg.textContent = err.message || "Failed";
+      });
+  });
+
+  var deleteConfirmBtn = document.getElementById("deleteConfirmBtn");
+  if (deleteConfirmBtn) {
+    deleteConfirmBtn.addEventListener("click", function () {
+      var id = deleteModal.dataset.docId;
+      if (!id) return;
+      fetch(API + "/" + encodeURIComponent(id), {
+        method: "DELETE",
+        credentials: "same-origin",
+      })
+        .then(function (res) {
+          return res.json().then(function (j) {
+            if (!res.ok) throw new Error((j && j.error) || "Failed");
+          });
+        })
+        .then(function () {
+          closeOverlay(deleteModal);
+          loadList();
+        })
+        .catch(function (err) {
+          alert(err.message || "Delete failed");
+        });
+    });
+  }
+  document.getElementById("deleteCancelBtn").addEventListener("click", function () {
+    closeOverlay(deleteModal);
+  });
+  document.getElementById("deleteModalClose").addEventListener("click", function () {
+    closeOverlay(deleteModal);
+  });
+
+  loadList();
+})();
+</script>
