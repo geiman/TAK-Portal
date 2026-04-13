@@ -543,6 +543,11 @@ app.get("/getting-started", requireStrictGlobalAdmin, requireBetaMode, (req, res
   res.render("getting-started")
 );
 
+// Beta: Documents (global admins only, beta mode)
+app.get("/documents", requireStrictGlobalAdmin, requireBetaMode, (req, res) =>
+  res.render("documents")
+);
+
 // Plugins page (any authenticated user)
 app.get("/plugins", (req, res) => {
   const pluginsSvc = require("./services/plugins.service");
