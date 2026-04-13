@@ -85,7 +85,7 @@ router.post("/", requireGlobal, upload.single("file"), (req, res) => {
         description: req.body.description,
         category: req.body.category,
         agencySuffixes,
-        status: "draft",
+        status: req.body.status,
       },
       req.authentikUser
     );

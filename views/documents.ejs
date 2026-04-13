@@ -12,7 +12,7 @@
   <div class="card" style="margin-bottom: 14px;">
     <div class="row" style="justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
       <div class="row" style="gap: 10px; flex-wrap: wrap; align-items: center;">
-        <input type="search" id="docFilter" placeholder="Filter by title…" style="min-width: 220px; max-width: 360px;" autocomplete="off" />
+        <input type="search" id="docFilter" style="min-width: 220px; max-width: 360px;" autocomplete="off" />
         <% if (typeof isGlobalAdmin !== "undefined" && isGlobalAdmin) { %>
           <button type="button" class="btn success" id="btnNewDoc">New document</button>
         <% } %>
@@ -34,7 +34,7 @@
         </tr>
       </thead>
       <tbody id="documentsTbody">
-        <tr><td colspan="6" class="muted">Loading…</td></tr>
+        <tr><td colspan="6">Loading…</td></tr>
       </tbody>
     </table>
   </div>
@@ -50,45 +50,50 @@
     <div class="modalBody">
       <div id="createMsg" class="msg" style="display: none;"></div>
       <form id="createForm">
-        <label class="settings-field" style="display: block;">
+        <label class="settings-field documents-modal-field documents-modal-field--stack">
           <span class="settings-label">Title</span>
-          <input type="text" name="title" required placeholder="e.g. Regional MOU 2026" style="width: 100%; box-sizing: border-box;" />
+          <input type="text" name="title" required style="width: 100%; box-sizing: border-box;" />
         </label>
-        <label class="settings-field" style="display: block; margin-top: 10px;">
+        <label class="settings-field documents-modal-field documents-modal-field--row">
           <span class="settings-label">Category</span>
-          <select name="category" style="width: 100%; max-width: 320px;">
+          <select name="category">
             <option value="MOU">MOU</option>
             <option value="Data Sharing Agreement">Data Sharing Agreement</option>
             <option value="SOP">SOP</option>
             <option value="Other">Other</option>
           </select>
         </label>
-        <label class="settings-field" style="display: block; margin-top: 10px;">
-          <span class="settings-label">Description</span>
-          <textarea name="description" rows="3" placeholder="Optional" style="width: 100%; box-sizing: border-box; resize: vertical;"></textarea>
+        <label class="settings-field documents-modal-field documents-modal-field--row">
+          <span class="settings-label">Status</span>
+          <select name="status">
+            <option value="draft">Draft</option>
+            <option value="pending_signature">Pending signature</option>
+            <option value="signed">Signed</option>
+          </select>
         </label>
-        <label class="settings-field" style="display: block; margin-top: 10px;">
-          <span class="settings-label">Draft file (optional)</span>
+        <label class="settings-field documents-modal-field documents-modal-field--stack">
+          <span class="settings-label">Description</span>
+          <textarea name="description" rows="3" style="width: 100%; box-sizing: border-box; resize: vertical;"></textarea>
+        </label>
+        <label class="settings-field documents-modal-field documents-modal-field--stack">
+          <span class="settings-label">Draft file</span>
           <input type="file" name="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" />
         </label>
 
         <input type="hidden" id="createAgencyInput" name="agencySuffixes" value="" />
 
-        <div style="margin-top: 12px;">
-          <strong class="settings-label" style="display: block; margin-bottom: 6px;">Also share with agency admins</strong>
-          <p class="muted" style="margin: 0 0 8px 0; font-size: 13px;">
-            Global admins <strong>always</strong> have access. Use the list below only to allow specific agencies’ agency admins to view this document.
-          </p>
+        <div class="documents-modal-field documents-modal-field--agency">
+          <strong class="settings-label">Also share with agency admins</strong>
           <div class="filter-multiselect" data-filter="doc-agency-create">
             <button type="button" class="btn filter-toggle" id="createAgencyToggle">Agency ▾</button>
             <div class="filter-menu" role="listbox" aria-label="Agencies">
               <div class="filter-menu-inner">
                 <label class="filter-option">
                   <input type="checkbox" value="" data-filter-value="__all" checked />
-                  <span>None (global admins only)</span>
+                  <span>None</span>
                 </label>
                 <% if (!_docAgencyOptions.length) { %>
-                  <div class="filter-option" style="cursor: default;"><span class="muted">No agencies available.</span></div>
+                  <div class="filter-option" style="cursor: default;">No agencies available.</div>
                 <% } %>
                 <% _docAgencyOptions.forEach(function (opt) { %>
                   <label class="filter-option">
@@ -135,7 +140,6 @@
       <div id="draftUploadMsg" class="msg" style="display: none;"></div>
       <form id="draftUploadForm">
         <input type="hidden" id="draftUploadDocId" />
-        <p class="muted" style="margin-top: 0;">This is the working or unsigned copy (for review or to email for signature).</p>
         <label class="settings-field" style="display: block;">
           <span class="settings-label">File</span>
           <input type="file" name="file" required accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" />
@@ -160,7 +164,6 @@
       <div id="signedUploadMsg" class="msg" style="display: none;"></div>
       <form id="signedUploadForm">
         <input type="hidden" id="signedUploadDocId" />
-        <p class="muted" style="margin-top: 0;">Upload the fully executed agreement. The document will be marked <strong>Signed</strong> and replaces any previous signed file.</p>
         <label class="settings-field" style="display: block;">
           <span class="settings-label">File</span>
           <input type="file" name="file" required accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" />
@@ -183,18 +186,16 @@
     </div>
     <div class="modalBody">
       <div id="emailMsg" class="msg" style="display: none;"></div>
-      <p class="muted" style="margin-top: 0;">Attaches the <strong>draft / unsigned</strong> file. After a successful send, status becomes <em>Pending signature</em>.</p>
       <form id="emailForm">
         <input type="hidden" id="emailDocId" />
         <label class="settings-field" style="display: block;">
           <span class="settings-label">To</span>
-          <input type="email" id="emailTo" required placeholder="recipient@example.gov" style="width: 100%; box-sizing: border-box;" autocomplete="off" />
+          <input type="email" id="emailTo" required style="width: 100%; box-sizing: border-box;" autocomplete="off" />
         </label>
         <label class="settings-field" style="display: block; margin-top: 10px;">
-          <span class="settings-label">Note (optional)</span>
+          <span class="settings-label">Note</span>
           <textarea id="emailNote" rows="3" style="width: 100%; box-sizing: border-box; resize: vertical;"></textarea>
         </label>
-        <p class="muted" style="font-size: 12px; margin: 8px 0 0 0;">Requires SMTP configured in Server Settings.</p>
         <div class="row" style="margin-top: 14px; gap: 8px;">
           <button type="submit" class="btn success">Send</button>
           <button type="button" class="btn" data-close-email>Cancel</button>
@@ -215,49 +216,46 @@
       <div id="editMsg" class="msg" style="display: none;"></div>
       <form id="editForm">
         <input type="hidden" id="editDocId" />
-        <label class="settings-field" style="display: block;">
+        <label class="settings-field documents-modal-field documents-modal-field--stack">
           <span class="settings-label">Title</span>
           <input type="text" id="editTitle" required style="width: 100%; box-sizing: border-box;" />
         </label>
-        <label class="settings-field" style="display: block; margin-top: 10px;">
+        <label class="settings-field documents-modal-field documents-modal-field--row">
           <span class="settings-label">Category</span>
-          <select id="editCategory" style="width: 100%; max-width: 320px;">
+          <select id="editCategory">
             <option value="MOU">MOU</option>
             <option value="Data Sharing Agreement">Data Sharing Agreement</option>
             <option value="SOP">SOP</option>
             <option value="Other">Other</option>
           </select>
         </label>
-        <label class="settings-field" style="display: block; margin-top: 10px;">
+        <label class="settings-field documents-modal-field documents-modal-field--row">
           <span class="settings-label">Status</span>
-          <select id="editStatus" style="width: 100%; max-width: 320px;">
+          <select id="editStatus">
             <option value="draft">Draft</option>
             <option value="pending_signature">Pending signature</option>
             <option value="signed">Signed</option>
           </select>
         </label>
-        <label class="settings-field" style="display: block; margin-top: 10px;">
+        <label class="settings-field documents-modal-field documents-modal-field--stack">
           <span class="settings-label">Description</span>
           <textarea id="editDescription" rows="3" style="width: 100%; box-sizing: border-box; resize: vertical;"></textarea>
         </label>
 
         <input type="hidden" id="editAgencyInput" value="" />
 
-        <div style="margin-top: 12px;">
-          <strong class="settings-label" style="display: block; margin-bottom: 6px;">Also share with agency admins</strong>
-          <p class="muted" style="margin: 0 0 8px 0; font-size: 13px;">
-            Global admins <strong>always</strong> have access. Select agencies whose agency admins may also view this document.
-          </p>
+        <div class="documents-modal-field documents-modal-field--agency">
+          <strong class="settings-label">Also share with agency admins</strong>
           <div class="filter-multiselect" data-filter="doc-agency-edit">
             <button type="button" class="btn filter-toggle" id="editAgencyToggle">Agency ▾</button>
             <div class="filter-menu" role="listbox" aria-label="Agencies">
               <div class="filter-menu-inner">
                 <label class="filter-option">
                   <input type="checkbox" value="" data-filter-value="__all" checked />
-                  <span>None (global admins only)</span>
+                  <span>None</span>
                 </label>
                 <% if (!_docAgencyOptions.length) { %>
-                  <div class="filter-option" style="cursor: default;"><span class="muted">No agencies available.</span></div>
+                  <div class="filter-option" style="cursor: default;">No agencies available.</div>
                 <% } %>
                 <% _docAgencyOptions.forEach(function (opt) { %>
                   <label class="filter-option">
@@ -304,6 +302,40 @@
   }
   .documents-page .modal.documents-modal .modalBody {
     overflow: visible;
+  }
+
+  .documents-modal .documents-modal-field--stack {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    margin-top: 10px;
+  }
+  .documents-modal .documents-modal-field--stack:first-child {
+    margin-top: 0;
+  }
+  .documents-modal .documents-modal-field--row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    margin-top: 10px;
+  }
+  .documents-modal .documents-modal-field--row .settings-label {
+    min-width: 88px;
+    flex-shrink: 0;
+    margin: 0;
+  }
+  .documents-modal .documents-modal-field--row select {
+    flex: 1;
+    max-width: 320px;
+    width: auto;
+  }
+  .documents-modal .documents-modal-field--agency {
+    margin-top: 12px;
+  }
+  .documents-modal .documents-modal-field--agency > .settings-label {
+    display: block;
+    margin-bottom: 6px;
   }
 
   /* Same pattern as views/audit-log.ejs — unscoped .filter-multiselect so menus in modals get display:none / open */
@@ -485,7 +517,7 @@
     });
     if (!tbody) return;
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="6" class="muted">No documents match.</td></tr>';
+      tbody.innerHTML = "<tr><td colspan=\"6\">No documents match.</td></tr>";
       return;
     }
     var html = "";
@@ -510,7 +542,7 @@
         "<td>" +
         formatAccess(r) +
         "</td>" +
-        "<td style=\"font-size:12px;white-space:nowrap;\">" +
+        "<td style=\"white-space:nowrap;\">" +
         esc(formatWhen(r.updatedAt)) +
         "</td>" +
         "<td><button type=\"button\" class=\"btn\" data-open-detail=\"" +
@@ -536,7 +568,7 @@
       })
       .catch(function (e) {
         showBanner(e.message || "Failed to load documents", false);
-        if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="muted">Could not load.</td></tr>';
+        if (tbody) tbody.innerHTML = "<tr><td colspan=\"6\">Could not load.</td></tr>";
       });
   }
 
@@ -759,7 +791,7 @@
     currentDetailId = id;
     var body = document.getElementById("detailBody");
     var title = document.getElementById("detailModalTitle");
-    body.innerHTML = '<p class="muted">Loading…</p>';
+    body.innerHTML = "<p>Loading…</p>";
     openOverlay(detailModal);
     fetch(API + "/" + encodeURIComponent(id), { credentials: "same-origin" })
       .then(function (res) {
@@ -772,10 +804,9 @@
         if (title) title.textContent = d.title || "Document";
         var st = d.status || "draft";
         var html = "";
-        html +=
-          '<p class="muted" style="margin-top:0;">' +
-          esc(d.description || "") +
-          "</p>";
+        if (String(d.description || "").trim()) {
+          html += '<p style="margin-top:0;">' + esc(d.description) + "</p>";
+        }
         html += '<div class="row" style="flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px;">';
         html +=
           '<span class="doc-status-pill ' +
@@ -783,21 +814,13 @@
           '">' +
           esc(statusLabel(st)) +
           "</span>";
-        html += "<span class=\"muted\" style=\"font-size:13px;\">" + esc(d.category || "") + "</span>";
+        if (d.category) {
+          html += "<span>" + esc(d.category) + "</span>";
+        }
         if (d.emailedAt) {
-          html +=
-            '<span class="muted" style="font-size:12px;">Emailed: ' +
-            esc(formatWhen(d.emailedAt)) +
-            "</span>";
+          html += "<span>Emailed: " + esc(formatWhen(d.emailedAt)) + "</span>";
         }
         html += "</div>";
-        html +=
-          '<p class="muted" style="font-size:13px;margin:0 0 10px 0;">' +
-          "<strong>Global admins</strong> always have access." +
-          (d.agencySuffixes && d.agencySuffixes.length
-            ? " Agency admins for: <strong>" + esc(d.agencySuffixes.join(", ")) + "</strong>."
-            : " No agency admins selected for shared access.") +
-          "</p>";
 
         if (IS_GLOBAL) {
           html += '<div class="row" style="flex-wrap:wrap;gap:8px;margin-bottom:14px;">';
@@ -820,7 +843,6 @@
           }
           html += "</div>";
         } else {
-          html += '<p class="muted">No draft uploaded yet.</p>';
           if (IS_GLOBAL) {
             html += '<button type="button" class="btn success" id="btnUploadDraft">Upload draft</button>';
           }
@@ -840,7 +862,6 @@
           }
           html += "</div>";
         } else {
-          html += '<p class="muted">No signed copy uploaded yet.</p>';
           if (IS_GLOBAL) {
             html += '<button type="button" class="btn success" id="btnUploadSigned">Upload signed copy</button>';
           }
