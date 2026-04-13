@@ -12,7 +12,7 @@
   <div class="card" style="margin-bottom: 14px;">
     <div class="row" style="justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
       <div class="row" style="gap: 10px; flex-wrap: wrap; align-items: center;">
-        <input type="search" id="docFilter" style="min-width: 220px; max-width: 360px;" autocomplete="off" />
+        <input type="search" id="docFilter" placeholder="Filter by title…" style="min-width: 220px; max-width: 360px;" autocomplete="off" />
         <% if (typeof isGlobalAdmin !== "undefined" && isGlobalAdmin) { %>
           <button type="button" class="btn success" id="btnNewDoc">New document</button>
         <% } %>
@@ -52,7 +52,7 @@
       <form id="createForm">
         <label class="settings-field documents-modal-field documents-modal-field--stack">
           <span class="settings-label">Title</span>
-          <input type="text" name="title" required style="width: 100%; box-sizing: border-box;" />
+          <input type="text" name="title" required placeholder="e.g. Regional MOU 2026" style="width: 100%; box-sizing: border-box;" />
         </label>
         <label class="settings-field documents-modal-field documents-modal-field--row">
           <span class="settings-label">Category</span>
@@ -73,10 +73,10 @@
         </label>
         <label class="settings-field documents-modal-field documents-modal-field--stack">
           <span class="settings-label">Description</span>
-          <textarea name="description" rows="3" style="width: 100%; box-sizing: border-box; resize: vertical;"></textarea>
+          <textarea name="description" rows="3" placeholder="Optional" style="width: 100%; box-sizing: border-box; resize: vertical;"></textarea>
         </label>
         <label class="settings-field documents-modal-field documents-modal-field--stack">
-          <span class="settings-label">Draft file</span>
+          <span class="settings-label">Draft file (optional)</span>
           <input type="file" name="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" />
         </label>
 
@@ -190,10 +190,10 @@
         <input type="hidden" id="emailDocId" />
         <label class="settings-field" style="display: block;">
           <span class="settings-label">To</span>
-          <input type="email" id="emailTo" required style="width: 100%; box-sizing: border-box;" autocomplete="off" />
+          <input type="email" id="emailTo" required placeholder="recipient@example.gov" style="width: 100%; box-sizing: border-box;" autocomplete="off" />
         </label>
         <label class="settings-field" style="display: block; margin-top: 10px;">
-          <span class="settings-label">Note</span>
+          <span class="settings-label">Note (optional)</span>
           <textarea id="emailNote" rows="3" style="width: 100%; box-sizing: border-box; resize: vertical;"></textarea>
         </label>
         <div class="row" style="margin-top: 14px; gap: 8px;">
