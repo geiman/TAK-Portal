@@ -6,10 +6,6 @@
 
 <main class="main documents-page">
   <h1>Documents</h1>
-  <p class="muted" style="margin: 0 0 16px 0; max-width: 52rem;">
-    Upload a <strong>draft</strong> (unsigned) file for review or to email for signature. When the executed agreement comes back, upload the <strong>signed</strong> copy here.
-    Status moves from <em>Draft</em> → <em>Pending signature</em> (after you email the draft) → <em>Signed</em> (after you upload the executed file).
-  </p>
 
   <div id="documentsBanner" class="msg" style="display: none; margin-bottom: 12px;"></div>
 
@@ -32,7 +28,7 @@
           <th>Title</th>
           <th style="width: 150px;">Category</th>
           <th style="width: 150px;">Status</th>
-          <th style="min-width: 120px;">Access</th>
+          <th style="min-width: 140px;">Agency admins</th>
           <th style="width: 160px;">Updated</th>
           <th style="min-width: 100px;">Actions</th>
         </tr>
@@ -45,8 +41,8 @@
 </main>
 
 <!-- New document -->
-<div class="modalOverlay" id="createModal" style="display: none;" aria-hidden="true">
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="createModalTitle" style="width: min(560px, 96vw);">
+  <div class="modalOverlay" id="createModal" style="display: none;" aria-hidden="true">
+  <div class="modal documents-modal" role="dialog" aria-modal="true" aria-labelledby="createModalTitle" style="width: min(560px, 96vw);">
     <div class="modalHeader">
       <h2 id="createModalTitle" style="margin: 0;">New document</h2>
       <button type="button" class="btn" data-close-create>Close</button>
@@ -74,21 +70,22 @@
         <label class="settings-field" style="display: block; margin-top: 10px;">
           <span class="settings-label">Draft file (optional)</span>
           <input type="file" name="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" />
-          <small class="settings-help">Unsigned / working copy. You can add it later. PDF, Word, or image — up to 40 MB.</small>
         </label>
 
         <input type="hidden" id="createAgencyInput" name="agencySuffixes" value="" />
 
         <div style="margin-top: 12px;">
-          <strong class="settings-label" style="display: block; margin-bottom: 6px;">Agency access</strong>
+          <strong class="settings-label" style="display: block; margin-bottom: 6px;">Also share with agency admins</strong>
+          <p class="muted" style="margin: 0 0 8px 0; font-size: 13px;">
+            Global admins <strong>always</strong> have access. Use the list below only to allow specific agencies’ agency admins to view this document.
+          </p>
           <div class="filter-multiselect" data-filter="agency-create">
-            <button type="button" class="btn filter-toggle" id="createAgencyToggle">Agencies ▾</button>
-            <div class="filter-menu">
+            <button type="button" class="btn filter-toggle" id="createAgencyToggle">Select agencies ▾</button>
+            <div class="filter-menu" role="listbox" aria-label="Agencies">
               <div class="filter-menu-inner">
-                <label class="filter-option">
-                  <input type="checkbox" value="" data-filter-value="__all" checked />
-                  <span>Global admins only</span>
-                </label>
+                <% if (!_docAgencyOptions.length) { %>
+                  <div class="filter-option" style="cursor: default;"><span class="muted">No agencies available.</span></div>
+                <% } %>
                 <% _docAgencyOptions.forEach(function (opt) { %>
                   <label class="filter-option">
                     <input type="checkbox" value="<%= opt.value %>" data-filter-value="<%= opt.value %>" />
@@ -98,7 +95,6 @@
               </div>
             </div>
           </div>
-          <small class="settings-help">Choose agencies whose admins may view this document, or leave as global admins only.</small>
         </div>
 
         <div class="row" style="margin-top: 16px; gap: 8px;">
@@ -205,8 +201,8 @@
 </div>
 
 <!-- Edit meta -->
-<div class="modalOverlay" id="editModal" style="display: none;" aria-hidden="true">
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="editModalTitle" style="width: min(560px, 96vw);">
+  <div class="modalOverlay" id="editModal" style="display: none;" aria-hidden="true">
+  <div class="modal documents-modal" role="dialog" aria-modal="true" aria-labelledby="editModalTitle" style="width: min(560px, 96vw);">
     <div class="modalHeader">
       <h2 id="editModalTitle" style="margin: 0;">Edit document</h2>
       <button type="button" class="btn" data-close-edit>Close</button>
@@ -244,15 +240,17 @@
         <input type="hidden" id="editAgencyInput" value="" />
 
         <div style="margin-top: 12px;">
-          <strong class="settings-label" style="display: block; margin-bottom: 6px;">Agency access</strong>
+          <strong class="settings-label" style="display: block; margin-bottom: 6px;">Also share with agency admins</strong>
+          <p class="muted" style="margin: 0 0 8px 0; font-size: 13px;">
+            Global admins <strong>always</strong> have access. Select agencies whose agency admins may also view this document.
+          </p>
           <div class="filter-multiselect" data-filter="agency-edit">
-            <button type="button" class="btn filter-toggle" id="editAgencyToggle">Agencies ▾</button>
-            <div class="filter-menu">
+            <button type="button" class="btn filter-toggle" id="editAgencyToggle">Select agencies ▾</button>
+            <div class="filter-menu" role="listbox" aria-label="Agencies">
               <div class="filter-menu-inner">
-                <label class="filter-option">
-                  <input type="checkbox" value="" data-filter-value="__all" />
-                  <span>Global admins only</span>
-                </label>
+                <% if (!_docAgencyOptions.length) { %>
+                  <div class="filter-option" style="cursor: default;"><span class="muted">No agencies available.</span></div>
+                <% } %>
                 <% _docAgencyOptions.forEach(function (opt) { %>
                   <label class="filter-option">
                     <input type="checkbox" value="<%= opt.value %>" data-filter-value="<%= opt.value %>" />
@@ -291,6 +289,15 @@
 </div>
 
 <style>
+  /* Let agency dropdown overlap modal edges (global .modal uses overflow:auto and clips menus). */
+  .documents-page .modal.documents-modal {
+    overflow: visible;
+    max-height: 92vh;
+  }
+  .documents-page .modal.documents-modal .modalBody {
+    overflow: visible;
+  }
+
   .documents-page .filter-multiselect {
     position: relative;
   }
@@ -301,7 +308,7 @@
     position: absolute;
     top: calc(100% + 4px);
     left: 0;
-    z-index: 30;
+    z-index: 2000;
     min-width: 320px;
     max-height: 260px;
     overflow: auto;
@@ -425,9 +432,15 @@
   function formatAccess(row) {
     var suf = row.agencySuffixes || [];
     if (!suf.length) {
-      return '<span class="badge-access">Global admins only</span>';
+      return '<span class="badge-access">None</span>';
     }
-    return '<span class="badge-access" title="' + esc(suf.join(", ")) + '">' + suf.length + " agenc" + (suf.length === 1 ? "y" : "ies") + "</span>";
+    return (
+      '<span class="badge-access" title="' +
+      esc(suf.join(", ")) +
+      '">' +
+      suf.length +
+      " selected</span>"
+    );
   }
 
   function formatWhen(iso) {
@@ -535,55 +548,37 @@
       var initial = parseCsv(input.value);
       checkboxes.forEach(function (cb) {
         var val = cb.getAttribute("data-filter-value");
-        if (val === "__all") {
-          cb.checked = initial.length === 0;
-        } else {
-          cb.checked = initial.includes(val);
-        }
+        cb.checked = initial.includes(val);
       });
     }
 
     function syncInput() {
       var selected = checkboxes
         .filter(function (cb) {
-          return cb.checked && cb.getAttribute("data-filter-value") !== "__all";
+          return cb.checked;
         })
         .map(function (cb) {
           return cb.getAttribute("data-filter-value");
         });
       input.value = selected.join(",");
-      var allBox = checkboxes.find(function (cb) {
-        return cb.getAttribute("data-filter-value") === "__all";
-      });
-      if (allBox) {
-        allBox.checked = selected.length === 0;
-      }
     }
 
     checkboxes.forEach(function (cb) {
       cb.addEventListener("change", function () {
-        var val = cb.getAttribute("data-filter-value");
-        if (val === "__all") {
-          if (cb.checked) {
-            checkboxes.forEach(function (other) {
-              if (other !== cb) other.checked = false;
-            });
-            input.value = "";
-          }
-        } else {
-          var allBox = checkboxes.find(function (x) {
-            return x.getAttribute("data-filter-value") === "__all";
-          });
-          if (allBox && cb.checked) {
-            allBox.checked = false;
-          }
-        }
         syncInput();
       });
     });
 
+    if (menu) {
+      menu.addEventListener("mousedown", function (e) {
+        e.stopPropagation();
+      });
+    }
+
     if (toggle && menu) {
-      toggle.addEventListener("click", function () {
+      toggle.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
         var isOpen = container.classList.contains("open");
         document.querySelectorAll(".documents-page .filter-multiselect.open").forEach(function (el) {
           if (el !== container) el.classList.remove("open");
@@ -756,10 +751,11 @@
         }
         html += "</div>";
         html +=
-          '<p class="muted" style="font-size:13px;margin:0 0 10px 0;">Access: ' +
+          '<p class="muted" style="font-size:13px;margin:0 0 10px 0;">' +
+          "<strong>Global admins</strong> always have access." +
           (d.agencySuffixes && d.agencySuffixes.length
-            ? esc(d.agencySuffixes.join(", "))
-            : "Global admins only") +
+            ? " Agency admins for: <strong>" + esc(d.agencySuffixes.join(", ")) + "</strong>."
+            : " No agency admins selected for shared access.") +
           "</p>";
 
         if (IS_GLOBAL) {
