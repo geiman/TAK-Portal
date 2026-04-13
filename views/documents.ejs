@@ -30,7 +30,7 @@
           <th style="width: 150px;">Status</th>
           <th style="min-width: 140px;">Agency admins</th>
           <th style="width: 160px;">Updated</th>
-          <th style="min-width: 100px;">Actions</th>
+          <th style="min-width: 200px;">Actions</th>
         </tr>
       </thead>
       <tbody id="documentsTbody">
@@ -67,7 +67,7 @@
           <span class="settings-label">Status</span>
           <select name="status">
             <option value="draft">Draft</option>
-            <option value="pending_signature">Pending signature</option>
+            <option value="pending_signature" selected>Pending signature</option>
             <option value="signed">Signed</option>
           </select>
         </label>
@@ -115,9 +115,9 @@
   </div>
 </div>
 
-<!-- Detail -->
-<div class="modalOverlay" id="detailModal" style="display: none;" aria-hidden="true">
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="detailModalTitle" style="width: min(860px, 98vw);">
+<!-- Detail (same shell as create/edit for consistent layout) -->
+<div class="modalOverlay documents-page" id="detailModal" style="display: none;" aria-hidden="true">
+  <div class="modal documents-modal" role="dialog" aria-modal="true" aria-labelledby="detailModalTitle" style="width: min(560px, 96vw);">
     <div class="modalHeader">
       <h2 id="detailModalTitle" style="margin: 0;">Document</h2>
       <button type="button" class="btn" id="detailCloseBtn">Close</button>
@@ -330,6 +330,10 @@
     max-width: 320px;
     width: auto;
   }
+  .documents-modal .documents-modal-field--row > span:not(.settings-label) {
+    flex: 1;
+    min-width: 0;
+  }
   .documents-modal .documents-modal-field--agency {
     margin-top: 12px;
   }
@@ -415,14 +419,24 @@
     background: var(--line);
     color: var(--muted);
   }
-  .documents-page .detail-section {
-    margin-top: 14px;
-    padding-top: 12px;
-    border-top: 1px solid var(--line);
+  .documents-page .doc-detail-panel {
+    margin-top: 0;
   }
-  .documents-page .detail-section h3 {
-    margin: 0 0 8px 0;
-    font-size: 1rem;
+  .documents-page .doc-detail-panel .doc-detail-value {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .documents-page .doc-detail-panel .doc-detail-fileline {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+    margin-top: 4px;
+  }
+  .documents-page .doc-detail-panel .doc-detail-fileline > span:first-of-type {
+    flex: 1 1 160px;
+    min-width: 0;
   }
 </style>
 
@@ -502,6 +516,10 @@
 
   var listRows = [];
 
+  function fileDownloadUrl(docId, role) {
+    return API + "/" + encodeURIComponent(docId) + "/file?role=" + role;
+  }
+
   function renderTable(rows) {
     listRows = rows || [];
     applyFilter();
@@ -545,9 +563,15 @@
         "<td style=\"white-space:nowrap;\">" +
         esc(formatWhen(r.updatedAt)) +
         "</td>" +
-        "<td><button type=\"button\" class=\"btn\" data-open-detail=\"" +
+        "<td><div class=\"row\" style=\"gap:6px;flex-wrap:wrap;align-items:center;\">" +
+        (r.signedFile || r.draftFile
+          ? '<a class="btn" href="' +
+            esc(fileDownloadUrl(r.id, r.signedFile ? "signed" : "draft")) +
+            '">Download</a>'
+          : "") +
+        '<button type="button" class="btn" data-open-detail="' +
         esc(r.id) +
-        "\">View</button></td>" +
+        '">View</button></div></td>' +
         "</tr>";
     }
     tbody.innerHTML = html;
@@ -742,6 +766,8 @@
       if (createAgencyCtl && createAgencyCtl.syncFromInput) createAgencyCtl.syncFromInput();
       var createAgencyMs = document.querySelector('#createModal .filter-multiselect[data-filter="doc-agency-create"]');
       if (createAgencyMs) createAgencyMs.classList.remove("open");
+      var statusSel = document.querySelector('#createForm select[name="status"]');
+      if (statusSel) statusSel.value = "pending_signature";
       openOverlay(createModal);
     });
   }
@@ -783,10 +809,6 @@
     }
   });
 
-  function fileDownloadUrl(docId, role) {
-    return API + "/" + encodeURIComponent(docId) + "/file?role=" + role;
-  }
-
   function openDetail(id) {
     currentDetailId = id;
     var body = document.getElementById("detailBody");
@@ -803,70 +825,102 @@
       .then(function (d) {
         if (title) title.textContent = d.title || "Document";
         var st = d.status || "draft";
-        var html = "";
+        var html = '<div class="doc-detail-panel">';
         if (String(d.description || "").trim()) {
-          html += '<p style="margin-top:0;">' + esc(d.description) + "</p>";
+          html +=
+            '<div class="settings-field documents-modal-field documents-modal-field--stack">' +
+            '<span class="settings-label">Description</span>' +
+            '<div class="doc-detail-value">' +
+            esc(d.description) +
+            "</div></div>";
         }
-        html += '<div class="row" style="flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px;">';
         html +=
-          '<span class="doc-status-pill ' +
+          '<div class="settings-field documents-modal-field documents-modal-field--row">' +
+          '<span class="settings-label">Category</span>' +
+          "<span>" +
+          esc(d.category || "—") +
+          "</span></div>";
+        html +=
+          '<div class="settings-field documents-modal-field documents-modal-field--row">' +
+          '<span class="settings-label">Status</span>' +
+          '<span><span class="doc-status-pill ' +
           esc(statusClass(st)) +
           '">' +
           esc(statusLabel(st)) +
-          "</span>";
-        if (d.category) {
-          html += "<span>" + esc(d.category) + "</span>";
-        }
+          "</span></span></div>";
         if (d.emailedAt) {
-          html += "<span>Emailed: " + esc(formatWhen(d.emailedAt)) + "</span>";
+          html +=
+            '<div class="settings-field documents-modal-field documents-modal-field--row">' +
+            '<span class="settings-label">Emailed</span>' +
+            "<span>" +
+            esc(formatWhen(d.emailedAt)) +
+            "</span></div>";
         }
-        html += "</div>";
 
         if (IS_GLOBAL) {
-          html += '<div class="row" style="flex-wrap:wrap;gap:8px;margin-bottom:14px;">';
-          html += '<button type="button" class="btn" id="detailBtnEdit">Edit details</button>';
-          html += '<button type="button" class="btn danger" id="detailBtnDelete">Delete</button>';
-          html += "</div>";
+          html +=
+            '<div class="row" style="flex-wrap:wrap;gap:8px;margin-top:4px;">' +
+            '<button type="button" class="btn" id="detailBtnEdit">Edit details</button>' +
+            '<button type="button" class="btn danger" id="detailBtnDelete">Delete</button>' +
+            "</div>";
         }
 
-        html += '<div class="detail-section"><h3>Draft / unsigned file</h3>';
+        html +=
+          '<div class="documents-modal-field documents-modal-field--stack" style="margin-top:12px;">' +
+          '<span class="settings-label">Draft file</span>';
         if (d.draftFile) {
-          html += "<p style=\"margin:0 0 8px 0;font-size:14px;\">" + esc(d.draftFile.fileName) + " · " + esc(formatBytes(d.draftFile.size)) + "</p>";
           html +=
-            '<div class="row" style="flex-wrap:wrap;gap:8px;">' +
+            '<div class="doc-detail-fileline">' +
+            "<span>" +
+            esc(d.draftFile.fileName) +
+            " · " +
+            esc(formatBytes(d.draftFile.size)) +
+            '</span><span class="row" style="gap:6px;flex-wrap:wrap;">' +
             '<a class="btn" href="' +
-            fileDownloadUrl(d.id, "draft") +
-            '">Download draft</a>';
-          html += '<button type="button" class="btn success" id="btnEmailDraft">Email for signature</button>';
+            esc(fileDownloadUrl(d.id, "draft")) +
+            '">Download</a>' +
+            '<button type="button" class="btn success" id="btnEmailDraft">Email for signature</button>';
           if (IS_GLOBAL) {
-            html += '<button type="button" class="btn" id="btnReplaceDraft">Replace draft</button>';
+            html += '<button type="button" class="btn" id="btnReplaceDraft">Replace</button>';
           }
-          html += "</div>";
+          html += "</span></div>";
         } else {
           if (IS_GLOBAL) {
-            html += '<button type="button" class="btn success" id="btnUploadDraft">Upload draft</button>';
+            html +=
+              '<div class="doc-detail-fileline"><button type="button" class="btn success" id="btnUploadDraft">Upload draft</button></div>';
+          } else {
+            html += '<div class="doc-detail-fileline"><span>—</span></div>';
           }
         }
         html += "</div>";
 
-        html += '<div class="detail-section"><h3>Signed / executed file</h3>';
+        html +=
+          '<div class="documents-modal-field documents-modal-field--stack" style="margin-top:10px;">' +
+          '<span class="settings-label">Signed file</span>';
         if (d.signedFile) {
-          html += "<p style=\"margin:0 0 8px 0;font-size:14px;\">" + esc(d.signedFile.fileName) + " · " + esc(formatBytes(d.signedFile.size)) + "</p>";
           html +=
-            '<div class="row" style="flex-wrap:wrap;gap:8px;">' +
+            '<div class="doc-detail-fileline">' +
+            "<span>" +
+            esc(d.signedFile.fileName) +
+            " · " +
+            esc(formatBytes(d.signedFile.size)) +
+            '</span><span class="row" style="gap:6px;flex-wrap:wrap;">' +
             '<a class="btn" href="' +
-            fileDownloadUrl(d.id, "signed") +
-            '">Download signed</a>';
+            esc(fileDownloadUrl(d.id, "signed")) +
+            '">Download</a>';
           if (IS_GLOBAL) {
-            html += '<button type="button" class="btn" id="btnReplaceSigned">Replace signed file</button>';
+            html += '<button type="button" class="btn" id="btnReplaceSigned">Replace</button>';
           }
-          html += "</div>";
+          html += "</span></div>";
         } else {
           if (IS_GLOBAL) {
-            html += '<button type="button" class="btn success" id="btnUploadSigned">Upload signed copy</button>';
+            html +=
+              '<div class="doc-detail-fileline"><button type="button" class="btn success" id="btnUploadSigned">Upload signed</button></div>';
+          } else {
+            html += '<div class="doc-detail-fileline"><span>—</span></div>';
           }
         }
-        html += "</div>";
+        html += "</div></div>";
 
         body.innerHTML = html;
 
