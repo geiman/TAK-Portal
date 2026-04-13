@@ -79,20 +79,26 @@
           <p class="muted" style="margin: 0 0 8px 0; font-size: 13px;">
             Global admins <strong>always</strong> have access. Use the list below only to allow specific agencies’ agency admins to view this document.
           </p>
-          <details class="doc-agency-details" data-doc-agency="create">
-            <summary class="doc-agency-summary">Select agencies to share with ▾</summary>
-            <div class="doc-agency-checkboxes" role="group" aria-label="Agencies">
-              <% if (!_docAgencyOptions.length) { %>
-                <p class="muted" style="margin: 0;">No agencies available.</p>
-              <% } %>
-              <% _docAgencyOptions.forEach(function (opt) { %>
-                <label class="doc-agency-row">
-                  <input type="checkbox" value="<%= opt.value %>" data-agency-suffix="<%= opt.value %>" />
-                  <span><%= opt.label %></span>
+          <div class="filter-multiselect" data-filter="doc-agency-create">
+            <button type="button" class="btn filter-toggle" id="createAgencyToggle">Agency ▾</button>
+            <div class="filter-menu" role="listbox" aria-label="Agencies">
+              <div class="filter-menu-inner">
+                <label class="filter-option">
+                  <input type="checkbox" value="" data-filter-value="__all" checked />
+                  <span>None (global admins only)</span>
                 </label>
-              <% }); %>
+                <% if (!_docAgencyOptions.length) { %>
+                  <div class="filter-option" style="cursor: default;"><span class="muted">No agencies available.</span></div>
+                <% } %>
+                <% _docAgencyOptions.forEach(function (opt) { %>
+                  <label class="filter-option">
+                    <input type="checkbox" value="<%= opt.value %>" data-filter-value="<%= opt.value %>" />
+                    <span><%= opt.label %></span>
+                  </label>
+                <% }); %>
+              </div>
             </div>
-          </details>
+          </div>
         </div>
 
         <div class="row" style="margin-top: 16px; gap: 8px;">
@@ -242,20 +248,26 @@
           <p class="muted" style="margin: 0 0 8px 0; font-size: 13px;">
             Global admins <strong>always</strong> have access. Select agencies whose agency admins may also view this document.
           </p>
-          <details class="doc-agency-details" data-doc-agency="edit">
-            <summary class="doc-agency-summary">Select agencies to share with ▾</summary>
-            <div class="doc-agency-checkboxes" role="group" aria-label="Agencies">
-              <% if (!_docAgencyOptions.length) { %>
-                <p class="muted" style="margin: 0;">No agencies available.</p>
-              <% } %>
-              <% _docAgencyOptions.forEach(function (opt) { %>
-                <label class="doc-agency-row">
-                  <input type="checkbox" value="<%= opt.value %>" data-agency-suffix="<%= opt.value %>" />
-                  <span><%= opt.label %></span>
+          <div class="filter-multiselect" data-filter="doc-agency-edit">
+            <button type="button" class="btn filter-toggle" id="editAgencyToggle">Agency ▾</button>
+            <div class="filter-menu" role="listbox" aria-label="Agencies">
+              <div class="filter-menu-inner">
+                <label class="filter-option">
+                  <input type="checkbox" value="" data-filter-value="__all" checked />
+                  <span>None (global admins only)</span>
                 </label>
-              <% }); %>
+                <% if (!_docAgencyOptions.length) { %>
+                  <div class="filter-option" style="cursor: default;"><span class="muted">No agencies available.</span></div>
+                <% } %>
+                <% _docAgencyOptions.forEach(function (opt) { %>
+                  <label class="filter-option">
+                    <input type="checkbox" value="<%= opt.value %>" data-filter-value="<%= opt.value %>" />
+                    <span><%= opt.label %></span>
+                  </label>
+                <% }); %>
+              </div>
             </div>
-          </details>
+          </div>
         </div>
 
         <div class="row" style="margin-top: 16px; gap: 8px;">
@@ -294,46 +306,55 @@
     overflow: visible;
   }
 
-  .documents-page .doc-agency-details {
-    border: 1px solid var(--line);
+  /* Same pattern as views/audit-log.ejs — unscoped .filter-multiselect so menus in modals get display:none / open */
+  .filter-multiselect {
+    position: relative;
+  }
+  .filter-multiselect .filter-toggle {
+    white-space: nowrap;
+  }
+  .filter-multiselect .filter-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    z-index: 2000;
+    min-width: 320px;
+    max-height: 260px;
+    overflow: auto;
+    background: var(--card, #111827);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 8px;
-    background: var(--panel, rgba(0, 0, 0, 0.2));
-  }
-  .documents-page .doc-agency-details > summary.doc-agency-summary {
-    list-style: none;
-    cursor: pointer;
-    padding: 10px 12px;
-    font-size: 14px;
-    user-select: none;
-  }
-  .documents-page .doc-agency-details > summary.doc-agency-summary::-webkit-details-marker {
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.6);
+    padding: 6px 0;
     display: none;
   }
-  .documents-page .doc-agency-details > summary.doc-agency-summary::marker {
-    content: "";
+  .filter-multiselect.open .filter-menu {
+    display: block;
   }
-  .documents-page .doc-agency-checkboxes {
-    padding: 8px 12px 12px;
-    border-top: 1px solid var(--line);
-    max-height: 220px;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
+  .filter-multiselect .filter-menu-inner {
+    padding: 0 8px 6px;
   }
-  .documents-page .doc-agency-row {
+  .filter-multiselect .filter-option {
     display: flex;
+    flex-direction: row;
     align-items: center;
     gap: 10px;
+    padding: 6px 10px;
     font-size: 13px;
     cursor: pointer;
-    padding: 4px 0;
   }
-  .documents-page .doc-agency-row input[type="checkbox"] {
+  .filter-multiselect .filter-option input[type="checkbox"] {
     margin: 0;
     flex-shrink: 0;
     width: 1.125em;
     height: 1.125em;
+    display: inline-block;
+    vertical-align: middle;
+  }
+  .filter-multiselect .filter-option span {
+    flex: 1;
+    min-width: 0;
+    text-align: left;
   }
   .documents-page .doc-status-pill {
     display: inline-block;
@@ -528,49 +549,103 @@
       .filter(Boolean);
   }
 
-  function setupAgencyCheckboxes(opts) {
+  function setupDocAgencyFilter(opts) {
     var container = document.querySelector(opts.containerSelector);
     var input = document.getElementById(opts.inputId);
     if (!container || !input) return;
 
+    var menu = container.querySelector(".filter-menu");
+    var toggle = container.querySelector(".filter-toggle");
     var checkboxes = Array.prototype.slice.call(
-      container.querySelectorAll('input[type="checkbox"][data-agency-suffix]')
+      container.querySelectorAll('input[type="checkbox"][data-filter-value]')
     );
 
     function syncFromInput() {
       var initial = parseCsv(input.value);
       checkboxes.forEach(function (cb) {
-        var val = cb.getAttribute("data-agency-suffix");
-        cb.checked = initial.includes(val);
+        var val = cb.getAttribute("data-filter-value");
+        if (val === "__all") {
+          cb.checked = initial.length === 0;
+        } else {
+          cb.checked = initial.includes(val);
+        }
       });
     }
 
     function syncInput() {
       var selected = checkboxes
         .filter(function (cb) {
-          return cb.checked;
+          return cb.checked && cb.getAttribute("data-filter-value") !== "__all";
         })
         .map(function (cb) {
-          return cb.getAttribute("data-agency-suffix");
+          return cb.getAttribute("data-filter-value");
         });
       input.value = selected.join(",");
+      var allBox = checkboxes.find(function (cb) {
+        return cb.getAttribute("data-filter-value") === "__all";
+      });
+      if (allBox) {
+        allBox.checked = selected.length === 0;
+      }
     }
 
     checkboxes.forEach(function (cb) {
-      cb.addEventListener("change", syncInput);
+      cb.addEventListener("change", function () {
+        var val = cb.getAttribute("data-filter-value");
+        if (val === "__all") {
+          if (cb.checked) {
+            checkboxes.forEach(function (other) {
+              if (other !== cb) other.checked = false;
+            });
+            input.value = "";
+          }
+        } else {
+          var allBox = checkboxes.find(function (x) {
+            return x.getAttribute("data-filter-value") === "__all";
+          });
+          if (allBox && cb.checked) {
+            allBox.checked = false;
+          }
+        }
+        syncInput();
+      });
     });
+
+    if (toggle && menu) {
+      toggle.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var isOpen = container.classList.contains("open");
+        document.querySelectorAll(".filter-multiselect.open").forEach(function (el) {
+          if (el !== container) el.classList.remove("open");
+        });
+        if (!isOpen) container.classList.add("open");
+        else container.classList.remove("open");
+      });
+      menu.addEventListener("mousedown", function (e) {
+        e.stopPropagation();
+      });
+    }
 
     return { syncFromInput: syncFromInput, syncInput: syncInput };
   }
 
-  var createAgencyCtl = setupAgencyCheckboxes({
-    containerSelector: '#createModal details[data-doc-agency="create"]',
+  var createAgencyCtl = setupDocAgencyFilter({
+    containerSelector: '#createModal .filter-multiselect[data-filter="doc-agency-create"]',
     inputId: "createAgencyInput",
   });
 
-  var editAgencyCtl = setupAgencyCheckboxes({
-    containerSelector: '#editModal details[data-doc-agency="edit"]',
+  var editAgencyCtl = setupDocAgencyFilter({
+    containerSelector: '#editModal .filter-multiselect[data-filter="doc-agency-edit"]',
     inputId: "editAgencyInput",
+  });
+
+  document.addEventListener("click", function (e) {
+    if (!e.target.closest(".filter-multiselect")) {
+      document.querySelectorAll(".filter-multiselect.open").forEach(function (el) {
+        el.classList.remove("open");
+      });
+    }
   });
 
   function openOverlay(el) {
@@ -633,8 +708,8 @@
       }
       document.getElementById("createAgencyInput").value = "";
       if (createAgencyCtl && createAgencyCtl.syncFromInput) createAgencyCtl.syncFromInput();
-      var createAgencyDetails = document.querySelector('#createModal details[data-doc-agency="create"]');
-      if (createAgencyDetails) createAgencyDetails.removeAttribute("open");
+      var createAgencyMs = document.querySelector('#createModal .filter-multiselect[data-filter="doc-agency-create"]');
+      if (createAgencyMs) createAgencyMs.classList.remove("open");
       openOverlay(createModal);
     });
   }
