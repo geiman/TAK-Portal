@@ -14,7 +14,7 @@
       <div class="row" style="gap: 10px; flex-wrap: wrap; align-items: center;">
         <input type="search" id="docFilter" placeholder="Filter by title…" style="min-width: 220px; max-width: 360px;" autocomplete="off" />
         <% if (typeof isGlobalAdmin !== "undefined" && isGlobalAdmin) { %>
-          <button type="button" class="btn success" id="btnNewDoc">New document</button>
+          <button type="button" class="btn success" id="btnNewDoc">New Document</button>
         <% } %>
       </div>
       <button type="button" class="btn" id="btnRefreshDocs">Refresh</button>
@@ -76,16 +76,16 @@
           <textarea name="description" rows="3" placeholder="Optional" style="width: 100%; box-sizing: border-box; resize: vertical;"></textarea>
         </label>
         <label class="settings-field documents-modal-field documents-modal-field--stack">
-          <span class="settings-label">Draft file (optional)</span>
+          <span class="settings-label">File Upload</span>
           <input type="file" name="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" />
         </label>
 
         <input type="hidden" id="createAgencyInput" name="agencySuffixes" value="" />
 
         <div class="documents-modal-field documents-modal-field--agency">
-          <strong class="settings-label">Also share with agency admins</strong>
+          <strong class="settings-label">Agency Sharing</strong>
           <div class="filter-multiselect" data-filter="doc-agency-create">
-            <button type="button" class="btn filter-toggle" id="createAgencyToggle">Agency ▾</button>
+            <button type="button" class="btn filter-toggle" id="createAgencyToggle">Agency Sharing ▾</button>
             <div class="filter-menu" role="listbox" aria-label="Agencies">
               <div class="filter-menu-inner">
                 <label class="filter-option">
