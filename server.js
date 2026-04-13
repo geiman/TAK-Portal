@@ -548,6 +548,11 @@ app.get("/documents", requireStrictGlobalAdmin, requireBetaMode, (req, res) =>
   res.render("documents")
 );
 
+// Beta: Data Packages (global admins only, beta mode)
+app.get("/data-packages", requireStrictGlobalAdmin, requireBetaMode, (req, res) =>
+  res.render("data-packages")
+);
+
 // Plugins page (any authenticated user)
 app.get("/plugins", (req, res) => {
   const pluginsSvc = require("./services/plugins.service");
