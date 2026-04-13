@@ -40,8 +40,8 @@
   </div>
 </main>
 
-<!-- New document -->
-  <div class="modalOverlay" id="createModal" style="display: none;" aria-hidden="true">
+<!-- New document (documents-page on overlay: modals live outside <main>, so scoped CSS must apply here too) -->
+<div class="modalOverlay documents-page" id="createModal" style="display: none;" aria-hidden="true">
   <div class="modal documents-modal" role="dialog" aria-modal="true" aria-labelledby="createModalTitle" style="width: min(560px, 96vw);">
     <div class="modalHeader">
       <h2 id="createModalTitle" style="margin: 0;">New document</h2>
@@ -79,22 +79,20 @@
           <p class="muted" style="margin: 0 0 8px 0; font-size: 13px;">
             Global admins <strong>always</strong> have access. Use the list below only to allow specific agencies’ agency admins to view this document.
           </p>
-          <div class="filter-multiselect" data-filter="agency-create">
-            <button type="button" class="btn filter-toggle" id="createAgencyToggle">Select agencies ▾</button>
-            <div class="filter-menu" role="listbox" aria-label="Agencies">
-              <div class="filter-menu-inner">
-                <% if (!_docAgencyOptions.length) { %>
-                  <div class="filter-option" style="cursor: default;"><span class="muted">No agencies available.</span></div>
-                <% } %>
-                <% _docAgencyOptions.forEach(function (opt) { %>
-                  <label class="filter-option">
-                    <input type="checkbox" value="<%= opt.value %>" data-filter-value="<%= opt.value %>" />
-                    <span><%= opt.label %></span>
-                  </label>
-                <% }); %>
-              </div>
+          <details class="doc-agency-details" data-doc-agency="create">
+            <summary class="doc-agency-summary">Select agencies to share with ▾</summary>
+            <div class="doc-agency-checkboxes" role="group" aria-label="Agencies">
+              <% if (!_docAgencyOptions.length) { %>
+                <p class="muted" style="margin: 0;">No agencies available.</p>
+              <% } %>
+              <% _docAgencyOptions.forEach(function (opt) { %>
+                <label class="doc-agency-row">
+                  <input type="checkbox" value="<%= opt.value %>" data-agency-suffix="<%= opt.value %>" />
+                  <span><%= opt.label %></span>
+                </label>
+              <% }); %>
             </div>
-          </div>
+          </details>
         </div>
 
         <div class="row" style="margin-top: 16px; gap: 8px;">
@@ -201,7 +199,7 @@
 </div>
 
 <!-- Edit meta -->
-  <div class="modalOverlay" id="editModal" style="display: none;" aria-hidden="true">
+<div class="modalOverlay documents-page" id="editModal" style="display: none;" aria-hidden="true">
   <div class="modal documents-modal" role="dialog" aria-modal="true" aria-labelledby="editModalTitle" style="width: min(560px, 96vw);">
     <div class="modalHeader">
       <h2 id="editModalTitle" style="margin: 0;">Edit document</h2>
@@ -244,22 +242,20 @@
           <p class="muted" style="margin: 0 0 8px 0; font-size: 13px;">
             Global admins <strong>always</strong> have access. Select agencies whose agency admins may also view this document.
           </p>
-          <div class="filter-multiselect" data-filter="agency-edit">
-            <button type="button" class="btn filter-toggle" id="editAgencyToggle">Select agencies ▾</button>
-            <div class="filter-menu" role="listbox" aria-label="Agencies">
-              <div class="filter-menu-inner">
-                <% if (!_docAgencyOptions.length) { %>
-                  <div class="filter-option" style="cursor: default;"><span class="muted">No agencies available.</span></div>
-                <% } %>
-                <% _docAgencyOptions.forEach(function (opt) { %>
-                  <label class="filter-option">
-                    <input type="checkbox" value="<%= opt.value %>" data-filter-value="<%= opt.value %>" />
-                    <span><%= opt.label %></span>
-                  </label>
-                <% }); %>
-              </div>
+          <details class="doc-agency-details" data-doc-agency="edit">
+            <summary class="doc-agency-summary">Select agencies to share with ▾</summary>
+            <div class="doc-agency-checkboxes" role="group" aria-label="Agencies">
+              <% if (!_docAgencyOptions.length) { %>
+                <p class="muted" style="margin: 0;">No agencies available.</p>
+              <% } %>
+              <% _docAgencyOptions.forEach(function (opt) { %>
+                <label class="doc-agency-row">
+                  <input type="checkbox" value="<%= opt.value %>" data-agency-suffix="<%= opt.value %>" />
+                  <span><%= opt.label %></span>
+                </label>
+              <% }); %>
             </div>
-          </div>
+          </details>
         </div>
 
         <div class="row" style="margin-top: 16px; gap: 8px;">
@@ -298,43 +294,42 @@
     overflow: visible;
   }
 
-  .documents-page .filter-multiselect {
-    position: relative;
-  }
-  .documents-page .filter-multiselect .filter-toggle {
-    white-space: nowrap;
-  }
-  .documents-page .filter-multiselect .filter-menu {
-    position: absolute;
-    top: calc(100% + 4px);
-    left: 0;
-    z-index: 2000;
-    min-width: 320px;
-    max-height: 260px;
-    overflow: auto;
-    background: var(--card, #111827);
+  .documents-page .doc-agency-details {
     border: 1px solid var(--line);
     border-radius: 8px;
-    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
-    padding: 6px 0;
+    background: var(--panel, rgba(0, 0, 0, 0.2));
+  }
+  .documents-page .doc-agency-details > summary.doc-agency-summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 10px 12px;
+    font-size: 14px;
+    user-select: none;
+  }
+  .documents-page .doc-agency-details > summary.doc-agency-summary::-webkit-details-marker {
     display: none;
   }
-  .documents-page .filter-multiselect.open .filter-menu {
-    display: block;
+  .documents-page .doc-agency-details > summary.doc-agency-summary::marker {
+    content: "";
   }
-  .documents-page .filter-multiselect .filter-menu-inner {
-    padding: 0 8px 6px;
-  }
-  .documents-page .filter-multiselect .filter-option {
+  .documents-page .doc-agency-checkboxes {
+    padding: 8px 12px 12px;
+    border-top: 1px solid var(--line);
+    max-height: 220px;
+    overflow-y: auto;
     display: flex;
-    flex-direction: row;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .documents-page .doc-agency-row {
+    display: flex;
     align-items: center;
     gap: 10px;
-    padding: 6px 10px;
     font-size: 13px;
     cursor: pointer;
+    padding: 4px 0;
   }
-  .documents-page .filter-multiselect .filter-option input[type="checkbox"] {
+  .documents-page .doc-agency-row input[type="checkbox"] {
     margin: 0;
     flex-shrink: 0;
     width: 1.125em;
@@ -533,21 +528,19 @@
       .filter(Boolean);
   }
 
-  function setupAgencyFilter(opts) {
+  function setupAgencyCheckboxes(opts) {
     var container = document.querySelector(opts.containerSelector);
     var input = document.getElementById(opts.inputId);
     if (!container || !input) return;
 
-    var menu = container.querySelector(".filter-menu");
-    var toggle = container.querySelector(".filter-toggle");
     var checkboxes = Array.prototype.slice.call(
-      container.querySelectorAll('input[type="checkbox"][data-filter-value]')
+      container.querySelectorAll('input[type="checkbox"][data-agency-suffix]')
     );
 
     function syncFromInput() {
       var initial = parseCsv(input.value);
       checkboxes.forEach(function (cb) {
-        var val = cb.getAttribute("data-filter-value");
+        var val = cb.getAttribute("data-agency-suffix");
         cb.checked = initial.includes(val);
       });
     }
@@ -558,55 +551,26 @@
           return cb.checked;
         })
         .map(function (cb) {
-          return cb.getAttribute("data-filter-value");
+          return cb.getAttribute("data-agency-suffix");
         });
       input.value = selected.join(",");
     }
 
     checkboxes.forEach(function (cb) {
-      cb.addEventListener("change", function () {
-        syncInput();
-      });
+      cb.addEventListener("change", syncInput);
     });
-
-    if (menu) {
-      menu.addEventListener("mousedown", function (e) {
-        e.stopPropagation();
-      });
-    }
-
-    if (toggle && menu) {
-      toggle.addEventListener("click", function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-        var isOpen = container.classList.contains("open");
-        document.querySelectorAll(".documents-page .filter-multiselect.open").forEach(function (el) {
-          if (el !== container) el.classList.remove("open");
-        });
-        if (!isOpen) container.classList.add("open");
-        else container.classList.remove("open");
-      });
-    }
 
     return { syncFromInput: syncFromInput, syncInput: syncInput };
   }
 
-  var createAgencyCtl = setupAgencyFilter({
-    containerSelector: '.documents-page .filter-multiselect[data-filter="agency-create"]',
+  var createAgencyCtl = setupAgencyCheckboxes({
+    containerSelector: '#createModal details[data-doc-agency="create"]',
     inputId: "createAgencyInput",
   });
 
-  var editAgencyCtl = setupAgencyFilter({
-    containerSelector: '.documents-page .filter-multiselect[data-filter="agency-edit"]',
+  var editAgencyCtl = setupAgencyCheckboxes({
+    containerSelector: '#editModal details[data-doc-agency="edit"]',
     inputId: "editAgencyInput",
-  });
-
-  document.addEventListener("click", function (e) {
-    if (!e.target.closest(".documents-page .filter-multiselect")) {
-      document.querySelectorAll(".documents-page .filter-multiselect.open").forEach(function (el) {
-        el.classList.remove("open");
-      });
-    }
   });
 
   function openOverlay(el) {
@@ -669,6 +633,8 @@
       }
       document.getElementById("createAgencyInput").value = "";
       if (createAgencyCtl && createAgencyCtl.syncFromInput) createAgencyCtl.syncFromInput();
+      var createAgencyDetails = document.querySelector('#createModal details[data-doc-agency="create"]');
+      if (createAgencyDetails) createAgencyDetails.removeAttribute("open");
       openOverlay(createModal);
     });
   }
