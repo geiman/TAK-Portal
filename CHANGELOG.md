@@ -12,6 +12,11 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.69 - 4/12/26
+✨ `Enhancement` - Adds auto-save to server settings page<br>
+✨ `Enhancement` - Adds Default Role column to Data Sync page <br>
+🎉 `New Feature` - Created Documents page for beta mode users.  More updates to come soon for further devolopment.
+
 ### v1.2.68 - 4/8/26
 ✨ `Enhancement` - Integrations page now includes a way to create Data Feeds on TAK Server (additions compliments of cfd2474)<br>
 🐛 `Bug Fix` - Fixes issue with QR code behavior for standard users failing to load the enrollment QR code on the setup my device page (bug reported by dfndr13)
