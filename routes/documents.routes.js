@@ -85,12 +85,13 @@ router.post("/", requireGlobal, upload.single("file"), (req, res) => {
         description: req.body.description,
         category: req.body.category,
         agencySuffixes,
+        status: "draft",
       },
       req.authentikUser
     );
 
     if (req.file) {
-      docsSvc.addVersion(doc.id, req.file, req.authentikUser);
+      docsSvc.setDraftFile(doc.id, req.file, req.authentikUser);
     }
 
     const fresh = docsSvc.getDocumentById(doc.id);
@@ -148,6 +149,7 @@ router.put("/:id", requireGlobal, (req, res) => {
         description: req.body.description,
         category: req.body.category,
         agencySuffixes,
+        status: req.body.status,
       },
       req.authentikUser
     );
@@ -201,17 +203,15 @@ router.delete("/:id", requireGlobal, (req, res) => {
   }
 });
 
-router.post("/:id/versions", requireGlobal, upload.single("file"), (req, res) => {
+router.post("/:id/draft", requireGlobal, upload.single("file"), (req, res) => {
   try {
     const doc = docsSvc.getDocumentById(req.params.id);
     if (!doc) {
       if (req.file && req.file.path) try { fs.unlinkSync(req.file.path); } catch (_) {}
       return res.status(404).json({ error: "Not found" });
     }
-    if (!req.file) {
-      return res.status(400).json({ error: "File required" });
-    }
-    docsSvc.addVersion(doc.id, req.file, req.authentikUser);
+    if (!req.file) return res.status(400).json({ error: "File required" });
+    docsSvc.setDraftFile(doc.id, req.file, req.authentikUser);
     const fresh = docsSvc.getDocumentById(doc.id);
     try {
       auditSvc.logEvent({
@@ -221,7 +221,7 @@ router.post("/:id/versions", requireGlobal, upload.single("file"), (req, res) =>
           path: req.originalUrl || req.path,
           ip: req.ip,
         },
-        action: "DOCUMENT_VERSION_ADD",
+        action: "DOCUMENT_DRAFT_UPLOAD",
         targetType: "document",
         targetId: doc.id,
         details: {},
@@ -244,16 +244,61 @@ router.post("/:id/versions", requireGlobal, upload.single("file"), (req, res) =>
   }
 });
 
-router.get("/:id/versions/:vid/download", (req, res) => {
+router.post("/:id/signed", requireGlobal, upload.single("file"), (req, res) => {
   try {
+    const doc = docsSvc.getDocumentById(req.params.id);
+    if (!doc) {
+      if (req.file && req.file.path) try { fs.unlinkSync(req.file.path); } catch (_) {}
+      return res.status(404).json({ error: "Not found" });
+    }
+    if (!req.file) return res.status(400).json({ error: "File required" });
+    docsSvc.setSignedFile(doc.id, req.file, req.authentikUser);
+    const fresh = docsSvc.getDocumentById(doc.id);
+    try {
+      auditSvc.logEvent({
+        actor: req.authentikUser || null,
+        request: {
+          method: req.method,
+          path: req.originalUrl || req.path,
+          ip: req.ip,
+        },
+        action: "DOCUMENT_SIGNED_UPLOAD",
+        targetType: "document",
+        targetId: doc.id,
+        details: {},
+      });
+    } catch (_) {}
+    return res.json({ data: docsSvc.summarizeDoc(fresh, true) });
+  } catch (e) {
+    if (req.file && req.file.path) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (_) {}
+    }
+    const code =
+      e.message === "Forbidden"
+        ? 403
+        : e.message === "Not found"
+          ? 404
+          : 400;
+    return res.status(code).json({ error: e.message || "Upload failed" });
+  }
+});
+
+router.get("/:id/file", (req, res) => {
+  try {
+    const role = String(req.query.role || "draft").toLowerCase();
+    if (role !== "draft" && role !== "signed") {
+      return res.status(400).json({ error: "role must be draft or signed" });
+    }
     const doc = docsSvc.getDocumentById(req.params.id);
     if (!doc) return res.status(404).json({ error: "Not found" });
     if (!docsSvc.canAccessDocument(req.authentikUser, doc)) {
       return res.status(403).json({ error: "Forbidden" });
     }
-    const ver = docsSvc.getVersionRecord(doc, req.params.vid);
-    if (!ver) return res.status(404).json({ error: "Version not found" });
-    const abs = docsSvc.getVersionAbsolutePath(doc, ver);
+    const f = docsSvc.getFileRecord(doc, role);
+    if (!f) return res.status(404).json({ error: "No file for this role" });
+    const abs = docsSvc.getAbsolutePathForFile(f);
     if (!abs || !fs.existsSync(abs)) {
       return res.status(404).json({ error: "File missing" });
     }
@@ -268,73 +313,12 @@ router.get("/:id/versions/:vid/download", (req, res) => {
         action: "DOCUMENT_DOWNLOAD",
         targetType: "document",
         targetId: doc.id,
-        details: { versionId: ver.id, version: ver.version },
+        details: { role },
       });
     } catch (_) {}
-    return res.download(abs, ver.fileName);
+    return res.download(abs, f.fileName);
   } catch (e) {
     return res.status(500).json({ error: e.message || "Download failed" });
-  }
-});
-
-router.post("/:id/sign", (req, res) => {
-  try {
-    const doc = docsSvc.getDocumentById(req.params.id);
-    if (!doc) return res.status(404).json({ error: "Not found" });
-    const text = String(req.body?.acknowledgmentText || "").trim();
-    if (text.length < 8) {
-      return res.status(400).json({
-        error: "Please enter a meaningful acknowledgment (at least 8 characters).",
-      });
-    }
-    const sig = docsSvc.recordSignature(
-      doc.id,
-      req.body?.versionId,
-      { acknowledgmentText: text },
-      req.authentikUser,
-      req
-    );
-    try {
-      auditSvc.logEvent({
-        actor: req.authentikUser || null,
-        request: {
-          method: req.method,
-          path: req.originalUrl || req.path,
-          ip: req.ip,
-        },
-        action: "DOCUMENT_SIGN",
-        targetType: "document",
-        targetId: doc.id,
-        details: { versionId: sig.versionId, signatureId: sig.id },
-      });
-    } catch (_) {}
-    return res.json({ data: sig });
-  } catch (e) {
-    const code =
-      e.message === "Forbidden"
-        ? 403
-        : e.message === "Not found" || e.message === "Version not found"
-          ? 404
-          : 400;
-    return res.status(code).json({ error: e.message || "Failed" });
-  }
-});
-
-router.get("/:id/receipts/:sid/download", (req, res) => {
-  try {
-    const doc = docsSvc.getDocumentById(req.params.id);
-    if (!doc) return res.status(404).json({ error: "Not found" });
-    if (!docsSvc.canAccessDocument(req.authentikUser, doc)) {
-      return res.status(403).json({ error: "Forbidden" });
-    }
-    const abs = docsSvc.getSignatureReceiptPath(doc, req.params.sid);
-    if (!abs || !fs.existsSync(abs)) {
-      return res.status(404).json({ error: "Receipt not found" });
-    }
-    const name = `acknowledgment-${req.params.sid}.txt`;
-    return res.download(abs, name);
-  } catch (e) {
-    return res.status(500).json({ error: e.message || "Failed" });
   }
 });
 
@@ -353,20 +337,25 @@ router.post("/:id/email", async (req, res) => {
       return res.status(400).json({ error: "Valid email address required" });
     }
 
-    const versionId = String(req.body?.versionId || "").trim();
-    const ver = docsSvc.getVersionRecord(doc, versionId);
-    if (!ver) return res.status(400).json({ error: "Version not found" });
+    const draft = docsSvc.getFileRecord(doc, "draft");
+    if (!draft) {
+      return res.status(400).json({
+        error:
+          "No draft / unsigned file uploaded yet. Upload a draft copy first.",
+      });
+    }
 
-    const abs = docsSvc.getVersionAbsolutePath(doc, ver);
+    const abs = docsSvc.getAbsolutePathForFile(draft);
     if (!abs || !fs.existsSync(abs)) {
-      return res.status(404).json({ error: "File missing" });
+      return res.status(404).json({ error: "Draft file missing on disk" });
     }
 
     const note = String(req.body?.message || "").trim();
-    const subject = `Document: ${doc.title} (v${ver.version})`;
+    const subject = `Document for signature: ${doc.title}`;
     const text =
       `${note ? note + "\n\n" : ""}` +
-      `Attached: ${ver.fileName} (version ${ver.version})\r\n` +
+      `Attached: ${draft.fileName} (draft / unsigned copy)\r\n` +
+      `Status will be marked as pending signature after send.\r\n` +
       `Sent from TAK Portal Documents.`;
 
     const result = await emailSvc.sendMail({
@@ -375,7 +364,7 @@ router.post("/:id/email", async (req, res) => {
       text,
       attachments: [
         {
-          filename: ver.fileName,
+          filename: draft.fileName,
           path: abs,
         },
       ],
@@ -385,6 +374,12 @@ router.post("/:id/email", async (req, res) => {
       return res.status(502).json({
         error: result.error || "Email failed",
       });
+    }
+
+    if (result.sent) {
+      try {
+        docsSvc.recordEmailSentForSignature(doc.id);
+      } catch (_) {}
     }
 
     try {
@@ -400,7 +395,6 @@ router.post("/:id/email", async (req, res) => {
         targetId: doc.id,
         details: {
           to,
-          versionId: ver.id,
           skipped: !!result.skipped,
         },
       });

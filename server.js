@@ -562,7 +562,17 @@ app.get("/getting-started", requireStrictGlobalAdmin, requireBetaMode, (req, res
 );
 
 // Beta: Documents (global + agency admins; per-document ACL in API)
-app.get("/documents", requireBetaDocumentsPage, (req, res) => res.render("documents"));
+app.get("/documents", requireBetaDocumentsPage, (req, res) => {
+  const agencies = agenciesStore.load();
+  const visible = accessSvc.filterAgenciesForUser(req.authentikUser, agencies);
+  const docAgencyOptions = visible
+    .filter((a) => a && String(a.suffix || "").trim())
+    .map((a) => ({
+      value: String(a.suffix).trim().toLowerCase(),
+      label: `${String(a.name || "").trim() || "Agency"} (${String(a.suffix).trim()})`,
+    }));
+  return res.render("documents", { docAgencyOptions });
+});
 
 // Beta: Data Packages (global admins only, beta mode)
 app.get("/data-packages", requireStrictGlobalAdmin, requireBetaMode, (req, res) =>

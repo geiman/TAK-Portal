@@ -1,11 +1,14 @@
+<%
+  const _docAgencyOptions = Array.isArray(docAgencyOptions) ? docAgencyOptions : [];
+%>
 <%- include("partials/header") %>
 <%- include("partials/sidebar") %>
 
 <main class="main documents-page">
   <h1>Documents</h1>
   <p class="muted" style="margin: 0 0 16px 0; max-width: 52rem;">
-    Store MOUs, policies, and onboarding files. Global admins can publish to specific agencies or keep documents internal.
-    Agency admins see only documents shared with their agency. Acknowledgments generate a saved receipt file.
+    Upload a <strong>draft</strong> (unsigned) file for review or to email for signature. When the executed agreement comes back, upload the <strong>signed</strong> copy here.
+    Status moves from <em>Draft</em> → <em>Pending signature</em> (after you email the draft) → <em>Signed</em> (after you upload the executed file).
   </p>
 
   <div id="documentsBanner" class="msg" style="display: none; margin-bottom: 12px;"></div>
@@ -27,11 +30,11 @@
       <thead>
         <tr>
           <th>Title</th>
-          <th style="width: 110px;">Category</th>
-          <th style="min-width: 140px;">Access</th>
-          <th style="width: 90px;">Versions</th>
+          <th style="width: 150px;">Category</th>
+          <th style="width: 150px;">Status</th>
+          <th style="min-width: 120px;">Access</th>
           <th style="width: 160px;">Updated</th>
-          <th style="min-width: 120px;">Actions</th>
+          <th style="min-width: 100px;">Actions</th>
         </tr>
       </thead>
       <tbody id="documentsTbody">
@@ -57,29 +60,47 @@
         </label>
         <label class="settings-field" style="display: block; margin-top: 10px;">
           <span class="settings-label">Category</span>
-          <select name="category" style="width: 100%; max-width: 280px;">
+          <select name="category" style="width: 100%; max-width: 320px;">
             <option value="MOU">MOU</option>
-            <option value="Policy">Policy</option>
+            <option value="Data Sharing Agreement">Data Sharing Agreement</option>
             <option value="SOP">SOP</option>
             <option value="Other">Other</option>
           </select>
         </label>
         <label class="settings-field" style="display: block; margin-top: 10px;">
           <span class="settings-label">Description</span>
-          <textarea name="description" rows="3" placeholder="Optional context" style="width: 100%; box-sizing: border-box; resize: vertical;"></textarea>
+          <textarea name="description" rows="3" placeholder="Optional" style="width: 100%; box-sizing: border-box; resize: vertical;"></textarea>
         </label>
         <label class="settings-field" style="display: block; margin-top: 10px;">
-          <span class="settings-label">File (optional)</span>
+          <span class="settings-label">Draft file (optional)</span>
           <input type="file" name="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" />
-          <small class="settings-help">PDF, Word, PNG, or JPEG — up to 40 MB. You can add a file later.</small>
+          <small class="settings-help">Unsigned / working copy. You can add it later. PDF, Word, or image — up to 40 MB.</small>
         </label>
+
+        <input type="hidden" id="createAgencyInput" name="agencySuffixes" value="" />
+
         <div style="margin-top: 12px;">
           <strong class="settings-label" style="display: block; margin-bottom: 6px;">Agency access</strong>
-          <p class="muted" style="margin: 0 0 8px 0; font-size: 13px;">
-            Leave all unchecked to restrict this document to <strong>global admins only</strong>. Select one or more agencies to grant their agency admins access.
-          </p>
-          <div id="createAgencyChecks" class="doc-agency-box"></div>
+          <div class="filter-multiselect" data-filter="agency-create">
+            <button type="button" class="btn filter-toggle" id="createAgencyToggle">Agencies ▾</button>
+            <div class="filter-menu">
+              <div class="filter-menu-inner">
+                <label class="filter-option">
+                  <input type="checkbox" value="" data-filter-value="__all" checked />
+                  <span>Global admins only</span>
+                </label>
+                <% _docAgencyOptions.forEach(function (opt) { %>
+                  <label class="filter-option">
+                    <input type="checkbox" value="<%= opt.value %>" data-filter-value="<%= opt.value %>" />
+                    <span><%= opt.label %></span>
+                  </label>
+                <% }); %>
+              </div>
+            </div>
+          </div>
+          <small class="settings-help">Choose agencies whose admins may view this document, or leave as global admins only.</small>
         </div>
+
         <div class="row" style="margin-top: 16px; gap: 8px;">
           <button type="submit" class="btn success">Create</button>
           <button type="button" class="btn" data-close-create>Cancel</button>
@@ -91,7 +112,7 @@
 
 <!-- Detail -->
 <div class="modalOverlay" id="detailModal" style="display: none;" aria-hidden="true">
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="detailModalTitle" style="width: min(820px, 98vw);">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="detailModalTitle" style="width: min(860px, 98vw);">
     <div class="modalHeader">
       <h2 id="detailModalTitle" style="margin: 0;">Document</h2>
       <button type="button" class="btn" id="detailCloseBtn">Close</button>
@@ -103,24 +124,50 @@
   </div>
 </div>
 
-<!-- Upload version -->
-<div class="modalOverlay" id="uploadModal" style="display: none;" aria-hidden="true">
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="uploadModalTitle" style="width: min(480px, 96vw);">
+<!-- Upload draft -->
+<div class="modalOverlay" id="draftUploadModal" style="display: none;" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="draftUploadTitle" style="width: min(480px, 96vw);">
     <div class="modalHeader">
-      <h2 id="uploadModalTitle" style="margin: 0;">Upload new version</h2>
-      <button type="button" class="btn" data-close-upload>Close</button>
+      <h2 id="draftUploadTitle" style="margin: 0;">Upload draft / unsigned file</h2>
+      <button type="button" class="btn" data-close-draft-upload>Close</button>
     </div>
     <div class="modalBody">
-      <div id="uploadMsg" class="msg" style="display: none;"></div>
-      <form id="uploadForm">
-        <input type="hidden" id="uploadDocId" name="docId" />
+      <div id="draftUploadMsg" class="msg" style="display: none;"></div>
+      <form id="draftUploadForm">
+        <input type="hidden" id="draftUploadDocId" />
+        <p class="muted" style="margin-top: 0;">This is the working or unsigned copy (for review or to email for signature).</p>
         <label class="settings-field" style="display: block;">
           <span class="settings-label">File</span>
           <input type="file" name="file" required accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" />
         </label>
         <div class="row" style="margin-top: 14px; gap: 8px;">
           <button type="submit" class="btn success">Upload</button>
-          <button type="button" class="btn" data-close-upload>Cancel</button>
+          <button type="button" class="btn" data-close-draft-upload>Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Upload signed -->
+<div class="modalOverlay" id="signedUploadModal" style="display: none;" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="signedUploadTitle" style="width: min(480px, 96vw);">
+    <div class="modalHeader">
+      <h2 id="signedUploadTitle" style="margin: 0;">Upload signed / executed file</h2>
+      <button type="button" class="btn" data-close-signed-upload>Close</button>
+    </div>
+    <div class="modalBody">
+      <div id="signedUploadMsg" class="msg" style="display: none;"></div>
+      <form id="signedUploadForm">
+        <input type="hidden" id="signedUploadDocId" />
+        <p class="muted" style="margin-top: 0;">Upload the fully executed agreement. The document will be marked <strong>Signed</strong> and replaces any previous signed file.</p>
+        <label class="settings-field" style="display: block;">
+          <span class="settings-label">File</span>
+          <input type="file" name="file" required accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" />
+        </label>
+        <div class="row" style="margin-top: 14px; gap: 8px;">
+          <button type="submit" class="btn success">Upload</button>
+          <button type="button" class="btn" data-close-signed-upload>Cancel</button>
         </div>
       </form>
     </div>
@@ -131,52 +178,26 @@
 <div class="modalOverlay" id="emailModal" style="display: none;" aria-hidden="true">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="emailModalTitle" style="width: min(480px, 96vw);">
     <div class="modalHeader">
-      <h2 id="emailModalTitle" style="margin: 0;">Email document</h2>
+      <h2 id="emailModalTitle" style="margin: 0;">Email draft for signature</h2>
       <button type="button" class="btn" data-close-email>Close</button>
     </div>
     <div class="modalBody">
       <div id="emailMsg" class="msg" style="display: none;"></div>
+      <p class="muted" style="margin-top: 0;">Attaches the <strong>draft / unsigned</strong> file. After a successful send, status becomes <em>Pending signature</em>.</p>
       <form id="emailForm">
         <input type="hidden" id="emailDocId" />
-        <input type="hidden" id="emailVersionId" />
         <label class="settings-field" style="display: block;">
           <span class="settings-label">To</span>
           <input type="email" id="emailTo" required placeholder="recipient@example.gov" style="width: 100%; box-sizing: border-box;" autocomplete="off" />
         </label>
         <label class="settings-field" style="display: block; margin-top: 10px;">
-          <span class="settings-label">Short note (optional)</span>
+          <span class="settings-label">Note (optional)</span>
           <textarea id="emailNote" rows="3" style="width: 100%; box-sizing: border-box; resize: vertical;"></textarea>
         </label>
-        <p class="muted" style="font-size: 12px; margin: 8px 0 0 0;">Uses server email settings. If email is disabled, the request may be skipped.</p>
+        <p class="muted" style="font-size: 12px; margin: 8px 0 0 0;">Requires SMTP configured in Server Settings.</p>
         <div class="row" style="margin-top: 14px; gap: 8px;">
           <button type="submit" class="btn success">Send</button>
           <button type="button" class="btn" data-close-email>Cancel</button>
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
-
-<!-- Acknowledge -->
-<div class="modalOverlay" id="signModal" style="display: none;" aria-hidden="true">
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="signModalTitle" style="width: min(520px, 96vw);">
-    <div class="modalHeader">
-      <h2 id="signModalTitle" style="margin: 0;">Acknowledge document</h2>
-      <button type="button" class="btn" data-close-sign>Close</button>
-    </div>
-    <div class="modalBody">
-      <div id="signMsg" class="msg" style="display: none;"></div>
-      <p class="muted" style="margin-top: 0;">Type a clear acknowledgment. A receipt file (.txt) is stored with this document.</p>
-      <form id="signForm">
-        <input type="hidden" id="signDocId" />
-        <input type="hidden" id="signVersionId" />
-        <label class="settings-field" style="display: block;">
-          <span class="settings-label">Your acknowledgment</span>
-          <textarea id="signText" rows="5" required minlength="8" placeholder="e.g. I acknowledge that I have read and agree to the terms in this MOU as of this date." style="width: 100%; box-sizing: border-box; resize: vertical;"></textarea>
-        </label>
-        <div class="row" style="margin-top: 14px; gap: 8px;">
-          <button type="submit" class="btn success">Submit &amp; save receipt</button>
-          <button type="button" class="btn" data-close-sign>Cancel</button>
         </div>
       </form>
     </div>
@@ -200,21 +221,49 @@
         </label>
         <label class="settings-field" style="display: block; margin-top: 10px;">
           <span class="settings-label">Category</span>
-          <select id="editCategory" style="width: 100%; max-width: 280px;">
+          <select id="editCategory" style="width: 100%; max-width: 320px;">
             <option value="MOU">MOU</option>
-            <option value="Policy">Policy</option>
+            <option value="Data Sharing Agreement">Data Sharing Agreement</option>
             <option value="SOP">SOP</option>
             <option value="Other">Other</option>
+          </select>
+        </label>
+        <label class="settings-field" style="display: block; margin-top: 10px;">
+          <span class="settings-label">Status</span>
+          <select id="editStatus" style="width: 100%; max-width: 320px;">
+            <option value="draft">Draft</option>
+            <option value="pending_signature">Pending signature</option>
+            <option value="signed">Signed</option>
           </select>
         </label>
         <label class="settings-field" style="display: block; margin-top: 10px;">
           <span class="settings-label">Description</span>
           <textarea id="editDescription" rows="3" style="width: 100%; box-sizing: border-box; resize: vertical;"></textarea>
         </label>
+
+        <input type="hidden" id="editAgencyInput" value="" />
+
         <div style="margin-top: 12px;">
           <strong class="settings-label" style="display: block; margin-bottom: 6px;">Agency access</strong>
-          <div id="editAgencyChecks" class="doc-agency-box"></div>
+          <div class="filter-multiselect" data-filter="agency-edit">
+            <button type="button" class="btn filter-toggle" id="editAgencyToggle">Agencies ▾</button>
+            <div class="filter-menu">
+              <div class="filter-menu-inner">
+                <label class="filter-option">
+                  <input type="checkbox" value="" data-filter-value="__all" />
+                  <span>Global admins only</span>
+                </label>
+                <% _docAgencyOptions.forEach(function (opt) { %>
+                  <label class="filter-option">
+                    <input type="checkbox" value="<%= opt.value %>" data-filter-value="<%= opt.value %>" />
+                    <span><%= opt.label %></span>
+                  </label>
+                <% }); %>
+              </div>
+            </div>
+          </div>
         </div>
+
         <div class="row" style="margin-top: 16px; gap: 8px;">
           <button type="submit" class="btn success">Save</button>
           <button type="button" class="btn" data-close-edit>Cancel</button>
@@ -242,23 +291,66 @@
 </div>
 
 <style>
-  .documents-page .doc-agency-box {
-    max-height: 200px;
+  .documents-page .filter-multiselect {
+    position: relative;
+  }
+  .documents-page .filter-multiselect .filter-toggle {
+    white-space: nowrap;
+  }
+  .documents-page .filter-multiselect .filter-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 30;
+    min-width: 320px;
+    max-height: 260px;
     overflow: auto;
+    background: var(--card, #111827);
     border: 1px solid var(--line);
     border-radius: 8px;
-    padding: 10px 12px;
-    background: var(--panel);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+    padding: 6px 0;
+    display: none;
   }
-  .documents-page .doc-agency-row {
+  .documents-page .filter-multiselect.open .filter-menu {
+    display: block;
+  }
+  .documents-page .filter-multiselect .filter-menu-inner {
+    padding: 0 8px 6px;
+  }
+  .documents-page .filter-multiselect .filter-option {
     display: flex;
+    flex-direction: row;
     align-items: center;
-    gap: 8px;
-    margin: 6px 0;
-    font-size: 14px;
+    gap: 10px;
+    padding: 6px 10px;
+    font-size: 13px;
+    cursor: pointer;
   }
-  .documents-page .documents-table td {
-    vertical-align: middle;
+  .documents-page .filter-multiselect .filter-option input[type="checkbox"] {
+    margin: 0;
+    flex-shrink: 0;
+    width: 1.125em;
+    height: 1.125em;
+  }
+  .documents-page .doc-status-pill {
+    display: inline-block;
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-weight: 600;
+  }
+  .documents-page .doc-status-pill.draft {
+    background: rgba(107, 114, 128, 0.35);
+    color: var(--muted);
+  }
+  .documents-page .doc-status-pill.pending {
+    background: rgba(234, 179, 8, 0.25);
+    color: #eab308;
+  }
+  .documents-page .doc-status-pill.signed {
+    background: rgba(34, 197, 94, 0.22);
+    color: #22c55e;
   }
   .documents-page .badge-access {
     display: inline-block;
@@ -287,7 +379,7 @@
   var tbody = document.getElementById("documentsTbody");
   var filterEl = document.getElementById("docFilter");
   var banner = document.getElementById("documentsBanner");
-  var agenciesCache = [];
+  var currentDetailId = null;
 
   function showBanner(text, ok) {
     if (!banner) return;
@@ -315,6 +407,19 @@
     if (x < 1024) return x + " B";
     if (x < 1024 * 1024) return (x / 1024).toFixed(1) + " KB";
     return (x / 1024 / 1024).toFixed(1) + " MB";
+  }
+
+  function statusLabel(st) {
+    if (st === "draft") return "Draft";
+    if (st === "pending_signature") return "Pending signature";
+    if (st === "signed") return "Signed";
+    return st || "—";
+  }
+
+  function statusClass(st) {
+    if (st === "signed") return "signed";
+    if (st === "pending_signature") return "pending";
+    return "draft";
   }
 
   function formatAccess(row) {
@@ -351,13 +456,13 @@
     });
     if (!tbody) return;
     if (!rows.length) {
-      tbody.innerHTML =
-        '<tr><td colspan="6" class="muted">No documents match.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" class="muted">No documents match.</td></tr>';
       return;
     }
     var html = "";
     for (var i = 0; i < rows.length; i++) {
       var r = rows[i];
+      var st = r.status || "draft";
       html +=
         "<tr data-id=\"" +
         esc(r.id) +
@@ -368,11 +473,13 @@
         "<td>" +
         esc(r.category || "—") +
         "</td>" +
+        "<td><span class=\"doc-status-pill " +
+        esc(statusClass(st)) +
+        "\">" +
+        esc(statusLabel(st)) +
+        "</span></td>" +
         "<td>" +
         formatAccess(r) +
-        "</td>" +
-        "<td>" +
-        (r.versionCount || 0) +
         "</td>" +
         "<td style=\"font-size:12px;white-space:nowrap;\">" +
         esc(formatWhen(r.updatedAt)) +
@@ -404,73 +511,109 @@
       });
   }
 
-  function loadAgenciesForChecks(container, selectedSet) {
-    if (!container) return;
-    container.innerHTML = '<span class="muted">Loading agencies…</span>';
-    fetch("/api/agencies", { credentials: "same-origin" })
-      .then(function (res) {
-        return res.json();
+  function parseCsv(val) {
+    return String(val || "")
+      .split(",")
+      .map(function (s) {
+        return s.trim().toLowerCase();
       })
-      .then(function (arr) {
-        agenciesCache = Array.isArray(arr) ? arr : [];
-        container.innerHTML = "";
-        for (var i = 0; i < agenciesCache.length; i++) {
-          var a = agenciesCache[i];
-          var sfx = String(a.suffix || "")
-            .trim()
-            .toLowerCase();
-          if (!sfx) continue;
-          var label =
-            (a.name ? String(a.name) : "") +
-            " (" +
-            sfx +
-            ")";
-          var id = "agchk_" + sfx.replace(/[^a-z0-9]/gi, "_") + "_" + i;
-          var row = document.createElement("div");
-          row.className = "doc-agency-row";
-          var cb = document.createElement("input");
-          cb.type = "checkbox";
-          cb.value = sfx;
-          cb.id = id;
-          if (selectedSet && selectedSet[sfx]) cb.checked = true;
-          var lab = document.createElement("label");
-          lab.htmlFor = id;
-          lab.textContent = label;
-          lab.style.cursor = "pointer";
-          row.appendChild(cb);
-          row.appendChild(lab);
-          container.appendChild(row);
+      .filter(Boolean);
+  }
+
+  function setupAgencyFilter(opts) {
+    var container = document.querySelector(opts.containerSelector);
+    var input = document.getElementById(opts.inputId);
+    if (!container || !input) return;
+
+    var menu = container.querySelector(".filter-menu");
+    var toggle = container.querySelector(".filter-toggle");
+    var checkboxes = Array.prototype.slice.call(
+      container.querySelectorAll('input[type="checkbox"][data-filter-value]')
+    );
+
+    function syncFromInput() {
+      var initial = parseCsv(input.value);
+      checkboxes.forEach(function (cb) {
+        var val = cb.getAttribute("data-filter-value");
+        if (val === "__all") {
+          cb.checked = initial.length === 0;
+        } else {
+          cb.checked = initial.includes(val);
         }
-        if (!container.children.length) {
-          container.innerHTML = '<span class="muted">No agencies found.</span>';
-        }
-      })
-      .catch(function () {
-        container.innerHTML = '<span class="muted">Could not load agencies.</span>';
       });
-  }
-
-  function getSelectedSuffixes(container) {
-    var out = [];
-    if (!container) return out;
-    var cbs = container.querySelectorAll('input[type="checkbox"]');
-    for (var i = 0; i < cbs.length; i++) {
-      if (cbs[i].checked) out.push(cbs[i].value);
     }
-    return out;
-  }
 
-  function setSelectedFromArray(container, suffixes) {
-    var set = {};
-    if (Array.isArray(suffixes)) {
-      for (var i = 0; i < suffixes.length; i++) {
-        set[String(suffixes[i]).toLowerCase()] = true;
+    function syncInput() {
+      var selected = checkboxes
+        .filter(function (cb) {
+          return cb.checked && cb.getAttribute("data-filter-value") !== "__all";
+        })
+        .map(function (cb) {
+          return cb.getAttribute("data-filter-value");
+        });
+      input.value = selected.join(",");
+      var allBox = checkboxes.find(function (cb) {
+        return cb.getAttribute("data-filter-value") === "__all";
+      });
+      if (allBox) {
+        allBox.checked = selected.length === 0;
       }
     }
-    loadAgenciesForChecks(container, set);
+
+    checkboxes.forEach(function (cb) {
+      cb.addEventListener("change", function () {
+        var val = cb.getAttribute("data-filter-value");
+        if (val === "__all") {
+          if (cb.checked) {
+            checkboxes.forEach(function (other) {
+              if (other !== cb) other.checked = false;
+            });
+            input.value = "";
+          }
+        } else {
+          var allBox = checkboxes.find(function (x) {
+            return x.getAttribute("data-filter-value") === "__all";
+          });
+          if (allBox && cb.checked) {
+            allBox.checked = false;
+          }
+        }
+        syncInput();
+      });
+    });
+
+    if (toggle && menu) {
+      toggle.addEventListener("click", function () {
+        var isOpen = container.classList.contains("open");
+        document.querySelectorAll(".documents-page .filter-multiselect.open").forEach(function (el) {
+          if (el !== container) el.classList.remove("open");
+        });
+        if (!isOpen) container.classList.add("open");
+        else container.classList.remove("open");
+      });
+    }
+
+    return { syncFromInput: syncFromInput, syncInput: syncInput };
   }
 
-  /* Modals */
+  var createAgencyCtl = setupAgencyFilter({
+    containerSelector: '.documents-page .filter-multiselect[data-filter="agency-create"]',
+    inputId: "createAgencyInput",
+  });
+
+  var editAgencyCtl = setupAgencyFilter({
+    containerSelector: '.documents-page .filter-multiselect[data-filter="agency-edit"]',
+    inputId: "editAgencyInput",
+  });
+
+  document.addEventListener("click", function (e) {
+    if (!e.target.closest(".documents-page .filter-multiselect")) {
+      document.querySelectorAll(".documents-page .filter-multiselect.open").forEach(function (el) {
+        el.classList.remove("open");
+      });
+    }
+  });
+
   function openOverlay(el) {
     if (!el) return;
     el.style.display = "flex";
@@ -484,9 +627,9 @@
 
   var createModal = document.getElementById("createModal");
   var detailModal = document.getElementById("detailModal");
-  var uploadModal = document.getElementById("uploadModal");
+  var draftUploadModal = document.getElementById("draftUploadModal");
+  var signedUploadModal = document.getElementById("signedUploadModal");
   var emailModal = document.getElementById("emailModal");
-  var signModal = document.getElementById("signModal");
   var editModal = document.getElementById("editModal");
   var deleteModal = document.getElementById("deleteModal");
 
@@ -498,19 +641,19 @@
   document.getElementById("detailCloseBtn").addEventListener("click", function () {
     closeOverlay(detailModal);
   });
-  document.querySelectorAll("[data-close-upload]").forEach(function (b) {
+  document.querySelectorAll("[data-close-draft-upload]").forEach(function (b) {
     b.addEventListener("click", function () {
-      closeOverlay(uploadModal);
+      closeOverlay(draftUploadModal);
+    });
+  });
+  document.querySelectorAll("[data-close-signed-upload]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      closeOverlay(signedUploadModal);
     });
   });
   document.querySelectorAll("[data-close-email]").forEach(function (b) {
     b.addEventListener("click", function () {
       closeOverlay(emailModal);
-    });
-  });
-  document.querySelectorAll("[data-close-sign]").forEach(function (b) {
-    b.addEventListener("click", function () {
-      closeOverlay(signModal);
     });
   });
   document.querySelectorAll("[data-close-edit]").forEach(function (b) {
@@ -529,7 +672,8 @@
         msg.style.display = "none";
         msg.textContent = "";
       }
-      loadAgenciesForChecks(document.getElementById("createAgencyChecks"), {});
+      document.getElementById("createAgencyInput").value = "";
+      if (createAgencyCtl && createAgencyCtl.syncFromInput) createAgencyCtl.syncFromInput();
       openOverlay(createModal);
     });
   }
@@ -540,9 +684,8 @@
   document.getElementById("createForm").addEventListener("submit", function (e) {
     e.preventDefault();
     var msg = document.getElementById("createMsg");
+    if (createAgencyCtl && createAgencyCtl.syncInput) createAgencyCtl.syncInput();
     var fd = new FormData(e.target);
-    var suffixes = getSelectedSuffixes(document.getElementById("createAgencyChecks"));
-    fd.append("agencySuffixes", suffixes.join(","));
     msg.style.display = "block";
     msg.className = "msg";
     msg.textContent = "Saving…";
@@ -572,7 +715,9 @@
     }
   });
 
-  var currentDetailId = null;
+  function fileDownloadUrl(docId, role) {
+    return API + "/" + encodeURIComponent(docId) + "/file?role=" + role;
+  }
 
   function openDetail(id) {
     currentDetailId = id;
@@ -589,99 +734,95 @@
       })
       .then(function (d) {
         if (title) title.textContent = d.title || "Document";
+        var st = d.status || "draft";
         var html = "";
-        html += "<p class=\"muted\" style=\"margin-top:0;\">" + esc(d.description || "") + "</p>";
-        html += "<div class=\"row\" style=\"flex-wrap:wrap;gap:8px;margin-bottom:10px;\">";
-        html += "<span class=\"badge-access\">" + esc(d.category || "") + "</span>";
-        html += "<span class=\"muted\" style=\"font-size:13px;\">Access: " + (d.agencySuffixes && d.agencySuffixes.length ? esc(d.agencySuffixes.join(", ")) : "Global admins only") + "</span>";
+        html +=
+          '<p class="muted" style="margin-top:0;">' +
+          esc(d.description || "") +
+          "</p>";
+        html += '<div class="row" style="flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px;">';
+        html +=
+          '<span class="doc-status-pill ' +
+          esc(statusClass(st)) +
+          '">' +
+          esc(statusLabel(st)) +
+          "</span>";
+        html += "<span class=\"muted\" style=\"font-size:13px;\">" + esc(d.category || "") + "</span>";
+        if (d.emailedAt) {
+          html +=
+            '<span class="muted" style="font-size:12px;">Emailed: ' +
+            esc(formatWhen(d.emailedAt)) +
+            "</span>";
+        }
         html += "</div>";
+        html +=
+          '<p class="muted" style="font-size:13px;margin:0 0 10px 0;">Access: ' +
+          (d.agencySuffixes && d.agencySuffixes.length
+            ? esc(d.agencySuffixes.join(", "))
+            : "Global admins only") +
+          "</p>";
 
         if (IS_GLOBAL) {
-          html += '<div class="row" style="flex-wrap:wrap;gap:8px;margin-bottom:12px;">';
-          html += '<button type="button" class="btn success" id="detailBtnUpload">Upload version</button>';
+          html += '<div class="row" style="flex-wrap:wrap;gap:8px;margin-bottom:14px;">';
           html += '<button type="button" class="btn" id="detailBtnEdit">Edit details</button>';
           html += '<button type="button" class="btn danger" id="detailBtnDelete">Delete</button>';
           html += "</div>";
         }
 
-        html += '<div class="detail-section"><h3>Versions</h3>';
-        var vers = d.versions || [];
-        if (!vers.length) {
-          html += '<p class="muted">No files yet.</p>';
-        } else {
-          html += '<table class="table" style="margin:0;"><thead><tr><th>Ver</th><th>File</th><th>Size</th><th>Uploaded</th><th>Actions</th></tr></thead><tbody>';
-          for (var i = 0; i < vers.length; i++) {
-            var v = vers[i];
-            html += "<tr>";
-            html += "<td>" + esc(String(v.version)) + "</td>";
-            html += "<td>" + esc(v.fileName) + "</td>";
-            html += "<td>" + esc(formatBytes(v.size)) + "</td>";
-            html += "<td style=\"font-size:12px;\">" + esc(formatWhen(v.uploadedAt)) + "</td>";
-            html += "<td><div class=\"row\" style=\"gap:6px;flex-wrap:wrap;\">";
-            html +=
-              '<a class="btn" href="' +
-              API +
-              "/" +
-              encodeURIComponent(d.id) +
-              "/versions/" +
-              encodeURIComponent(v.id) +
-              '/download">Download</a>';
-            html += '<button type="button" class="btn" data-email-ver="' + esc(v.id) + '">Email</button>';
-            html += '<button type="button" class="btn success" data-sign-ver="' + esc(v.id) + '">Acknowledge</button>';
-            html += "</div></td>";
-            html += "</tr>";
+        html += '<div class="detail-section"><h3>Draft / unsigned file</h3>';
+        if (d.draftFile) {
+          html += "<p style=\"margin:0 0 8px 0;font-size:14px;\">" + esc(d.draftFile.fileName) + " · " + esc(formatBytes(d.draftFile.size)) + "</p>";
+          html +=
+            '<div class="row" style="flex-wrap:wrap;gap:8px;">' +
+            '<a class="btn" href="' +
+            fileDownloadUrl(d.id, "draft") +
+            '">Download draft</a>';
+          html += '<button type="button" class="btn success" id="btnEmailDraft">Email for signature</button>';
+          if (IS_GLOBAL) {
+            html += '<button type="button" class="btn" id="btnReplaceDraft">Replace draft</button>';
           }
-          html += "</tbody></table>";
+          html += "</div>";
+        } else {
+          html += '<p class="muted">No draft uploaded yet.</p>';
+          if (IS_GLOBAL) {
+            html += '<button type="button" class="btn success" id="btnUploadDraft">Upload draft</button>';
+          }
         }
         html += "</div>";
 
-        html += '<div class="detail-section"><h3>Acknowledgments</h3>';
-        var sigs = d.signatures || [];
-        if (!sigs.length) {
-          html += '<p class="muted">None yet.</p>';
-        } else {
-          html += '<table class="table" style="margin:0;"><thead><tr><th>When</th><th>User</th><th>Receipt</th></tr></thead><tbody>';
-          for (var j = 0; j < sigs.length; j++) {
-            var s = sigs[j];
-            html += "<tr>";
-            html += "<td style=\"font-size:12px;white-space:nowrap;\">" + esc(formatWhen(s.signedAt)) + "</td>";
-            html += "<td>" + esc(s.displayName || s.username) + "</td>";
-            html +=
-              '<td><a class="btn" href="' +
-              API +
-              "/" +
-              encodeURIComponent(d.id) +
-              "/receipts/" +
-              encodeURIComponent(s.id) +
-              '/download">Download .txt</a></td>';
-            html += "</tr>";
+        html += '<div class="detail-section"><h3>Signed / executed file</h3>';
+        if (d.signedFile) {
+          html += "<p style=\"margin:0 0 8px 0;font-size:14px;\">" + esc(d.signedFile.fileName) + " · " + esc(formatBytes(d.signedFile.size)) + "</p>";
+          html +=
+            '<div class="row" style="flex-wrap:wrap;gap:8px;">' +
+            '<a class="btn" href="' +
+            fileDownloadUrl(d.id, "signed") +
+            '">Download signed</a>';
+          if (IS_GLOBAL) {
+            html += '<button type="button" class="btn" id="btnReplaceSigned">Replace signed file</button>';
           }
-          html += "</tbody></table>";
+          html += "</div>";
+        } else {
+          html += '<p class="muted">No signed copy uploaded yet.</p>';
+          if (IS_GLOBAL) {
+            html += '<button type="button" class="btn success" id="btnUploadSigned">Upload signed copy</button>';
+          }
         }
         html += "</div>";
 
         body.innerHTML = html;
 
-        var btnUp = document.getElementById("detailBtnUpload");
-        if (btnUp) {
-          btnUp.onclick = function () {
-            document.getElementById("uploadDocId").value = d.id;
-            document.getElementById("uploadMsg").style.display = "none";
-            document.getElementById("uploadForm").reset();
-            document.getElementById("uploadDocId").value = d.id;
-            closeOverlay(detailModal);
-            openOverlay(uploadModal);
-          };
-        }
         var btnEd = document.getElementById("detailBtnEdit");
         if (btnEd) {
           btnEd.onclick = function () {
             document.getElementById("editDocId").value = d.id;
             document.getElementById("editTitle").value = d.title || "";
             document.getElementById("editCategory").value = d.category || "Other";
+            document.getElementById("editStatus").value = st;
             document.getElementById("editDescription").value = d.description || "";
+            document.getElementById("editAgencyInput").value = (d.agencySuffixes || []).join(",");
+            if (editAgencyCtl && editAgencyCtl.syncFromInput) editAgencyCtl.syncFromInput();
             document.getElementById("editMsg").style.display = "none";
-            setSelectedFromArray(document.getElementById("editAgencyChecks"), d.agencySuffixes);
             closeOverlay(detailModal);
             openOverlay(editModal);
           };
@@ -690,50 +831,67 @@
         if (btnDel) {
           btnDel.onclick = function () {
             document.getElementById("deleteModalText").textContent =
-              'Delete "' + (d.title || "") + '" and all versions? This cannot be undone.';
+              'Delete "' + (d.title || "") + '" and all files? This cannot be undone.';
             deleteModal.dataset.docId = d.id;
             closeOverlay(detailModal);
             openOverlay(deleteModal);
           };
         }
 
-        body.querySelectorAll("[data-email-ver]").forEach(function (btn) {
-          btn.addEventListener("click", function () {
+        function openDraftUpload() {
+          document.getElementById("draftUploadDocId").value = d.id;
+          document.getElementById("draftUploadMsg").style.display = "none";
+          document.getElementById("draftUploadForm").reset();
+          document.getElementById("draftUploadDocId").value = d.id;
+          closeOverlay(detailModal);
+          openOverlay(draftUploadModal);
+        }
+        function openSignedUpload() {
+          document.getElementById("signedUploadDocId").value = d.id;
+          document.getElementById("signedUploadMsg").style.display = "none";
+          document.getElementById("signedUploadForm").reset();
+          document.getElementById("signedUploadDocId").value = d.id;
+          closeOverlay(detailModal);
+          openOverlay(signedUploadModal);
+        }
+
+        var b1 = document.getElementById("btnUploadDraft");
+        if (b1) b1.onclick = openDraftUpload;
+        var b2 = document.getElementById("btnReplaceDraft");
+        if (b2) b2.onclick = openDraftUpload;
+        var b3 = document.getElementById("btnUploadSigned");
+        if (b3) b3.onclick = openSignedUpload;
+        var b4 = document.getElementById("btnReplaceSigned");
+        if (b4) b4.onclick = openSignedUpload;
+
+        var emailBtn = document.getElementById("btnEmailDraft");
+        if (emailBtn) {
+          emailBtn.onclick = function () {
             document.getElementById("emailDocId").value = d.id;
-            document.getElementById("emailVersionId").value = btn.getAttribute("data-email-ver");
             document.getElementById("emailTo").value = "";
             document.getElementById("emailNote").value = "";
             document.getElementById("emailMsg").style.display = "none";
             openOverlay(emailModal);
-          });
-        });
-        body.querySelectorAll("[data-sign-ver]").forEach(function (btn) {
-          btn.addEventListener("click", function () {
-            document.getElementById("signDocId").value = d.id;
-            document.getElementById("signVersionId").value = btn.getAttribute("data-sign-ver");
-            document.getElementById("signText").value = "";
-            document.getElementById("signMsg").style.display = "none";
-            openOverlay(signModal);
-          });
-        });
+          };
+        }
       })
       .catch(function (err) {
         body.innerHTML = '<p class="msg bad">' + esc(err.message) + "</p>";
       });
   }
 
-  document.getElementById("uploadForm").addEventListener("submit", function (e) {
+  document.getElementById("draftUploadForm").addEventListener("submit", function (e) {
     e.preventDefault();
-    var docId = document.getElementById("uploadDocId").value;
+    var docId = document.getElementById("draftUploadDocId").value;
     var fd = new FormData();
     var fileInput = e.target.querySelector('input[type="file"]');
     if (!fileInput || !fileInput.files || !fileInput.files[0]) return;
     fd.append("file", fileInput.files[0]);
-    var msg = document.getElementById("uploadMsg");
+    var msg = document.getElementById("draftUploadMsg");
     msg.style.display = "block";
     msg.className = "msg";
     msg.textContent = "Uploading…";
-    fetch(API + "/" + encodeURIComponent(docId) + "/versions", {
+    fetch(API + "/" + encodeURIComponent(docId) + "/draft", {
       method: "POST",
       body: fd,
       credentials: "same-origin",
@@ -746,10 +904,45 @@
       })
       .then(function () {
         msg.className = "msg ok";
-        msg.textContent = "Uploaded.";
-        closeOverlay(uploadModal);
+        msg.textContent = "Saved.";
+        closeOverlay(draftUploadModal);
         loadList();
-        if (currentDetailId === docId) openDetail(docId);
+        openDetail(docId);
+      })
+      .catch(function (err) {
+        msg.className = "msg bad";
+        msg.textContent = err.message || "Failed";
+      });
+  });
+
+  document.getElementById("signedUploadForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var docId = document.getElementById("signedUploadDocId").value;
+    var fd = new FormData();
+    var fileInput = e.target.querySelector('input[type="file"]');
+    if (!fileInput || !fileInput.files || !fileInput.files[0]) return;
+    fd.append("file", fileInput.files[0]);
+    var msg = document.getElementById("signedUploadMsg");
+    msg.style.display = "block";
+    msg.className = "msg";
+    msg.textContent = "Uploading…";
+    fetch(API + "/" + encodeURIComponent(docId) + "/signed", {
+      method: "POST",
+      body: fd,
+      credentials: "same-origin",
+    })
+      .then(function (res) {
+        return res.json().then(function (j) {
+          if (!res.ok) throw new Error((j && j.error) || "Upload failed");
+          return j.data;
+        });
+      })
+      .then(function () {
+        msg.className = "msg ok";
+        msg.textContent = "Signed file saved.";
+        closeOverlay(signedUploadModal);
+        loadList();
+        openDetail(docId);
       })
       .catch(function (err) {
         msg.className = "msg bad";
@@ -760,10 +953,8 @@
   document.getElementById("emailForm").addEventListener("submit", function (e) {
     e.preventDefault();
     var docId = document.getElementById("emailDocId").value;
-    var versionId = document.getElementById("emailVersionId").value;
     var payload = {
       to: document.getElementById("emailTo").value.trim(),
-      versionId: versionId,
       message: document.getElementById("emailNote").value,
     };
     var msg = document.getElementById("emailMsg");
@@ -784,44 +975,9 @@
       })
       .then(function (r) {
         msg.className = "msg ok";
-        if (r.skipped) msg.textContent = "Email skipped (SMTP not enabled or not configured).";
-        else msg.textContent = "Sent.";
+        if (r.skipped) msg.textContent = "Email skipped (SMTP not enabled).";
+        else msg.textContent = "Sent. Status set to pending signature.";
         closeOverlay(emailModal);
-      })
-      .catch(function (err) {
-        msg.className = "msg bad";
-        msg.textContent = err.message || "Failed";
-      });
-  });
-
-  document.getElementById("signForm").addEventListener("submit", function (e) {
-    e.preventDefault();
-    var docId = document.getElementById("signDocId").value;
-    var versionId = document.getElementById("signVersionId").value;
-    var payload = {
-      versionId: versionId,
-      acknowledgmentText: document.getElementById("signText").value.trim(),
-    };
-    var msg = document.getElementById("signMsg");
-    msg.style.display = "block";
-    msg.className = "msg";
-    msg.textContent = "Saving…";
-    fetch(API + "/" + encodeURIComponent(docId) + "/sign", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      credentials: "same-origin",
-    })
-      .then(function (res) {
-        return res.json().then(function (j) {
-          if (!res.ok) throw new Error((j && j.error) || "Failed");
-          return j.data;
-        });
-      })
-      .then(function () {
-        msg.className = "msg ok";
-        msg.textContent = "Acknowledgment saved.";
-        closeOverlay(signModal);
         loadList();
         openDetail(docId);
       })
@@ -833,12 +989,14 @@
 
   document.getElementById("editForm").addEventListener("submit", function (e) {
     e.preventDefault();
+    if (editAgencyCtl && editAgencyCtl.syncInput) editAgencyCtl.syncInput();
     var docId = document.getElementById("editDocId").value;
     var payload = {
       title: document.getElementById("editTitle").value,
       category: document.getElementById("editCategory").value,
+      status: document.getElementById("editStatus").value,
       description: document.getElementById("editDescription").value,
-      agencySuffixes: getSelectedSuffixes(document.getElementById("editAgencyChecks")),
+      agencySuffixes: parseCsv(document.getElementById("editAgencyInput").value),
     };
     var msg = document.getElementById("editMsg");
     msg.style.display = "block";

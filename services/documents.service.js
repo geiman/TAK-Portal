@@ -1,6 +1,6 @@
 /**
- * Portal documents repository (MOUs, policies, etc.).
- * Files live under data/documents/files/; manifest at data/documents/index.json
+ * Portal documents — draft + optional executed (signed) file, status workflow.
+ * Manifest: data/documents/index.json; files: data/documents/files/{docId}/
  */
 
 const fs = require("fs");
@@ -20,6 +20,9 @@ const ALLOWED_MIME = new Set([
   "image/jpeg",
 ]);
 
+const CATEGORIES = ["MOU", "Data Sharing Agreement", "SOP", "Other"];
+const STATUSES = ["draft", "pending_signature", "signed"];
+
 function ensureDirs() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(FILES_DIR)) fs.mkdirSync(FILES_DIR, { recursive: true });
@@ -35,6 +38,14 @@ function loadIndex() {
   try {
     const raw = JSON.parse(fs.readFileSync(INDEX_PATH, "utf8"));
     if (!raw || !Array.isArray(raw.documents)) return { documents: [] };
+    let dirty = false;
+    raw.documents = raw.documents.map((doc) => {
+      const m = migrateDocument(doc);
+      if (m._migrated) dirty = true;
+      delete m._migrated;
+      return m;
+    });
+    if (dirty) saveIndex(raw);
     return raw;
   } catch (_) {
     return { documents: [] };
@@ -44,6 +55,59 @@ function loadIndex() {
 function saveIndex(data) {
   ensureDirs();
   fs.writeFileSync(INDEX_PATH, JSON.stringify(data, null, 2));
+}
+
+function normalizeCategory(c) {
+  const s = String(c || "").trim();
+  if (CATEGORIES.includes(s)) return s;
+  if (s === "Policy") return "Other";
+  return "Other";
+}
+
+function normalizeStatus(s) {
+  const x = String(s || "").trim();
+  if (STATUSES.includes(x)) return x;
+  return "draft";
+}
+
+function migrateDocument(doc) {
+  if (!doc || typeof doc !== "object") return doc;
+  let migrated = false;
+
+  if (Array.isArray(doc.versions) && doc.versions.length && !doc.draftFile) {
+    const versions = doc.versions;
+    const latest = versions.reduce((a, b) =>
+      (a.version || 0) > (b.version || 0) ? a : b
+    );
+    if (latest && latest.storageRelPath) {
+      doc.draftFile = {
+        fileName: latest.fileName || "document",
+        mimeType: latest.mimeType || "application/pdf",
+        size: latest.size || 0,
+        storageRelPath: latest.storageRelPath,
+        uploadedAt: latest.uploadedAt || doc.updatedAt || doc.createdAt,
+        uploadedBy: latest.uploadedBy || "",
+        sha256: latest.sha256 || "",
+      };
+      migrated = true;
+    }
+    delete doc.versions;
+  }
+  if (doc.signatures) {
+    delete doc.signatures;
+    migrated = true;
+  }
+  if (!doc.status) {
+    doc.status = "draft";
+    migrated = true;
+  } else {
+    doc.status = normalizeStatus(doc.status);
+  }
+  if (doc.category) doc.category = normalizeCategory(doc.category);
+  else doc.category = "Other";
+
+  doc._migrated = migrated;
+  return doc;
 }
 
 function normalizeSuffixes(arr) {
@@ -85,6 +149,22 @@ function safeFilename(name) {
   return base.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 180) || "file";
 }
 
+function absolutePathFromRel(rel) {
+  const clean = String(rel || "").replace(/^\/+/, "");
+  return path.join(DATA_DIR, clean);
+}
+
+function fileSummary(f) {
+  if (!f || !f.storageRelPath) return null;
+  return {
+    fileName: f.fileName,
+    mimeType: f.mimeType,
+    size: f.size,
+    uploadedAt: f.uploadedAt,
+    uploadedBy: f.uploadedBy,
+  };
+}
+
 function getDocumentById(id) {
   const idx = loadIndex();
   const idStr = String(id || "").trim();
@@ -96,50 +176,79 @@ function listDocumentsForUser(user) {
   return idx.documents.filter((d) => canAccessDocument(user, d));
 }
 
-function summarizeDoc(doc, includeVersions) {
+function summarizeDoc(doc, detail) {
   if (!doc) return null;
-  const versions = Array.isArray(doc.versions) ? doc.versions : [];
-  const latest = versions.length
-    ? versions.reduce((a, b) => (a.version > b.version ? a : b))
-    : null;
   const base = {
     id: doc.id,
     title: doc.title,
     description: doc.description || "",
-    category: doc.category || "Other",
+    category: normalizeCategory(doc.category),
+    status: normalizeStatus(doc.status),
     agencySuffixes: normalizeSuffixes(doc.agencySuffixes),
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
     createdBy: doc.createdBy,
-    versionCount: versions.length,
-    latestVersion: latest
-      ? {
-          id: latest.id,
-          version: latest.version,
-          fileName: latest.fileName,
-          mimeType: latest.mimeType,
-          size: latest.size,
-          uploadedAt: latest.uploadedAt,
-        }
-      : null,
+    emailedAt: doc.emailedAt || null,
+    draftFile: fileSummary(doc.draftFile),
+    signedFile: fileSummary(doc.signedFile),
   };
-  if (includeVersions) {
-    base.versions = versions.map((v) => ({
-      id: v.id,
-      version: v.version,
-      fileName: v.fileName,
-      mimeType: v.mimeType,
-      size: v.size,
-      uploadedAt: v.uploadedAt,
-      uploadedBy: v.uploadedBy,
-    }));
-    base.signatures = Array.isArray(doc.signatures) ? doc.signatures : [];
+  if (detail) {
+    base.hasDraftFile = !!(doc.draftFile && doc.draftFile.storageRelPath);
+    base.hasSignedFile = !!(doc.signedFile && doc.signedFile.storageRelPath);
   }
   return base;
 }
 
+function removeFileRel(rel) {
+  if (!rel) return;
+  const abs = absolutePathFromRel(rel);
+  try {
+    if (fs.existsSync(abs)) fs.unlinkSync(abs);
+  } catch (_) {}
+}
+
+function storeFile(docId, file, role, user) {
+  if (!file || !file.path) throw new Error("No file");
+  const stat = fs.statSync(file.path);
+  if (stat.size > MAX_FILE_BYTES) {
+    try {
+      fs.unlinkSync(file.path);
+    } catch (_) {}
+    throw new Error(`File too large (max ${Math.floor(MAX_FILE_BYTES / 1024 / 1024)} MB)`);
+  }
+  assertMime(file.mimetype);
+
+  const destDir = path.join(FILES_DIR, docId);
+  if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+
+  const ext = path.extname(safeFilename(file.originalname)) || "";
+  const storedName = `${role}_${crypto.randomUUID()}${ext}`;
+  const destAbs = path.join(destDir, storedName);
+  fs.renameSync(file.path, destAbs);
+
+  const rel = path.relative(DATA_DIR, destAbs).replace(/\\/g, "/");
+  return {
+    fileName: safeFilename(file.originalname),
+    mimeType: String(file.mimetype || "").split(";")[0].trim(),
+    size: stat.size,
+    uploadedAt: new Date().toISOString(),
+    uploadedBy: user.username || "",
+    storageRelPath: rel,
+    sha256: sha256File(destAbs),
+  };
+}
+
+function assertMime(mime) {
+  const m = String(mime || "").split(";")[0].trim().toLowerCase();
+  if (!ALLOWED_MIME.has(m)) {
+    throw new Error(
+      `Unsupported file type. Allowed: PDF, Word (.doc/.docx), PNG, JPEG.`
+    );
+  }
+}
+
 function createDocument(
-  { title, description, category, agencySuffixes },
+  { title, description, category, agencySuffixes, status },
   user
 ) {
   if (!userCanManage(user)) throw new Error("Forbidden");
@@ -150,28 +259,35 @@ function createDocument(
     id,
     title: String(title || "").trim() || "Untitled",
     description: String(description || "").trim(),
-    category: String(category || "Other").trim() || "Other",
+    category: normalizeCategory(category),
+    status: normalizeStatus(status || "draft"),
     agencySuffixes: normalizeSuffixes(agencySuffixes),
     createdAt: now,
     updatedAt: now,
     createdBy: user.username || "",
-    versions: [],
-    signatures: [],
+    emailedAt: null,
+    draftFile: null,
+    signedFile: null,
   };
   idx.documents.push(doc);
   saveIndex(idx);
   return doc;
 }
 
-function updateDocumentMeta(id, { title, description, category, agencySuffixes }, user) {
+function updateDocumentMeta(
+  id,
+  { title, description, category, agencySuffixes, status },
+  user
+) {
   if (!userCanManage(user)) throw new Error("Forbidden");
   const idx = loadIndex();
   const doc = idx.documents.find((d) => d.id === id);
   if (!doc) throw new Error("Not found");
   if (title != null) doc.title = String(title || "").trim() || doc.title;
   if (description != null) doc.description = String(description || "").trim();
-  if (category != null) doc.category = String(category || "Other").trim() || "Other";
+  if (category != null) doc.category = normalizeCategory(category);
   if (agencySuffixes != null) doc.agencySuffixes = normalizeSuffixes(agencySuffixes);
+  if (status != null) doc.status = normalizeStatus(status);
   doc.updatedAt = new Date().toISOString();
   saveIndex(idx);
   return doc;
@@ -191,154 +307,65 @@ function deleteDocument(id, user) {
   saveIndex(idx);
 }
 
-function assertMime(mime) {
-  const m = String(mime || "").split(";")[0].trim().toLowerCase();
-  if (!ALLOWED_MIME.has(m)) {
-    throw new Error(
-      `Unsupported file type. Allowed: PDF, Word (.doc/.docx), PNG, JPEG.`
-    );
-  }
-}
-
-function addVersion(docId, file, user) {
+function setDraftFile(docId, file, user) {
   if (!userCanManage(user)) throw new Error("Forbidden");
   const idx = loadIndex();
   const doc = idx.documents.find((d) => d.id === docId);
   if (!doc) throw new Error("Not found");
-  if (!file || !file.path) throw new Error("No file");
-
-  const stat = fs.statSync(file.path);
-  if (stat.size > MAX_FILE_BYTES) {
-    try {
-      fs.unlinkSync(file.path);
-    } catch (_) {}
-    throw new Error(`File too large (max ${Math.floor(MAX_FILE_BYTES / 1024 / 1024)} MB)`);
+  if (doc.draftFile && doc.draftFile.storageRelPath) {
+    removeFileRel(doc.draftFile.storageRelPath);
   }
-
-  assertMime(file.mimetype);
-
-  ensureDirs();
-  const destDir = path.join(FILES_DIR, doc.id);
-  if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
-
-  const versions = Array.isArray(doc.versions) ? doc.versions : [];
-  const nextNum = versions.length ? Math.max(...versions.map((v) => v.version)) + 1 : 1;
-  const vid = crypto.randomUUID();
-  const ext = path.extname(safeFilename(file.originalname)) || "";
-  const storedName = `v${nextNum}_${vid}${ext}`;
-  const destAbs = path.join(destDir, storedName);
-  fs.renameSync(file.path, destAbs);
-
-  const sha = sha256File(destAbs);
-  const rel = path.relative(DATA_DIR, destAbs).replace(/\\/g, "/");
-
-  const rec = {
-    id: vid,
-    version: nextNum,
-    fileName: safeFilename(file.originalname),
-    mimeType: String(file.mimetype || "").split(";")[0].trim(),
-    size: stat.size,
-    uploadedAt: new Date().toISOString(),
-    uploadedBy: user.username || "",
-    storageRelPath: rel,
-    sha256: sha,
-  };
-
-  doc.versions = versions.concat(rec);
-  doc.updatedAt = rec.uploadedAt;
+  doc.draftFile = storeFile(docId, file, "draft", user);
+  doc.updatedAt = doc.draftFile.uploadedAt;
   saveIndex(idx);
-  return rec;
+  return doc.draftFile;
 }
 
-function getVersionRecord(doc, versionId) {
-  const vid = String(versionId || "").trim();
-  const versions = Array.isArray(doc.versions) ? doc.versions : [];
-  return versions.find((v) => v && String(v.id) === vid) || null;
-}
-
-function absolutePathFromRel(rel) {
-  const clean = String(rel || "").replace(/^\/+/, "");
-  return path.join(DATA_DIR, clean);
-}
-
-function getVersionAbsolutePath(doc, version) {
-  if (!version || !version.storageRelPath) return null;
-  return absolutePathFromRel(version.storageRelPath);
-}
-
-function recordSignature(docId, versionId, { acknowledgmentText }, user, req) {
+function setSignedFile(docId, file, user) {
+  if (!userCanManage(user)) throw new Error("Forbidden");
   const idx = loadIndex();
   const doc = idx.documents.find((d) => d.id === docId);
   if (!doc) throw new Error("Not found");
-  if (!canAccessDocument(user, doc)) throw new Error("Forbidden");
-
-  const ver = getVersionRecord(doc, versionId);
-  if (!ver) throw new Error("Version not found");
-
-  const sigId = crypto.randomUUID();
-  const now = new Date().toISOString();
-  const displayName =
-    user && (user.displayName || user.username)
-      ? user.displayName || user.username
-      : user.username || "";
-
-  const ip = req && req.ip ? String(req.ip) : "";
-
-  const receiptDir = path.join(FILES_DIR, doc.id, "receipts");
-  if (!fs.existsSync(receiptDir)) fs.mkdirSync(receiptDir, { recursive: true });
-
-  const receiptName = `${sigId}.txt`;
-  const receiptAbs = path.join(receiptDir, receiptName);
-  const body =
-    `TAK Portal — Document acknowledgment\r\n` +
-    `=====================================\r\n\r\n` +
-    `Document: ${doc.title}\r\n` +
-    `Version: ${ver.version} (${ver.fileName})\r\n` +
-    `Document ID: ${doc.id}\r\n` +
-    `Version ID: ${ver.id}\r\n\r\n` +
-    `Signer (account): ${user.username || ""}\r\n` +
-    `Display name: ${displayName}\r\n` +
-    `Signed at (UTC): ${now}\r\n` +
-    `IP: ${ip || "(unknown)"}\r\n\r\n` +
-    `Acknowledgment:\r\n` +
-    `${String(acknowledgmentText || "").trim()}\r\n\r\n` +
-    `This receipt was generated by the portal and stored with the document record.\r\n`;
-
-  fs.writeFileSync(receiptAbs, body, "utf8");
-  const receiptRel = path
-    .relative(DATA_DIR, receiptAbs)
-    .replace(/\\/g, "/");
-
-  const sig = {
-    id: sigId,
-    versionId: ver.id,
-    username: user.username || "",
-    displayName,
-    signedAt: now,
-    ip,
-    acknowledgmentText: String(acknowledgmentText || "").trim(),
-    receiptRelPath: receiptRel,
-  };
-
-  doc.signatures = Array.isArray(doc.signatures) ? doc.signatures : [];
-  doc.signatures.push(sig);
-  doc.updatedAt = now;
+  if (doc.signedFile && doc.signedFile.storageRelPath) {
+    removeFileRel(doc.signedFile.storageRelPath);
+  }
+  doc.signedFile = storeFile(docId, file, "signed", user);
+  doc.status = "signed";
+  doc.updatedAt = doc.signedFile.uploadedAt;
   saveIndex(idx);
-  return sig;
+  return doc.signedFile;
 }
 
-function getSignatureReceiptPath(doc, signatureId) {
-  const sid = String(signatureId || "").trim();
-  const sigs = Array.isArray(doc.signatures) ? doc.signatures : [];
-  const s = sigs.find((x) => x && String(x.id) === sid);
-  if (!s || !s.receiptRelPath) return null;
-  return absolutePathFromRel(s.receiptRelPath);
+/** After a draft is emailed for signature, advance workflow (any role that could send). */
+function recordEmailSentForSignature(docId) {
+  const idx = loadIndex();
+  const doc = idx.documents.find((d) => d.id === docId);
+  if (!doc) throw new Error("Not found");
+  const now = new Date().toISOString();
+  doc.emailedAt = now;
+  if (doc.status !== "signed") {
+    doc.status = "pending_signature";
+  }
+  doc.updatedAt = now;
+  saveIndex(idx);
+}
+
+function getFileRecord(doc, role) {
+  if (role === "signed") return doc.signedFile || null;
+  return doc.draftFile || null;
+}
+
+function getAbsolutePathForFile(f) {
+  if (!f || !f.storageRelPath) return null;
+  return absolutePathFromRel(f.storageRelPath);
 }
 
 module.exports = {
   DATA_DIR,
   FILES_DIR,
   MAX_FILE_BYTES,
+  CATEGORIES,
+  STATUSES,
   loadIndex,
   canAccessDocument,
   userCanManage,
@@ -348,10 +375,11 @@ module.exports = {
   createDocument,
   updateDocumentMeta,
   deleteDocument,
-  addVersion,
-  getVersionRecord,
-  getVersionAbsolutePath,
-  recordSignature,
-  getSignatureReceiptPath,
+  setDraftFile,
+  setSignedFile,
+  recordEmailSentForSignature,
+  getFileRecord,
+  getAbsolutePathForFile,
   normalizeSuffixes,
+  normalizeCategory,
 };
