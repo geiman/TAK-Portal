@@ -133,7 +133,6 @@
           <div class="row">
             <label style="display: block; margin-bottom: 8px; font-weight: bold;">Data Feed Name (TAK)
               <input type="text" name="dataFeedName" disabled style="width: 100%; color: var(--text-2);" placeholder="(letters/numbers from title, max 30)" />
-              <small style="display: block; color: var(--text-2); font-size: 0.85em; margin-top: 4px;">Auto-filled from the integration title only (no nodered-global- prefix). Max 30 characters for TAK Server.</small>
             </label>
           </div>
           <div class="row" style="margin-top: 12px;">
@@ -277,10 +276,7 @@
     var feedOn = makeDataFeedSelect && makeDataFeedSelect.value === "yes";
     if (feedOn) {
       integrationTitleInput.setAttribute("maxlength", String(STREAMING_DATA_FEED_NAME_MAX_LEN));
-      integrationTitleHint.textContent =
-        "With a streaming data feed: title is limited to " +
-        STREAMING_DATA_FEED_NAME_MAX_LEN +
-        " characters. The feed name on TAK uses letters and numbers from the title only (no nodered- prefix).";
+      integrationTitleHint.textContent = "";
     } else {
       integrationTitleInput.removeAttribute("maxlength");
       integrationTitleHint.textContent =
