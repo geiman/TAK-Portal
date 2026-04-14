@@ -78,6 +78,7 @@
           <th>Username</th>
           <th>Group</th>
           <th>Data Feed</th>
+          <th>Port</th>
           <th>Status</th>
           <th>Actions</th>
         </tr>
@@ -383,7 +384,7 @@
         })
       : usersCache;
     if (list.length === 0) {
-      tbody.innerHTML = "<tr><td colspan=\"4\">" + (needle ? "No integrations match your search." : "No integration users found.") + "</td></tr>";
+      tbody.innerHTML = "<tr><td colspan=\"6\">" + (needle ? "No integrations match your search." : "No integration users found.") + "</td></tr>";
     } else {
       tbody.innerHTML = list.map(function (u) {
         var groupDisplay = (u.groupNames || []).join(", ") || "—";
@@ -401,10 +402,16 @@
           dataFeedButtonHtml = "<button class=\"btn danger\" type=\"button\" data-action=\"data-feed\" data-mode=\"create\" data-username=\"" + esc(u.username) + "\" data-grouppk=\"" + esc(currentGroupPk) + "\" data-title=\"" + esc(u.name || "") + "\">No DF</button>";
         }
 
+        var portCell = "";
+        if (u.dataFeedName && u.dataFeedPort != null && u.dataFeedPort !== "") {
+          portCell = esc(String(u.dataFeedPort));
+        }
+
         return "<tr>" +
           "<td>" + esc(u.username) + "</td>" +
           "<td>" + esc(groupDisplay) + "</td>" +
           "<td>" + dataFeedButtonHtml + "</td>" +
+          "<td>" + portCell + "</td>" +
           "<td>" + statusPill + "</td>" +
           "<td><div class=\"row\" style=\"gap:8px; flex-wrap:wrap;\">" +
           "<button class=\"btn success\" type=\"button\" data-action=\"download-certs\" data-pk=\"" + esc(u.pk) + "\" data-username=\"" + esc(u.username) + "\">Download Certs</button>" +

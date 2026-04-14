@@ -18,6 +18,12 @@ function stripTakPrefix(name) {
   return n.toLowerCase().startsWith("tak_") ? n.slice(4) : n;
 }
 
+function parseStoredDataFeedPort(raw) {
+  if (raw == null || raw === "") return null;
+  const n = typeof raw === "number" ? raw : parseInt(String(raw), 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 /**
  * GET /api/integrations
  * List all users whose username starts with "nodered-".
@@ -39,6 +45,7 @@ router.get("/", async (req, res) => {
           return name ? stripTakPrefix(name) : null;
         })
         .filter(Boolean);
+      const dataFeedName = u.attributes?.tak_data_feed_name || null;
       return {
         pk: u.pk,
         username: u.username,
@@ -48,9 +55,47 @@ router.get("/", async (req, res) => {
         groups: groupPks,
         groupNames,
         certBundleReady: takSshSvc.hasStoredIntegrationCertFiles(u.username),
-        dataFeedName: u.attributes?.tak_data_feed_name || null,
+        dataFeedName,
+        dataFeedPort: parseStoredDataFeedPort(u.attributes?.tak_data_feed_port),
       };
     });
+
+    if (takSvc.isTakConfigured()) {
+      const takClient = takSvc.buildTakAxios();
+      await Promise.all(
+        usersWithGroupNames.map(async (row) => {
+          if (!row.dataFeedName || row.dataFeedPort != null) return;
+          try {
+            const dfRes = await takClient.get(
+              `/api/datafeeds/${encodeURIComponent(row.dataFeedName)}`
+            );
+            const dataFeedPayload = dfRes.data?.data || dfRes.data;
+            const port = dataFeedPayload?.port;
+            const n =
+              port == null
+                ? null
+                : typeof port === "number"
+                  ? port
+                  : parseInt(String(port), 10);
+            if (n != null && Number.isFinite(n) && n > 0) {
+              row.dataFeedPort = n;
+              try {
+                await users.updateUserAttributes(row.pk, {
+                  tak_data_feed_port: n,
+                });
+              } catch (persistErr) {
+                console.warn(
+                  "Failed to persist tak_data_feed_port:",
+                  persistErr?.message || persistErr
+                );
+              }
+            }
+          } catch (_) {
+            /* leave dataFeedPort unset */
+          }
+        })
+      );
+    }
 
     res.json({ users: usersWithGroupNames });
   } catch (err) {
@@ -132,7 +177,10 @@ router.post("/", async (req, res) => {
 
         try {
           if (result && result.user && result.user.pk) {
-            await users.updateUserAttributes(result.user.pk, { tak_data_feed_name: finalDataFeedName });
+            await users.updateUserAttributes(result.user.pk, {
+              tak_data_feed_name: finalDataFeedName,
+              tak_data_feed_port: dataFeedPayload.port,
+            });
           }
         } catch (attrsErr) {
            console.warn("Failed to securely hook data feed name into Authentik attributes:", attrsErr);
@@ -408,7 +456,10 @@ router.post("/:username/datafeed", async (req, res) => {
     const takClient = takSvc.buildTakAxios();
     await takClient.post("/api/datafeeds", dataFeedPayload);
 
-    await users.updateUserAttributes(user.pk, { tak_data_feed_name: dataFeedName });
+    await users.updateUserAttributes(user.pk, {
+      tak_data_feed_name: dataFeedName,
+      tak_data_feed_port: dataFeedPayload.port,
+    });
 
     res.json({ message: "Data Feed successfully created and bound to Integration." });
   } catch (err) {
