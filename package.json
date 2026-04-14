@@ -1,6 +1,6 @@
 {
   "name": "tak-portal",
-  "version": "1.2.67",
+  "version": "1.2.70",
   "description": "",
   "main": "server.js",
   "scripts": {
@@ -11,6 +11,9 @@
   "author": "",
   "license": "ISC",
   "type": "commonjs",
+  "overrides": {
+    "whatwg-url": "^14.2.0"
+  },
   "dependencies": {
     "@tak-ps/node-tak": "^11.20.2",
     "archiver": "^7.0.1",

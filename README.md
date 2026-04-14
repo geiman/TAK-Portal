@@ -10,7 +10,7 @@ TAK Portal is a lightweight, modern user-management portal designed to integrate
 
 It is certainly not a requirement, but if you have found TAK Portal helpful to you or your agency, please consider supporting me.  My goal is to serve the TAK community and to solve real world problems.
 
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-yellow?logo=buy-me-a-coffee&logoColor=black)](https://www.buymeacoffee.com/justintdavis)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-yellow?logo=buy-me-a-coffee&logoColor=black)](https://www.buymeacoffee.com/adventureseeker423)
 
 ## Architecture Overview
 

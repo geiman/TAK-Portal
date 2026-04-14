@@ -3,7 +3,7 @@
 
 <main class="main">
   <h1>Settings</h1>
-  <small>Adjust settings as needed and then hit "Save Settings" for the changes to take effect.</small>
+  <div id="settingsAutoSaveStatus" class="muted" style="margin-top:8px;font-size:13px;min-height:1.25em;" aria-live="polite"></div>
 
 <% if (importStatus) { %>
   <div class="alert success" style="margin-top: 12px;">
@@ -881,6 +881,9 @@
                 }
 
                 input.value = parts.join("");
+                try {
+                  input.dispatchEvent(new Event("input", { bubbles: true }));
+                } catch (_) {}
                 updatePreview();
               }
 
@@ -1533,6 +1536,112 @@
   });
   </script>
 
+  <script>
+    (function () {
+      var form = document.getElementById("settingsForm");
+      if (!form) return;
+
+      var statusEl = document.getElementById("settingsAutoSaveStatus");
+      var debounceMs = 1400;
+      var timer = null;
+      var pendingAutoSave = false;
+      var saveInFlight = false;
+
+      form.addEventListener("submit", function (e) {
+        if (pendingAutoSave) {
+          e.preventDefault();
+          pendingAutoSave = false;
+          if (saveInFlight) return;
+          saveInFlight = true;
+          if (statusEl) {
+            statusEl.textContent = "Saving…";
+            statusEl.style.color = "";
+          }
+          var action = form.getAttribute("action") || "/settings";
+          fetch(action, {
+            method: "POST",
+            body: new FormData(form),
+            headers: {
+              Accept: "application/json",
+              "X-Requested-With": "XMLHttpRequest",
+            },
+            credentials: "same-origin",
+          })
+            .then(function (res) {
+              return res.text().then(function (text) {
+                var j = null;
+                try {
+                  j = text ? JSON.parse(text) : null;
+                } catch (_) {}
+                if (!res.ok || !j || j.ok !== true) {
+                  throw new Error((j && j.error) || text.slice(0, 200) || res.statusText || "Save failed");
+                }
+              });
+            })
+            .then(function () {
+              if (statusEl) {
+                statusEl.textContent = "Saved";
+                statusEl.style.color = "";
+              }
+            })
+            .catch(function (err) {
+              if (statusEl) {
+                statusEl.textContent = "Auto-save failed: " + (err.message || String(err));
+                statusEl.style.color = "#dc2626";
+              }
+            })
+            .finally(function () {
+              saveInFlight = false;
+            });
+          return;
+        }
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+      });
+
+      function scheduleAutoSave() {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(function () {
+          timer = null;
+          pendingAutoSave = true;
+          if (typeof form.requestSubmit === "function") {
+            form.requestSubmit();
+          } else {
+            var sub = document.createElement("button");
+            sub.type = "submit";
+            sub.setAttribute("formnovalidate", "");
+            sub.style.cssText = "position:absolute;left:-9999px;width:1px;height:1px;opacity:0;";
+            form.appendChild(sub);
+            sub.click();
+            form.removeChild(sub);
+          }
+        }, debounceMs);
+      }
+
+      form.addEventListener(
+        "input",
+        function (e) {
+          var t = e.target;
+          if (!t || !t.name) return;
+          if (t.type === "file") return;
+          scheduleAutoSave();
+        },
+        true
+      );
+
+      form.addEventListener(
+        "change",
+        function (e) {
+          var t = e.target;
+          if (!t || !t.name) return;
+          scheduleAutoSave();
+        },
+        true
+      );
+    })();
+  </script>
 
   <style>
     .settings-label {
