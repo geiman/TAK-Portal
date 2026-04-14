@@ -37,7 +37,8 @@
         </label>
 
         <label style="flex: 1; min-width: 160px;">Title
-          <input type="text" name="title" placeholder="e.g. Weather API" style="width: 100%;" required />
+          <input type="text" id="integrationTitle" name="title" placeholder="e.g. Weather API" style="width: 100%;" required />
+          <small id="integrationTitleHint" style="display: block; color: var(--text-2); font-size: 0.85em; margin-top: 4px;"></small>
         </label>
 
         <label style="min-width: 200px;">Group
@@ -130,8 +131,9 @@
           <h2 style="margin-top: 0; font-size: 1.1em; color: var(--text-muted);">Enter Data Feed Details</h2>
           
           <div class="row">
-            <label style="display: block; margin-bottom: 8px; font-weight: bold;">Data Feed Name
-              <input type="text" name="dataFeedName" disabled style="width: 100%; color: var(--text-2);" placeholder="(Auto-Generated to Match Integration)" />
+            <label style="display: block; margin-bottom: 8px; font-weight: bold;">Data Feed Name (TAK)
+              <input type="text" name="dataFeedName" disabled style="width: 100%; color: var(--text-2);" placeholder="(letters/numbers from title, max 30)" />
+              <small style="display: block; color: var(--text-2); font-size: 0.85em; margin-top: 4px;">Auto-filled from the integration title only (no nodered-global- prefix). Max 30 characters for TAK Server.</small>
             </label>
           </div>
           <div class="row" style="margin-top: 12px;">
@@ -256,6 +258,44 @@
   const tableMsg = document.getElementById("tableMsg");
   const tbody = document.getElementById("tbody");
   const integrationFilter = document.getElementById("integrationFilter");
+  const integrationTitleInput = document.getElementById("integrationTitle");
+  const integrationTitleHint = document.getElementById("integrationTitleHint");
+  const makeDataFeedSelect = document.getElementById("makeDataFeed");
+
+  var STREAMING_DATA_FEED_NAME_MAX_LEN = 30;
+
+  function toTitleSlug(s) {
+    return String(s || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "")
+      .replace(/[^a-z0-9]/g, "");
+  }
+
+  function updateIntegrationTitleConstraints() {
+    if (!integrationTitleInput || !integrationTitleHint) return;
+    var feedOn = makeDataFeedSelect && makeDataFeedSelect.value === "yes";
+    if (feedOn) {
+      integrationTitleInput.setAttribute("maxlength", String(STREAMING_DATA_FEED_NAME_MAX_LEN));
+      integrationTitleHint.textContent =
+        "With a streaming data feed: title is limited to " +
+        STREAMING_DATA_FEED_NAME_MAX_LEN +
+        " characters. The feed name on TAK uses letters and numbers from the title only (no nodered- prefix).";
+    } else {
+      integrationTitleInput.removeAttribute("maxlength");
+      integrationTitleHint.textContent =
+        "No data feed: integration username may be longer; certificates are not limited by title length.";
+    }
+  }
+
+  if (makeDataFeedSelect) {
+    makeDataFeedSelect.addEventListener("change", updateIntegrationTitleConstraints);
+  }
+
+  const dataFeedModalOverlay = document.getElementById("dataFeedModalOverlay");
+  const dataFeedCloseBtn = document.getElementById("dataFeedCloseBtn");
+  const dataFeedForm = document.getElementById("dataFeedForm");
+  const filterGroupsCheckboxList = document.getElementById("filterGroupsCheckboxList");
 
   let agenciesCache = [];
   let groupsCache = [];
@@ -399,7 +439,7 @@
         if (u.dataFeedName) {
           dataFeedButtonHtml = "<button class=\"btn success\" type=\"button\" data-action=\"data-feed\" data-mode=\"view\" data-username=\"" + esc(u.username) + "\">DF Enabled</button>";
         } else {
-          dataFeedButtonHtml = "<button class=\"btn danger\" type=\"button\" data-action=\"data-feed\" data-mode=\"create\" data-username=\"" + esc(u.username) + "\" data-grouppk=\"" + esc(currentGroupPk) + "\" data-title=\"" + esc(u.name || "") + "\">No DF</button>";
+          dataFeedButtonHtml = "<button class=\"btn danger\" type=\"button\" data-action=\"data-feed\" data-mode=\"create\" data-username=\"" + esc(u.username) + "\" data-grouppk=\"" + esc(currentGroupPk) + "\" data-integration-title=\"" + esc(u.integrationTitle || "") + "\">No DF</button>";
         }
 
         var portCell = "";
@@ -510,7 +550,7 @@
       btn.addEventListener("click", async function () {
         const username = btn.getAttribute("data-username");
         const mode = btn.getAttribute("data-mode");
-        const title = btn.getAttribute("data-title");
+        const integrationTitleAttr = btn.getAttribute("data-integration-title");
         const groupPk = btn.getAttribute("data-grouppk");
         
         if (mode === "create") {
@@ -530,7 +570,18 @@
                 if (el.name !== "dataFeedName") el.disabled = false;
             });
             document.getElementById("dataFeedSubmitBtn").style.display = "block";
-            dataFeedForm.dataFeedName.value = "";
+            var retroSlug = toTitleSlug(integrationTitleAttr || "") || "integration";
+            if (retroSlug.length > STREAMING_DATA_FEED_NAME_MAX_LEN) {
+              setTableMsg(
+                "This integration’s title is too long for a TAK data feed name (max " +
+                  STREAMING_DATA_FEED_NAME_MAX_LEN +
+                  " letters/numbers). Shorten integration_title in Authentik, then try again.",
+                false
+              );
+              integrationRetroactiveUsername = null;
+              return;
+            }
+            dataFeedForm.dataFeedName.value = retroSlug;
             dataFeedModalOverlay.style.display = "flex";
             
         } else if (mode === "view") {
@@ -704,6 +755,17 @@
        return;
     }
 
+    var titleSlugForFeed = toTitleSlug(title);
+    if (titleSlugForFeed.length > STREAMING_DATA_FEED_NAME_MAX_LEN) {
+      setCreateMsg(
+        "With a streaming data feed, letters and numbers from the title must be at most " +
+          STREAMING_DATA_FEED_NAME_MAX_LEN +
+          " characters. Shorten the title.",
+        false
+      );
+      return;
+    }
+
     integrationPayloadCache = payload;
     integrationRetroactiveUsername = null;
     
@@ -723,17 +785,13 @@
         if (el.name !== "dataFeedName") el.disabled = false;
     });
     document.getElementById("dataFeedSubmitBtn").style.display = "block";
-    dataFeedForm.dataFeedName.value = "";
-    
+    dataFeedForm.dataFeedName.value = titleSlugForFeed;
+
     dataFeedModalOverlay.style.display = "flex";
   });
 
   let integrationPayloadCache = null;
   let integrationRetroactiveUsername = null;
-  const dataFeedModalOverlay = document.getElementById("dataFeedModalOverlay");
-  const dataFeedCloseBtn = document.getElementById("dataFeedCloseBtn");
-  const dataFeedForm = document.getElementById("dataFeedForm");
-  const filterGroupsCheckboxList = document.getElementById("filterGroupsCheckboxList");
 
   if (dataFeedCloseBtn) {
     dataFeedCloseBtn.addEventListener("click", function() {
@@ -860,6 +918,7 @@
       groupSelect.value = "";
       integrationType.value = "global";
       integrationType.dispatchEvent(new Event("change"));
+      updateIntegrationTitleConstraints();
       await loadGroups();
       await loadIntegrations();
       if (out.user && out.user.pk && !out.certError) {
@@ -880,6 +939,7 @@
       await loadGroups();
       await loadIntegrations();
       integrationType.dispatchEvent(new Event("change"));
+      updateIntegrationTitleConstraints();
     } catch (err) {
       setTableMsg(err.message || "Failed to load page", false);
     }

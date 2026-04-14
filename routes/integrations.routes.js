@@ -54,6 +54,7 @@ router.get("/", async (req, res) => {
         is_active: !!u.is_active,
         groups: groupPks,
         groupNames,
+        integrationTitle: String(u.attributes?.integration_title || "").trim(),
         certBundleReady: takSshSvc.hasStoredIntegrationCertFiles(u.username),
         dataFeedName,
         dataFeedPort: parseStoredDataFeedPort(u.attributes?.tak_data_feed_port),
@@ -110,7 +111,7 @@ router.get("/", async (req, res) => {
  */
 router.post("/", async (req, res) => {
   try {
-    const { type, title, groupId, state, county, agencySuffix, skipDataFeed, dataFeedName, protocol, authType, port, coreVersion, coreVersion2TlsVersions, multicastGroup, iface, syncCacheRetention, archive, anongroup, archiveOnly, sync, federated, tags, filterGroups } = req.body || {};
+    const { type, title, groupId, state, county, agencySuffix, skipDataFeed, protocol, authType, port, coreVersion, coreVersion2TlsVersions, multicastGroup, iface, syncCacheRetention, archive, anongroup, archiveOnly, sync, federated, tags, filterGroups } = req.body || {};
     const authUser = req.authentikUser || null;
     const createdBy = authUser
       ? {
@@ -119,10 +120,17 @@ router.post("/", async (req, res) => {
         }
       : null;
 
+    const titleStr = String(title || "").trim();
+    const isSkipDataFeed = String(skipDataFeed) === "true";
+    let streamingDataFeedName = null;
+    if (!isSkipDataFeed) {
+      streamingDataFeedName = users.getStreamingDataFeedNameForTitle(titleStr);
+    }
+
     const result = await users.createIntegrationUser(
       {
         type: type || "global",
-        title: String(title || "").trim(),
+        title: titleStr,
         groupId,
         state: state ? String(state).trim() : undefined,
         county: county ? String(county).trim() : undefined,
@@ -141,11 +149,8 @@ router.post("/", async (req, res) => {
     }
 
     let dataFeedError = "";
-    const isSkipDataFeed = String(skipDataFeed) === "true";
-    let finalDataFeedName = (result && result.user && result.user.username) || dataFeedName;
-    if (finalDataFeedName) {
-        finalDataFeedName = finalDataFeedName.replace(/-/g, "_");
-    }
+    const finalDataFeedName =
+      !isSkipDataFeed && takSvc.isTakConfigured() ? streamingDataFeedName : null;
 
     if (!isSkipDataFeed && finalDataFeedName && takSvc.isTakConfigured()) {
       try {
@@ -424,7 +429,20 @@ router.post("/:username/datafeed", async (req, res) => {
 
     const { protocol, authType, port, coreVersion, coreVersion2TlsVersions, multicastGroup, iface, syncCacheRetention, archive, anongroup, archiveOnly, sync, federated, tags, filterGroups } = req.body || {};
 
-    const dataFeedName = user.username ? user.username.replace(/-/g, "_") : undefined;
+    const titleForFeed = String(user.attributes?.integration_title || "").trim();
+    if (!titleForFeed) {
+      return res.status(400).json({
+        error:
+          "This integration has no stored title; cannot create a data feed name. Recreate the integration or set integration_title in Authentik.",
+      });
+    }
+
+    let dataFeedName;
+    try {
+      dataFeedName = users.getStreamingDataFeedNameForTitle(titleForFeed);
+    } catch (e) {
+      return res.status(400).json({ error: toErrorPayload(e) });
+    }
 
     if (!takSvc.isTakConfigured()) {
       return res.status(503).json({ error: "TAK Server connection is not configured." });
