@@ -38,7 +38,6 @@
 
         <label style="flex: 1; min-width: 160px;">Title
           <input type="text" id="integrationTitle" name="title" placeholder="e.g. Weather API" style="width: 100%;" required />
-          <small id="integrationTitleHint" style="display: block; color: var(--text-2); font-size: 0.85em; margin-top: 4px;"></small>
         </label>
 
         <label style="min-width: 200px;">Group
@@ -258,7 +257,6 @@
   const tbody = document.getElementById("tbody");
   const integrationFilter = document.getElementById("integrationFilter");
   const integrationTitleInput = document.getElementById("integrationTitle");
-  const integrationTitleHint = document.getElementById("integrationTitleHint");
   const makeDataFeedSelect = document.getElementById("makeDataFeed");
 
   var STREAMING_DATA_FEED_NAME_MAX_LEN = 30;
@@ -272,15 +270,12 @@
   }
 
   function updateIntegrationTitleConstraints() {
-    if (!integrationTitleInput || !integrationTitleHint) return;
+    if (!integrationTitleInput) return;
     var feedOn = makeDataFeedSelect && makeDataFeedSelect.value === "yes";
     if (feedOn) {
       integrationTitleInput.setAttribute("maxlength", String(STREAMING_DATA_FEED_NAME_MAX_LEN));
-      integrationTitleHint.textContent = "";
     } else {
       integrationTitleInput.removeAttribute("maxlength");
-      integrationTitleHint.textContent =
-        "No data feed: integration username may be longer; certificates are not limited by title length.";
     }
   }
 
