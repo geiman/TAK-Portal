@@ -1127,23 +1127,6 @@ function toTitleSlug(s) {
     .replace(/[^a-z0-9]/g, "");
 }
 
-/** TAK streaming data feed name is title-only (no nodered-global- prefix); max length enforced by TAK. */
-const STREAMING_DATA_FEED_NAME_MAX_LEN = 30;
-
-/**
- * Derive the TAK Server streaming data feed `name` from the integration title.
- * Must match the client’s title-slug rules (letters/digits only).
- */
-function getStreamingDataFeedNameForTitle(title) {
-  const slug = toTitleSlug(title) || "integration";
-  if (slug.length > STREAMING_DATA_FEED_NAME_MAX_LEN) {
-    throw new Error(
-      `Streaming data feed name (letters and numbers from the title) must be at most ${STREAMING_DATA_FEED_NAME_MAX_LEN} characters.`
-    );
-  }
-  return slug;
-}
-
 /**
  * Create an integration user (username prefix "nodered-") with a single group.
  * type: "global" | "state" | "county" | "agency". Scope values (state, county, agencySuffix) required when type matches.
@@ -2239,16 +2222,6 @@ async function getUserById(userId) {
   return res.data;
 }
 
-// Update specific attributes on a user (merging with existing)
-async function updateUserAttributes(userId, changes) {
-  await assertUserNotActionLocked(userId, { ignoreLocks: true });
-  const user = await getUserById(userId);
-  const newAttrs = { ...(user.attributes || {}), ...changes };
-  await api.patch(`/core/users/${userId}/`, { attributes: newAttrs });
-  invalidateUsersCache();
-  return newAttrs;
-}
-
 // Add groups to a user (merge)
 async function addUserGroups(userId, groupIds) {
   await assertUserNotActionLocked(userId);
@@ -2463,8 +2436,6 @@ module.exports = {
   userExists,
   createUser,
   createIntegrationUser,
-  getStreamingDataFeedNameForTitle,
-  STREAMING_DATA_FEED_NAME_MAX_LEN,
   findIntegrationUsers,
   importUsersFromCsvBuffer,
   getUserById,
@@ -2478,7 +2449,6 @@ module.exports = {
   updateEmail,
   updateName,
   setUserGroups,
-  updateUserAttributes,
   toggleUserActive,
   deleteUser,
   addUserGroups,

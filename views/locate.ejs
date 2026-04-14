@@ -50,7 +50,7 @@
     ></div>
   </div>
 
-  <div class="card" id="createLocatorCard" style="margin-top:1.25rem;">
+  <div class="card" style="margin-top:1.25rem;">
     <h2 style="margin-top:0;">Create Locator</h2>
     <div class="row locate-create-row">
       <label class="locate-field-grow locate-title-field">Title (optional)
@@ -67,7 +67,7 @@
     <div id="newLocMsg" class="msg" style="margin-top:10px; margin-left:0;"></div>
   </div>
 
-  <div class="card" id="existingLocatorsCard" style="margin-top:1.25rem;">
+  <div class="card" style="margin-top:1.25rem;">
     <h2 style="margin-top:0;">Existing Locators</h2>
     <div id="locListMsg" class="msg" style="margin-left:0;"></div>
     <div class="locate-table-scroll">
@@ -320,13 +320,9 @@
   var applyBtn = document.getElementById("locateApplyBtn");
   var msg = document.getElementById("locateMsg");
   var sshWarn = document.getElementById("locateSshWarn");
-  var createLocatorCard = document.getElementById("createLocatorCard");
-  var existingLocatorsCard = document.getElementById("existingLocatorsCard");
 
   /** @type {boolean} */
   var sshConfigured = false;
-  /** @type {string} */
-  var appliedLocateMode = "disabled";
 
   function setMsg(text, kind) {
     msg.textContent = text || "";
@@ -352,13 +348,6 @@
 
   function getLocateMode() {
     return enabledSelect.value || "disabled";
-  }
-
-  function syncLocatorCardsVisibility() {
-    var selectedMode = getLocateMode();
-    var shouldShow = appliedLocateMode !== "disabled" && selectedMode === appliedLocateMode;
-    if (createLocatorCard) createLocatorCard.style.display = shouldShow ? "" : "none";
-    if (existingLocatorsCard) existingLocatorsCard.style.display = shouldShow ? "" : "none";
   }
 
   function syncLocateModeUi() {
@@ -540,7 +529,6 @@
       else if (data.mission && data.addToMission) mode = "data_sync";
       else mode = "group_only";
     }
-    appliedLocateMode = mode;
     enabledSelect.value = mode;
 
     if (mode === "group_only") {
@@ -561,12 +549,10 @@
       groupSelect.innerHTML = "";
     }
     syncLocateModeUi();
-    syncLocatorCardsVisibility();
   }
 
   enabledSelect.addEventListener("change", function () {
     syncLocateModeUi();
-    syncLocatorCardsVisibility();
     var mode = getLocateMode();
     if (mode !== "disabled" && !sshConfigured) {
       setMsg(
@@ -676,9 +662,7 @@
       } else if (mode === "group_only") {
         missionSelect.value = "";
       }
-      appliedLocateMode = mode;
       syncLocateModeUi();
-      syncLocatorCardsVisibility();
     } catch (e) {
       var errText = e && e.message ? e.message : String(e);
       setMsg(
@@ -701,7 +685,6 @@
       }
       await loadConfig();
       syncLocateModeUi();
-      syncLocatorCardsVisibility();
     } catch (e) {
       var errText = e && e.message ? e.message : String(e);
       setMsg("Could not load this page: " + errText, "error");

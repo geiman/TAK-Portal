@@ -216,22 +216,6 @@ function requireBetaMode(req, res, next) {
   next();
 }
 
-/** Beta + global or agency admin (for Documents page + shared MOU workflows). */
-function requireBetaDocumentsPage(req, res, next) {
-  const cfg = settingsSvc.getSettings() || {};
-  if (String(cfg.BETA_MODE || "").toLowerCase() !== "true") {
-    return res.status(404).render("access-denied", {
-      username: req.authentikUser?.username || "",
-    });
-  }
-  const u = req.authentikUser;
-  if (!u || (!u.isGlobalAdmin && !u.isAgencyAdmin)) {
-    const username = u && u.username ? u.username : "";
-    return res.status(403).render("access-denied", { username });
-  }
-  next();
-}
-
 function requireStrictGlobalAdminApi(req, res, next) {
   const user = req.authentikUser;
   if (!user || !user.isGlobalAdmin) {
@@ -312,8 +296,6 @@ app.use(
   requireBetaModeApi,
   require("./routes/dataSync.routes")
 );
-
-app.use("/api/documents", require("./routes/documents.routes"));
 
 // Public locate APIs: CORS + OPTIONS (preflight for JSON POST).
 function publicLocateApiCors(req, res, next) {
@@ -561,24 +543,6 @@ app.get("/getting-started", requireStrictGlobalAdmin, requireBetaMode, (req, res
   res.render("getting-started")
 );
 
-// Beta: Documents (global + agency admins; per-document ACL in API)
-app.get("/documents", requireBetaDocumentsPage, (req, res) => {
-  const agencies = agenciesStore.load();
-  const visible = accessSvc.filterAgenciesForUser(req.authentikUser, agencies);
-  const docAgencyOptions = visible
-    .filter((a) => a && String(a.suffix || "").trim())
-    .map((a) => ({
-      value: String(a.suffix).trim().toLowerCase(),
-      label: `${String(a.name || "").trim() || "Agency"} (${String(a.suffix).trim()})`,
-    }));
-  return res.render("documents", { docAgencyOptions });
-});
-
-// Beta: Data Packages (global admins only, beta mode)
-app.get("/data-packages", requireStrictGlobalAdmin, requireBetaMode, (req, res) =>
-  res.render("data-packages")
-);
-
 // Plugins page (any authenticated user)
 app.get("/plugins", (req, res) => {
   const pluginsSvc = require("./services/plugins.service");
@@ -704,48 +668,10 @@ app.get("/audit-log", requireGlobalAdmin, async (req, res) => {
   }
 });
 
-app.get("/setup-my-device", async (req, res) => {
+app.get("/setup-my-device", (req, res) => {
   // Used by the Setup My Device page to display the correct TAK server hostname.
   const takHost = qrSvc.getTakHost();
-  let enrollQrBootstrap = null;
-  const user = req.authentikUser;
-  const u = user && String(user.username || "").trim();
-  // Precompute standard (ATAK / TAK Aware) enrollment QR on the server so the first
-  // "Scan QR" click does not rely on a client fetch (avoids intermittent failures when
-  // reverse proxies or sessions mishandle XHR/fetch to the same API).
-  if (
-    u &&
-    u !== "bootstrap" &&
-    qrSvc.getTakUrl()
-  ) {
-    try {
-      const tokensSvc = require("./services/authentikTokens.service");
-      const { identifier, key, expiresAt } =
-        await tokensSvc.getOrCreateEnrollmentAppPassword({
-          username: u,
-          userId: user.uid || null,
-        });
-      const enrollUrl = qrSvc.buildEnrollUrl({ username: u, token: key });
-      const qrCode = enrollUrl
-        ? await qrSvc.generateDisplayQrDataUrl(enrollUrl)
-        : "";
-      enrollQrBootstrap = {
-        username: u,
-        tokenIdentifier: identifier,
-        token: key,
-        expiresAt,
-        enrollUrl: enrollUrl || "",
-        qrCode,
-      };
-    } catch (err) {
-      console.warn(
-        "[setup-my-device] enroll QR bootstrap failed:",
-        err?.message || err
-      );
-      enrollQrBootstrap = null;
-    }
-  }
-  return res.render("setup-my-device", { takHost, enrollQrBootstrap });
+  return res.render("setup-my-device", { takHost });
 });
 
 
@@ -1115,10 +1041,6 @@ app.post(
     { name: "BRAND_LOGO_UPLOAD", maxCount: 1 },
   ]),
   (req, res) => {
-    const wantsJson =
-      String(req.get("Accept") || "").includes("application/json") ||
-      req.get("X-Requested-With") === "XMLHttpRequest";
-
     const rawBody = req.body || {};
 
     // Grab the current full settings object
@@ -1289,18 +1211,7 @@ app.post(
     // so it stays whatever it was before.
 
     // Save the FULL merged settings object
-    try {
-      settingsSvc.saveSettings(merged);
-    } catch (err) {
-      console.error("[settings] saveSettings failed:", err);
-      if (wantsJson) {
-        return res.status(500).json({
-          ok: false,
-          error: err?.message || "Save failed",
-        });
-      }
-      return res.status(500).send("Failed to save settings");
-    }
+    settingsSvc.saveSettings(merged);
 
     try {
       // Audit: record which keys changed (avoid storing secrets/content)
@@ -1347,10 +1258,7 @@ app.post(
       // never block settings save
     }
 
-    if (wantsJson) {
-      return res.json({ ok: true });
-    }
-    return res.redirect("/settings");
+    res.redirect("/settings");
   }
 );
 

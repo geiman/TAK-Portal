@@ -64,7 +64,6 @@
           <tr>
             <th>Name</th>
             <th>Description</th>
-            <th>Default Role</th>
             <th>Groups</th>
             <th>Password</th>
             <th>Created</th>
@@ -356,15 +355,6 @@
     return payload;
   }
 
-  /** Human label for mission.defaultRole.type in tables and summaries. */
-  function defaultRoleTypeToLabel(roleType) {
-    var t = roleType || "MISSION_SUBSCRIBER";
-    if (t === "MISSION_OWNER") return "Owner";
-    if (t === "MISSION_READONLY_SUBSCRIBER") return "Read-only";
-    if (t === "MISSION_SUBSCRIBER") return "Subscriber";
-    return t;
-  }
-
   function buildDefaultRoleObject(roleType) {
     var t = roleType || "MISSION_SUBSCRIBER";
     if (t === "MISSION_READONLY_SUBSCRIBER") {
@@ -541,13 +531,10 @@
       var ct = m.createTime ? String(m.createTime) : "";
       var desc = m.description != null ? String(m.description) : "";
       if (desc.length > 48) desc = desc.slice(0, 45) + "…";
-      var dr = m && m.defaultRole;
-      var defaultRoleLabel = defaultRoleTypeToLabel(dr && dr.type ? String(dr.type) : "MISSION_SUBSCRIBER");
 
       tr.innerHTML =
         "<td><strong>" + esc(name) + "</strong></td>" +
         "<td style=\"max-width:220px;font-size:13px;\">" + esc(desc) + "</td>" +
-        "<td style=\"font-size:13px;white-space:nowrap;\">" + esc(defaultRoleLabel) + "</td>" +
         "<td>" + groups.length + "</td>" +
         "<td>" + esc(pw) + "</td>" +
         "<td style=\"font-size:12px;white-space:nowrap;\">" + esc(ct) + "</td>" +

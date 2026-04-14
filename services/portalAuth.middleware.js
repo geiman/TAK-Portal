@@ -23,7 +23,7 @@ const PUBLIC_PATHS = new Set([
   "/setup-my-device",
   "/request-access",
   "/request-access/confirmation",
-  // Token in query is the credential; session may be expired when saving high-res QR.
+  "/api/setup-my-device/enroll-qr",
   "/api/qr/download",
   "/styles.css",
   "/favicon.ico",
@@ -215,7 +215,6 @@ if (!isPublicPath) {
       "/plugins",
       "/setup-my-device",
       "/pending-user-requests",
-      "/documents",
       "/api/users",
       "/api/groups",
       "/api/templates",
@@ -224,7 +223,6 @@ if (!isPublicPath) {
       "/api/setup-my-device",
       "/api/user-requests",
       "/api/tak",
-      "/api/documents",
     ];
 
     const allowed = allowedAgencyAdminPrefixes.some(prefix =>
