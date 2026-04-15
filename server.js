@@ -253,39 +253,22 @@ app.set("views", path.join(__dirname, "views"));
 
 app.get("/logout", (req, res) => {
   // Where to send the user back after logout (the portal itself)
-  const portalUrl = `${req.protocol}://${req.get("host")}/`;
-
-  // Prefer AUTHENTIK_PUBLIC_URL; fall back to AUTHENTIK_URL
-  const base =
-    getString("AUTHENTIK_PUBLIC_URL", "") || getString("AUTHENTIK_URL", "");
-
-  if (!base) {
-    console.error(
-      "Logout requested but no AUTHENTIK_PUBLIC_URL or AUTHENTIK_URL is configured"
-    );
-    return res
-      .status(500)
-      .send(
-        "Logout is not configured. Ask the administrator to set Authentik URL."
-      );
-  }
-
-  let logoutUrl;
+  const portalUrl =
+    getString("TAK_PORTAL_PUBLIC_URL", "") ||
+    `${req.protocol}://${req.get("host")}/`;
   try {
-    const u = new URL(base);
-    // Use Authentik's default invalidation (logout) flow
-    // This is relative to whatever host you configured.
-    u.pathname = "/flows/-/default/invalidation/";
-    u.searchParams.set("next", portalUrl);
-    logoutUrl = u.toString();
+    // Use the outpost sign-out endpoint on the portal domain so the
+    // outpost proxy cookie is cleared (prevents immediate re-authentication).
+    const u = new URL(portalUrl);
+    u.pathname = "/outpost.goauthentik.io/sign_out";
+    u.searchParams.set("rd", portalUrl);
+    return res.redirect(u.toString());
   } catch (err) {
-    console.error("Invalid Authentik URL in settings:", base, err);
+    console.error("Failed to build outpost logout URL:", err);
     return res
       .status(500)
-      .send("Logout is misconfigured. Check Authentik URL in settings.");
+      .send("Logout is misconfigured. Check portal base URL/proxy setup.");
   }
-
-  res.redirect(logoutUrl);
 });
 
 // API Routes
