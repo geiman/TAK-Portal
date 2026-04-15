@@ -548,6 +548,7 @@
   const TAK_HOST = <%- JSON.stringify(takHost || "your TAK server hostname") %>;
   const CACHE_KEY = CURRENT_USERNAME ? `takPortal.setupDevice.enrollQr.v1:${CURRENT_USERNAME}` : null;
   const LEGACY_CACHE_KEY = "takPortal.setupDevice.enrollQr.v1";
+  const SERVER_ENROLL_BOOTSTRAP = <%- JSON.stringify(typeof enrollQrBootstrap !== "undefined" && enrollQrBootstrap ? enrollQrBootstrap : null) %>;
 
   let cached = null; // { username, token, expiresAt, enrollUrl, qrCode, app }
   let countdownTimer = null;
@@ -599,6 +600,16 @@
     if (!obj || !obj.username || obj.username !== CURRENT_USERNAME) return;
     try { localStorage.setItem(CACHE_KEY, JSON.stringify(obj)); } catch {}
   }
+
+  // Server-rendered enrollment payload (same as POST /api/setup-my-device/enroll-qr) so the
+  // first QR open after page load does not depend on fetch (avoids proxy/session/CORS edge cases).
+  (function seedEnrollFromServer() {
+    if (!SERVER_ENROLL_BOOTSTRAP || !CURRENT_USERNAME) return;
+    if (SERVER_ENROLL_BOOTSTRAP.username !== CURRENT_USERNAME) return;
+    if (!isValidCacheObject(SERVER_ENROLL_BOOTSTRAP)) return;
+    saveCache(SERVER_ENROLL_BOOTSTRAP);
+    cached = SERVER_ENROLL_BOOTSTRAP;
+  })();
 
   function clearCountdown() {
     if (countdownTimer) {
@@ -727,6 +738,7 @@
 
     const res = await fetch("/api/setup-my-device/enroll-qr", {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify((isOtt || isItak) ? { app } : {})
     });
@@ -852,7 +864,9 @@
   }
 
   async function fetchPreferenceData() {
-    const res = await fetch("/api/setup-my-device/preference-data");
+    const res = await fetch("/api/setup-my-device/preference-data", {
+      credentials: "include"
+    });
     const rawText = await res.text();
     let data = {};
     try { data = JSON.parse(rawText); } catch { data = {}; }
