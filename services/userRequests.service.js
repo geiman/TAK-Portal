@@ -35,6 +35,9 @@ function validateCreate(input) {
     throw new Error("Email Address must be valid");
   }
   if (!badgeNumber) throw new Error("Badge Number is required");
+  if (!/^[A-Za-z0-9]+$/.test(badgeNumber)) {
+    throw new Error("Badge Number can only contain letters and numbers");
+  }
   if (!agencySuffix) throw new Error("Agency is required");
 
   const isOther = agencySuffix === "__other__";

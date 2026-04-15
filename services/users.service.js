@@ -59,6 +59,10 @@ function normalizeBadge(badge) {
 function validateBadgeNumber(badge) {
   const b = String(badge || "").trim();
   if (!b) return "Badge / Username is required.";
+  // Only alphanumerics are allowed for account generation.
+  if (!/^[A-Za-z0-9]+$/.test(b)) {
+    return "Badge / Username can only contain letters and numbers.";
+  }
   return null;
 }
 
