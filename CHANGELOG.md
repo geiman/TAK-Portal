@@ -12,6 +12,11 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.71 - 4/15/26
+🐛 `Bug Fix` - Fixes issue with logout invalidation flow<br>
+🐛 `Bug Fix` - Fixes issue with Bug: req.protocol returns http behind reverse proxy <br>
+🐛 `Bug Fix` - Fixes issue with incorrect filtering of agnencies with similar suffixes
+
 ### v1.2.70 - 4/13/26
 ✨ `Enhancement` - Adds a column to display port on the integrations page<br>
 🐛 `Bug Fix` - Fixes issue with Data Streaming Feed creation failing due to a TAK Server limitation of 30 characters.
