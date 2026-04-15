@@ -42,7 +42,13 @@
       </label>
 
       <label>Badge Number / Radio ID / Callsign
-        <input name="badgeNumber" required value="<%= (form && form.badgeNumber) ? form.badgeNumber : '' %>" />
+        <input
+          name="badgeNumber"
+          required
+          pattern="[A-Za-z0-9]+"
+          title="Use letters and numbers only."
+          value="<%= (form && form.badgeNumber) ? form.badgeNumber : '' %>"
+        />
       </label>
 
       <label style="grid-column: 1 / -1;">Agency
