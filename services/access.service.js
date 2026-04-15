@@ -23,6 +23,34 @@ function normalizeGroupList(raw) {
     .filter(Boolean);
 }
 
+/**
+ * Infer agency suffix from a username by selecting the longest known
+ * agency suffix that matches the username tail.
+ *
+ * This prevents overlap bugs such as:
+ * - allowed: "ppd"
+ * - username: "...uppd"
+ * where a plain endsWith("ppd") would incorrectly match.
+ */
+function inferAgencySuffixFromUsername(username) {
+  const un = String(username || "").trim().toLowerCase();
+  if (!un) return "";
+
+  const agencies = agenciesStore.load();
+  let bestSuffix = "";
+
+  for (const agency of agencies) {
+    const sfx = normalizeSuffix(agency && agency.suffix);
+    if (!sfx) continue;
+    if (!un.endsWith(sfx)) continue;
+    if (!bestSuffix || sfx.length > bestSuffix.length) {
+      bestSuffix = sfx;
+    }
+  }
+
+  return bestSuffix;
+}
+
 function getAgencyAdminGroupName(agency) {
   const abbr = String(agency?.groupPrefix || "").trim().toUpperCase();
   const countyAbbrev = String(agency?.countyAbbrev || "").trim().toUpperCase();
@@ -183,10 +211,11 @@ function isUsernameInAllowedAgencies(authUser, username) {
   const allowed = access.allowedAgencySuffixes || [];
   if (!allowed.length) return false;
 
-  const un = String(username || "").toLowerCase();
-  return allowed
-    .map(normalizeSuffix)
-    .some((sfx) => sfx && un.endsWith(sfx));
+  const inferredSuffix = inferAgencySuffixFromUsername(username);
+  if (!inferredSuffix) return false;
+
+  const allowedSet = new Set(allowed.map(normalizeSuffix).filter(Boolean));
+  return allowedSet.has(inferredSuffix);
 }
 
 /**
@@ -397,6 +426,7 @@ module.exports = {
   normalizeGroupList,
   getAgencyAdminGroupName,
   getAllAgencyAdminGroupNames,
+  inferAgencySuffixFromUsername,
   getAllowedAgencySuffixesForGroups,
   hasAnyAgencyAdminsConfigured,
   getAgencyAccess,

@@ -80,8 +80,8 @@ async function resolveRecipients({ authUser, mode, agencies, groupIds, usernames
       (suffixes || []).map((s) => String(s || "").trim().toLowerCase())
     );
     users = all.filter((u) => {
-      const uname = String(u?.username || "").toLowerCase();
-      const match = Array.from(suffixSet).some((sfx) => sfx && uname.endsWith(sfx));
+      const inferredSuffix = accessSvc.inferAgencySuffixFromUsername(u?.username || "");
+      const match = inferredSuffix && suffixSet.has(String(inferredSuffix).toLowerCase());
       return match && isUserInAllowedAgency(u);
     });
   } else if (mode === "groups") {
