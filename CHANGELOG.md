@@ -12,6 +12,9 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.72 - 4/15/26
+✨ `Enhancement` - Modifies username field on creation and request access pages to only accept usernames with letters and numbers only (No special characters)
+
 ### v1.2.71 - 4/15/26
 🐛 `Bug Fix` - Fixes issue with logout invalidation flow<br>
 🐛 `Bug Fix` - Fixes issue with Bug: req.protocol returns http behind reverse proxy <br>
