@@ -39,14 +39,71 @@ function normalizeDataPackageList(payload) {
   return [];
 }
 
+function parseKeywords(v) {
+  if (Array.isArray(v)) return v.map((x) => String(x).trim()).filter(Boolean);
+  if (typeof v === "string") {
+    return v
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function normalizePackageRecord(item) {
+  const o = item && typeof item === "object" ? item : {};
+  const hash = String(o.hash || o.sha256 || o.uid || o.id || o.contentHash || "").trim();
+  const filename = String(o.filename || o.name || o.original_filename || o.label || "").trim();
+  return {
+    ...o,
+    hash,
+    filename,
+    mime_type: String(o.mime_type || o.mimetype || o.contentType || o.type || "").trim(),
+    size: Number.isFinite(Number(o.size)) ? Number(o.size) : o.size,
+    creator_uid: String(o.creator_uid || o.creatorUid || o.creator || o.owner || "").trim(),
+    created_at: String(o.created_at || o.createTime || o.created || o.timestamp || "").trim(),
+    tool: String(o.tool || "").trim(),
+    keywords: parseKeywords(o.keywords || o.keyword || o.tags),
+  };
+}
+
 async function listDataPackages(query = {}) {
   assertTakAvailable();
   const client = buildTakOriginAxios({ timeout: 60000 });
-  const res = await client.get("/api/data_packages", { params: query || {} });
-  const list = normalizeDataPackageList(res.data);
+  try {
+    const res = await client.get("/api/data_packages", { params: query || {} });
+    const list = normalizeDataPackageList(res.data).map(normalizePackageRecord);
+    return {
+      items: list,
+      raw: res.data,
+      source: "api_data_packages",
+    };
+  } catch (err) {
+    const status = err?.response?.status;
+    if (status && status !== 404 && status !== 405) throw err;
+  }
+
+  // Fallback for Marti-only builds: file metadata endpoint.
+  try {
+    const res = await client.get("/Marti/api/files/metadata", { params: query || {} });
+    const list = normalizeDataPackageList(res.data).map(normalizePackageRecord);
+    return {
+      items: list,
+      raw: res.data,
+      source: "marti_files_metadata",
+    };
+  } catch (err) {
+    const status = err?.response?.status;
+    if (status && status !== 404 && status !== 405) throw err;
+  }
+
+  // Last fallback: sync search endpoint often includes package/file metadata.
+  const res = await client.get("/Marti/sync/search", { params: query || {} });
+  const list = normalizeDataPackageList(res.data).map(normalizePackageRecord);
   return {
     items: list,
     raw: res.data,
+    source: "marti_sync_search",
   };
 }
 
