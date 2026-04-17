@@ -8,7 +8,7 @@ const { buildTakAxios, getTakBaseUrl, isTakConfigured } = require("./tak.service
 const { getBool } = require("./env");
 
 function isDebugEnabled() {
-  return getBool("TAK_DEBUG", false) || getBool("DATA_PACKAGES_DEBUG", false);
+  return getBool("TAK_DEBUG", false);
 }
 
 function dbg(...args) {
@@ -16,12 +16,8 @@ function dbg(...args) {
   console.log("[data-packages]", ...args);
 }
 
-function isVerboseDebugEnabled() {
-  return getBool("DATA_PACKAGES_DEBUG_VERBOSE", false);
-}
-
 function dbgVerbose(label, value) {
-  if (!isDebugEnabled() || !isVerboseDebugEnabled()) return;
+  if (!isDebugEnabled()) return;
   try {
     const json = JSON.stringify(value, null, 2);
     if (json && json.length <= 40000) {
