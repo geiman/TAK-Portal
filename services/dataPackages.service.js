@@ -36,6 +36,9 @@ function normalizeDataPackageList(payload) {
   if (payload && Array.isArray(payload.data)) return payload.data;
   if (payload && Array.isArray(payload.items)) return payload.items;
   if (payload && Array.isArray(payload.results)) return payload.results;
+  if (payload && payload.data && Array.isArray(payload.data.items)) return payload.data.items;
+  if (payload && payload.data && Array.isArray(payload.data.results)) return payload.data.results;
+  if (payload && payload.results && Array.isArray(payload.results.items)) return payload.results.items;
   return [];
 }
 
@@ -50,20 +53,98 @@ function parseKeywords(v) {
   return [];
 }
 
+function scalar(v) {
+  if (v == null) return "";
+  if (typeof v === "string") return v.trim();
+  if (typeof v === "number" || typeof v === "boolean") return String(v).trim();
+  return "";
+}
+
+function pickScalar(obj, keys) {
+  if (!obj || typeof obj !== "object") return "";
+  for (let i = 0; i < keys.length; i++) {
+    const out = scalar(obj[keys[i]]);
+    if (out) return out;
+  }
+  return "";
+}
+
+function asNumOrRaw(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : v;
+}
+
 function normalizePackageRecord(item) {
   const o = item && typeof item === "object" ? item : {};
-  const hash = String(o.hash || o.sha256 || o.uid || o.id || o.contentHash || "").trim();
-  const filename = String(o.filename || o.name || o.original_filename || o.label || "").trim();
+  const candidates = [
+    o,
+    o.file,
+    o.File,
+    o.metadata,
+    o.Metadata,
+    o.content,
+    o.Content,
+    o.resource,
+    o.Resource,
+    o.value,
+    o.Value,
+  ].filter((x) => x && typeof x === "object");
+
+  let hash = "";
+  let filename = "";
+  let mimeType = "";
+  let size = "";
+  let creator = "";
+  let created = "";
+  let tool = "";
+  let keywords = [];
+
+  for (let i = 0; i < candidates.length; i++) {
+    const c = candidates[i];
+    if (!hash) {
+      hash = pickScalar(c, [
+        "hash",
+        "sha256",
+        "sha",
+        "checksum",
+        "contentHash",
+        "content_hash",
+        "fileHash",
+        "file_hash",
+        "uid",
+        "UID",
+        "id",
+      ]);
+    }
+    if (!filename) {
+      filename = pickScalar(c, [
+        "filename",
+        "fileName",
+        "name",
+        "label",
+        "title",
+        "original_filename",
+        "downloadName",
+      ]);
+    }
+    if (!mimeType) mimeType = pickScalar(c, ["mime_type", "mimetype", "contentType", "type"]);
+    if (!size) size = pickScalar(c, ["size", "content_length", "contentLength", "length"]);
+    if (!creator) creator = pickScalar(c, ["creator_uid", "creatorUid", "creator", "owner", "author"]);
+    if (!created) created = pickScalar(c, ["created_at", "createTime", "created", "timestamp", "updated_at"]);
+    if (!tool) tool = pickScalar(c, ["tool"]);
+    if (!keywords.length) keywords = parseKeywords(c.keywords || c.keyword || c.tags);
+  }
+
   return {
     ...o,
     hash,
     filename,
-    mime_type: String(o.mime_type || o.mimetype || o.contentType || o.type || "").trim(),
-    size: Number.isFinite(Number(o.size)) ? Number(o.size) : o.size,
-    creator_uid: String(o.creator_uid || o.creatorUid || o.creator || o.owner || "").trim(),
-    created_at: String(o.created_at || o.createTime || o.created || o.timestamp || "").trim(),
-    tool: String(o.tool || "").trim(),
-    keywords: parseKeywords(o.keywords || o.keyword || o.tags),
+    mime_type: mimeType,
+    size: asNumOrRaw(size),
+    creator_uid: creator,
+    created_at: created,
+    tool,
+    keywords,
   };
 }
 
@@ -72,7 +153,9 @@ async function listDataPackages(query = {}) {
   const client = buildTakOriginAxios({ timeout: 60000 });
   try {
     const res = await client.get("/api/data_packages", { params: query || {} });
-    const list = normalizeDataPackageList(res.data).map(normalizePackageRecord);
+    const list = normalizeDataPackageList(res.data)
+      .map(normalizePackageRecord)
+      .filter((x) => x.hash || x.filename);
     return {
       items: list,
       raw: res.data,
@@ -86,7 +169,9 @@ async function listDataPackages(query = {}) {
   // Fallback for Marti-only builds: file metadata endpoint.
   try {
     const res = await client.get("/Marti/api/files/metadata", { params: query || {} });
-    const list = normalizeDataPackageList(res.data).map(normalizePackageRecord);
+    const list = normalizeDataPackageList(res.data)
+      .map(normalizePackageRecord)
+      .filter((x) => x.hash || x.filename);
     return {
       items: list,
       raw: res.data,
@@ -99,7 +184,9 @@ async function listDataPackages(query = {}) {
 
   // Last fallback: sync search endpoint often includes package/file metadata.
   const res = await client.get("/Marti/sync/search", { params: query || {} });
-  const list = normalizeDataPackageList(res.data).map(normalizePackageRecord);
+  const list = normalizeDataPackageList(res.data)
+    .map(normalizePackageRecord)
+    .filter((x) => x.hash || x.filename);
   return {
     items: list,
     raw: res.data,
@@ -133,11 +220,14 @@ async function downloadDataPackageStream(hash) {
     throw e;
   }
   const client = buildTakOriginAxios({ timeout: 180000 });
-  return client.get("/api/data_packages/download", {
+  const reqOpts = {
     params: { hash: h },
     responseType: "stream",
     validateStatus: () => true,
-  });
+  };
+  const primary = await client.get("/api/data_packages/download", reqOpts);
+  if (primary.status !== 404 && primary.status !== 405) return primary;
+  return client.get("/Marti/sync/content", reqOpts);
 }
 
 function safeFilename(name, fallback) {
@@ -242,6 +332,18 @@ async function getDataPackageMetadata(hash) {
       if (!out.tool) out.tool = String(item.tool || "").trim();
       out.installOnEnrollment = item.install_on_enrollment ?? item.installOnEnrollment;
       out.installOnConnection = item.install_on_connection ?? item.installOnConnection;
+    }
+  } catch (_) {
+    // optional metadata source
+  }
+
+  try {
+    const listRes = await client.get("/Marti/api/files/metadata", { params: { hash: h } });
+    const list = normalizeDataPackageList(listRes.data).map(normalizePackageRecord);
+    if (list.length) {
+      const item = list[0] || {};
+      if (!out.tool) out.tool = String(item.tool || "").trim();
+      if (!out.keywords || !out.keywords.length) out.keywords = parseKeywords(item.keywords);
     }
   } catch (_) {
     // optional metadata source
