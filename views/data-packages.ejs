@@ -55,6 +55,10 @@
             <th>Type</th>
             <th>Size</th>
             <th>Creator</th>
+            <th>Groups</th>
+            <th>Expiration</th>
+            <th>Tool</th>
+            <th>Keywords</th>
             <th>Created</th>
             <th style="min-width:190px;">Actions</th>
           </tr>
@@ -251,9 +255,15 @@
       var mime = firstVal(p, ["mime_type", "mimetype", "contentType", "type"]);
       var size = firstVal(p, ["size", "content_length", "contentLength"]);
       var creator = firstVal(p, ["creator_uid", "creatorUid", "creator", "owner"]);
+      var groups = firstVal(p, ["groups", "Groups", "group", "Group"]);
+      var expiration = firstVal(p, ["expiration", "Expiration", "expires", "expiresAt"]);
+      var tool = firstVal(p, ["tool", "Tool"]);
+      var keywords = "";
+      if (Array.isArray(p.keywords)) keywords = p.keywords.join(", ");
+      else keywords = firstVal(p, ["keywords", "Keywords", "keyword", "tags"]);
       var created = firstVal(p, ["created_at", "createTime", "created", "timestamp"]);
 
-      var hay = (filename + " " + hash + " " + creator + " " + mime).toLowerCase();
+      var hay = (filename + " " + hash + " " + creator + " " + mime + " " + groups + " " + expiration + " " + tool + " " + keywords).toLowerCase();
       if (filt && hay.indexOf(filt) === -1) continue;
 
       var tr = document.createElement("tr");
@@ -263,6 +273,10 @@
         "<td style='font-size:12px;'>" + esc(mime) + "</td>" +
         "<td style='white-space:nowrap;'>" + esc(fmtSize(size)) + "</td>" +
         "<td>" + esc(creator) + "</td>" +
+        "<td style='max-width:170px;font-size:12px;'>" + esc(groups) + "</td>" +
+        "<td style='white-space:nowrap;font-size:12px;'>" + esc(expiration) + "</td>" +
+        "<td style='font-size:12px;'>" + esc(tool) + "</td>" +
+        "<td style='max-width:220px;font-size:12px;'>" + esc(keywords) + "</td>" +
         "<td style='font-size:12px;white-space:nowrap;'>" + esc(created) + "</td>" +
         "<td></td>";
 

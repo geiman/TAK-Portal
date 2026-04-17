@@ -40,6 +40,15 @@ function dbgVerbose(label, value) {
 
 function listKeysDeep(obj, prefix = "", out = new Set(), depth = 0) {
   if (!obj || typeof obj !== "object" || depth > 6) return out;
+  if (Array.isArray(obj)) {
+    for (let i = 0; i < obj.length && i < 25; i++) {
+      const v = obj[i];
+      const path = `${prefix}[${i}]`;
+      out.add(path);
+      if (v && typeof v === "object") listKeysDeep(v, path, out, depth + 1);
+    }
+    return out;
+  }
   const keys = Object.keys(obj);
   for (let i = 0; i < keys.length; i++) {
     const k = keys[i];
@@ -145,6 +154,8 @@ function normalizePackageRecord(item) {
   let created = "";
   let tool = "";
   let keywords = [];
+  let groups = "";
+  let expiration = "";
 
   for (let i = 0; i < candidates.length; i++) {
     const c = candidates[i];
@@ -198,6 +209,7 @@ function normalizePackageRecord(item) {
       mimeType = pickScalar(c, [
         "mime_type",
         "mimeType",
+        "MimeType",
         "MIMEType",
         "mimetype",
         "contentType",
@@ -222,6 +234,8 @@ function normalizePackageRecord(item) {
         "creator_uid",
         "creatorUid",
         "CreatorUID",
+        "user",
+        "User",
         "creator",
         "Creator",
         "owner",
@@ -238,6 +252,8 @@ function normalizePackageRecord(item) {
         "CreateTime",
         "created",
         "Created",
+        "time",
+        "Time",
         "timestamp",
         "Timestamp",
         "submissionDateTime",
@@ -251,6 +267,24 @@ function normalizePackageRecord(item) {
         c.keywords || c.keyword || c.tags || c.Keywords || c.Keyword || c.Tags
       );
     }
+    if (!groups) {
+      groups = pickScalar(c, [
+        "groups",
+        "Groups",
+        "group",
+        "Group",
+      ]);
+    }
+    if (!expiration) {
+      expiration = pickScalar(c, [
+        "expiration",
+        "Expiration",
+        "expires",
+        "Expires",
+        "expiresAt",
+        "ExpiresAt",
+      ]);
+    }
   }
 
   return {
@@ -263,6 +297,8 @@ function normalizePackageRecord(item) {
     created_at: created,
     tool,
     keywords,
+    groups,
+    expiration,
   };
 }
 
