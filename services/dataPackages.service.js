@@ -113,35 +113,106 @@ function normalizePackageRecord(item) {
     if (!hash) {
       hash = pickScalar(c, [
         "hash",
+        "Hash",
         "sha256",
+        "SHA256",
         "sha",
+        "SHA",
         "checksum",
+        "Checksum",
         "contentHash",
+        "ContentHash",
         "content_hash",
         "fileHash",
+        "FileHash",
         "file_hash",
         "uid",
         "UID",
         "id",
+        "ID",
+        "key",
+        "Key",
+        "primaryKey",
+        "PrimaryKey",
       ]);
     }
     if (!filename) {
       filename = pickScalar(c, [
         "filename",
+        "Filename",
         "fileName",
+        "FileName",
         "name",
+        "Name",
         "label",
+        "Label",
         "title",
+        "Title",
         "original_filename",
+        "OriginalFilename",
         "downloadName",
+        "DownloadName",
+        "resource",
+        "Resource",
       ]);
     }
-    if (!mimeType) mimeType = pickScalar(c, ["mime_type", "mimetype", "contentType", "type"]);
-    if (!size) size = pickScalar(c, ["size", "content_length", "contentLength", "length"]);
-    if (!creator) creator = pickScalar(c, ["creator_uid", "creatorUid", "creator", "owner", "author"]);
-    if (!created) created = pickScalar(c, ["created_at", "createTime", "created", "timestamp", "updated_at"]);
-    if (!tool) tool = pickScalar(c, ["tool"]);
-    if (!keywords.length) keywords = parseKeywords(c.keywords || c.keyword || c.tags);
+    if (!mimeType) {
+      mimeType = pickScalar(c, [
+        "mime_type",
+        "mimeType",
+        "MIMEType",
+        "mimetype",
+        "contentType",
+        "ContentType",
+        "type",
+        "Type",
+      ]);
+    }
+    if (!size) {
+      size = pickScalar(c, [
+        "size",
+        "Size",
+        "content_length",
+        "ContentLength",
+        "contentLength",
+        "length",
+        "Length",
+      ]);
+    }
+    if (!creator) {
+      creator = pickScalar(c, [
+        "creator_uid",
+        "creatorUid",
+        "CreatorUID",
+        "creator",
+        "Creator",
+        "owner",
+        "Owner",
+        "author",
+        "Author",
+      ]);
+    }
+    if (!created) {
+      created = pickScalar(c, [
+        "created_at",
+        "CreatedAt",
+        "createTime",
+        "CreateTime",
+        "created",
+        "Created",
+        "timestamp",
+        "Timestamp",
+        "submissionDateTime",
+        "SubmissionDateTime",
+        "updated_at",
+      ]);
+    }
+    if (!tool) tool = pickScalar(c, ["tool", "Tool"]);
+    if (!keywords.length) {
+      keywords = parseKeywords(
+        c.keywords || c.keyword || c.tags || c.Keywords || c.Keyword || c.Tags
+      );
+    }
   }
 
   return {
@@ -168,6 +239,7 @@ async function listDataPackages(query = {}) {
       topKeys: res.data && typeof res.data === "object" ? Object.keys(res.data).slice(0, 20) : [],
     });
     const rawList = normalizeDataPackageList(res.data);
+    dbg("raw sample /api/data_packages", rawList.slice(0, 2));
     const list = normalizeDataPackageList(res.data)
       .map(normalizePackageRecord)
       .filter((x) => x.hash || x.filename);
@@ -202,6 +274,7 @@ async function listDataPackages(query = {}) {
       topKeys: res.data && typeof res.data === "object" ? Object.keys(res.data).slice(0, 20) : [],
     });
     const rawList = normalizeDataPackageList(res.data);
+    dbg("raw sample /Marti/api/files/metadata", rawList.slice(0, 2));
     const list = normalizeDataPackageList(res.data)
       .map(normalizePackageRecord)
       .filter((x) => x.hash || x.filename);
@@ -235,6 +308,7 @@ async function listDataPackages(query = {}) {
     topKeys: res.data && typeof res.data === "object" ? Object.keys(res.data).slice(0, 20) : [],
   });
   const rawList = normalizeDataPackageList(res.data);
+  dbg("raw sample /Marti/sync/search", rawList.slice(0, 2));
   const list = normalizeDataPackageList(res.data)
     .map(normalizePackageRecord)
     .filter((x) => x.hash || x.filename);
