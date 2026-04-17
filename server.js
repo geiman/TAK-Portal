@@ -295,6 +295,12 @@ app.use(
   requireBetaModeApi,
   require("./routes/dataSync.routes")
 );
+app.use(
+  "/api/data-packages",
+  requireStrictGlobalAdminApi,
+  requireBetaModeApi,
+  require("./routes/dataPackages.routes")
+);
 
 app.use("/api/documents", require("./routes/documents.routes"));
 
