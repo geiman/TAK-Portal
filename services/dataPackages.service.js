@@ -3,6 +3,7 @@
  * Prefers OpenTAK `/api/data_packages` endpoints and falls back to Marti upload.
  */
 const crypto = require("crypto");
+const util = require("util");
 const { buildTakAxios, getTakBaseUrl, isTakConfigured } = require("./tak.service");
 const { getBool } = require("./env");
 
@@ -13,6 +14,47 @@ function isDebugEnabled() {
 function dbg(...args) {
   if (!isDebugEnabled()) return;
   console.log("[data-packages]", ...args);
+}
+
+function isVerboseDebugEnabled() {
+  return getBool("DATA_PACKAGES_DEBUG_VERBOSE", false);
+}
+
+function dbgVerbose(label, value) {
+  if (!isDebugEnabled() || !isVerboseDebugEnabled()) return;
+  try {
+    const json = JSON.stringify(value, null, 2);
+    if (json && json.length <= 40000) {
+      console.log(`[data-packages][verbose] ${label}\n${json}`);
+      return;
+    }
+  } catch (_) {
+    // Fall through to util.inspect
+  }
+  console.log(
+    `[data-packages][verbose] ${label}\n${util.inspect(value, {
+      depth: 8,
+      maxArrayLength: 200,
+      maxStringLength: 12000,
+      breakLength: 140,
+      compact: false,
+    })}`
+  );
+}
+
+function listKeysDeep(obj, prefix = "", out = new Set(), depth = 0) {
+  if (!obj || typeof obj !== "object" || depth > 6) return out;
+  const keys = Object.keys(obj);
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    const path = prefix ? `${prefix}.${k}` : k;
+    out.add(path);
+    const v = obj[k];
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      listKeysDeep(v, path, out, depth + 1);
+    }
+  }
+  return out;
 }
 
 function assertTakAvailable() {
@@ -240,9 +282,12 @@ async function listDataPackages(query = {}) {
     });
     const rawList = normalizeDataPackageList(res.data);
     dbg("raw sample /api/data_packages", rawList.slice(0, 2));
+    dbgVerbose("raw payload /api/data_packages", res.data);
+    dbg("deep keys /api/data_packages", Array.from(listKeysDeep(res.data)).slice(0, 250));
     const list = normalizeDataPackageList(res.data)
       .map(normalizePackageRecord)
       .filter((x) => x.hash || x.filename);
+    dbgVerbose("normalized records /api/data_packages", list);
     dbg("normalized /api/data_packages", {
       rawCount: rawList.length,
       normalizedCount: list.length,
@@ -275,9 +320,12 @@ async function listDataPackages(query = {}) {
     });
     const rawList = normalizeDataPackageList(res.data);
     dbg("raw sample /Marti/api/files/metadata", rawList.slice(0, 2));
+    dbgVerbose("raw payload /Marti/api/files/metadata", res.data);
+    dbg("deep keys /Marti/api/files/metadata", Array.from(listKeysDeep(res.data)).slice(0, 250));
     const list = normalizeDataPackageList(res.data)
       .map(normalizePackageRecord)
       .filter((x) => x.hash || x.filename);
+    dbgVerbose("normalized records /Marti/api/files/metadata", list);
     dbg("normalized /Marti/api/files/metadata", {
       rawCount: rawList.length,
       normalizedCount: list.length,
@@ -309,9 +357,12 @@ async function listDataPackages(query = {}) {
   });
   const rawList = normalizeDataPackageList(res.data);
   dbg("raw sample /Marti/sync/search", rawList.slice(0, 2));
+  dbgVerbose("raw payload /Marti/sync/search", res.data);
+  dbg("deep keys /Marti/sync/search", Array.from(listKeysDeep(res.data)).slice(0, 250));
   const list = normalizeDataPackageList(res.data)
     .map(normalizePackageRecord)
     .filter((x) => x.hash || x.filename);
+  dbgVerbose("normalized records /Marti/sync/search", list);
   dbg("normalized /Marti/sync/search", {
     rawCount: rawList.length,
     normalizedCount: list.length,
@@ -482,6 +533,7 @@ async function getDataPackageMetadata(hash) {
   } catch (_) {
     // optional metadata source
   }
+  dbgVerbose(`metadata resolved payload for ${h}`, out);
 
   dbg("metadata resolved", {
     hash: h,
@@ -547,6 +599,7 @@ async function updateDataPackageMetadata(hash, patch = {}) {
     }
   }
 
+  dbgVerbose(`metadata update result for ${h}`, out);
   dbg("metadata update done", { hash: h, out });
   return out;
 }
