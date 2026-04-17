@@ -6,6 +6,15 @@ const crypto = require("crypto");
 const { buildTakAxios, getTakBaseUrl, isTakConfigured } = require("./tak.service");
 const { getBool } = require("./env");
 
+function isDebugEnabled() {
+  return getBool("TAK_DEBUG", false) || getBool("DATA_PACKAGES_DEBUG", false);
+}
+
+function dbg(...args) {
+  if (!isDebugEnabled()) return;
+  console.log("[data-packages]", ...args);
+}
+
 function assertTakAvailable() {
   if (getBool("TAK_BYPASS_ENABLED", false)) {
     const e = new Error("TAK operations are disabled (TAK_BYPASS_ENABLED=true).");
@@ -151,11 +160,22 @@ function normalizePackageRecord(item) {
 async function listDataPackages(query = {}) {
   assertTakAvailable();
   const client = buildTakOriginAxios({ timeout: 60000 });
+  dbg("list start", { query });
   try {
     const res = await client.get("/api/data_packages", { params: query || {} });
+    dbg("endpoint /api/data_packages", {
+      status: res.status,
+      topKeys: res.data && typeof res.data === "object" ? Object.keys(res.data).slice(0, 20) : [],
+    });
+    const rawList = normalizeDataPackageList(res.data);
     const list = normalizeDataPackageList(res.data)
       .map(normalizePackageRecord)
       .filter((x) => x.hash || x.filename);
+    dbg("normalized /api/data_packages", {
+      rawCount: rawList.length,
+      normalizedCount: list.length,
+      sample: list.slice(0, 3).map((x) => ({ hash: x.hash, filename: x.filename })),
+    });
     return {
       items: list,
       raw: res.data,
@@ -163,15 +183,33 @@ async function listDataPackages(query = {}) {
     };
   } catch (err) {
     const status = err?.response?.status;
+    dbg("endpoint /api/data_packages failed", {
+      status,
+      message: err?.message,
+      dataSnippet:
+        typeof err?.response?.data === "string"
+          ? err.response.data.slice(0, 200)
+          : undefined,
+    });
     if (status && status !== 404 && status !== 405) throw err;
   }
 
   // Fallback for Marti-only builds: file metadata endpoint.
   try {
     const res = await client.get("/Marti/api/files/metadata", { params: query || {} });
+    dbg("endpoint /Marti/api/files/metadata", {
+      status: res.status,
+      topKeys: res.data && typeof res.data === "object" ? Object.keys(res.data).slice(0, 20) : [],
+    });
+    const rawList = normalizeDataPackageList(res.data);
     const list = normalizeDataPackageList(res.data)
       .map(normalizePackageRecord)
       .filter((x) => x.hash || x.filename);
+    dbg("normalized /Marti/api/files/metadata", {
+      rawCount: rawList.length,
+      normalizedCount: list.length,
+      sample: list.slice(0, 3).map((x) => ({ hash: x.hash, filename: x.filename })),
+    });
     return {
       items: list,
       raw: res.data,
@@ -179,14 +217,32 @@ async function listDataPackages(query = {}) {
     };
   } catch (err) {
     const status = err?.response?.status;
+    dbg("endpoint /Marti/api/files/metadata failed", {
+      status,
+      message: err?.message,
+      dataSnippet:
+        typeof err?.response?.data === "string"
+          ? err.response.data.slice(0, 200)
+          : undefined,
+    });
     if (status && status !== 404 && status !== 405) throw err;
   }
 
   // Last fallback: sync search endpoint often includes package/file metadata.
   const res = await client.get("/Marti/sync/search", { params: query || {} });
+  dbg("endpoint /Marti/sync/search", {
+    status: res.status,
+    topKeys: res.data && typeof res.data === "object" ? Object.keys(res.data).slice(0, 20) : [],
+  });
+  const rawList = normalizeDataPackageList(res.data);
   const list = normalizeDataPackageList(res.data)
     .map(normalizePackageRecord)
     .filter((x) => x.hash || x.filename);
+  dbg("normalized /Marti/sync/search", {
+    rawCount: rawList.length,
+    normalizedCount: list.length,
+    sample: list.slice(0, 3).map((x) => ({ hash: x.hash, filename: x.filename })),
+  });
   return {
     items: list,
     raw: res.data,
@@ -226,8 +282,11 @@ async function downloadDataPackageStream(hash) {
     validateStatus: () => true,
   };
   const primary = await client.get("/api/data_packages/download", reqOpts);
+  dbg("download primary", { hash: h, status: primary.status });
   if (primary.status !== 404 && primary.status !== 405) return primary;
-  return client.get("/Marti/sync/content", reqOpts);
+  const fallback = await client.get("/Marti/sync/content", reqOpts);
+  dbg("download fallback /Marti/sync/content", { hash: h, status: fallback.status });
+  return fallback;
 }
 
 function safeFilename(name, fallback) {
@@ -306,6 +365,7 @@ async function getDataPackageMetadata(hash) {
     tool: "",
     keywords: [],
   };
+  dbg("metadata start", { hash: h });
 
   try {
     const toolRes = await client.get(`/Marti/api/sync/metadata/${encodeURIComponent(h)}/tool`);
@@ -349,6 +409,13 @@ async function getDataPackageMetadata(hash) {
     // optional metadata source
   }
 
+  dbg("metadata resolved", {
+    hash: h,
+    tool: out.tool,
+    keywordsCount: Array.isArray(out.keywords) ? out.keywords.length : 0,
+    installOnEnrollment: out.installOnEnrollment,
+    installOnConnection: out.installOnConnection,
+  });
   return out;
 }
 
@@ -362,6 +429,7 @@ async function updateDataPackageMetadata(hash, patch = {}) {
   }
   const client = buildTakOriginAxios({ timeout: 60000 });
   const out = { ok: true };
+  dbg("metadata update start", { hash: h, patchKeys: Object.keys(patch || {}) });
 
   if (patch.tool != null) {
     const tool = String(patch.tool || "").trim();
@@ -405,6 +473,7 @@ async function updateDataPackageMetadata(hash, patch = {}) {
     }
   }
 
+  dbg("metadata update done", { hash: h, out });
   return out;
 }
 
