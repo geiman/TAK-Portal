@@ -729,12 +729,22 @@ form.onsubmit = async (e) => {
 // -------------------- CSV Import --------------------
 if (downloadCsvTemplateBtn) {
   downloadCsvTemplateBtn.onclick = () => {
-    const a = document.createElement("a");
-    a.href = "/sample-users.csv";
-    a.download = "users-import-template.csv";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    const downloads = [
+      { href: "/sample-users.csv", name: "users-import-template.csv" },
+      { href: "/csv-instructions-readme.txt", name: "csv-instructions-readme.txt" },
+    ];
+
+    downloads.forEach((item, idx) => {
+      // Slight delay helps browsers treat these as separate user-initiated downloads.
+      setTimeout(() => {
+        const a = document.createElement("a");
+        a.href = item.href;
+        a.download = item.name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      }, idx * 150);
+    });
   };
 }
 

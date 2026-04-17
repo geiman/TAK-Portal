@@ -217,6 +217,7 @@ if (!isPublicPath) {
       "/pending-user-requests",
       "/documents",
       "/sample-users.csv",
+      "/csv-instructions-readme.txt",
       "/api/users",
       "/api/groups",
       "/api/templates",

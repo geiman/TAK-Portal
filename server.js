@@ -485,6 +485,10 @@ app.get("/sample-users.csv", requireGlobalAdmin, (req, res) => {
   const filePath = path.join(__dirname, "sample-users.csv");
   return res.download(filePath, "users-import-template.csv");
 });
+app.get("/csv-instructions-readme.txt", requireGlobalAdmin, (req, res) => {
+  const filePath = path.join(__dirname, "csv-instructions-readme.txt");
+  return res.download(filePath, "csv-instructions-readme.txt");
+});
 app.get("/groups", (req, res) => res.render("groups"));
 app.get("/agencies", requireGlobalAdmin, (req, res) =>
   res.render("agencies", {
