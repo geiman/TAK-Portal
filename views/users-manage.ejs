@@ -101,9 +101,10 @@
         </label>
       </div>
 
-      <div style="grid-column: 1 / -1; display:flex; align-items:center; gap:10px; flex-wrap: wrap;">
+      <div class="createActionsRow" style="grid-column: 1 / -1; display:flex; align-items:center; gap:10px; flex-wrap: wrap;">
         <button class="btn" type="submit" id="createUserSubmitBtn">Create New User</button>
         <button class="btn success" type="button" id="createCsvBtn">Create from CSV</button>
+        <button class="btn btn-access createTemplateDownloadBtn" type="button" id="downloadCsvTemplateBtn">Download CSV Template</button>
         <input type="file" id="createCsvFileInput" accept=".csv" style="display:none" />
         <span id="createMsg" class="msg"></span>
       </div>
@@ -389,6 +390,7 @@ const createUserSubmitBtn = document.getElementById("createUserSubmitBtn");
 const form = document.getElementById("createForm");
 const csvBtn = document.getElementById("createCsvBtn");
 const csvFileInput = document.getElementById("createCsvFileInput");
+const downloadCsvTemplateBtn = document.getElementById("downloadCsvTemplateBtn");
 
 let groupsCache = [];
 let templatesCache = [];
@@ -725,6 +727,26 @@ form.onsubmit = async (e) => {
 })();
 
 // -------------------- CSV Import --------------------
+if (downloadCsvTemplateBtn) {
+  downloadCsvTemplateBtn.onclick = () => {
+    // Keep this template aligned to the required CSV import header.
+    const templateCsv = [
+      "badge,agency,firstName,lastName,email,password,template",
+      "12345,SO,Jane,Doe,jane.doe@agency.gov,,Default Patrol"
+    ].join("\n");
+
+    const blob = new Blob([templateCsv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "users-import-template.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+}
+
 if (csvBtn && csvFileInput) {
   csvBtn.onclick = () => {
     setMsg("");
@@ -2800,6 +2822,21 @@ th.sortable:hover{
 .templateBar select{
   min-width: 180px;
   max-width: 420px;
+}
+
+.createTemplateDownloadBtn{
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+/* Purple accent used elsewhere in portal (Mutual Aid / Manage Access). */
+.btn-access{
+  background: #7c3aed;
+  border-color: #7c3aed;
+  color: #fff;
+}
+.btn-access:hover{
+  filter: brightness(0.95);
 }
 
 /* Edit user: block interaction until Authentik user + group data is loaded */
