@@ -729,21 +729,12 @@ form.onsubmit = async (e) => {
 // -------------------- CSV Import --------------------
 if (downloadCsvTemplateBtn) {
   downloadCsvTemplateBtn.onclick = () => {
-    // Keep this template aligned to the required CSV import header.
-    const templateCsv = [
-      "badge,agency,firstName,lastName,email,password,template",
-      "12345,SO,Jane,Doe,jane.doe@agency.gov,,Default Patrol"
-    ].join("\n");
-
-    const blob = new Blob([templateCsv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url;
+    a.href = "/sample-users.csv";
     a.download = "users-import-template.csv";
     document.body.appendChild(a);
     a.click();
     a.remove();
-    URL.revokeObjectURL(url);
   };
 }
 
