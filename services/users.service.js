@@ -41,6 +41,7 @@ async function assertUserNotActionLocked(userId, { ignoreLocks } = {}) {
 
 const emailSvc = require("./email.service");
 const { renderTemplate, htmlToText } = require("./emailTemplates.service");
+const { toSafeApiError } = require("./apiErrorPayload.service");
 
 // Helpers
 function normalizePath(p) {
@@ -74,6 +75,18 @@ function validatePassword(password) {
   if (!/[0-9]/.test(p)) return "Password must contain a number.";
   if (!/[!@#$%^&*()_+\-=[\]{};':\"\\|,.<>/?]/.test(p))
     return "Password must contain a symbol.";
+  return null;
+}
+
+/** When non-empty, must be acceptable to Authentik/Django email validation (no leading/trailing check only — trim in caller). */
+function validateEmailFormatIfPresent(email) {
+  const m = String(email || "").trim();
+  if (!m) return null;
+  if (/\s/.test(m)) return "Enter a valid email address.";
+  // Pragmatic single-line email pattern; aligns with common HTML5 / Django checks.
+  const re =
+    /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+  if (!re.test(m)) return "Enter a valid email address.";
   return null;
 }
 
@@ -928,6 +941,11 @@ async function createUser(
   if (!first) throw new Error("First name required");
   if (!last) throw new Error("Last name required");
 
+  if (mail) {
+    const emailFmtErr = validateEmailFormatIfPresent(mail);
+    if (emailFmtErr) throw new Error(emailFmtErr);
+  }
+
   const name = `${last}, ${first}`;
 
   const perm = String(permissions || "user").trim().toLowerCase() || "user";
@@ -1273,8 +1291,8 @@ async function fetchUsersForDashboardStats() {
 //   email
 //   password (may be blank)
 //   template (name must exist for the agency)
-// Any validation failure (except existing users) = ALL rows fail and NO users are created.
-// Existing users are *skipped* but reported back.
+// Rows that fail validation or Authentik creation are skipped; valid rows are still created.
+// Existing users are *skipped* but reported back (not counted as failures).
 async function importUsersFromCsvBuffer(buffer, opts = {}) {
   if (!buffer) throw new Error("No file uploaded");
 
@@ -1343,7 +1361,8 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
 
   const agencies = agenciesStore.load();
   const rows = [];
-  const errors = [];
+  /** @type {Array<{ line: number, phase: string, messages: string[], badge?: string, email?: string, username?: string }>} */
+  const failed = [];
 
   // Inform UI that we're validating (no network calls yet)
   reportProgress({
@@ -1368,24 +1387,28 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
     const password = get(parts, "password");
     const templateName = get(parts, "template");
 
-    if (!badge) errors.push({ line: lineNum, message: "Missing badge" });
-    if (!agencyRaw) errors.push({ line: lineNum, message: "Missing agency" });
-    if (!firstName) errors.push({ line: lineNum, message: "Missing first name" });
-    if (!lastName) errors.push({ line: lineNum, message: "Missing last name" });
-    if (!templateName) errors.push({ line: lineNum, message: "Missing template" });
+    const rowErrors = [];
+
+    if (!agencyRaw) rowErrors.push("Missing agency");
+    if (!firstName) rowErrors.push("Missing first name");
+    if (!lastName) rowErrors.push("Missing last name");
+    if (!templateName) rowErrors.push("Missing template");
+
+    if (!String(email || "").trim()) {
+      rowErrors.push("Missing email");
+    } else {
+      const emailErr = validateEmailFormatIfPresent(email);
+      if (emailErr) rowErrors.push(emailErr);
+    }
 
     // Badge must be numerics only (same rule as UI)
     const badgeErr = validateBadgeNumber(badge);
-    if (badgeErr) {
-      errors.push({ line: lineNum, message: badgeErr });
-    }
+    if (badgeErr) rowErrors.push(badgeErr);
 
     // Password: blank allowed. If non-blank, must pass validatePassword.
     if (password) {
       const pwdErr = validatePassword(password);
-      if (pwdErr) {
-        errors.push({ line: lineNum, message: pwdErr });
-      }
+      if (pwdErr) rowErrors.push(pwdErr);
     }
 
     // Resolve agency (suffix or prefix / groupPrefix)
@@ -1398,17 +1421,14 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
         agencies.find(a => String(a.groupPrefix || "").toLowerCase() === lower);
 
       if (!agency) {
-        errors.push({ line: lineNum, message: `Unknown agency "${agencyRaw}"` });
+        rowErrors.push(`Unknown agency "${agencyRaw}"`);
       } else {
         agencySuffix = String(agency.suffix || "").trim();
 
         if (allowedAgencySuffixes && allowedAgencySuffixes.length) {
           const sfxLower = String(agencySuffix || "").trim().toLowerCase();
           if (!allowedAgencySuffixes.includes(sfxLower)) {
-            errors.push({
-              line: lineNum,
-              message: `You do not have access to agency "${agencyRaw}"`,
-            });
+            rowErrors.push(`You do not have access to agency "${agencyRaw}"`);
           }
         }
       }
@@ -1423,11 +1443,28 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
           String(templateName).trim().toLowerCase()
       );
       if (!found) {
-        errors.push({
-          line: lineNum,
-          message: `Template "${templateName}" not found for agency "${agencySuffix}"`,
-        });
+        rowErrors.push(
+          `Template "${templateName}" not found for agency "${agencySuffix}"`
+        );
       }
+    }
+
+    if (rowErrors.length) {
+      failed.push({
+        line: lineNum,
+        phase: "validation",
+        messages: rowErrors,
+        badge: badge || undefined,
+        email: String(email || "").trim() || undefined,
+      });
+      reportProgress({
+        phase: "validating",
+        total: Math.max(0, lines.length - 1),
+        processed: Math.max(0, i),
+        created: 0,
+        skipped: 0,
+      });
+      continue;
     }
 
     rows.push({
@@ -1449,13 +1486,6 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
       created: 0,
       skipped: 0,
     });
-  }
-
-  if (errors.length) {
-    const msg =
-      "CSV validation failed: " +
-      errors.map(e => `Row ${e.line}: ${e.message}`).join("; ");
-    throw new Error(msg);
   }
 
   reportProgress({ phase: "creating", total: rows.length, processed: 0, created: 0, skipped: 0, force: true });
@@ -1503,10 +1533,17 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
       );
 
       if (!selectedTemplate) {
-        // Should not happen due to earlier validation, but keep defensive.
-        throw new Error(
-          `Template "${row.templateName}" not found during creation`
-        );
+        failed.push({
+          line: row.lineNum,
+          phase: "creation",
+          messages: [
+            `Template "${row.templateName}" not found during creation`,
+          ],
+          username: `${row.badge}${row.agencySuffix}`,
+          badge: row.badge,
+          email: String(row.email || "").trim() || undefined,
+        });
+        return;
       }
 
       const username = `${row.badge}${row.agencySuffix}`;
@@ -1524,31 +1561,44 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
       // Use template name directly (no index math)
       const templateIndex = selectedTemplate.name;
 
-      const result = await createUser(
-        {
-          badge: row.badge,
-          agencySuffix: row.agencySuffix,
-          email: row.email,
-          firstName: row.firstName,
-          lastName: row.lastName,
-          password: row.password || undefined, // <- per-row password / no-password
-          templateIndex,
-          manualGroupIds: [],
-          allGroups,
-        },
-        {
-          skipExistenceCheck: true,
-          createdBy,
-          creationMethod,
-        }
-      );
+      try {
+        const result = await createUser(
+          {
+            badge: row.badge,
+            agencySuffix: row.agencySuffix,
+            email: row.email,
+            firstName: row.firstName,
+            lastName: row.lastName,
+            password: row.password || undefined, // <- per-row password / no-password
+            templateIndex,
+            manualGroupIds: [],
+            allGroups,
+          },
+          {
+            skipExistenceCheck: true,
+            createdBy,
+            creationMethod,
+          }
+        );
 
-      const createdUsername =
-        (result && result.user && result.user.username) || username;
-      created.push({
-        username: createdUsername,
-        templateName: selectedTemplate ? String(selectedTemplate.name || row.templateName || "").trim() : (row.templateName || ""),
-      });
+        const createdUsername =
+          (result && result.user && result.user.username) || username;
+        created.push({
+          username: createdUsername,
+          templateName: selectedTemplate
+            ? String(selectedTemplate.name || row.templateName || "").trim()
+            : row.templateName || "",
+        });
+      } catch (createErr) {
+        failed.push({
+          line: row.lineNum,
+          phase: "creation",
+          messages: [toSafeApiError(createErr)],
+          username,
+          badge: row.badge,
+          email: String(row.email || "").trim() || undefined,
+        });
+      }
     } finally {
       processed += 1;
       reportProgress({
@@ -1570,8 +1620,10 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
     force: true,
   });
 
+  failed.sort((a, b) => Number(a.line) - Number(b.line));
+
   invalidateUsersCache();
-  return { count: created.length, created, skipped };
+  return { count: created.length, created, skipped, failed };
 }
 
 // Search users

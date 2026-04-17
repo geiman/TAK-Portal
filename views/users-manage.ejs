@@ -814,6 +814,8 @@ if (csvBtn && csvFileInput) {
         const count = Number(result.count || 0);
         const skippedArr = Array.isArray(result.skipped) ? result.skipped : [];
         const skippedCount = skippedArr.length;
+        const failedArr = Array.isArray(result.failed) ? result.failed : [];
+        const failedCount = failedArr.length;
 
         let message = "";
         if (count && skippedCount) {
@@ -831,12 +833,30 @@ if (csvBtn && csvFileInput) {
 
         if (skippedCount) {
           const usernames = skippedArr.map(s => s.username).join(", ");
-          message += ` (Skipped usernames: ${usernames})`;
+          message += ` Skipped (already exist): ${usernames}.`;
+        }
+
+        if (failedCount) {
+          const maxList = 25;
+          const lines = failedArr.slice(0, maxList).map((f) => {
+            const msgs = Array.isArray(f.messages) ? f.messages.join("; ") : String(f.messages || "");
+            const bits = [`line ${f.line}`];
+            if (f.username) bits.push(f.username);
+            else if (f.badge) bits.push(`badge ${f.badge}`);
+            return `${bits.join(" · ")} — ${msgs}`;
+          });
+          message += ` Not imported (${failedCount} row${failedCount === 1 ? "" : "s"}): ${lines.join(" | ")}`;
+          if (failedCount > maxList) {
+            message += ` | …and ${failedCount - maxList} more (full list in browser console).`;
+          }
         }
 
         setMsg(message, count > 0);
         if (skippedArr.length) {
           console.warn("Skipped users during CSV import:", skippedArr);
+        }
+        if (failedArr.length) {
+          console.warn("Rows not imported (validation or account creation):", failedArr);
         }
 
         // Refresh the Existing Users table after the import completes
