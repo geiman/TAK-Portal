@@ -481,6 +481,10 @@ app.get("/users/manage", (req, res) => {
     pendingUserRequestsCount,
   });
 });
+app.get("/sample-users.csv", requireGlobalAdmin, (req, res) => {
+  const filePath = path.join(__dirname, "sample-users.csv");
+  return res.download(filePath, "users-import-template.csv");
+});
 app.get("/groups", (req, res) => res.render("groups"));
 app.get("/agencies", requireGlobalAdmin, (req, res) =>
   res.render("agencies", {

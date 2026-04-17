@@ -216,6 +216,7 @@ if (!isPublicPath) {
       "/setup-my-device",
       "/pending-user-requests",
       "/documents",
+      "/sample-users.csv",
       "/api/users",
       "/api/groups",
       "/api/templates",
