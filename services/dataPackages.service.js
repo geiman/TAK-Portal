@@ -714,40 +714,23 @@ async function updateDataPackageDetails(hash, patch = {}) {
 
   if (groups != null) {
     let ok = false;
-    // Some TAK builds throw 500 for tak_ prefixed groups on this endpoint.
-    // Treat that as unsupported format and continue trying non-tak variants.
-    ok = !!(await tryPutUnsupportedAsNull(
-      client,
-      `/Marti/api/sync/metadata/${encodeURIComponent(h)}/groups`,
-      groups,
-      { headers: { "Content-Type": "application/json", Accept: "application/json" } },
-      [500]
-    ));
-    if (!ok) {
-      ok = !!(await tryPutUnsupportedAsNull(
-        client,
-        `/Marti/api/sync/metadata/${encodeURIComponent(h)}/group`,
-        groups,
-        { headers: { "Content-Type": "application/json", Accept: "application/json" } },
-        [500]
-      ));
-    }
-    if (!ok) {
-      ok = !!(await tryPutUnsupportedAsNull(
-        client,
-        `/Marti/api/sync/metadata/${encodeURIComponent(h)}/groups`,
-        groups.join(","),
-        { headers: { "Content-Type": "text/plain; charset=utf-8", Accept: "application/json" } },
-        [500]
-      ));
-    }
+    // Try non-tak names first; many TAK builds store/display groups without tak_.
     if (!ok && groupsNoTak && groupsNoTak.length) {
       ok = !!(await tryPutUnsupportedAsNull(
         client,
         `/Marti/api/sync/metadata/${encodeURIComponent(h)}/groups`,
         groupsNoTak,
         { headers: { "Content-Type": "application/json", Accept: "application/json" } },
-        [500]
+        [400, 500]
+      ));
+    }
+    if (!ok && groupsNoTak && groupsNoTak.length) {
+      ok = !!(await tryPutUnsupportedAsNull(
+        client,
+        `/Marti/api/sync/metadata/${encodeURIComponent(h)}/group`,
+        groupsNoTak,
+        { headers: { "Content-Type": "application/json", Accept: "application/json" } },
+        [400, 500]
       ));
     }
     if (!ok && groupsNoTak && groupsNoTak.length) {
@@ -756,7 +739,34 @@ async function updateDataPackageDetails(hash, patch = {}) {
         `/Marti/api/sync/metadata/${encodeURIComponent(h)}/groups`,
         groupsNoTak.join(","),
         { headers: { "Content-Type": "text/plain; charset=utf-8", Accept: "application/json" } },
-        [500]
+        [400, 500]
+      ));
+    }
+
+    // Fallbacks with tak_ values for builds that still expect them.
+    ok = !!(await tryPutUnsupportedAsNull(
+      client,
+      `/Marti/api/sync/metadata/${encodeURIComponent(h)}/groups`,
+      groups,
+      { headers: { "Content-Type": "application/json", Accept: "application/json" } },
+      [400, 500]
+    ));
+    if (!ok) {
+      ok = !!(await tryPutUnsupportedAsNull(
+        client,
+        `/Marti/api/sync/metadata/${encodeURIComponent(h)}/group`,
+        groups,
+        { headers: { "Content-Type": "application/json", Accept: "application/json" } },
+        [400, 500]
+      ));
+    }
+    if (!ok) {
+      ok = !!(await tryPutUnsupportedAsNull(
+        client,
+        `/Marti/api/sync/metadata/${encodeURIComponent(h)}/groups`,
+        groups.join(","),
+        { headers: { "Content-Type": "text/plain; charset=utf-8", Accept: "application/json" } },
+        [400, 500]
       ));
     }
     if (!ok) {
