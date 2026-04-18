@@ -418,9 +418,18 @@ async function deleteDataPackage(hash) {
   const client = buildTakOriginAxios({ timeout: 60000 });
   const res = await client.delete("/api/data_packages", {
     params: { hash: h },
-    validateStatus: (s) => (s >= 200 && s < 300) || s === 404,
+    validateStatus: (s) => (s >= 200 && s < 300) || s === 404 || s === 405,
   });
-  if (res.status === 404) return { ok: true, alreadyGone: true };
+
+  // Some TAK/Marti builds only expose file deletion via /Marti/api/files/{hash}.
+  if (res.status === 404 || res.status === 405) {
+    const fallback = await client.delete(`/Marti/api/files/${encodeURIComponent(h)}`, {
+      validateStatus: (s) => (s >= 200 && s < 300) || s === 404,
+    });
+    if (fallback.status === 404) return { ok: true, alreadyGone: true };
+    return fallback.data || { ok: true };
+  }
+
   return res.data;
 }
 

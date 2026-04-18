@@ -24,7 +24,6 @@
         <button type="button" class="btn success data-packages-upload-btn" id="btnUploadPackage">Upload</button>
       </label>
     </div>
-    <div class="settings-help" style="margin-top:8px;">Keyword is fixed to <code>missionpackage</code>. Tool is fixed to <code>public</code>.</div>
     <div id="uploadMsg" class="msg" style="margin-top:10px;"></div>
   </div>
 
@@ -105,6 +104,8 @@
   @media (min-width: 641px) { .data-packages-page .data-packages-table { min-width: 720px; } }
   .data-packages-page .data-packages-actions-cell { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   .data-packages-page .data-packages-actions-cell .btn { margin: 0 !important; }
+  .data-packages-page .btn.archive { background: #b45309; border-color: #b45309; color: #fff; }
+  .data-packages-page .btn.archive:hover { filter: brightness(1.08); }
 </style>
 
 <script>
@@ -272,7 +273,21 @@
     bDel.disabled = !hash;
     bDel.addEventListener("click", function () { deletePackage(hash, filename, isArchived); });
 
+    var bArchiveRestore = document.createElement("button");
+    bArchiveRestore.type = "button";
+    bArchiveRestore.disabled = !hash;
+    if (isArchived) {
+      bArchiveRestore.className = "btn success";
+      bArchiveRestore.textContent = "Restore";
+      bArchiveRestore.addEventListener("click", function () { restorePackage(hash, filename); });
+    } else {
+      bArchiveRestore.className = "btn archive";
+      bArchiveRestore.textContent = "Archive";
+      bArchiveRestore.addEventListener("click", function () { archivePackage(hash, filename); });
+    }
+
     tdAct.appendChild(bDl);
+    tdAct.appendChild(bArchiveRestore);
     tdAct.appendChild(bDel);
     tbody.appendChild(tr);
   }
@@ -375,7 +390,11 @@
   }
 
   async function deletePackage(hash, filename, isArchived) {
-    if (!window.confirm("Delete data package \"" + (filename || hash) + "\"?")) return;
+    var warning =
+      "Permanently delete data package \"" + (filename || hash) + "\"?\n\n" +
+      "This is PERMANENT and cannot be undone.\n" +
+      "Use Archive if you may need this package later.";
+    if (!window.confirm(warning)) return;
     setMsg(isArchived ? archivedPackagesMsg : packagesMsg, "Deleting package…", undefined);
     try {
       var res = await fetch(API + "/packages/" + encodeURIComponent(hash), { method: "DELETE" });
@@ -387,6 +406,46 @@
       await loadPackages();
     } catch (e) {
       setMsg(isArchived ? archivedPackagesMsg : packagesMsg, e.message || "Delete failed", false);
+    }
+  }
+
+  async function archivePackage(hash, filename) {
+    if (!window.confirm("Archive \"" + (filename || hash) + "\"?")) return;
+    setMsg(packagesMsg, "Archiving package…", undefined);
+    try {
+      var res = await fetch(API + "/packages/" + encodeURIComponent(hash) + "/metadata", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ keywords: [ARCHIVED_KEYWORD] }),
+      });
+      var text = await res.text();
+      var j = {};
+      try { j = JSON.parse(text); } catch (_) {}
+      if (!res.ok) throw new Error((j && j.error) || "Archive failed");
+      setMsg(packagesMsg, "Package archived.", true);
+      await loadPackages();
+    } catch (e) {
+      setMsg(packagesMsg, e.message || "Archive failed", false);
+    }
+  }
+
+  async function restorePackage(hash, filename) {
+    if (!window.confirm("Restore \"" + (filename || hash) + "\" to active packages?")) return;
+    setMsg(archivedPackagesMsg, "Restoring package…", undefined);
+    try {
+      var res = await fetch(API + "/packages/" + encodeURIComponent(hash) + "/metadata", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ keywords: [ACTIVE_KEYWORD] }),
+      });
+      var text = await res.text();
+      var j = {};
+      try { j = JSON.parse(text); } catch (_) {}
+      if (!res.ok) throw new Error((j && j.error) || "Restore failed");
+      setMsg(archivedPackagesMsg, "Package restored.", true);
+      await loadPackages();
+    } catch (e) {
+      setMsg(archivedPackagesMsg, e.message || "Restore failed", false);
     }
   }
 
