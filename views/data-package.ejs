@@ -396,9 +396,18 @@
       var j = {};
       try { j = JSON.parse(text); } catch (_) {}
       if (!res.ok) throw new Error((j && j.error) || "Update failed");
-      setEditMsg("Package updated.", true);
+      if (j && Array.isArray(j.unsupported) && j.unsupported.length) {
+        setEditMsg(
+          "Saved what this TAK build supports. Not supported: " + j.unsupported.join(", "),
+          false
+        );
+      } else {
+        setEditMsg("Package updated.", true);
+      }
       await loadPackages();
-      closeEditModal();
+      if (!(j && Array.isArray(j.unsupported) && j.unsupported.length)) {
+        closeEditModal();
+      }
     } catch (e) {
       setEditMsg(e.message || "Update failed", false);
     }

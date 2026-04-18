@@ -812,13 +812,8 @@ async function updateDataPackageDetails(hash, patch = {}) {
   }
 
   if (unsupported.length) {
-    const e = new Error(
-      `This TAK build does not support updating: ${unsupported.join(", ")}`
-    );
-    e.code = "DETAILS_UNSUPPORTED";
-    throw e;
+    out.unsupported = unsupported.slice();
   }
-
   return out;
 }
 

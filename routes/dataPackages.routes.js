@@ -108,9 +108,13 @@ router.post("/packages/upload", upload.single("file"), async (req, res) => {
       const computedHash = crypto.createHash("sha256").update(file.buffer).digest("hex");
       const targetHash = responseHash || computedHash;
       try {
-        await dataPackagesSvc.updateDataPackageDetails(targetHash, {
+        const detailsOut = await dataPackagesSvc.updateDataPackageDetails(targetHash, {
           groups: requestedGroups,
         });
+        if (detailsOut && Array.isArray(detailsOut.unsupported) && detailsOut.unsupported.includes("groups")) {
+          out.groupAssignWarning =
+            "Uploaded, but this TAK build does not support enforcing group restrictions on packages.";
+        }
         try {
           const verify = await dataPackagesSvc.listDataPackages({ hash: targetHash });
           const items = Array.isArray(verify && verify.items) ? verify.items : [];
