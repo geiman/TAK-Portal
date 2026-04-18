@@ -17,7 +17,12 @@
       </label>
       <label class="data-packages-upload-field">
         Assign Groups
-        <select id="uploadGroups" multiple size="6"></select>
+        <div class="filter-multiselect" id="uploadGroupsFilter">
+          <button type="button" class="btn filter-toggle" id="uploadGroupsToggle">Select groups ▾</button>
+          <div class="filter-menu">
+            <div class="filter-menu-inner" id="uploadGroupsMenu"></div>
+          </div>
+        </div>
       </label>
       <label class="data-packages-upload-btn-wrap">
         <span class="data-packages-upload-spacer" aria-hidden="true">&nbsp;</span>
@@ -88,7 +93,7 @@
   .data-packages-status.bad { border-color: rgba(255,80,80,.45); background: rgba(255,80,80,.08); }
   .data-packages-page .data-packages-upload-row { flex-wrap: wrap; align-items: flex-end; gap: 12px; }
   .data-packages-page .data-packages-upload-field { min-width: 0; flex: 1 1 260px; }
-  .data-packages-page .data-packages-upload-field input, .data-packages-page .data-packages-upload-field select { width: 100%; max-width: 100%; box-sizing: border-box; }
+  .data-packages-page .data-packages-upload-field input { width: 100%; max-width: 100%; box-sizing: border-box; }
   .data-packages-page .data-packages-upload-btn-wrap { flex: 1 1 100%; min-width: 0; }
   .data-packages-page .data-packages-upload-spacer { display: none; }
   .data-packages-page .data-packages-upload-btn { width: 100%; box-sizing: border-box; }
@@ -104,6 +109,43 @@
   .data-packages-page .data-packages-actions-cell .btn { margin: 0 !important; }
   .data-packages-page .btn.archive { background: #b45309; border-color: #b45309; color: #fff; }
   .data-packages-page .btn.archive:hover { filter: brightness(1.08); }
+  .data-packages-page .filter-multiselect { position: relative; width: 100%; }
+  .data-packages-page .filter-multiselect .filter-toggle { width: 100%; text-align: left; }
+  .data-packages-page .filter-multiselect .filter-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    z-index: 20;
+    max-height: 260px;
+    overflow: auto;
+    background: var(--card, #111827);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 8px;
+    box-shadow: 0 12px 30px rgba(0,0,0,.6);
+    padding: 6px 0;
+    display: none;
+  }
+  .data-packages-page .filter-multiselect.open .filter-menu { display: block; }
+  .data-packages-page .filter-multiselect .filter-menu-inner { padding: 0 8px 6px; }
+  .data-packages-page .filter-option {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .data-packages-page .filter-option input[type="checkbox"] {
+    margin: 0;
+    flex-shrink: 0;
+    width: 1.125em;
+    height: 1.125em;
+    display: inline-block;
+    vertical-align: middle;
+  }
+  .data-packages-page .filter-option span { flex: 1; min-width: 0; text-align: left; }
 </style>
 
 <script>
@@ -114,7 +156,9 @@
 
   var statusBanner = document.getElementById("statusBanner");
   var uploadFile = document.getElementById("uploadFile");
-  var uploadGroups = document.getElementById("uploadGroups");
+  var uploadGroupsFilter = document.getElementById("uploadGroupsFilter");
+  var uploadGroupsToggle = document.getElementById("uploadGroupsToggle");
+  var uploadGroupsMenu = document.getElementById("uploadGroupsMenu");
   var btnUploadPackage = document.getElementById("btnUploadPackage");
   var uploadMsg = document.getElementById("uploadMsg");
   var packageFilter = document.getElementById("packageFilter");
@@ -126,6 +170,7 @@
   var archivedCount = document.getElementById("archivedCount");
 
   var packagesCache = [];
+  var selectedUploadGroups = [];
 
   function esc(s) {
     return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -185,8 +230,8 @@
   }
 
   async function loadGroups() {
-    if (!uploadGroups) return;
-    uploadGroups.innerHTML = "";
+    if (!uploadGroupsMenu) return;
+    uploadGroupsMenu.innerHTML = "";
     try {
       var res = await fetch("/api/groups");
       var j = await res.json();
@@ -202,14 +247,42 @@
       for (var i = 0; i < sorted.length; i++) {
         var name = String((sorted[i] && sorted[i].name) || "").trim();
         if (!name) continue;
-        var opt = document.createElement("option");
-        opt.value = name;
-        opt.textContent = stripTakPrefix(name);
-        uploadGroups.appendChild(opt);
+        var lbl = document.createElement("label");
+        lbl.className = "filter-option";
+        var cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.value = name;
+        cb.addEventListener("change", onUploadGroupsChange);
+        var span = document.createElement("span");
+        span.textContent = stripTakPrefix(name);
+        lbl.appendChild(cb);
+        lbl.appendChild(span);
+        uploadGroupsMenu.appendChild(lbl);
       }
+      updateUploadGroupsToggleLabel();
     } catch (e) {
       setMsg(uploadMsg, e.message || "Could not load groups.", false);
     }
+  }
+
+  function onUploadGroupsChange() {
+    if (!uploadGroupsMenu) return;
+    var checked = uploadGroupsMenu.querySelectorAll('input[type="checkbox"]:checked');
+    selectedUploadGroups = Array.prototype.map.call(checked, function (x) { return x.value; });
+    updateUploadGroupsToggleLabel();
+  }
+
+  function updateUploadGroupsToggleLabel() {
+    if (!uploadGroupsToggle) return;
+    if (!selectedUploadGroups.length) {
+      uploadGroupsToggle.textContent = "Select groups ▾";
+      return;
+    }
+    if (selectedUploadGroups.length === 1) {
+      uploadGroupsToggle.textContent = stripTakPrefix(selectedUploadGroups[0]) + " ▾";
+      return;
+    }
+    uploadGroupsToggle.textContent = selectedUploadGroups.length + " groups selected ▾";
   }
 
   async function loadStatus() {
@@ -361,17 +434,11 @@
       var file = uploadFile && uploadFile.files && uploadFile.files[0];
       if (!file) throw new Error("Choose a file to upload.");
 
-      var selected = [];
-      if (uploadGroups && uploadGroups.options) {
-        for (var i = 0; i < uploadGroups.options.length; i++) {
-          if (uploadGroups.options[i].selected) selected.push(uploadGroups.options[i].value);
-        }
-      }
       var fd = new FormData();
       fd.append("file", file, file.name || "data-package.zip");
       fd.append("keywords", ACTIVE_KEYWORD);
       fd.append("tool", "public");
-      if (selected.length) fd.append("groups", selected.join(","));
+      if (selectedUploadGroups.length) fd.append("groups", selectedUploadGroups.join(","));
 
       var res = await fetch(API + "/packages/upload", { method: "POST", body: fd });
       var text = await res.text();
@@ -471,6 +538,17 @@
   if (btnUploadPackage) btnUploadPackage.addEventListener("click", uploadPackage);
   if (btnRefreshPackages) btnRefreshPackages.addEventListener("click", loadPackages);
   if (packageFilter) packageFilter.addEventListener("input", renderTables);
+  if (uploadGroupsToggle && uploadGroupsFilter) {
+    uploadGroupsToggle.addEventListener("click", function () {
+      var open = uploadGroupsFilter.classList.contains("open");
+      if (open) uploadGroupsFilter.classList.remove("open");
+      else uploadGroupsFilter.classList.add("open");
+    });
+  }
+  document.addEventListener("click", function (e) {
+    if (!uploadGroupsFilter) return;
+    if (!uploadGroupsFilter.contains(e.target)) uploadGroupsFilter.classList.remove("open");
+  });
 
   loadStatus().then(function (ok) {
     if (!ok) return;
