@@ -645,12 +645,13 @@ async function updateDataPackageMetadata(hash, patch = {}) {
   return out;
 }
 
-async function tryPutUnsupportedAsNull(client, url, body, opts = {}) {
+async function tryPutUnsupportedAsNull(client, url, body, opts = {}, unsupportedStatuses = []) {
   try {
     return await client.put(url, body, opts);
   } catch (err) {
     const s = err?.response?.status;
-    if (s === 404 || s === 405 || s === 501) return null;
+    const tolerated = new Set([404, 405, 501, ...unsupportedStatuses]);
+    if (tolerated.has(s)) return null;
     throw err;
   }
 }
@@ -713,18 +714,22 @@ async function updateDataPackageDetails(hash, patch = {}) {
 
   if (groups != null) {
     let ok = false;
+    // Some TAK builds throw 500 for tak_ prefixed groups on this endpoint.
+    // Treat that as unsupported format and continue trying non-tak variants.
     ok = !!(await tryPutUnsupportedAsNull(
       client,
       `/Marti/api/sync/metadata/${encodeURIComponent(h)}/groups`,
       groups,
-      { headers: { "Content-Type": "application/json", Accept: "application/json" } }
+      { headers: { "Content-Type": "application/json", Accept: "application/json" } },
+      [500]
     ));
     if (!ok) {
       ok = !!(await tryPutUnsupportedAsNull(
         client,
         `/Marti/api/sync/metadata/${encodeURIComponent(h)}/group`,
         groups,
-        { headers: { "Content-Type": "application/json", Accept: "application/json" } }
+        { headers: { "Content-Type": "application/json", Accept: "application/json" } },
+        [500]
       ));
     }
     if (!ok) {
@@ -732,7 +737,8 @@ async function updateDataPackageDetails(hash, patch = {}) {
         client,
         `/Marti/api/sync/metadata/${encodeURIComponent(h)}/groups`,
         groups.join(","),
-        { headers: { "Content-Type": "text/plain; charset=utf-8", Accept: "application/json" } }
+        { headers: { "Content-Type": "text/plain; charset=utf-8", Accept: "application/json" } },
+        [500]
       ));
     }
     if (!ok && groupsNoTak && groupsNoTak.length) {
@@ -740,7 +746,8 @@ async function updateDataPackageDetails(hash, patch = {}) {
         client,
         `/Marti/api/sync/metadata/${encodeURIComponent(h)}/groups`,
         groupsNoTak,
-        { headers: { "Content-Type": "application/json", Accept: "application/json" } }
+        { headers: { "Content-Type": "application/json", Accept: "application/json" } },
+        [500]
       ));
     }
     if (!ok && groupsNoTak && groupsNoTak.length) {
@@ -748,7 +755,8 @@ async function updateDataPackageDetails(hash, patch = {}) {
         client,
         `/Marti/api/sync/metadata/${encodeURIComponent(h)}/groups`,
         groupsNoTak.join(","),
-        { headers: { "Content-Type": "text/plain; charset=utf-8", Accept: "application/json" } }
+        { headers: { "Content-Type": "text/plain; charset=utf-8", Accept: "application/json" } },
+        [500]
       ));
     }
     if (!ok) {
