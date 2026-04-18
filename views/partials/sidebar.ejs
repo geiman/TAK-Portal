@@ -78,9 +78,6 @@
               <a href="/data-packages" class="<%= isActive('/data-packages') ? 'active' : '' %>">Data Packages</a>
               <a href="/data-sync" class="<%= isActive('/data-sync') ? 'active' : '' %>">Data Sync</a>
             <% } %>
-            <% if (betaModeEnabled && (_isGlobalAdmin || _isAgencyAdmin)) { %>
-              <a href="/documents" class="<%= isActive('/documents') ? 'active' : '' %>">Documents</a>
-            <% } %>
             <a href="/email" class="<%= isActive('/email') ? 'active' : '' %>">Email Users</a>
             <% if (_isGlobalAdmin) { %>
               <a href="/locate" class="<%= isActive('/locate') ? 'active' : '' %>">Locate Persons</a>
