@@ -1,6 +1,5 @@
 const express = require("express");
 const multer = require("multer");
-const crypto = require("crypto");
 const { isTakConfigured } = require("../services/tak.service");
 const { getBool, getString } = require("../services/env");
 const dataPackagesSvc = require("../services/dataPackages.service");
@@ -83,71 +82,12 @@ router.post("/packages/upload", upload.single("file"), async (req, res) => {
       return res.status(400).json({ error: "Select a file to upload." });
     }
 
-    const requestedGroups = req.body && req.body.groups
-      ? String(req.body.groups)
-          .split(",")
-          .map((g) => String(g || "").trim())
-          .filter(Boolean)
-      : [];
-
     const out = await dataPackagesSvc.uploadDataPackage(file.buffer, file.originalname, {
       mimeType: file.mimetype || "application/octet-stream",
       keywords: "missionpackage",
+      tool: "public",
       creator_uid: req.body && req.body.creator_uid ? String(req.body.creator_uid) : "",
-      groups: requestedGroups.join(","),
     });
-
-    // TAK builds can ignore groups on initial upload. Force-apply selected groups
-    // immediately after upload using the file hash as the target.
-    if (requestedGroups.length) {
-      const responseHash =
-        (out && (out.hash || out.Hash || out.sha256 || out.SHA256 || out.id || out.ID))
-          ? String(out.hash || out.Hash || out.sha256 || out.SHA256 || out.id || out.ID).trim()
-          : "";
-      const computedHash = crypto.createHash("sha256").update(file.buffer).digest("hex");
-      const targetHash = responseHash || computedHash;
-      try {
-        const detailsOut = await dataPackagesSvc.updateDataPackageDetails(targetHash, {
-          groups: requestedGroups,
-        });
-        if (detailsOut && Array.isArray(detailsOut.unsupported) && detailsOut.unsupported.includes("groups")) {
-          out.groupAssignWarning =
-            "Uploaded, but this TAK build does not support enforcing group restrictions on packages.";
-        }
-        try {
-          const verify = await dataPackagesSvc.listDataPackages({ hash: targetHash });
-          const items = Array.isArray(verify && verify.items) ? verify.items : [];
-          const item = items[0] || {};
-          const rawGroups = String(item.groups || item.Groups || "").trim();
-          if (rawGroups) {
-            const got = rawGroups
-              .split(",")
-              .map((g) => String(g || "").trim().toLowerCase())
-              .filter(Boolean);
-            const want = requestedGroups
-              .map((g) => String(g || "").trim().toLowerCase())
-              .map((g) => (g.startsWith("tak_") ? g.slice(4) : g));
-            const hasAllWanted = want.every((w) => got.includes(w) || got.includes(`tak_${w}`));
-            const hasUnexpected = got.some((g) => {
-              if (g === "__anon__") return true;
-              if (want.includes(g)) return false;
-              if (g.startsWith("tak_") && want.includes(g.slice(4))) return false;
-              return true;
-            });
-            if (!hasAllWanted || hasUnexpected) {
-              out.groupAssignWarning =
-                "Uploaded, but TAK kept broader group visibility than requested.";
-            }
-          }
-        } catch (_) {
-          // verification best-effort only
-        }
-      } catch (e) {
-        out.groupAssignWarning =
-          "Uploaded, but TAK did not accept group restriction update: " +
-          String(e && e.message ? e.message : e);
-      }
-    }
     return res.json(out);
   } catch (err) {
     return sendTakError(res, err);
@@ -201,20 +141,6 @@ router.put("/packages/:hash/metadata", async (req, res) => {
       keywords: body.keywords,
       installOnEnrollment: body.installOnEnrollment,
       installOnConnection: body.installOnConnection,
-    });
-    return res.json(out);
-  } catch (err) {
-    return sendTakError(res, err);
-  }
-});
-
-router.put("/packages/:hash/details", async (req, res) => {
-  try {
-    const body = req.body && typeof req.body === "object" ? req.body : {};
-    const out = await dataPackagesSvc.updateDataPackageDetails(req.params.hash, {
-      filename: body.filename,
-      groups: body.groups,
-      expiration: body.expiration,
     });
     return res.json(out);
   } catch (err) {

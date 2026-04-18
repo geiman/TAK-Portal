@@ -15,15 +15,6 @@
         Choose File
         <input type="file" id="uploadFile" accept=".zip,application/zip,application/x-zip-compressed" />
       </label>
-      <label class="data-packages-upload-field">
-        Assign Groups
-        <div class="filter-multiselect" id="uploadGroupsFilter">
-          <button type="button" class="btn filter-toggle" id="uploadGroupsToggle">Select groups ▾</button>
-          <div class="filter-menu">
-            <div class="filter-menu-inner" id="uploadGroupsMenu"></div>
-          </div>
-        </div>
-      </label>
       <label class="data-packages-upload-btn-wrap">
         <span class="data-packages-upload-spacer" aria-hidden="true">&nbsp;</span>
         <button type="button" class="btn success data-packages-upload-btn" id="btnUploadPackage">Upload Data Package</button>
@@ -37,7 +28,7 @@
     <div class="row" style="flex-wrap:wrap; align-items:flex-end; gap:12px;">
       <label style="min-width:220px; flex:1 1 100%;">
         Filter
-        <input type="search" id="packageFilter" placeholder="Filter by filename/group/creator..." autocomplete="off" />
+        <input type="search" id="packageFilter" placeholder="Filter by filename/creator..." autocomplete="off" />
       </label>
     </div>
     <div id="packagesMsg" class="msg" style="margin:12px 0 0 0;"></div>
@@ -48,10 +39,9 @@
             <th>Filename</th>
             <th>Size</th>
             <th>Creator</th>
-            <th>Groups</th>
             <th>Expiration</th>
             <th>Last Updated</th>
-            <th style="min-width:120px;">Actions</th>
+            <th style="min-width:160px;">Actions</th>
           </tr>
         </thead>
         <tbody id="packagesTbody"></tbody>
@@ -72,10 +62,9 @@
               <th>Filename</th>
               <th>Size</th>
               <th>Creator</th>
-              <th>Groups</th>
               <th>Expiration</th>
               <th>Last Updated</th>
-              <th style="min-width:120px;">Actions</th>
+              <th style="min-width:160px;">Actions</th>
             </tr>
           </thead>
           <tbody id="archivedPackagesTbody"></tbody>
@@ -84,34 +73,6 @@
     </div>
   </details>
 </main>
-
-<div class="modalOverlay" id="editPackageOverlay" style="display:none;">
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="editPackageTitle" style="width:min(640px, 96vw);">
-    <div class="modalHeader">
-      <h2 id="editPackageTitle" style="margin:0;">Edit Data Package</h2>
-      <button type="button" class="btn" id="editPackageCloseBtn">Close</button>
-    </div>
-    <div class="modalBody">
-      <div id="editPackageMsg" class="msg" style="margin-bottom:10px;"></div>
-      <label style="display:block;">
-        Expiration
-        <input type="text" id="editPackageExpiration" placeholder="e.g. none or date/time" style="width:100%;box-sizing:border-box;" />
-      </label>
-      <label style="display:block; margin-top:10px;">
-        Assign Groups
-        <div class="filter-multiselect" id="editGroupsFilter">
-          <button type="button" class="btn filter-toggle" id="editGroupsToggle">Select groups ▾</button>
-          <div class="filter-menu">
-            <div class="filter-menu-inner" id="editGroupsMenu"></div>
-          </div>
-        </div>
-      </label>
-      <div class="row" style="margin-top:12px; gap:10px;">
-        <button type="button" class="btn success" id="editPackageSaveBtn">Save Changes</button>
-      </div>
-    </div>
-  </div>
-</div>
 
 <style>
   .data-packages-page.main { min-width: 0; max-width: 100%; box-sizing: border-box; }
@@ -136,43 +97,6 @@
   .data-packages-page .data-packages-actions-cell .btn { margin: 0 !important; }
   .data-packages-page .btn.archive { background: #b45309; border-color: #b45309; color: #fff; }
   .data-packages-page .btn.archive:hover { filter: brightness(1.08); }
-  .data-packages-page .filter-multiselect { position: relative; width: 100%; }
-  .data-packages-page .filter-multiselect .filter-toggle { width: 100%; text-align: left; }
-  .data-packages-page .filter-multiselect .filter-menu {
-    position: absolute;
-    top: calc(100% + 4px);
-    left: 0;
-    right: 0;
-    z-index: 20;
-    max-height: 260px;
-    overflow: auto;
-    background: var(--card, #111827);
-    border: 1px solid rgba(255,255,255,.08);
-    border-radius: 8px;
-    box-shadow: 0 12px 30px rgba(0,0,0,.6);
-    padding: 6px 0;
-    display: none;
-  }
-  .data-packages-page .filter-multiselect.open .filter-menu { display: block; }
-  .data-packages-page .filter-multiselect .filter-menu-inner { padding: 0 8px 6px; }
-  .data-packages-page .filter-option {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    gap: 10px;
-    padding: 6px 10px;
-    font-size: 13px;
-    cursor: pointer;
-  }
-  .data-packages-page .filter-option input[type="checkbox"] {
-    margin: 0;
-    flex-shrink: 0;
-    width: 1.125em;
-    height: 1.125em;
-    display: inline-block;
-    vertical-align: middle;
-  }
-  .data-packages-page .filter-option span { flex: 1; min-width: 0; text-align: left; }
 </style>
 
 <script>
@@ -183,17 +107,6 @@
 
   var statusBanner = document.getElementById("statusBanner");
   var uploadFile = document.getElementById("uploadFile");
-  var uploadGroupsFilter = document.getElementById("uploadGroupsFilter");
-  var uploadGroupsToggle = document.getElementById("uploadGroupsToggle");
-  var uploadGroupsMenu = document.getElementById("uploadGroupsMenu");
-  var editPackageOverlay = document.getElementById("editPackageOverlay");
-  var editPackageCloseBtn = document.getElementById("editPackageCloseBtn");
-  var editPackageSaveBtn = document.getElementById("editPackageSaveBtn");
-  var editPackageMsg = document.getElementById("editPackageMsg");
-  var editPackageExpiration = document.getElementById("editPackageExpiration");
-  var editGroupsFilter = document.getElementById("editGroupsFilter");
-  var editGroupsToggle = document.getElementById("editGroupsToggle");
-  var editGroupsMenu = document.getElementById("editGroupsMenu");
   var btnUploadPackage = document.getElementById("btnUploadPackage");
   var uploadMsg = document.getElementById("uploadMsg");
   var packageFilter = document.getElementById("packageFilter");
@@ -204,10 +117,6 @@
   var archivedCount = document.getElementById("archivedCount");
 
   var packagesCache = [];
-  var selectedUploadGroups = [];
-  var selectedEditGroups = [];
-  var allTakGroupNames = [];
-  var editingPackageHash = "";
   var loadPackagesDebounceTimer = null;
 
   function esc(s) {
@@ -217,9 +126,6 @@
     if (!el) return;
     el.textContent = text || "";
     el.className = "msg " + (ok === true ? "ok" : ok === false ? "bad" : "");
-  }
-  function setEditMsg(text, ok) {
-    setMsg(editPackageMsg, text, ok);
   }
   function firstVal(obj, keys) {
     if (!obj || typeof obj !== "object") return "";
@@ -265,173 +171,6 @@
     }
     return false;
   }
-  function stripTakPrefix(name) {
-    var n = String(name || "").trim();
-    return n.toLowerCase().indexOf("tak_") === 0 ? n.slice(4) : n;
-  }
-
-  async function loadGroups() {
-    if (!uploadGroupsMenu) return;
-    uploadGroupsMenu.innerHTML = "";
-    try {
-      var res = await fetch("/api/groups");
-      var j = await res.json();
-      if (!res.ok || !Array.isArray(j)) throw new Error((j && j.error) || "Failed to load groups.");
-      var sorted = j
-        .filter(function (g) {
-          var raw = String(g && g.name || "").trim().toLowerCase();
-          return raw.indexOf("tak_") === 0;
-        })
-        .sort(function (a, b) {
-          return stripTakPrefix(String(a && a.name || "")).localeCompare(stripTakPrefix(String(b && b.name || "")));
-        });
-      allTakGroupNames = sorted.map(function (g) {
-        return String((g && g.name) || "").trim();
-      }).filter(Boolean);
-      for (var i = 0; i < sorted.length; i++) {
-        var name = String((sorted[i] && sorted[i].name) || "").trim();
-        if (!name) continue;
-        var lbl = document.createElement("label");
-        lbl.className = "filter-option";
-        var cb = document.createElement("input");
-        cb.type = "checkbox";
-        cb.value = name;
-        cb.addEventListener("change", onUploadGroupsChange);
-        var span = document.createElement("span");
-        span.textContent = stripTakPrefix(name);
-        lbl.appendChild(cb);
-        lbl.appendChild(span);
-        uploadGroupsMenu.appendChild(lbl);
-      }
-      updateUploadGroupsToggleLabel();
-    } catch (e) {
-      setMsg(uploadMsg, e.message || "Could not load groups.", false);
-    }
-  }
-
-  function renderEditGroupsMenu() {
-    if (!editGroupsMenu) return;
-    editGroupsMenu.innerHTML = "";
-    for (var i = 0; i < allTakGroupNames.length; i++) {
-      var name = allTakGroupNames[i];
-      var lbl = document.createElement("label");
-      lbl.className = "filter-option";
-      var cb = document.createElement("input");
-      cb.type = "checkbox";
-      cb.value = name;
-      cb.checked = selectedEditGroups.indexOf(name) !== -1;
-      cb.addEventListener("change", onEditGroupsChange);
-      var span = document.createElement("span");
-      span.textContent = stripTakPrefix(name);
-      lbl.appendChild(cb);
-      lbl.appendChild(span);
-      editGroupsMenu.appendChild(lbl);
-    }
-    updateEditGroupsToggleLabel();
-  }
-
-  function onEditGroupsChange() {
-    if (!editGroupsMenu) return;
-    var checked = editGroupsMenu.querySelectorAll('input[type="checkbox"]:checked');
-    selectedEditGroups = Array.prototype.map.call(checked, function (x) { return x.value; });
-    updateEditGroupsToggleLabel();
-  }
-
-  function updateEditGroupsToggleLabel() {
-    if (!editGroupsToggle) return;
-    if (!selectedEditGroups.length) {
-      editGroupsToggle.textContent = "Select groups ▾";
-      return;
-    }
-    if (selectedEditGroups.length === 1) {
-      editGroupsToggle.textContent = stripTakPrefix(selectedEditGroups[0]) + " ▾";
-      return;
-    }
-    editGroupsToggle.textContent = selectedEditGroups.length + " groups selected ▾";
-  }
-
-  function parseGroupString(v) {
-    return String(v || "")
-      .split(",")
-      .map(function (g) { return g.trim(); })
-      .filter(Boolean);
-  }
-
-  function openEditModal(pkg) {
-    if (!pkg || !editPackageOverlay) return;
-    editingPackageHash = firstVal(pkg, ["hash", "sha256", "uid", "id"]);
-    editPackageExpiration.value = firstVal(pkg, ["expiration", "Expiration", "expires", "expiresAt"]);
-    selectedEditGroups = parseGroupString(firstVal(pkg, ["groups", "Groups", "group", "Group"]));
-    if (editGroupsFilter) editGroupsFilter.classList.remove("open");
-    renderEditGroupsMenu();
-    setEditMsg("", undefined);
-    editPackageOverlay.style.display = "flex";
-    document.body.classList.add("noScroll");
-  }
-
-  function closeEditModal() {
-    if (!editPackageOverlay) return;
-    editPackageOverlay.style.display = "none";
-    document.body.classList.remove("noScroll");
-    editingPackageHash = "";
-    selectedEditGroups = [];
-    if (editGroupsFilter) editGroupsFilter.classList.remove("open");
-    setEditMsg("", undefined);
-  }
-
-  async function savePackageEdits() {
-    if (!editingPackageHash) return;
-    var expiration = String(editPackageExpiration.value || "").trim();
-    setEditMsg("Saving changes…", undefined);
-    try {
-      var res = await fetch(API + "/packages/" + encodeURIComponent(editingPackageHash) + "/details", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({
-          expiration: expiration,
-          groups: selectedEditGroups,
-        }),
-      });
-      var text = await res.text();
-      var j = {};
-      try { j = JSON.parse(text); } catch (_) {}
-      if (!res.ok) throw new Error((j && j.error) || "Update failed");
-      if (j && Array.isArray(j.unsupported) && j.unsupported.length) {
-        setEditMsg(
-          "Saved what this TAK build supports. Not supported: " + j.unsupported.join(", "),
-          false
-        );
-      } else {
-        setEditMsg("Package updated.", true);
-      }
-      await loadPackages();
-      if (!(j && Array.isArray(j.unsupported) && j.unsupported.length)) {
-        closeEditModal();
-      }
-    } catch (e) {
-      setEditMsg(e.message || "Update failed", false);
-    }
-  }
-
-  function onUploadGroupsChange() {
-    if (!uploadGroupsMenu) return;
-    var checked = uploadGroupsMenu.querySelectorAll('input[type="checkbox"]:checked');
-    selectedUploadGroups = Array.prototype.map.call(checked, function (x) { return x.value; });
-    updateUploadGroupsToggleLabel();
-  }
-
-  function updateUploadGroupsToggleLabel() {
-    if (!uploadGroupsToggle) return;
-    if (!selectedUploadGroups.length) {
-      uploadGroupsToggle.textContent = "Select groups ▾";
-      return;
-    }
-    if (selectedUploadGroups.length === 1) {
-      uploadGroupsToggle.textContent = stripTakPrefix(selectedUploadGroups[0]) + " ▾";
-      return;
-    }
-    uploadGroupsToggle.textContent = selectedUploadGroups.length + " groups selected ▾";
-  }
 
   async function loadStatus() {
     try {
@@ -461,7 +200,6 @@
     var hash = firstVal(pkg, ["hash", "sha256", "uid", "id"]);
     var size = firstVal(pkg, ["size", "content_length", "contentLength"]);
     var creator = firstVal(pkg, ["creator_uid", "creatorUid", "creator", "owner"]);
-    var groups = firstVal(pkg, ["groups", "Groups", "group", "Group"]);
     var expiration = firstVal(pkg, ["expiration", "Expiration", "expires", "expiresAt"]);
     var created = firstVal(pkg, ["created_at", "createTime", "created", "timestamp"]);
 
@@ -470,7 +208,6 @@
       "<td style='max-width:240px;'>" + esc(filename || "(unnamed)") + "</td>" +
       "<td style='white-space:nowrap;'>" + esc(fmtSize(size)) + "</td>" +
       "<td>" + esc(creator) + "</td>" +
-      "<td style='max-width:170px;font-size:12px;'>" + esc(groups) + "</td>" +
       "<td style='white-space:nowrap;font-size:12px;'>" + esc(expiration) + "</td>" +
       "<td style='font-size:12px;white-space:nowrap;'>" + esc(created) + "</td>" +
       "<td></td>";
@@ -505,15 +242,7 @@
       bArchiveRestore.addEventListener("click", function () { archivePackage(hash, filename); });
     }
 
-    var bEdit = document.createElement("button");
-    bEdit.type = "button";
-    bEdit.className = "btn";
-    bEdit.textContent = "Edit";
-    bEdit.disabled = !hash;
-    bEdit.addEventListener("click", function () { openEditModal(pkg); });
-
     tdAct.appendChild(bDl);
-    tdAct.appendChild(bEdit);
     tdAct.appendChild(bArchiveRestore);
     tdAct.appendChild(bDel);
     tbody.appendChild(tr);
@@ -531,8 +260,6 @@
       var hay = (
         firstVal(p, ["filename", "name", "original_filename"]) + " " +
         firstVal(p, ["creator_uid", "creatorUid", "creator", "owner"]) + " " +
-        firstVal(p, ["groups", "Groups", "group", "Group"]) + " " +
-        firstVal(p, ["tool", "Tool"]) + " " +
         normalizeKeywords(p).join(" ")
       ).toLowerCase();
       if (filt && hay.indexOf(filt) === -1) continue;
@@ -549,7 +276,7 @@
     if (!activeCount) {
       var trA = document.createElement("tr");
       var tdA = document.createElement("td");
-      tdA.colSpan = 7;
+      tdA.colSpan = 6;
       tdA.textContent = "No active mission packages.";
       trA.appendChild(tdA);
       packagesTbody.appendChild(trA);
@@ -557,7 +284,7 @@
     if (!archivedCountValue) {
       var trR = document.createElement("tr");
       var tdR = document.createElement("td");
-      tdR.colSpan = 7;
+      tdR.colSpan = 6;
       tdR.textContent = "No archived mission packages.";
       trR.appendChild(tdR);
       archivedPackagesTbody.appendChild(trR);
@@ -595,18 +322,14 @@
       var fd = new FormData();
       fd.append("file", file, file.name || "data-package.zip");
       fd.append("keywords", ACTIVE_KEYWORD);
-      if (selectedUploadGroups.length) fd.append("groups", selectedUploadGroups.join(","));
+      fd.append("tool", "public");
 
       var res = await fetch(API + "/packages/upload", { method: "POST", body: fd });
       var text = await res.text();
       var j = {};
       try { j = JSON.parse(text); } catch (_) {}
       if (!res.ok) throw new Error((j && j.error) || "Upload failed");
-      if (j && j.groupAssignWarning) {
-        setMsg(uploadMsg, "Data package uploaded. " + String(j.groupAssignWarning), false);
-      } else {
-        setMsg(uploadMsg, "Data package uploaded.", true);
-      }
+      setMsg(uploadMsg, "Data package uploaded.", true);
       uploadFile.value = "";
       await loadPackages();
     } catch (e) {
@@ -704,32 +427,9 @@
       }, 250);
     });
   }
-  if (uploadGroupsToggle && uploadGroupsFilter) {
-    uploadGroupsToggle.addEventListener("click", function () {
-      var open = uploadGroupsFilter.classList.contains("open");
-      if (open) uploadGroupsFilter.classList.remove("open");
-      else uploadGroupsFilter.classList.add("open");
-    });
-  }
-  if (editGroupsToggle && editGroupsFilter) {
-    editGroupsToggle.addEventListener("click", function () {
-      var open = editGroupsFilter.classList.contains("open");
-      if (open) editGroupsFilter.classList.remove("open");
-      else editGroupsFilter.classList.add("open");
-    });
-  }
-  if (editPackageSaveBtn) editPackageSaveBtn.addEventListener("click", savePackageEdits);
-  if (editPackageCloseBtn) editPackageCloseBtn.addEventListener("click", closeEditModal);
-  document.addEventListener("click", function (e) {
-    if (!uploadGroupsFilter) return;
-    if (!uploadGroupsFilter.contains(e.target)) uploadGroupsFilter.classList.remove("open");
-    if (editGroupsFilter && !editGroupsFilter.contains(e.target)) editGroupsFilter.classList.remove("open");
-    if (e.target === editPackageOverlay) closeEditModal();
-  });
 
   loadStatus().then(function (ok) {
     if (!ok) return;
-    loadGroups();
     loadPackages();
   });
 })();
