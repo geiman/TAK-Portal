@@ -93,7 +93,6 @@ router.post("/packages/upload", upload.single("file"), async (req, res) => {
     const out = await dataPackagesSvc.uploadDataPackage(file.buffer, file.originalname, {
       mimeType: file.mimetype || "application/octet-stream",
       keywords: "missionpackage",
-      tool: "public",
       creator_uid: req.body && req.body.creator_uid ? String(req.body.creator_uid) : "",
       groups: requestedGroups.join(","),
     });

@@ -595,7 +595,6 @@
       var fd = new FormData();
       fd.append("file", file, file.name || "data-package.zip");
       fd.append("keywords", ACTIVE_KEYWORD);
-      fd.append("tool", "public");
       if (selectedUploadGroups.length) fd.append("groups", selectedUploadGroups.join(","));
 
       var res = await fetch(API + "/packages/upload", { method: "POST", body: fd });
