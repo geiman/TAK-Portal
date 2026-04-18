@@ -13,7 +13,7 @@ Below you will find a comprehensive list of items planned for implementation in 
 - Agency Import via CSV
 - Documents / MOU Page - A file archive of all drafts, unsigned, and signed documents
 
-🧠 Ideas / Long Term
+## 🧠 Ideas / Long Term
 - Templated actions - Example: For each new state, automatically create a statewide group, data sync mission, etc...
 - Getting Started Guides - Guides for TAK Aware, ATAK, and OpenTAKTracker to learn the basics
 - Device Profile Management
@@ -22,6 +22,6 @@ Below you will find a comprehensive list of items planned for implementation in 
 
 
 
-❓ Random Ideas
+## ❓ Random Ideas
 - Add ability to delete a mutual aid user while leaving the mutual aid channel intact
 - Consider adding a "timeout/sandbox" group so instead of deleting a user with the delete button, requiring a restart, it removes all groups and adds them to a single "special" write only group to remove their access.  Then create a tab for the global admin of all the pending user deletions that need to take place before a restart.
