@@ -1,5 +1,6 @@
 const express = require("express");
 const multer = require("multer");
+const crypto = require("crypto");
 const { isTakConfigured } = require("../services/tak.service");
 const { getBool, getString } = require("../services/env");
 const dataPackagesSvc = require("../services/dataPackages.service");
@@ -82,13 +83,40 @@ router.post("/packages/upload", upload.single("file"), async (req, res) => {
       return res.status(400).json({ error: "Select a file to upload." });
     }
 
+    const requestedGroups = req.body && req.body.groups
+      ? String(req.body.groups)
+          .split(",")
+          .map((g) => String(g || "").trim())
+          .filter(Boolean)
+      : [];
+
     const out = await dataPackagesSvc.uploadDataPackage(file.buffer, file.originalname, {
       mimeType: file.mimetype || "application/octet-stream",
       keywords: "missionpackage",
       tool: "public",
       creator_uid: req.body && req.body.creator_uid ? String(req.body.creator_uid) : "",
-      groups: req.body && req.body.groups ? String(req.body.groups) : "",
+      groups: requestedGroups.join(","),
     });
+
+    // TAK builds can ignore groups on initial upload. Force-apply selected groups
+    // immediately after upload using the file hash as the target.
+    if (requestedGroups.length) {
+      const responseHash =
+        (out && (out.hash || out.Hash || out.sha256 || out.SHA256 || out.id || out.ID))
+          ? String(out.hash || out.Hash || out.sha256 || out.SHA256 || out.id || out.ID).trim()
+          : "";
+      const computedHash = crypto.createHash("sha256").update(file.buffer).digest("hex");
+      const targetHash = responseHash || computedHash;
+      try {
+        await dataPackagesSvc.updateDataPackageDetails(targetHash, {
+          groups: requestedGroups,
+        });
+      } catch (e) {
+        out.groupAssignWarning =
+          "Uploaded, but TAK did not accept group restriction update: " +
+          String(e && e.message ? e.message : e);
+      }
+    }
     return res.json(out);
   } catch (err) {
     return sendTakError(res, err);

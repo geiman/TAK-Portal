@@ -94,10 +94,6 @@
     <div class="modalBody">
       <div id="editPackageMsg" class="msg" style="margin-bottom:10px;"></div>
       <label style="display:block;">
-        Filename
-        <input type="text" id="editPackageFilename" style="width:100%;box-sizing:border-box;" />
-      </label>
-      <label style="display:block; margin-top:10px;">
         Expiration
         <input type="text" id="editPackageExpiration" placeholder="e.g. none or date/time" style="width:100%;box-sizing:border-box;" />
       </label>
@@ -194,7 +190,6 @@
   var editPackageCloseBtn = document.getElementById("editPackageCloseBtn");
   var editPackageSaveBtn = document.getElementById("editPackageSaveBtn");
   var editPackageMsg = document.getElementById("editPackageMsg");
-  var editPackageFilename = document.getElementById("editPackageFilename");
   var editPackageExpiration = document.getElementById("editPackageExpiration");
   var editGroupsFilter = document.getElementById("editGroupsFilter");
   var editGroupsToggle = document.getElementById("editGroupsToggle");
@@ -365,9 +360,9 @@
   function openEditModal(pkg) {
     if (!pkg || !editPackageOverlay) return;
     editingPackageHash = firstVal(pkg, ["hash", "sha256", "uid", "id"]);
-    editPackageFilename.value = firstVal(pkg, ["filename", "name", "original_filename"]);
     editPackageExpiration.value = firstVal(pkg, ["expiration", "Expiration", "expires", "expiresAt"]);
     selectedEditGroups = parseGroupString(firstVal(pkg, ["groups", "Groups", "group", "Group"]));
+    if (editGroupsFilter) editGroupsFilter.classList.remove("open");
     renderEditGroupsMenu();
     setEditMsg("", undefined);
     editPackageOverlay.style.display = "flex";
@@ -380,24 +375,19 @@
     document.body.classList.remove("noScroll");
     editingPackageHash = "";
     selectedEditGroups = [];
+    if (editGroupsFilter) editGroupsFilter.classList.remove("open");
     setEditMsg("", undefined);
   }
 
   async function savePackageEdits() {
     if (!editingPackageHash) return;
-    var filename = String(editPackageFilename.value || "").trim();
     var expiration = String(editPackageExpiration.value || "").trim();
-    if (!filename) {
-      setEditMsg("Filename is required.", false);
-      return;
-    }
     setEditMsg("Saving changes…", undefined);
     try {
       var res = await fetch(API + "/packages/" + encodeURIComponent(editingPackageHash) + "/details", {
         method: "PUT",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({
-          filename: filename,
           expiration: expiration,
           groups: selectedEditGroups,
         }),
