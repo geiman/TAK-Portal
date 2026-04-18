@@ -645,6 +645,140 @@ async function updateDataPackageMetadata(hash, patch = {}) {
   return out;
 }
 
+async function tryPutUnsupportedAsNull(client, url, body, opts = {}) {
+  try {
+    return await client.put(url, body, opts);
+  } catch (err) {
+    const s = err?.response?.status;
+    if (s === 404 || s === 405 || s === 501) return null;
+    throw err;
+  }
+}
+
+async function updateDataPackageDetails(hash, patch = {}) {
+  assertTakAvailable();
+  const h = String(hash || "").trim();
+  if (!h) {
+    const e = new Error("Data package hash is required.");
+    e.code = "INVALID_HASH";
+    throw e;
+  }
+
+  const client = buildTakOriginAxios({ timeout: 60000 });
+  const out = { ok: true, hash: h };
+
+  const filename = patch.filename != null ? String(patch.filename || "").trim() : null;
+  const expiration = patch.expiration != null ? String(patch.expiration || "").trim() : null;
+  const groups = patch.groups == null
+    ? null
+    : Array.isArray(patch.groups)
+      ? patch.groups.map((g) => String(g || "").trim()).filter(Boolean)
+      : String(patch.groups || "")
+          .split(",")
+          .map((g) => g.trim())
+          .filter(Boolean);
+
+  const unsupported = [];
+
+  if (filename != null) {
+    if (!filename) {
+      const e = new Error("Filename is required.");
+      e.code = "INVALID_PATCH";
+      throw e;
+    }
+
+    let ok = false;
+    ok = !!(await tryPutUnsupportedAsNull(
+      client,
+      `/Marti/api/sync/metadata/${encodeURIComponent(h)}/filename`,
+      filename,
+      { headers: { "Content-Type": "text/plain; charset=utf-8", Accept: "application/json" } }
+    ));
+    if (!ok) {
+      ok = !!(await tryPutUnsupportedAsNull(
+        client,
+        `/Marti/api/sync/metadata/${encodeURIComponent(h)}/name`,
+        filename,
+        { headers: { "Content-Type": "text/plain; charset=utf-8", Accept: "application/json" } }
+      ));
+    }
+    if (ok) out.filename = filename;
+    else unsupported.push("filename");
+  }
+
+  if (groups != null) {
+    let ok = false;
+    ok = !!(await tryPutUnsupportedAsNull(
+      client,
+      `/Marti/api/sync/metadata/${encodeURIComponent(h)}/groups`,
+      groups,
+      { headers: { "Content-Type": "application/json", Accept: "application/json" } }
+    ));
+    if (!ok) {
+      ok = !!(await tryPutUnsupportedAsNull(
+        client,
+        `/Marti/api/sync/metadata/${encodeURIComponent(h)}/group`,
+        groups,
+        { headers: { "Content-Type": "application/json", Accept: "application/json" } }
+      ));
+    }
+    if (ok) out.groups = groups;
+    else unsupported.push("groups");
+  }
+
+  if (expiration != null) {
+    let ok = false;
+    ok = !!(await tryPutUnsupportedAsNull(
+      client,
+      `/Marti/api/sync/metadata/${encodeURIComponent(h)}/expiration`,
+      expiration,
+      { headers: { "Content-Type": "text/plain; charset=utf-8", Accept: "application/json" } }
+    ));
+    if (!ok) {
+      ok = !!(await tryPutUnsupportedAsNull(
+        client,
+        `/Marti/api/sync/metadata/${encodeURIComponent(h)}/expires`,
+        expiration,
+        { headers: { "Content-Type": "text/plain; charset=utf-8", Accept: "application/json" } }
+      ));
+    }
+    if (ok) out.expiration = expiration;
+    else unsupported.push("expiration");
+  }
+
+  // Combined fallback endpoint used by some TAK builds.
+  if (unsupported.length) {
+    try {
+      const body = {};
+      if (filename != null) body.filename = filename;
+      if (groups != null) body.groups = groups;
+      if (expiration != null) body.expiration = expiration;
+      const res = await client.put("/api/data_packages", body, {
+        params: { hash: h },
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+      });
+      if (res && res.status >= 200 && res.status < 300) {
+        out.filename = filename != null ? filename : out.filename;
+        out.groups = groups != null ? groups : out.groups;
+        out.expiration = expiration != null ? expiration : out.expiration;
+        return out;
+      }
+    } catch (_) {
+      // handled below with explicit unsupported response
+    }
+  }
+
+  if (unsupported.length) {
+    const e = new Error(
+      `This TAK build does not support updating: ${unsupported.join(", ")}`
+    );
+    e.code = "DETAILS_UNSUPPORTED";
+    throw e;
+  }
+
+  return out;
+}
+
 module.exports = {
   assertTakAvailable,
   listDataPackages,
@@ -653,4 +787,5 @@ module.exports = {
   uploadDataPackage,
   getDataPackageMetadata,
   updateDataPackageMetadata,
+  updateDataPackageDetails,
 };

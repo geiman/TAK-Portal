@@ -149,4 +149,18 @@ router.put("/packages/:hash/metadata", async (req, res) => {
   }
 });
 
+router.put("/packages/:hash/details", async (req, res) => {
+  try {
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    const out = await dataPackagesSvc.updateDataPackageDetails(req.params.hash, {
+      filename: body.filename,
+      groups: body.groups,
+      expiration: body.expiration,
+    });
+    return res.json(out);
+  } catch (err) {
+    return sendTakError(res, err);
+  }
+});
+
 module.exports = router;

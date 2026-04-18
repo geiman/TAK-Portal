@@ -85,6 +85,38 @@
   </details>
 </main>
 
+<div class="modalOverlay" id="editPackageOverlay" style="display:none;">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="editPackageTitle" style="width:min(640px, 96vw);">
+    <div class="modalHeader">
+      <h2 id="editPackageTitle" style="margin:0;">Edit Data Package</h2>
+      <button type="button" class="btn" id="editPackageCloseBtn">Close</button>
+    </div>
+    <div class="modalBody">
+      <div id="editPackageMsg" class="msg" style="margin-bottom:10px;"></div>
+      <label style="display:block;">
+        Filename
+        <input type="text" id="editPackageFilename" style="width:100%;box-sizing:border-box;" />
+      </label>
+      <label style="display:block; margin-top:10px;">
+        Expiration
+        <input type="text" id="editPackageExpiration" placeholder="e.g. none or date/time" style="width:100%;box-sizing:border-box;" />
+      </label>
+      <label style="display:block; margin-top:10px;">
+        Assign Groups
+        <div class="filter-multiselect" id="editGroupsFilter">
+          <button type="button" class="btn filter-toggle" id="editGroupsToggle">Select groups ▾</button>
+          <div class="filter-menu">
+            <div class="filter-menu-inner" id="editGroupsMenu"></div>
+          </div>
+        </div>
+      </label>
+      <div class="row" style="margin-top:12px; gap:10px;">
+        <button type="button" class="btn success" id="editPackageSaveBtn">Save Changes</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <style>
   .data-packages-page.main { min-width: 0; max-width: 100%; box-sizing: border-box; }
   .data-packages-page .card, .data-packages-page .data-packages-table-scroll { min-width: 0; max-width: 100%; box-sizing: border-box; }
@@ -158,6 +190,15 @@
   var uploadGroupsFilter = document.getElementById("uploadGroupsFilter");
   var uploadGroupsToggle = document.getElementById("uploadGroupsToggle");
   var uploadGroupsMenu = document.getElementById("uploadGroupsMenu");
+  var editPackageOverlay = document.getElementById("editPackageOverlay");
+  var editPackageCloseBtn = document.getElementById("editPackageCloseBtn");
+  var editPackageSaveBtn = document.getElementById("editPackageSaveBtn");
+  var editPackageMsg = document.getElementById("editPackageMsg");
+  var editPackageFilename = document.getElementById("editPackageFilename");
+  var editPackageExpiration = document.getElementById("editPackageExpiration");
+  var editGroupsFilter = document.getElementById("editGroupsFilter");
+  var editGroupsToggle = document.getElementById("editGroupsToggle");
+  var editGroupsMenu = document.getElementById("editGroupsMenu");
   var btnUploadPackage = document.getElementById("btnUploadPackage");
   var uploadMsg = document.getElementById("uploadMsg");
   var packageFilter = document.getElementById("packageFilter");
@@ -169,6 +210,9 @@
 
   var packagesCache = [];
   var selectedUploadGroups = [];
+  var selectedEditGroups = [];
+  var allTakGroupNames = [];
+  var editingPackageHash = "";
   var loadPackagesDebounceTimer = null;
 
   function esc(s) {
@@ -178,6 +222,9 @@
     if (!el) return;
     el.textContent = text || "";
     el.className = "msg " + (ok === true ? "ok" : ok === false ? "bad" : "");
+  }
+  function setEditMsg(text, ok) {
+    setMsg(editPackageMsg, text, ok);
   }
   function firstVal(obj, keys) {
     if (!obj || typeof obj !== "object") return "";
@@ -243,6 +290,9 @@
         .sort(function (a, b) {
           return stripTakPrefix(String(a && a.name || "")).localeCompare(stripTakPrefix(String(b && b.name || "")));
         });
+      allTakGroupNames = sorted.map(function (g) {
+        return String((g && g.name) || "").trim();
+      }).filter(Boolean);
       for (var i = 0; i < sorted.length; i++) {
         var name = String((sorted[i] && sorted[i].name) || "").trim();
         if (!name) continue;
@@ -261,6 +311,106 @@
       updateUploadGroupsToggleLabel();
     } catch (e) {
       setMsg(uploadMsg, e.message || "Could not load groups.", false);
+    }
+  }
+
+  function renderEditGroupsMenu() {
+    if (!editGroupsMenu) return;
+    editGroupsMenu.innerHTML = "";
+    for (var i = 0; i < allTakGroupNames.length; i++) {
+      var name = allTakGroupNames[i];
+      var lbl = document.createElement("label");
+      lbl.className = "filter-option";
+      var cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.value = name;
+      cb.checked = selectedEditGroups.indexOf(name) !== -1;
+      cb.addEventListener("change", onEditGroupsChange);
+      var span = document.createElement("span");
+      span.textContent = stripTakPrefix(name);
+      lbl.appendChild(cb);
+      lbl.appendChild(span);
+      editGroupsMenu.appendChild(lbl);
+    }
+    updateEditGroupsToggleLabel();
+  }
+
+  function onEditGroupsChange() {
+    if (!editGroupsMenu) return;
+    var checked = editGroupsMenu.querySelectorAll('input[type="checkbox"]:checked');
+    selectedEditGroups = Array.prototype.map.call(checked, function (x) { return x.value; });
+    updateEditGroupsToggleLabel();
+  }
+
+  function updateEditGroupsToggleLabel() {
+    if (!editGroupsToggle) return;
+    if (!selectedEditGroups.length) {
+      editGroupsToggle.textContent = "Select groups ▾";
+      return;
+    }
+    if (selectedEditGroups.length === 1) {
+      editGroupsToggle.textContent = stripTakPrefix(selectedEditGroups[0]) + " ▾";
+      return;
+    }
+    editGroupsToggle.textContent = selectedEditGroups.length + " groups selected ▾";
+  }
+
+  function parseGroupString(v) {
+    return String(v || "")
+      .split(",")
+      .map(function (g) { return g.trim(); })
+      .filter(Boolean);
+  }
+
+  function openEditModal(pkg) {
+    if (!pkg || !editPackageOverlay) return;
+    editingPackageHash = firstVal(pkg, ["hash", "sha256", "uid", "id"]);
+    editPackageFilename.value = firstVal(pkg, ["filename", "name", "original_filename"]);
+    editPackageExpiration.value = firstVal(pkg, ["expiration", "Expiration", "expires", "expiresAt"]);
+    selectedEditGroups = parseGroupString(firstVal(pkg, ["groups", "Groups", "group", "Group"]));
+    renderEditGroupsMenu();
+    setEditMsg("", undefined);
+    editPackageOverlay.style.display = "flex";
+    document.body.classList.add("noScroll");
+  }
+
+  function closeEditModal() {
+    if (!editPackageOverlay) return;
+    editPackageOverlay.style.display = "none";
+    document.body.classList.remove("noScroll");
+    editingPackageHash = "";
+    selectedEditGroups = [];
+    setEditMsg("", undefined);
+  }
+
+  async function savePackageEdits() {
+    if (!editingPackageHash) return;
+    var filename = String(editPackageFilename.value || "").trim();
+    var expiration = String(editPackageExpiration.value || "").trim();
+    if (!filename) {
+      setEditMsg("Filename is required.", false);
+      return;
+    }
+    setEditMsg("Saving changes…", undefined);
+    try {
+      var res = await fetch(API + "/packages/" + encodeURIComponent(editingPackageHash) + "/details", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          filename: filename,
+          expiration: expiration,
+          groups: selectedEditGroups,
+        }),
+      });
+      var text = await res.text();
+      var j = {};
+      try { j = JSON.parse(text); } catch (_) {}
+      if (!res.ok) throw new Error((j && j.error) || "Update failed");
+      setEditMsg("Package updated.", true);
+      await loadPackages();
+      closeEditModal();
+    } catch (e) {
+      setEditMsg(e.message || "Update failed", false);
     }
   }
 
@@ -356,7 +506,15 @@
       bArchiveRestore.addEventListener("click", function () { archivePackage(hash, filename); });
     }
 
+    var bEdit = document.createElement("button");
+    bEdit.type = "button";
+    bEdit.className = "btn";
+    bEdit.textContent = "Edit";
+    bEdit.disabled = !hash;
+    bEdit.addEventListener("click", function () { openEditModal(pkg); });
+
     tdAct.appendChild(bDl);
+    tdAct.appendChild(bEdit);
     tdAct.appendChild(bArchiveRestore);
     tdAct.appendChild(bDel);
     tbody.appendChild(tr);
@@ -552,9 +710,20 @@
       else uploadGroupsFilter.classList.add("open");
     });
   }
+  if (editGroupsToggle && editGroupsFilter) {
+    editGroupsToggle.addEventListener("click", function () {
+      var open = editGroupsFilter.classList.contains("open");
+      if (open) editGroupsFilter.classList.remove("open");
+      else editGroupsFilter.classList.add("open");
+    });
+  }
+  if (editPackageSaveBtn) editPackageSaveBtn.addEventListener("click", savePackageEdits);
+  if (editPackageCloseBtn) editPackageCloseBtn.addEventListener("click", closeEditModal);
   document.addEventListener("click", function (e) {
     if (!uploadGroupsFilter) return;
     if (!uploadGroupsFilter.contains(e.target)) uploadGroupsFilter.classList.remove("open");
+    if (editGroupsFilter && !editGroupsFilter.contains(e.target)) editGroupsFilter.classList.remove("open");
+    if (e.target === editPackageOverlay) closeEditModal();
   });
 
   loadStatus().then(function (ok) {
