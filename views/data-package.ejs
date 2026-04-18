@@ -10,12 +10,15 @@
 
   <div class="card">
     <h2 style="margin-top:0;">Upload Data Package</h2>
-    <div class="row data-packages-upload-row">
-      <label class="data-packages-upload-field" for="uploadFile">
-        Choose File
-        <input type="file" id="uploadFile" accept=".zip,application/zip,application/x-zip-compressed" />
-      </label>
-      <div class="data-packages-upload-btn-wrap">
+    <div class="data-packages-upload-block">
+      <label class="data-packages-upload-label" for="uploadFile">Choose File</label>
+      <div class="data-packages-upload-inline">
+        <input
+          type="file"
+          id="uploadFile"
+          class="data-packages-upload-input"
+          accept=".zip,application/zip,application/x-zip-compressed"
+        />
         <button type="button" class="btn success data-packages-upload-btn" id="btnUploadPackage">Upload Data Package</button>
       </div>
     </div>
@@ -78,13 +81,39 @@
   .data-packages-page .card, .data-packages-page .data-packages-table-scroll { min-width: 0; max-width: 100%; box-sizing: border-box; }
   .data-packages-status.msg { margin-left: 0; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line); }
   .data-packages-status.bad { border-color: rgba(255,80,80,.45); background: rgba(255,80,80,.08); }
-  .data-packages-page .data-packages-upload-row { flex-wrap: wrap; align-items: flex-end; gap: 12px; }
-  .data-packages-page .data-packages-upload-field { min-width: 0; flex: 1 1 260px; }
-  .data-packages-page .data-packages-upload-field input { width: 100%; max-width: 100%; box-sizing: border-box; }
-  .data-packages-page .data-packages-upload-btn-wrap { flex: 1 1 100%; min-width: 0; display: flex; align-items: flex-end; }
-  .data-packages-page .data-packages-upload-btn { width: 100%; box-sizing: border-box; }
+  .data-packages-page .data-packages-upload-block {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    width: 100%;
+  }
+  .data-packages-page .data-packages-upload-label {
+    display: block;
+    font-size: 13px;
+    color: var(--text);
+  }
+  .data-packages-page .data-packages-upload-inline {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+  }
+  .data-packages-page .data-packages-upload-input {
+    flex: 1 1 260px;
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    margin: 0;
+  }
+  .data-packages-page .data-packages-upload-btn {
+    flex: 0 0 auto;
+    width: 100%;
+    box-sizing: border-box;
+    margin: 0;
+  }
   @media (min-width: 640px) {
-    .data-packages-page .data-packages-upload-btn-wrap { flex: 0 0 auto; width: auto; }
     .data-packages-page .data-packages-upload-btn { width: auto; }
   }
   .data-packages-page .data-packages-table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-top: 12px; width: 100%; }
