@@ -3,7 +3,7 @@
 
 <main class="main data-packages-page">
   <div class="data-packages-hero">
-    <h1>Data Packages Manager</h1>
+    <h1>Data Package Manager</h1>
   </div>
 
   <div id="statusBanner" class="card data-packages-status" style="display:none;" role="status"></div>
@@ -13,7 +13,7 @@
     <div class="row data-packages-upload-row">
       <label class="data-packages-upload-field">
         Choose File
-        <input type="file" id="uploadFile" />
+        <input type="file" id="uploadFile" accept=".zip,application/zip,application/x-zip-compressed" />
       </label>
       <label class="data-packages-upload-field">
         Assign Groups
@@ -26,20 +26,19 @@
       </label>
       <label class="data-packages-upload-btn-wrap">
         <span class="data-packages-upload-spacer" aria-hidden="true">&nbsp;</span>
-        <button type="button" class="btn success data-packages-upload-btn" id="btnUploadPackage">Upload</button>
+        <button type="button" class="btn success data-packages-upload-btn" id="btnUploadPackage">Upload Data Package</button>
       </label>
     </div>
     <div id="uploadMsg" class="msg" style="margin-top:10px;"></div>
   </div>
 
   <div class="card" style="margin-top:1.25rem;">
-    <h2 style="margin-top:0;">Existing Data Packages</h2>
+    <h2 style="margin-top:0;">Existing Data Package Files</h2>
     <div class="row" style="flex-wrap:wrap; align-items:flex-end; gap:12px;">
-      <label style="min-width:220px;">
+      <label style="min-width:220px; flex:1 1 100%;">
         Filter
         <input type="search" id="packageFilter" placeholder="Filter by filename/group/creator..." autocomplete="off" />
       </label>
-      <button type="button" class="btn" id="btnRefreshPackages">Refresh</button>
     </div>
     <div id="packagesMsg" class="msg" style="margin:12px 0 0 0;"></div>
     <div class="data-packages-table-scroll">
@@ -62,7 +61,7 @@
 
   <details class="card" style="margin-top:1.25rem;">
     <summary style="cursor:pointer;font-weight:600;user-select:none;">
-      Archived Data Packages <span id="archivedCountWrap">(<span id="archivedCount">0</span>)</span>
+      Archived Data Package Files <span id="archivedCountWrap">(<span id="archivedCount">0</span>)</span>
     </summary>
     <div style="margin-top:12px;">
       <div id="archivedPackagesMsg" class="msg" style="margin-left:0;"></div>
@@ -162,7 +161,6 @@
   var btnUploadPackage = document.getElementById("btnUploadPackage");
   var uploadMsg = document.getElementById("uploadMsg");
   var packageFilter = document.getElementById("packageFilter");
-  var btnRefreshPackages = document.getElementById("btnRefreshPackages");
   var packagesMsg = document.getElementById("packagesMsg");
   var archivedPackagesMsg = document.getElementById("archivedPackagesMsg");
   var packagesTbody = document.getElementById("packagesTbody");
@@ -171,6 +169,7 @@
 
   var packagesCache = [];
   var selectedUploadGroups = [];
+  var loadPackagesDebounceTimer = null;
 
   function esc(s) {
     return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -433,6 +432,8 @@
     try {
       var file = uploadFile && uploadFile.files && uploadFile.files[0];
       if (!file) throw new Error("Choose a file to upload.");
+      var fileName = String(file.name || "").toLowerCase();
+      if (!fileName.endsWith(".zip")) throw new Error("Only .zip files are allowed.");
 
       var fd = new FormData();
       fd.append("file", file, file.name || "data-package.zip");
@@ -536,8 +537,14 @@
   }
 
   if (btnUploadPackage) btnUploadPackage.addEventListener("click", uploadPackage);
-  if (btnRefreshPackages) btnRefreshPackages.addEventListener("click", loadPackages);
-  if (packageFilter) packageFilter.addEventListener("input", renderTables);
+  if (packageFilter) {
+    packageFilter.addEventListener("input", function () {
+      if (loadPackagesDebounceTimer) clearTimeout(loadPackagesDebounceTimer);
+      loadPackagesDebounceTimer = setTimeout(function () {
+        loadPackages();
+      }, 250);
+    });
+  }
   if (uploadGroupsToggle && uploadGroupsFilter) {
     uploadGroupsToggle.addEventListener("click", function () {
       var open = uploadGroupsFilter.classList.contains("open");

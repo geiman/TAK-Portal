@@ -571,9 +571,12 @@ app.get("/documents", requireBetaDocumentsPage, (req, res) => {
   return res.render("documents", { docAgencyOptions });
 });
 
-// Beta: Data Packages (global admins only, beta mode)
+// Beta: Data Package (global admins only, beta mode)
+app.get("/data-package", requireStrictGlobalAdmin, requireBetaMode, (req, res) =>
+  res.render("data-package")
+);
 app.get("/data-packages", requireStrictGlobalAdmin, requireBetaMode, (req, res) =>
-  res.render("data-packages")
+  res.redirect("/data-package")
 );
 
 // Plugins page (any authenticated user)
