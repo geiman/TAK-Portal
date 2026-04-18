@@ -285,7 +285,7 @@ app.use("/api/audit-log", requireGlobalAdmin, require("./routes/auditLog.routes"
 app.use("/api/plugins", requireGlobalAdmin, require("./routes/plugins.routes"));
 app.use("/api/integrations", requireGlobalAdmin, require("./routes/integrations.routes"));
 app.use("/api/ssh", requireGlobalAdmin, require("./routes/ssh.routes"));
-// Locate (admin console + JSON APIs): strict global admin only. Intentionally not gated by BETA_MODE
+// Locate + data packages (admin + JSON APIs): strict global admin only. Not gated by BETA_MODE
 // (Data Sync / Getting Started remain beta + global admin).
 app.use("/api/locate", requireStrictGlobalAdminApi, require("./routes/locate.routes"));
 
@@ -298,7 +298,6 @@ app.use(
 app.use(
   "/api/data-packages",
   requireStrictGlobalAdminApi,
-  requireBetaModeApi,
   require("./routes/dataPackages.routes")
 );
 
@@ -571,11 +570,11 @@ app.get("/documents", requireBetaDocumentsPage, (req, res) => {
   return res.render("documents", { docAgencyOptions });
 });
 
-// Beta: Data Package (global admins only, beta mode)
-app.get("/data-package", requireStrictGlobalAdmin, requireBetaMode, (req, res) =>
+// Data Package (global admins only; not beta-gated)
+app.get("/data-package", requireStrictGlobalAdmin, (req, res) =>
   res.render("data-package")
 );
-app.get("/data-packages", requireStrictGlobalAdmin, requireBetaMode, (req, res) =>
+app.get("/data-packages", requireStrictGlobalAdmin, (req, res) =>
   res.redirect("/data-package")
 );
 
