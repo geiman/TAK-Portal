@@ -112,9 +112,6 @@
           </button>
           <div class="nav-section-links" id="nav-onboarding">
             <a href="/setup-my-device" class="<%= isActive('/setup-my-device') ? 'active' : '' %>">Setup My Device</a>
-            <% if (_isGlobalAdmin && betaModeEnabled) { %>
-              <a href="/getting-started" class="<%= isActive('/getting-started') ? 'active' : '' %>">Getting Started</a>
-            <% } %>
             <a href="/plugins" class="<%= isActive('/plugins') ? 'active' : '' %>">ATAK Plugins</a>
           </div>
         </div>
