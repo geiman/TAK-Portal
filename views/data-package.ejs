@@ -594,8 +594,11 @@
       var j = {};
       try { j = JSON.parse(text); } catch (_) {}
       if (!res.ok) throw new Error((j && j.error) || "Upload failed");
-
-      setMsg(uploadMsg, "Data package uploaded.", true);
+      if (j && j.groupAssignWarning) {
+        setMsg(uploadMsg, "Data package uploaded. " + String(j.groupAssignWarning), false);
+      } else {
+        setMsg(uploadMsg, "Data package uploaded.", true);
+      }
       uploadFile.value = "";
       await loadPackages();
     } catch (e) {

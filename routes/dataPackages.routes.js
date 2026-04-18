@@ -111,6 +111,34 @@ router.post("/packages/upload", upload.single("file"), async (req, res) => {
         await dataPackagesSvc.updateDataPackageDetails(targetHash, {
           groups: requestedGroups,
         });
+        try {
+          const verify = await dataPackagesSvc.listDataPackages({ hash: targetHash });
+          const items = Array.isArray(verify && verify.items) ? verify.items : [];
+          const item = items[0] || {};
+          const rawGroups = String(item.groups || item.Groups || "").trim();
+          if (rawGroups) {
+            const got = rawGroups
+              .split(",")
+              .map((g) => String(g || "").trim().toLowerCase())
+              .filter(Boolean);
+            const want = requestedGroups
+              .map((g) => String(g || "").trim().toLowerCase())
+              .map((g) => (g.startsWith("tak_") ? g.slice(4) : g));
+            const hasAllWanted = want.every((w) => got.includes(w) || got.includes(`tak_${w}`));
+            const hasUnexpected = got.some((g) => {
+              if (g === "__anon__") return true;
+              if (want.includes(g)) return false;
+              if (g.startsWith("tak_") && want.includes(g.slice(4))) return false;
+              return true;
+            });
+            if (!hasAllWanted || hasUnexpected) {
+              out.groupAssignWarning =
+                "Uploaded, but TAK kept broader group visibility than requested.";
+            }
+          }
+        } catch (_) {
+          // verification best-effort only
+        }
       } catch (e) {
         out.groupAssignWarning =
           "Uploaded, but TAK did not accept group restriction update: " +

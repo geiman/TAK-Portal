@@ -677,6 +677,11 @@ async function updateDataPackageDetails(hash, patch = {}) {
           .split(",")
           .map((g) => g.trim())
           .filter(Boolean);
+  const groupsNoTak = Array.isArray(groups)
+    ? groups.map((g) => String(g || "").trim()).filter(Boolean).map((g) =>
+        g.toLowerCase().startsWith("tak_") ? g.slice(4) : g
+      )
+    : null;
 
   const unsupported = [];
 
@@ -722,6 +727,41 @@ async function updateDataPackageDetails(hash, patch = {}) {
         { headers: { "Content-Type": "application/json", Accept: "application/json" } }
       ));
     }
+    if (!ok) {
+      ok = !!(await tryPutUnsupportedAsNull(
+        client,
+        `/Marti/api/sync/metadata/${encodeURIComponent(h)}/groups`,
+        groups.join(","),
+        { headers: { "Content-Type": "text/plain; charset=utf-8", Accept: "application/json" } }
+      ));
+    }
+    if (!ok && groupsNoTak && groupsNoTak.length) {
+      ok = !!(await tryPutUnsupportedAsNull(
+        client,
+        `/Marti/api/sync/metadata/${encodeURIComponent(h)}/groups`,
+        groupsNoTak,
+        { headers: { "Content-Type": "application/json", Accept: "application/json" } }
+      ));
+    }
+    if (!ok && groupsNoTak && groupsNoTak.length) {
+      ok = !!(await tryPutUnsupportedAsNull(
+        client,
+        `/Marti/api/sync/metadata/${encodeURIComponent(h)}/groups`,
+        groupsNoTak.join(","),
+        { headers: { "Content-Type": "text/plain; charset=utf-8", Accept: "application/json" } }
+      ));
+    }
+    if (!ok) {
+      ok = !!(await tryPutUnsupportedAsNull(
+        client,
+        "/Marti/api/files/metadata",
+        { groups: groups.join(","), Groups: groups.join(",") },
+        {
+          params: { hash: h },
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+        }
+      ));
+    }
     if (ok) out.groups = groups;
     else unsupported.push("groups");
   }
@@ -751,7 +791,10 @@ async function updateDataPackageDetails(hash, patch = {}) {
     try {
       const body = {};
       if (filename != null) body.filename = filename;
-      if (groups != null) body.groups = groups;
+      if (groups != null) {
+        body.groups = groups.join(",");
+        body.Groups = groups.join(",");
+      }
       if (expiration != null) body.expiration = expiration;
       const res = await client.put("/api/data_packages", body, {
         params: { hash: h },
