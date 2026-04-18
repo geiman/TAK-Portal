@@ -11,14 +11,13 @@
   <div class="card">
     <h2 style="margin-top:0;">Upload Data Package</h2>
     <div class="row data-packages-upload-row">
-      <label class="data-packages-upload-field">
+      <label class="data-packages-upload-field" for="uploadFile">
         Choose File
         <input type="file" id="uploadFile" accept=".zip,application/zip,application/x-zip-compressed" />
       </label>
-      <label class="data-packages-upload-btn-wrap">
-        <span class="data-packages-upload-spacer" aria-hidden="true">&nbsp;</span>
+      <div class="data-packages-upload-btn-wrap">
         <button type="button" class="btn success data-packages-upload-btn" id="btnUploadPackage">Upload Data Package</button>
-      </label>
+      </div>
     </div>
     <div id="uploadMsg" class="msg" style="margin-top:10px;"></div>
   </div>
@@ -82,12 +81,10 @@
   .data-packages-page .data-packages-upload-row { flex-wrap: wrap; align-items: flex-end; gap: 12px; }
   .data-packages-page .data-packages-upload-field { min-width: 0; flex: 1 1 260px; }
   .data-packages-page .data-packages-upload-field input { width: 100%; max-width: 100%; box-sizing: border-box; }
-  .data-packages-page .data-packages-upload-btn-wrap { flex: 1 1 100%; min-width: 0; }
-  .data-packages-page .data-packages-upload-spacer { display: none; }
+  .data-packages-page .data-packages-upload-btn-wrap { flex: 1 1 100%; min-width: 0; display: flex; align-items: flex-end; }
   .data-packages-page .data-packages-upload-btn { width: 100%; box-sizing: border-box; }
   @media (min-width: 640px) {
     .data-packages-page .data-packages-upload-btn-wrap { flex: 0 0 auto; width: auto; }
-    .data-packages-page .data-packages-upload-spacer { display: inline; }
     .data-packages-page .data-packages-upload-btn { width: auto; }
   }
   .data-packages-page .data-packages-table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-top: 12px; width: 100%; }
