@@ -8,7 +8,7 @@ Below you will find a comprehensive list of items planned for implementation in 
 - TAK Server Data Sync Management
 - TAK Server Data Package Management
 
-## 📌 Planned Features
+## 📌 Planned / Upcoming Features
 - Redefine TAK Portal Permissions - Access control per page rather than Agency/Global
 - Agency Import via CSV
 - Documents / MOU Page - A file archive of all drafts, unsigned, and signed documents
