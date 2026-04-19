@@ -34,10 +34,26 @@ function toSafeApiError(err, options = {}) {
       else if (typeof data.message === "string") raw = data.message;
       else if (typeof data.error === "string") raw = data.error;
       else {
-        try {
-          raw = JSON.stringify(data);
-        } catch {
-          raw = "";
+        // Django REST / Authentik field errors: { "email": ["Enter a valid email address."] }
+        const fieldParts = [];
+        for (const [field, val] of Object.entries(data)) {
+          if (Array.isArray(val) && val.every(v => typeof v === "string")) {
+            const label =
+              field.length && field !== "non_field_errors"
+                ? field.charAt(0).toUpperCase() + field.slice(1).replace(/_/g, " ")
+                : "";
+            const msg = val.filter(Boolean).join(" ");
+            if (msg) fieldParts.push(label ? `${label}: ${msg}` : msg);
+          }
+        }
+        if (fieldParts.length) {
+          raw = fieldParts.join("; ");
+        } else {
+          try {
+            raw = JSON.stringify(data);
+          } catch {
+            raw = "";
+          }
         }
       }
     }

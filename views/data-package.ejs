@@ -1,0 +1,487 @@
+<%- include("partials/header") %>
+<%- include("partials/sidebar") %>
+
+<main class="main data-packages-page">
+  <div class="data-packages-hero">
+    <h1>Data Package Manager</h1>
+  </div>
+
+  <div id="statusBanner" class="card data-packages-status" style="display:none;" role="status"></div>
+
+  <div class="card">
+    <h2 style="margin-top:0;">Upload Data Package</h2>
+    <div class="data-packages-upload-block">
+      <label class="data-packages-upload-label" for="uploadFile">Choose File</label>
+      <div class="data-packages-upload-inline">
+        <input
+          type="file"
+          id="uploadFile"
+          class="data-packages-upload-input"
+          accept=".zip,application/zip,application/x-zip-compressed"
+        />
+        <button type="button" class="btn success data-packages-upload-btn" id="btnUploadPackage">Upload Data Package</button>
+      </div>
+    </div>
+    <div id="uploadMsg" class="msg" style="margin-top:10px;"></div>
+  </div>
+
+  <div class="card" style="margin-top:1.25rem;">
+    <h2 style="margin-top:0;">Existing Data Packages</h2>
+    <div class="row" style="flex-wrap:wrap; align-items:flex-end; gap:12px;">
+      <label style="min-width:220px; flex:1 1 100%;">
+        Filter
+        <input type="search" id="packageFilter" placeholder="Filter by filename/creator..." autocomplete="off" />
+      </label>
+    </div>
+    <div id="packagesMsg" class="msg" style="margin:12px 0 0 0;"></div>
+    <div class="data-packages-table-scroll">
+      <table class="table data-packages-table">
+        <thead>
+          <tr>
+            <th>Filename</th>
+            <th>Size</th>
+            <th class="data-packages-col-creator">Creator</th>
+            <th class="data-packages-col-expiration">Expiration</th>
+            <th class="data-packages-col-updated">Last Updated</th>
+            <th style="min-width:160px;">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="packagesTbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <details class="card" style="margin-top:1.25rem;">
+    <summary style="cursor:pointer;font-weight:600;user-select:none;">
+      Archived Data Packages <span id="archivedCountWrap">(<span id="archivedCount">0</span>)</span>
+    </summary>
+    <div style="margin-top:12px;">
+      <div id="archivedPackagesMsg" class="msg" style="margin-left:0;"></div>
+      <div class="data-packages-table-scroll">
+        <table class="table data-packages-table">
+          <thead>
+            <tr>
+              <th>Filename</th>
+              <th>Size</th>
+              <th class="data-packages-col-creator">Creator</th>
+              <th class="data-packages-col-expiration">Expiration</th>
+              <th class="data-packages-col-updated">Last Updated</th>
+              <th style="min-width:160px;">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="archivedPackagesTbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </details>
+</main>
+
+<style>
+  .data-packages-page.main { min-width: 0; max-width: 100%; box-sizing: border-box; }
+  .data-packages-page .card, .data-packages-page .data-packages-table-scroll { min-width: 0; max-width: 100%; box-sizing: border-box; }
+  .data-packages-status.msg { margin-left: 0; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line); }
+  .data-packages-status.bad { border-color: rgba(255,80,80,.45); background: rgba(255,80,80,.08); }
+  .data-packages-page .data-packages-upload-block {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    width: 100%;
+  }
+  .data-packages-page .data-packages-upload-label {
+    display: block;
+    font-size: 13px;
+    color: var(--text);
+  }
+  .data-packages-page .data-packages-upload-inline {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+  }
+  .data-packages-page .data-packages-upload-input {
+    flex: 1 1 260px;
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    margin: 0;
+  }
+  .data-packages-page .data-packages-upload-btn {
+    flex: 0 0 auto;
+    width: 100%;
+    box-sizing: border-box;
+    margin: 0;
+  }
+  @media (min-width: 640px) {
+    .data-packages-page .data-packages-upload-btn { width: auto; }
+  }
+  .data-packages-page .data-packages-table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-top: 12px; width: 100%; }
+  .data-packages-page .data-packages-table { width: 100%; }
+  @media (min-width: 641px) { .data-packages-page .data-packages-table { min-width: 720px; } }
+  @media (max-width: 640px) {
+    .data-packages-page .data-packages-table .data-packages-col-creator,
+    .data-packages-page .data-packages-table .data-packages-col-expiration,
+    .data-packages-page .data-packages-table .data-packages-col-updated {
+      display: none;
+    }
+    .data-packages-page .data-packages-table {
+      min-width: 0;
+      table-layout: fixed;
+    }
+    .data-packages-page .data-packages-table th,
+    .data-packages-page .data-packages-table td {
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+    .data-packages-page .data-packages-actions-cell,
+    .data-packages-page .data-packages-actions-cell .btn {
+      overflow-wrap: normal;
+      word-break: normal;
+    }
+  }
+  .data-packages-page .data-packages-actions-cell { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .data-packages-page .data-packages-actions-cell .btn { margin: 0 !important; }
+  .data-packages-page .btn.archive {
+    background: var(--warning);
+    border-color: var(--warning);
+    color: #fff;
+  }
+  .data-packages-page .btn.archive:hover { filter: brightness(1.08); }
+</style>
+
+<script>
+(function () {
+  var API = "/api/data-packages";
+  var ACTIVE_KEYWORD = "missionpackage";
+  var ARCHIVED_KEYWORD = "ARCHIVED_MISSION";
+
+  var statusBanner = document.getElementById("statusBanner");
+  var uploadFile = document.getElementById("uploadFile");
+  var btnUploadPackage = document.getElementById("btnUploadPackage");
+  var uploadMsg = document.getElementById("uploadMsg");
+  var packageFilter = document.getElementById("packageFilter");
+  var packagesMsg = document.getElementById("packagesMsg");
+  var archivedPackagesMsg = document.getElementById("archivedPackagesMsg");
+  var packagesTbody = document.getElementById("packagesTbody");
+  var archivedPackagesTbody = document.getElementById("archivedPackagesTbody");
+  var archivedCount = document.getElementById("archivedCount");
+
+  var packagesCache = [];
+  var loadPackagesDebounceTimer = null;
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  function setMsg(el, text, ok) {
+    if (!el) return;
+    el.textContent = text || "";
+    el.className = "msg " + (ok === true ? "ok" : ok === false ? "bad" : "");
+  }
+  function firstVal(obj, keys) {
+    if (!obj || typeof obj !== "object") return "";
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i];
+      if (obj[k] != null && obj[k] !== "") return String(obj[k]);
+    }
+    return "";
+  }
+  function asNumber(v) {
+    var n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  function fmtSize(v) {
+    var raw = String(v == null ? "" : v).trim();
+    if (!raw) return "";
+    var n = asNumber(v);
+    if (n == null || n < 0) return raw;
+    if (n < 1024) return n + " B";
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+    return (n / (1024 * 1024)).toFixed(1) + " MB";
+  }
+  function normalizeList(payload) {
+    if (!payload) return [];
+    if (Array.isArray(payload.items)) return payload.items;
+    if (Array.isArray(payload.data)) return payload.data;
+    if (Array.isArray(payload)) return payload;
+    return [];
+  }
+  function normalizeKeywords(pkg) {
+    if (Array.isArray(pkg.keywords)) {
+      return pkg.keywords.map(function (k) { return String(k || "").trim(); }).filter(Boolean);
+    }
+    var raw = firstVal(pkg, ["keywords", "Keywords", "keyword", "tags"]);
+    if (!raw) return [];
+    return String(raw).split(",").map(function (k) { return k.trim(); }).filter(Boolean);
+  }
+  function hasKeyword(pkg, keyword) {
+    var target = String(keyword || "").trim().toLowerCase();
+    var list = normalizeKeywords(pkg);
+    for (var i = 0; i < list.length; i++) {
+      if (String(list[i]).toLowerCase() === target) return true;
+    }
+    return false;
+  }
+
+  async function loadStatus() {
+    try {
+      var res = await fetch(API + "/status");
+      var j = await res.json();
+      if (!res.ok) throw new Error((j && j.error) || "Status failed");
+      if (!j.configured) {
+        statusBanner.style.display = "block";
+        statusBanner.className = "card data-packages-status msg bad";
+        statusBanner.innerHTML = "<strong>TAK is not available from the portal.</strong> " +
+          (j.bypassed ? "TAK_BYPASS_ENABLED is on, or TAK_URL / client certificates are not configured." : "Set TAK_URL and API client cert/key or P12 in Server Settings.");
+        return false;
+      }
+      statusBanner.style.display = "none";
+      statusBanner.innerHTML = "";
+      return true;
+    } catch (e) {
+      statusBanner.style.display = "block";
+      statusBanner.className = "card data-packages-status msg bad";
+      statusBanner.textContent = e.message || "Could not load status.";
+      return false;
+    }
+  }
+
+  function renderOneRow(pkg, tbody, isArchived) {
+    var filename = firstVal(pkg, ["filename", "name", "original_filename"]);
+    var hash = firstVal(pkg, ["hash", "sha256", "uid", "id"]);
+    var size = firstVal(pkg, ["size", "content_length", "contentLength"]);
+    var creator = firstVal(pkg, ["creator_uid", "creatorUid", "creator", "owner"]);
+    var expiration = firstVal(pkg, ["expiration", "Expiration", "expires", "expiresAt"]);
+    var created = firstVal(pkg, ["created_at", "createTime", "created", "timestamp"]);
+
+    var tr = document.createElement("tr");
+    tr.innerHTML =
+      "<td style='max-width:240px;'>" + esc(filename || "(unnamed)") + "</td>" +
+      "<td style='white-space:nowrap;'>" + esc(fmtSize(size)) + "</td>" +
+      "<td class=\"data-packages-col-creator\">" + esc(creator) + "</td>" +
+      "<td class=\"data-packages-col-expiration\" style='white-space:nowrap;font-size:12px;'>" + esc(expiration) + "</td>" +
+      "<td class=\"data-packages-col-updated\" style='font-size:12px;white-space:nowrap;'>" + esc(created) + "</td>" +
+      "<td></td>";
+
+    var tdAct = tr.querySelector("td:last-child");
+    tdAct.className = "data-packages-actions-cell";
+
+    var bDl = document.createElement("button");
+    bDl.type = "button";
+    bDl.className = "btn";
+    bDl.textContent = "Download";
+    bDl.disabled = !hash;
+    bDl.addEventListener("click", function () { downloadPackage(hash, filename); });
+
+    var bDel = document.createElement("button");
+    bDel.type = "button";
+    bDel.className = "btn danger";
+    bDel.textContent = "Delete";
+    bDel.disabled = !hash;
+    bDel.addEventListener("click", function () { deletePackage(hash, filename, isArchived); });
+
+    var bArchiveRestore = document.createElement("button");
+    bArchiveRestore.type = "button";
+    bArchiveRestore.disabled = !hash;
+    if (isArchived) {
+      bArchiveRestore.className = "btn success";
+      bArchiveRestore.textContent = "Restore";
+      bArchiveRestore.addEventListener("click", function () { restorePackage(hash, filename); });
+    } else {
+      bArchiveRestore.className = "btn archive";
+      bArchiveRestore.textContent = "Archive";
+      bArchiveRestore.addEventListener("click", function () { archivePackage(hash, filename); });
+    }
+
+    tdAct.appendChild(bDl);
+    tdAct.appendChild(bArchiveRestore);
+    tdAct.appendChild(bDel);
+    tbody.appendChild(tr);
+  }
+
+  function renderTables() {
+    var filt = ((packageFilter && packageFilter.value) || "").trim().toLowerCase();
+    packagesTbody.innerHTML = "";
+    archivedPackagesTbody.innerHTML = "";
+
+    var activeCount = 0;
+    var archivedCountValue = 0;
+    for (var i = 0; i < packagesCache.length; i++) {
+      var p = packagesCache[i] || {};
+      var hay = (
+        firstVal(p, ["filename", "name", "original_filename"]) + " " +
+        firstVal(p, ["creator_uid", "creatorUid", "creator", "owner"]) + " " +
+        normalizeKeywords(p).join(" ")
+      ).toLowerCase();
+      if (filt && hay.indexOf(filt) === -1) continue;
+
+      if (hasKeyword(p, ACTIVE_KEYWORD)) {
+        activeCount += 1;
+        renderOneRow(p, packagesTbody, false);
+      } else if (hasKeyword(p, ARCHIVED_KEYWORD)) {
+        archivedCountValue += 1;
+        renderOneRow(p, archivedPackagesTbody, true);
+      }
+    }
+
+    if (!activeCount) {
+      var trA = document.createElement("tr");
+      var tdA = document.createElement("td");
+      tdA.colSpan = 6;
+      tdA.textContent = "No active mission packages.";
+      trA.appendChild(tdA);
+      packagesTbody.appendChild(trA);
+    }
+    if (!archivedCountValue) {
+      var trR = document.createElement("tr");
+      var tdR = document.createElement("td");
+      tdR.colSpan = 6;
+      tdR.textContent = "No archived mission packages.";
+      trR.appendChild(tdR);
+      archivedPackagesTbody.appendChild(trR);
+    }
+    if (archivedCount) archivedCount.textContent = String(archivedCountValue);
+  }
+
+  async function loadPackages() {
+    setMsg(packagesMsg, "Loading packages…", undefined);
+    setMsg(archivedPackagesMsg, "", undefined);
+    try {
+      var res = await fetch(API + "/packages");
+      var text = await res.text();
+      var j = {};
+      try { j = JSON.parse(text); } catch (_) {}
+      if (!res.ok) throw new Error((j && j.error) || "Failed to load packages");
+      packagesCache = normalizeList(j);
+      renderTables();
+      setMsg(packagesMsg, "", true);
+      setMsg(archivedPackagesMsg, "", true);
+    } catch (e) {
+      setMsg(packagesMsg, e.message || "Failed to load packages", false);
+      setMsg(archivedPackagesMsg, e.message || "Failed to load archived packages", false);
+    }
+  }
+
+  async function uploadPackage() {
+    setMsg(uploadMsg, "Uploading…", undefined);
+    try {
+      var file = uploadFile && uploadFile.files && uploadFile.files[0];
+      if (!file) throw new Error("Choose a file to upload.");
+      var fileName = String(file.name || "").toLowerCase();
+      if (!fileName.endsWith(".zip")) throw new Error("Only .zip files are allowed.");
+
+      var fd = new FormData();
+      fd.append("file", file, file.name || "data-package.zip");
+      fd.append("keywords", ACTIVE_KEYWORD);
+      fd.append("tool", "public");
+
+      var res = await fetch(API + "/packages/upload", { method: "POST", body: fd });
+      var text = await res.text();
+      var j = {};
+      try { j = JSON.parse(text); } catch (_) {}
+      if (!res.ok) throw new Error((j && j.error) || "Upload failed");
+      setMsg(uploadMsg, "Data package uploaded.", true);
+      uploadFile.value = "";
+      await loadPackages();
+    } catch (e) {
+      setMsg(uploadMsg, e.message || "Upload failed", false);
+    }
+  }
+
+  async function deletePackage(hash, filename, isArchived) {
+    var warning =
+      "Permanently delete data package \"" + (filename || hash) + "\"?\n\n" +
+      "This is PERMANENT and cannot be undone.\n" +
+      "Use Archive if you may need this package later.";
+    if (!window.confirm(warning)) return;
+    setMsg(isArchived ? archivedPackagesMsg : packagesMsg, "Deleting package…", undefined);
+    try {
+      var res = await fetch(API + "/packages/" + encodeURIComponent(hash), { method: "DELETE" });
+      var text = await res.text();
+      var j = {};
+      try { j = JSON.parse(text); } catch (_) {}
+      if (!res.ok) throw new Error((j && j.error) || "Delete failed");
+      setMsg(isArchived ? archivedPackagesMsg : packagesMsg, "Package deleted.", true);
+      await loadPackages();
+    } catch (e) {
+      setMsg(isArchived ? archivedPackagesMsg : packagesMsg, e.message || "Delete failed", false);
+    }
+  }
+
+  async function archivePackage(hash, filename) {
+    if (!window.confirm("Archive \"" + (filename || hash) + "\"?")) return;
+    setMsg(packagesMsg, "Archiving package…", undefined);
+    try {
+      var res = await fetch(API + "/packages/" + encodeURIComponent(hash) + "/metadata", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ keywords: [ARCHIVED_KEYWORD] }),
+      });
+      var text = await res.text();
+      var j = {};
+      try { j = JSON.parse(text); } catch (_) {}
+      if (!res.ok) throw new Error((j && j.error) || "Archive failed");
+      setMsg(packagesMsg, "Package archived.", true);
+      await loadPackages();
+    } catch (e) {
+      setMsg(packagesMsg, e.message || "Archive failed", false);
+    }
+  }
+
+  async function restorePackage(hash, filename) {
+    if (!window.confirm("Restore \"" + (filename || hash) + "\" to active packages?")) return;
+    setMsg(archivedPackagesMsg, "Restoring package…", undefined);
+    try {
+      var res = await fetch(API + "/packages/" + encodeURIComponent(hash) + "/metadata", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ keywords: [ACTIVE_KEYWORD] }),
+      });
+      var text = await res.text();
+      var j = {};
+      try { j = JSON.parse(text); } catch (_) {}
+      if (!res.ok) throw new Error((j && j.error) || "Restore failed");
+      setMsg(archivedPackagesMsg, "Package restored.", true);
+      await loadPackages();
+    } catch (e) {
+      setMsg(archivedPackagesMsg, e.message || "Restore failed", false);
+    }
+  }
+
+  async function downloadPackage(hash, filename) {
+    setMsg(packagesMsg, "Downloading package…", undefined);
+    try {
+      var res = await fetch(API + "/packages/download?hash=" + encodeURIComponent(hash));
+      if (!res.ok) throw new Error("Download failed (HTTP " + res.status + ")");
+      var blob = await res.blob();
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = filename || ("data-package-" + hash + ".zip");
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(function () {
+        try { URL.revokeObjectURL(a.href); } catch (_) {}
+      }, 2500);
+      setMsg(packagesMsg, "Download started.", true);
+    } catch (e) {
+      setMsg(packagesMsg, e.message || "Download failed", false);
+    }
+  }
+
+  if (btnUploadPackage) btnUploadPackage.addEventListener("click", uploadPackage);
+  if (packageFilter) {
+    packageFilter.addEventListener("input", function () {
+      if (loadPackagesDebounceTimer) clearTimeout(loadPackagesDebounceTimer);
+      loadPackagesDebounceTimer = setTimeout(function () {
+        loadPackages();
+      }, 250);
+    });
+  }
+
+  loadStatus().then(function (ok) {
+    if (!ok) return;
+    loadPackages();
+  });
+})();
+</script>

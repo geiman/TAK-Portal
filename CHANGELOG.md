@@ -12,6 +12,13 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.2.74 - 4/18/26
+🎉 `New Feature` - Added Data Package Manager for global admins.  A current limitation is that any uploaded DP from TAK Portal will result with all groups/channels having access.
+
+### v1.2.73 - 4/16/26
+✨ `Enhancement` - Adds CSV Template and Instructions download link to user creation page<br>
+🐛 `Bug Fix` - Fixes issue with Authentik email validation hiding TAK Portal progress when an invalid email format is entered.
+
 ### v1.2.72 - 4/15/26
 ✨ `Enhancement` - Modifies username field on creation and request access pages to only accept usernames with letters and numbers only (No special characters)
 

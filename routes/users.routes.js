@@ -446,6 +446,7 @@ router.post("/import-csv", upload.single("file"), async (req, res) => {
       details: {
         created: Array.isArray(result?.created) ? result.created.length : result?.created || 0,
         skipped: Array.isArray(result?.skipped) ? result.skipped.length : result?.skipped || 0,
+        failed: Array.isArray(result?.failed) ? result.failed.length : result?.failed || 0,
         durationMs,
       },
     });
@@ -560,6 +561,7 @@ router.post("/import-csv/start", upload.single("file"), async (req, res) => {
               jobId,
               created: job.created,
               skipped: job.skipped,
+              failed: Array.isArray(result?.failed) ? result.failed.length : 0,
               durationMs,
               usernamesCreated,
               createdDetails,

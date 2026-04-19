@@ -11,10 +11,10 @@
   <div class="card">
     <h2 style="margin-top: 0;">Create Data Sync Mission</h2>
     <div class="grid2">
-      <label>Mission name
+      <label>Mission Name
         <input type="text" id="createMissionName" autocomplete="off" placeholder="e.g. Incident Alpha" />
       </label>
-      <label>Default role for subscribers
+      <label>Default Role For Subscribers
         <select id="createMissionDefaultRole" style="width: 100%; box-sizing: border-box;">
           <option value="MISSION_SUBSCRIBER">Mission subscriber (MISSION_SUBSCRIBER)</option>
           <option value="MISSION_OWNER">Mission owner (MISSION_OWNER)</option>
@@ -25,14 +25,14 @@
         <textarea id="createMissionDescription" rows="2" placeholder="Mission description" style="width: 100%; box-sizing: border-box; resize: vertical;"></textarea>
       </label>
       <div class="create-mission-groups-wrap" style="grid-column: 1 / -1;">
-        <label class="create-mission-groups-label">Groups with access
+        <label class="create-mission-groups-label">Groups With Access
           <input type="search" id="createGroupFilter" placeholder="Search groups..." autocomplete="off" />
           <div id="createMissionGroupsBox" class="groupsBox">
             <div id="createMissionGroupsInner" class="groupsInner"></div>
           </div>
         </label>
       </div>
-      <label>Password (optional)
+      <label>Password (Optional)
         <div class="passwordWrap">
           <input type="password" id="createMissionPw" autocomplete="new-password" />
           <button type="button" id="createMissionPwToggle" class="passwordToggle" aria-label="Show password" title="Show password">👁</button>
@@ -50,7 +50,7 @@
 
     <div class="data-sync-toolbar row" style="flex-wrap: wrap; align-items: flex-end; gap: 12px;">
       <label style="min-width: 140px;">
-        List filter
+        List Filter
         <input type="search" id="missionTableFilter" placeholder="Filter by name…" style="width: 100%; box-sizing: border-box;" autocomplete="off" />
       </label>
       <button type="button" class="btn" id="btnRefreshMissions">Refresh</button>
@@ -77,7 +77,7 @@
   </div>
 
   <div class="card">
-    <h2 style="margin-top: 0;">KML data sync packages</h2>
+    <h2 style="margin-top: 0;">KML Data Sync Packages</h2>
     <div class="row" style="flex-wrap: wrap; align-items: flex-end; gap: 14px;">
       <label style="min-width: 220px;">
         Mission
@@ -102,14 +102,14 @@
 <div class="modalOverlay" id="missionModal" style="display: none;">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="missionModalTitle" style="width: min(900px, 96vw);">
     <div class="modalHeader">
-      <h2 id="missionModalTitle" style="margin: 0;">Edit mission</h2>
+      <h2 id="missionModalTitle" style="margin: 0;">Edit Mission</h2>
       <button type="button" class="btn" id="missionModalClose">Close</button>
     </div>
     <div class="modalBody">
       <div id="missionModalMsg" class="msg" style="margin-bottom: 10px;"></div>
 
       <label style="display: block;">
-        Mission name
+        Mission Name
         <input type="text" id="mName" readonly style="width: 100%; box-sizing: border-box; opacity: 0.85;" />
       </label>
 
@@ -119,18 +119,18 @@
       </label>
 
       <label style="display: block; margin-top: 12px;">
-        Default role for subscribers
+        Default Role For Subscribers
         <select id="mDefaultRole" style="min-width: 280px;">
-          <option value="MISSION_SUBSCRIBER">Mission subscriber (MISSION_SUBSCRIBER)</option>
-          <option value="MISSION_OWNER">Mission owner (MISSION_OWNER)</option>
-          <option value="MISSION_READONLY_SUBSCRIBER">Read-only subscriber (MISSION_READONLY_SUBSCRIBER)</option>
+          <option value="MISSION_SUBSCRIBER">Mission Subscriber (MISSION_SUBSCRIBER)</option>
+          <option value="MISSION_OWNER">Mission Owner (MISSION_OWNER)</option>
+          <option value="MISSION_READONLY_SUBSCRIBER">Read-only Subscriber (MISSION_READONLY_SUBSCRIBER)</option>
         </select>
       </label>
       <p class="muted" style="margin: 6px 0 0 0; font-size: 12px;">Tool is always <code>public</code> for Data Sync missions (not shown).</p>
 
       <div style="margin-top: 14px;">
         <div class="row" style="justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
-          <strong>Groups with access</strong>
+          <strong>Groups With Access</strong>
           <input type="search" id="groupFilter" placeholder="Filter groups…" style="max-width: 260px; width: 100%; box-sizing: border-box;" />
         </div>
         <div id="mGroupsBox" class="groupsBox" style="margin-top: 8px;"></div>
@@ -139,7 +139,7 @@
       <div class="card" style="margin-top: 16px; background: var(--card);">
         <h3 style="margin: 0 0 8px 0; font-size: 1rem;">Password (optional)</h3>
         <div class="row" style="flex-wrap: wrap; gap: 10px; align-items: flex-end;">
-          <label style="flex: 1; min-width: 200px;">New password
+          <label style="flex: 1; min-width: 200px;">New Password
             <div class="passwordWrap">
               <input type="password" id="mNewPw" autocomplete="new-password" style="width: 100%; box-sizing: border-box;" />
               <button type="button" id="mNewPwToggle" class="passwordToggle" aria-label="Show password" title="Show password">👁</button>
@@ -178,7 +178,7 @@
 <div class="modalOverlay" id="deleteModal" style="display: none;">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="deleteTitle" style="width: min(480px, 94vw);">
     <div class="modalHeader">
-      <h2 id="deleteTitle" style="margin: 0;">Delete mission</h2>
+      <h2 id="deleteTitle" style="margin: 0;">Delete Mission</h2>
       <button type="button" class="btn" id="deleteModalClose">Cancel</button>
     </div>
     <div class="modalBody">

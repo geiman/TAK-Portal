@@ -73,13 +73,10 @@
           <div class="nav-section-links" id="nav-administration">
             <% if (_isGlobalAdmin) { %>
               <a href="/audit-log" class="<%= isActive('/audit-log') ? 'active' : '' %>">Audit Log</a>
+              <a href="/data-package" class="<%= isActive('/data-package') ? 'active' : '' %>">Data Package</a>
             <% } %>
             <% if (_isGlobalAdmin && betaModeEnabled) { %>
-              <a href="/data-packages" class="<%= isActive('/data-packages') ? 'active' : '' %>">Data Packages</a>
               <a href="/data-sync" class="<%= isActive('/data-sync') ? 'active' : '' %>">Data Sync</a>
-            <% } %>
-            <% if (betaModeEnabled && (_isGlobalAdmin || _isAgencyAdmin)) { %>
-              <a href="/documents" class="<%= isActive('/documents') ? 'active' : '' %>">Documents</a>
             <% } %>
             <a href="/email" class="<%= isActive('/email') ? 'active' : '' %>">Email Users</a>
             <% if (_isGlobalAdmin) { %>
@@ -115,9 +112,6 @@
           </button>
           <div class="nav-section-links" id="nav-onboarding">
             <a href="/setup-my-device" class="<%= isActive('/setup-my-device') ? 'active' : '' %>">Setup My Device</a>
-            <% if (_isGlobalAdmin && betaModeEnabled) { %>
-              <a href="/getting-started" class="<%= isActive('/getting-started') ? 'active' : '' %>">Getting Started</a>
-            <% } %>
             <a href="/plugins" class="<%= isActive('/plugins') ? 'active' : '' %>">ATAK Plugins</a>
           </div>
         </div>
