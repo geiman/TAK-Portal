@@ -28,7 +28,9 @@ router.post("/enroll-qr", async (req, res) => {
       });
     }
 
-    const isOtt = req.body && String(req.body.app || "").toLowerCase() === "ott";
+    const app = req.body && String(req.body.app || "").toLowerCase();
+    const isOtt = app === "ott";
+    const isItak = app === "itak";
 
     const { identifier, key, expiresAt } =
       await tokensSvc.getOrCreateEnrollmentAppPassword({
@@ -50,6 +52,12 @@ router.post("/enroll-qr", async (req, res) => {
         teamLabel: pref.teamLabel,
         roleLabel: pref.roleLabel,
       });
+    } else if (isItak) {
+      enrollUrl = qrSvc.buildItakEnrollPayload({
+        username: user.username,
+        token: key,
+        registrationId: user.uid || identifier,
+      });
     } else {
       enrollUrl = qrSvc.buildEnrollUrl({
         username: user.username,
@@ -65,6 +73,7 @@ router.post("/enroll-qr", async (req, res) => {
       tokenIdentifier: identifier,
       token: key,
       expiresAt,
+      app: app || "atak",
       enrollUrl: enrollUrl || "",
       qrCode,
     });

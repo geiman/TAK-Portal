@@ -39,6 +39,26 @@ function getTakHost() {
   }
 }
 
+function getTakClientConnectionPort() {
+  try {
+    const settings = settingsSvc.getSettings() || {};
+    if (
+      settings.TAK_CLIENT_CONNECTION_PORT &&
+      typeof settings.TAK_CLIENT_CONNECTION_PORT === "string" &&
+      settings.TAK_CLIENT_CONNECTION_PORT.trim()
+    ) {
+      return settings.TAK_CLIENT_CONNECTION_PORT.trim();
+    }
+  } catch (err) {
+    console.warn(
+      "Failed to read TAK_CLIENT_CONNECTION_PORT from settings.json:",
+      err?.message || err
+    );
+  }
+
+  return "8089";
+}
+
 function buildEnrollUrl({ username, token }) {
   const u = String(username || "").trim();
   const t = String(token || "").trim();
@@ -53,6 +73,29 @@ function buildEnrollUrl({ username, token }) {
     `&username=${encodeURIComponent(u)}` +
     `&token=${encodeURIComponent(t)}`
   );
+}
+
+function buildItakEnrollPayload({ username, token, registrationId }) {
+  const u = String(username || "").trim();
+  const t = String(token || "").trim();
+  const rid = String(registrationId || "").trim();
+  const host = getTakHost();
+  const port = getTakClientConnectionPort();
+
+  if (!u || !t || !rid || !host || !port) return null;
+
+  return JSON.stringify({
+    passphrase: "false",
+    type: "registration",
+    serverCredentials: {
+      connectionString: `${host}:${port}:ssl`,
+    },
+    userCredentials: {
+      username: u,
+      password: t,
+      registrationId: rid,
+    },
+  });
 }
 
 /**
@@ -248,7 +291,9 @@ async function generateDownloadPng(enrollUrl, username) {
 module.exports = {
   getTakUrl,
   getTakHost,
+  getTakClientConnectionPort,
   buildEnrollUrl,
+  buildItakEnrollPayload,
   buildOttEnrollUrl,
   buildPreferenceUrl,
   generateDisplayQrDataUrl,
