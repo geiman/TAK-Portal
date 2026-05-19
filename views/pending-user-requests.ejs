@@ -280,7 +280,7 @@ th.sortable:hover{
             <input type="hidden" name="requestId" />
 
             <label class="<%= (!isGlobalAdmin && isAgencyAdmin) ? 'agency-admin-badge-full' : '' %>"><%= usernamePrefixLabel %>
-              <input type="text" name="badge" placeholder="Enter <%= usernamePrefixLabel %>" required />
+              <input type="text" name="badge" placeholder="Enter <%= usernamePrefixLabel %>" required autocorrect="off" autocapitalize="off" spellcheck="false" autocomplete="off" />
             </label>
 
             <label style="<%= (!isGlobalAdmin && isAgencyAdmin) ? 'display:none;' : '' %>">Agency
