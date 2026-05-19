@@ -4,17 +4,43 @@
 <main class="main">
   <h1>Setup My Device</h1>
   <%
-    const showITakLinks = String((settings && settings.SHOW_ITAK_LINKS) || "false").toLowerCase() === "true";
+    function isEnabled(val, fallback) {
+      if (typeof val === "string") {
+        const normalized = val.trim().toLowerCase();
+        if (normalized === "true") return true;
+        if (normalized === "false") return false;
+      }
+      return fallback;
+    }
+
+    const takAwareEnabled = isEnabled(settings && settings.ONBOARDING_IOS_TAKAWARE_ENABLED, true);
+    const legacyItakEnabled = String((settings && settings.SHOW_ITAK_LINKS) || "false").toLowerCase() === "true";
+    const itakEnabled = isEnabled(settings && settings.ONBOARDING_IOS_ITAK_ENABLED, legacyItakEnabled);
+    const hasWebOption = !!(settings && settings.CLOUDTAK_URL && settings.CLOUDTAK_URL.trim());
+
+    const iosAppNames = [];
+    if (takAwareEnabled) iosAppNames.push("TAK Aware");
+    iosAppNames.push("TAK Tracker");
+    if (itakEnabled) iosAppNames.push("iTAK");
+
+    let appleButtonDesc = "Use TAK apps on iOS devices.";
+    if (iosAppNames.length === 1) {
+      appleButtonDesc = `Use ${iosAppNames[0]} on iOS devices.`;
+    } else if (iosAppNames.length === 2) {
+      appleButtonDesc = `Use ${iosAppNames[0]} or ${iosAppNames[1]} on iOS devices.`;
+    } else if (iosAppNames.length > 2) {
+      appleButtonDesc = `Use ${iosAppNames.slice(0, -1).join(", ")}, or ${iosAppNames[iosAppNames.length - 1]} on iOS devices.`;
+    }
   %>
 
   <!-- Device selector -->
   <div class="card" id="deviceSelectCard">
     <h2>Select Your Device Type</h2>
 
-    <div class="<%= (settings && settings.CLOUDTAK_URL && settings.CLOUDTAK_URL.trim()) ? 'grid3' : 'grid2' %>">
+    <div class="<%= hasWebOption ? 'grid3' : 'grid2' %>">
       <button type="button" class="btn tile deviceTile deviceTile-ios" id="selectIOS">
         <span class="title">Apple (iPhone / iPad)</span>
-        <span class="desc">Use TAK Aware or TAK Tracker on iOS devices.</span>
+        <span class="desc"><%= appleButtonDesc %></span>
       </button>
 
       <button type="button" class="btn tile deviceTile deviceTile-android" id="selectAndroid">
@@ -31,68 +57,104 @@
     </div>
   </div>
 
-  <!-- iOS flow: one card per app; steps 1–3 stacked vertically inside -->
+  <!-- iOS flow -->
   <div id="iosFlow" style="display:none;">
-    <div class="iosSetupGrid <%= showITakLinks ? 'iosSetupGrid--three' : 'iosSetupGrid--two' %>" style="margin-top: 0.5rem;">
-      <!-- TAK Aware -->
-      <div class="card iosAppGroup">
-        <h2 class="iosAppGroupTitle">TAK Aware</h2>
-
-        <section class="iosStep">
-          <h3 class="iosStepHeading">Step 1: Download TAK Aware</h3>
-          <a
-            href="https://apps.apple.com/us/app/tak-aware/id6738631659"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="btn tile success"
-          >
-            <span class="title">iOS - TAK Aware (Recommended)</span>
-            <span class="desc">Download TAK Aware for iPhone or iPad.</span>
-          </a>
-        </section>
-
-        <section class="iosStep">
-          <h3 class="iosStepHeading">Step 2: Enroll your device</h3>
-          <div class="grid2">
-            <button type="button" class="btn tile" id="scanQrBtnTakAware">
-              <span class="title">Scan QR Code (Recommended)</span>
-              <span class="desc">Scan an enrollment QR code to automatically connect TAK Aware.</span>
-            </button>
-            <button type="button" class="btn tile" id="manualLoginBtnTakAware">
-              <span class="title">Manual Enrollment</span>
-              <span class="desc">Manually connect TAK Aware to the TAK Server.</span>
-            </button>
-          </div>
-        </section>
-
-        <section class="iosStep">
-          <h3 class="iosStepHeading">Step 3: Configure device Preferences</h3>
-          <button type="button" class="btn tile" id="iosPreferenceManualBtn">
-            <span class="title">Recommended Preferences</span>
-            <span class="desc">Tune map display options for clearer labels and terrain (recommended).</span>
+    <div class="card">
+      <h2>Step 1: Choose Your App</h2>
+      <p style="margin-top:0; opacity:0.85;">
+        Choose which iOS app you want to use.
+      </p>
+      <div class="iosAppChooser">
+        <% if (takAwareEnabled) { %>
+          <button type="button" class="btn tile iosAppTile" data-ios-app-choice="takaware" aria-pressed="false">
+            <img src="/tak_aware.webp" alt="TAK Aware app icon" class="iosAppTile__icon">
+            <span class="iosAppTile__text">
+              <span class="iosAppTile__eyebrow">iOS App</span>
+              <span class="title">TAK Aware</span>
+            </span>
           </button>
-        </section>
+        <% } %>
+        <button type="button" class="btn tile iosAppTile" data-ios-app-choice="taktracker" aria-pressed="false">
+          <span class="iosAppTile__text">
+            <span class="iosAppTile__eyebrow">iOS App</span>
+            <span class="title">TAK Tracker</span>
+            <span class="desc">Tracking-only client for iPhone or iPad.</span>
+          </span>
+        </button>
+        <% if (itakEnabled) { %>
+          <button type="button" class="btn tile iosAppTile" data-ios-app-choice="itak" aria-pressed="false">
+            <img src="/itak.webp" alt="iTAK app icon" class="iosAppTile__icon">
+            <span class="iosAppTile__text">
+              <span class="iosAppTile__eyebrow">iOS App</span>
+              <span class="title">iTAK</span>
+            </span>
+          </button>
+        <% } %>
       </div>
+    </div>
 
-      <!-- TAK Tracker -->
+    <% if (takAwareEnabled) { %>
+      <div id="takAwareFlow" class="iosSelectedFlow" style="display:none;">
+        <div class="card iosAppGroup">
+          <h2 class="iosAppGroupTitle">TAK Aware</h2>
+
+          <section class="iosStep">
+            <h3 class="iosStepHeading">Step 2: Download TAK Aware (If Needed)</h3>
+            <a
+              href="https://apps.apple.com/us/app/tak-aware/id6738631659"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="btn tile success"
+            >
+              <span class="title">Open TAK Aware in the App Store</span>
+              <span class="desc">Download TAK Aware for iPhone or iPad, or skip this step if it is already installed.</span>
+            </a>
+          </section>
+
+          <section class="iosStep">
+            <h3 class="iosStepHeading">Step 3: Enroll Your Device</h3>
+            <div class="grid2">
+              <button type="button" class="btn tile" id="scanQrBtnTakAware">
+                <span class="title">Scan QR Code (Recommended)</span>
+                <span class="desc">Scan an enrollment QR code to automatically connect TAK Aware.</span>
+              </button>
+              <button type="button" class="btn tile" id="manualLoginBtnTakAware">
+                <span class="title">Manual Enrollment</span>
+                <span class="desc">Manually connect TAK Aware to the TAK Server.</span>
+              </button>
+            </div>
+          </section>
+
+          <section class="iosStep">
+            <h3 class="iosStepHeading">Step 4: Configure Device Preferences</h3>
+            <button type="button" class="btn tile" id="iosPreferenceManualBtn">
+              <span class="title">Recommended Preferences</span>
+              <span class="desc">Tune map display options for clearer labels and terrain.</span>
+            </button>
+          </section>
+        </div>
+      </div>
+    <% } %>
+
+    <div id="takTrackerFlow" class="iosSelectedFlow" style="display:none;">
       <div class="card iosAppGroup">
         <h2 class="iosAppGroupTitle">TAK Tracker</h2>
 
         <section class="iosStep">
-          <h3 class="iosStepHeading">Step 1: Download TAK Tracker</h3>
+          <h3 class="iosStepHeading">Step 2: Download TAK Tracker (If Needed)</h3>
           <a
             href="https://apps.apple.com/us/app/tak-tracker/id6455684671"
             target="_blank"
             rel="noopener noreferrer"
             class="btn tile"
           >
-            <span class="title">iOS - TAK Tracker</span>
-            <span class="desc">Download TAK Tracker for iPhone or iPad. (Tracking Only, No Map)</span>
+            <span class="title">Open TAK Tracker in the App Store</span>
+            <span class="desc">Download TAK Tracker for iPhone or iPad, or skip this step if it is already installed.</span>
           </a>
         </section>
 
         <section class="iosStep">
-          <h3 class="iosStepHeading">Step 2: Enroll your device</h3>
+          <h3 class="iosStepHeading">Step 3: Enroll Your Device</h3>
           <div class="grid2">
             <button type="button" class="btn tile" id="scanQrBtnTakTracker">
               <span class="title">Scan QR Code (Recommended)</span>
@@ -105,34 +167,50 @@
           </div>
         </section>
       </div>
+    </div>
 
-      <% if (showITakLinks) { %>
+    <% if (itakEnabled) { %>
+      <div id="itakFlow" class="iosSelectedFlow" style="display:none;">
         <div class="card iosAppGroup">
           <h2 class="iosAppGroupTitle">iTAK</h2>
 
           <section class="iosStep">
-            <h3 class="iosStepHeading">Step 1: Download iTAK</h3>
+            <h3 class="iosStepHeading">Step 2: Download iTAK (If Needed)</h3>
             <a
               href="https://apps.apple.com/us/app/itak/id1561656396"
               target="_blank"
               rel="noopener noreferrer"
               class="btn tile"
             >
-              <span class="title">iOS - iTAK</span>
-              <span class="desc">Download iTAK for iPhone or iPad.</span>
+              <span class="title">Open iTAK in the App Store</span>
+              <span class="desc">Download iTAK for iPhone or iPad, or skip this step if it is already installed.</span>
             </a>
           </section>
 
           <section class="iosStep">
-            <h3 class="iosStepHeading">Step 2: Enroll your device</h3>
-            <button type="button" class="btn tile" id="manualLoginBtnITak">
-              <span class="title">Manual Enrollment</span>
-              <span class="desc">Manually connect iTAK to the TAK Server.</span>
+            <h3 class="iosStepHeading">Step 3: Enroll Your Device</h3>
+            <div class="grid2">
+              <button type="button" class="btn tile" id="scanQrBtnItak">
+                <span class="title">Scan QR Code</span>
+                <span class="desc">Scan the enrollment QR code from inside the iTAK app.</span>
+              </button>
+              <button type="button" class="btn tile" id="manualLoginBtnItak">
+                <span class="title">Manual Enrollment</span>
+                <span class="desc">Manually connect iTAK to the TAK Server.</span>
+              </button>
+            </div>
+          </section>
+
+          <section class="iosStep">
+            <h3 class="iosStepHeading">Step 4: Configure Device Preferences</h3>
+            <button type="button" class="btn tile" id="itakPreferenceManualBtn">
+              <span class="title">Manual Configuration</span>
+              <span class="desc">Enter your callsign, team, and role in iTAK settings.</span>
             </button>
           </section>
         </div>
-      <% } %>
-    </div>
+      </div>
+    <% } %>
   </div>
 
   <!-- Android flow: one card per app; steps stacked vertically (same pattern as iOS) -->
@@ -244,6 +322,9 @@
             <button class="btn" type="button" id="setupQrCopyBtn" disabled>Copy URL</button>
             <button class="btn" type="button" id="setupQrSaveBtn" disabled>Save Image</button>
           </div>
+          <div id="setupQrOpenBtnNote" class="settings-help" style="display:none; margin-top:10px; text-align:center;">
+            Open URL support for iTAK disabled.
+          </div>
         </div>
         <div style="min-width: 320px;">
           <h3 style="margin-top:0;" id="setupQrInstructionsTitle">How to Scan</h3>
@@ -341,10 +422,26 @@
   </div>
 </div>
 
+<!-- iTAK Step 4: Manual Configuration -->
+<div class="modalOverlay" id="itakPreferenceManualOverlay" style="display:none;">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="itakPreferenceManualTitle">
+    <div class="modalHeader">
+      <h2 id="itakPreferenceManualTitle" style="margin:0;">Manual Configuration</h2>
+      <button class="btn" id="itakPreferenceManualCloseBtn" type="button">Close</button>
+    </div>
+    <div class="modalBody">
+      <div style="max-width: 600px;">
+        <ol id="itakPreferenceManualInstructions" style="margin-top: 6px;"></ol>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
   // CloudTAK URL (from settings.json via server render)
   const cloudtakUrl = <%- JSON.stringify((settings && typeof settings.CLOUDTAK_URL === "string") ? settings.CLOUDTAK_URL.trim() : "") %>;
-  const showITakLinks = <%- JSON.stringify(String((settings && settings.SHOW_ITAK_LINKS) || "false").toLowerCase() === "true") %>;
+  const takAwareEnabled = <%- JSON.stringify(takAwareEnabled) %>;
+  const itakEnabled = <%- JSON.stringify(itakEnabled) %>;
 
   // --- device selection UI (NO persistence; forgets on reload) ---
   const iosFlow = document.getElementById("iosFlow");
@@ -352,12 +449,54 @@
   const selectIOS = document.getElementById("selectIOS");
   const selectAndroid = document.getElementById("selectAndroid");
   const selectWeb = document.getElementById("selectWeb");
+  const iosAppChoiceButtons = Array.from(document.querySelectorAll("[data-ios-app-choice]"));
+  const takAwareFlow = document.getElementById("takAwareFlow");
+  const takTrackerFlow = document.getElementById("takTrackerFlow");
+  const itakFlow = document.getElementById("itakFlow");
+
+  function setIosAppChoiceState(app) {
+    iosAppChoiceButtons.forEach((btn) => {
+      const isSelected = btn.dataset.iosAppChoice === app;
+      btn.classList.toggle("is-selected", isSelected);
+      btn.setAttribute("aria-pressed", isSelected ? "true" : "false");
+    });
+  }
+
+  function hideIosAppFlows() {
+    if (takAwareFlow) takAwareFlow.style.display = "none";
+    if (takTrackerFlow) takTrackerFlow.style.display = "none";
+    if (itakFlow) itakFlow.style.display = "none";
+    setIosAppChoiceState("");
+  }
+
+  function showIosApp(app) {
+    hideIosAppFlows();
+    if (app === "takaware" && takAwareFlow) {
+      takAwareFlow.style.display = "block";
+      setScanInstructions("takaware");
+      setIosAppChoiceState("takaware");
+      takAwareFlow.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    if (app === "taktracker" && takTrackerFlow) {
+      takTrackerFlow.style.display = "block";
+      setScanInstructions("taktracker");
+      setIosAppChoiceState("taktracker");
+      takTrackerFlow.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    if (app === "itak" && itakFlow) {
+      itakFlow.style.display = "block";
+      setScanInstructions("itak");
+      setIosAppChoiceState("itak");
+      itakFlow.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
 
   function showIOS() {
     iosFlow.style.display = "block";
     androidFlow.style.display = "none";
-    setScanInstructions("takaware");
-    // optional: scroll to the revealed content
+    hideIosAppFlows();
     iosFlow.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
@@ -377,22 +516,27 @@
   (function resetOnLoad() {
     iosFlow.style.display = "none";
     androidFlow.style.display = "none";
+    hideIosAppFlows();
   })();
 
   selectIOS.addEventListener("click", showIOS);
   selectAndroid.addEventListener("click", showAndroid);
   if (selectWeb) selectWeb.addEventListener("click", openCloudTAK);
+  iosAppChoiceButtons.forEach((btn) => {
+    btn.addEventListener("click", () => showIosApp(btn.dataset.iosAppChoice));
+  });
 
   // --- QR modal + enrollment logic ---
   const scanQrBtnTakAware = document.getElementById("scanQrBtnTakAware");
   const scanQrBtnTakTracker = document.getElementById("scanQrBtnTakTracker");
+  const scanQrBtnItak = document.getElementById("scanQrBtnItak");
   const scanQrBtnAtak = document.getElementById("scanQrBtnAtak");
-  const manualLoginBtnITak = document.getElementById("manualLoginBtnITak");
   const overlay = document.getElementById("setupQrOverlay");
   const closeBtn = document.getElementById("setupQrCloseBtn");
   const qrImg = document.getElementById("setupQrImg");
   const enrollUrlHolder = document.getElementById("setupQrEnrollUrlHolder");
   const openUrlBtn = document.getElementById("setupQrOpenBtn");
+  const openUrlBtnNote = document.getElementById("setupQrOpenBtnNote");
   const copyBtn = document.getElementById("setupQrCopyBtn");
   const saveBtn = document.getElementById("setupQrSaveBtn");
 
@@ -409,6 +553,7 @@
   // Manual Enrollment modal elements
   const manualLoginBtnTakAware = document.getElementById("manualLoginBtnTakAware");
   const manualLoginBtnTakTracker = document.getElementById("manualLoginBtnTakTracker");
+  const manualLoginBtnItak = document.getElementById("manualLoginBtnItak");
   const manualLoginBtnAtak = document.getElementById("manualLoginBtnAtak");
   const manualLoginOverlay = document.getElementById("manualLoginOverlay");
   const manualLoginCloseBtn = document.getElementById("manualLoginCloseBtn");
@@ -417,16 +562,20 @@
   const manualLoginDetails = document.getElementById("manualLoginDetails");
 
   // Which app the user is scanning with (controls modal instructions)
-  let scanMode = "takaware"; // "takaware" | "taktracker" | "atak" | "ott"
+  let scanMode = "takaware"; // "takaware" | "taktracker" | "itak" | "atak" | "ott"
+  let currentQrApp = "atak";
 
   function setScanInstructions(mode, prefData) {
     scanMode = mode;
 
     const isTakAware = mode === "takaware";
     const isTakTracker = mode === "taktracker";
+    const isItak = mode === "itak";
     const isOtt = mode === "ott";
     instructionsTitle.textContent = isTakAware
       ? "TAK Aware (iOS): How to Scan"
+      : isItak
+        ? "iTAK (iOS): How to Scan"
       : isTakTracker
         ? "TAK Tracker (iOS): How to Scan"
         : isOtt
@@ -451,7 +600,16 @@
       return;
     }
 
-    const steps = isTakAware || isTakTracker
+    const steps = isItak
+      ? [
+          "Open iTAK on your iOS device.",
+          "When prompted, allow Location access and set it to 'Always Allow'.",
+          "Follow initial setup to set Call Sign / Team / Role (per your welcome email).",
+          "Tap the settings gear in the upper right corner of the map screen.",
+          "Tap Network, Servers, then the plus button in the bottom right and choose Scan QR.",
+          "Allow camera access and scan the QR until the server registers."
+        ]
+      : isTakAware || isTakTracker
       ? [
           isTakTracker ? "Open TAK Tracker on your iOS device." : "Open TAK Aware on your iOS device.",
           "When prompted, allow Location access and set it to 'Always Allow'.",
@@ -521,20 +679,15 @@
         r = "Team Member";
       }
       const steps = [
-        "Open iTAK on your iOS device.",
-        "Select Callsign and enter: <strong>" + c + "</strong>",
-        "Select Team and enter: <strong>" + t + "</strong>",
-        "Select Role and select: <strong>" + r + "</strong>",
-        "Enable notifications and Location Services. When prompted select Allow While Using the App.",
-        "Change Location Services to Always Allow.",
-        "Select the settings (gear) icon in the top right corner.",
-        "Select Network and then Servers.",
-        "In the bottom right, tap the plus button and select Connect with Credentials.",
-        "Select Address and enter: <strong>" + escapeHtml(TAK_HOST) + "</strong>.",
-        "Select Port and enter: <strong>8089</strong>.",
-        "Select Username and enter: <strong>" + escapeHtml(CURRENT_USERNAME) + "</strong>.",
-        "Select Password and enter your TAK Portal password.",
-        "Select Connect in the top right corner; the server should show as connected."
+        "Open iTAK on your iPhone or iPad.",
+        "Follow initial setup to set Call Sign / Team / Role (per your welcome email).",
+        "Tap the settings gear in the upper right corner of the map screen.",
+        "Tap Network, Servers, the plus button in the bottom right, then Connect with Credentials.",
+        "Name: Your choice.",
+        "Address: <strong><%= takHost || 'your TAK server hostname' %></strong>",
+        "Port: <strong><%= (settings && settings.TAK_CLIENT_CONNECTION_PORT) || '8089' %></strong>",
+        "Enter your username and password: <strong>" + escapeHtml(CURRENT_USERNAME) + "</strong>",
+        "Tap Connect. If successful, you should see the server connected."
       ];
       manualLoginInstructions.innerHTML = steps.map(s => "<li>" + s + "</li>").join("");
       return;
@@ -733,8 +886,22 @@
     document.body.classList.remove("noScroll");
   }
 
+  function updateOpenUrlButtonState(app, hasUrl) {
+    const enabled = !!hasUrl && app !== "itak";
+    openUrlBtn.disabled = !enabled;
+    openUrlBtn.style.opacity = enabled ? "1" : "0.55";
+    openUrlBtn.style.cursor = enabled ? "pointer" : "not-allowed";
+    copyBtn.disabled = !enabled;
+    copyBtn.style.opacity = enabled ? "1" : "0.55";
+    copyBtn.style.cursor = enabled ? "pointer" : "not-allowed";
+    if (openUrlBtnNote) {
+      openUrlBtnNote.style.display = app === "itak" ? "block" : "none";
+    }
+  }
+
   function renderFromCache(obj) {
     cached = obj;
+    currentQrApp = obj.app || "atak";
     qrImg.src = obj.qrCode || "";
     var url = (obj.enrollUrl && String(obj.enrollUrl).trim()) || "";
     if (enrollUrlHolder) enrollUrlHolder.dataset.enrollUrl = url;
@@ -743,8 +910,7 @@
     if (obj.username) chips.push(`<span class="chip">User: ${obj.username}</span>`);
     details.innerHTML = chips.join(" ");
 
-    openUrlBtn.disabled = !url;
-    copyBtn.disabled = !url;
+    updateOpenUrlButtonState(currentQrApp, !!url);
     saveBtn.disabled = !(obj.username && obj.token);
     setMsg(msg, "QR ready.", true);
 
@@ -755,12 +921,13 @@
   async function fetchAndShowQr(app) {
     app = app || "atak";
     const isOtt = app === "ott";
+    const isItak = app === "itak";
+    currentQrApp = app;
     // UI reset
     qrImg.src = "";
     details.innerHTML = "";
     if (enrollUrlHolder) enrollUrlHolder.dataset.enrollUrl = "";
-    openUrlBtn.disabled = true;
-    copyBtn.disabled = true;
+    updateOpenUrlButtonState(app, false);
     saveBtn.disabled = true;
     countdownEl.textContent = "";
     setMsg(msg, "Generating enrollment QR...", true);
@@ -769,7 +936,7 @@
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(isOtt ? { app: "ott" } : {})
+      body: JSON.stringify((isOtt || isItak) ? { app } : {})
     });
 
     const rawText = await res.text();
@@ -784,6 +951,7 @@
       tokenIdentifier: data.tokenIdentifier,
       token: data.token,
       expiresAt: data.expiresAt,
+      app: data.app || app,
       enrollUrl: data.enrollUrl,
       qrCode: data.qrCode
     };
@@ -793,7 +961,7 @@
       throw new Error("User mismatch while generating QR. Please refresh and try again.");
     }
 
-    if (!isOtt) saveCache(obj);
+    if (!isOtt && !isItak) saveCache(obj);
     cached = obj;
     qrImg.src = obj.qrCode || "";
     var url = (obj.enrollUrl && String(obj.enrollUrl).trim()) || "";
@@ -801,8 +969,7 @@
     const chips = [];
     if (obj.username) chips.push(`<span class="chip">User: ${obj.username}</span>`);
     details.innerHTML = chips.join(" ");
-    openUrlBtn.disabled = !url;
-    copyBtn.disabled = !url;
+    updateOpenUrlButtonState(app, !!url);
     saveBtn.disabled = isOtt || !(obj.username && obj.token);
     setMsg(msg, "QR ready.", true);
     startCountdown(obj.expiresAt);
@@ -814,12 +981,13 @@
     setMsg(msg, "", true);
 
     const isOtt = mode === "ott";
+    const isItak = mode === "itak";
 
     // If we can't determine current username, don't reuse cache
     if (!CURRENT_USERNAME) {
       try {
-        await fetchAndShowQr(isOtt ? "ott" : "atak");
-        if (!isOtt && (mode === "takaware" || mode === "taktracker")) {
+        await fetchAndShowQr(isOtt ? "ott" : isItak ? "itak" : "atak");
+        if (!isOtt && !isItak && (mode === "takaware" || mode === "taktracker")) {
           await applyIosQrEnrollmentPreferences(mode);
         }
       } catch (err) {
@@ -830,7 +998,7 @@
     }
 
     // OTT never uses cache (different URL format); ATAK may use cache
-    if (!isOtt) {
+    if (!isOtt && !isItak) {
       const existing = loadCache();
       if (existing && existing.qrCode && existing.enrollUrl && existing.token) {
         renderFromCache(existing);
@@ -842,8 +1010,8 @@
     }
 
     try {
-      await fetchAndShowQr(isOtt ? "ott" : "atak");
-      if (!isOtt && (mode === "takaware" || mode === "taktracker")) {
+      await fetchAndShowQr(isOtt ? "ott" : isItak ? "itak" : "atak");
+      if (!isOtt && !isItak && (mode === "takaware" || mode === "taktracker")) {
         await applyIosQrEnrollmentPreferences(mode);
       }
     } catch (err) {
@@ -1034,6 +1202,10 @@
   const iosPreferenceManualOverlay = document.getElementById("iosPreferenceManualOverlay");
   const iosPreferenceManualCloseBtn = document.getElementById("iosPreferenceManualCloseBtn");
   const iosPreferenceManualInstructions = document.getElementById("iosPreferenceManualInstructions");
+  const itakPreferenceManualBtn = document.getElementById("itakPreferenceManualBtn");
+  const itakPreferenceManualOverlay = document.getElementById("itakPreferenceManualOverlay");
+  const itakPreferenceManualCloseBtn = document.getElementById("itakPreferenceManualCloseBtn");
+  const itakPreferenceManualInstructions = document.getElementById("itakPreferenceManualInstructions");
 
   function openIosPreferenceManualModal() {
     iosPreferenceManualOverlay.style.display = "flex";
@@ -1042,6 +1214,16 @@
 
   function closeIosPreferenceManualModal() {
     iosPreferenceManualOverlay.style.display = "none";
+    document.body.classList.remove("noScroll");
+  }
+
+  function openItakPreferenceManualModal() {
+    itakPreferenceManualOverlay.style.display = "flex";
+    document.body.classList.add("noScroll");
+  }
+
+  function closeItakPreferenceManualModal() {
+    itakPreferenceManualOverlay.style.display = "none";
     document.body.classList.remove("noScroll");
   }
 
@@ -1054,9 +1236,35 @@
     openIosPreferenceManualModal();
   }
 
-  iosPreferenceManualBtn.addEventListener("click", handleIosPreferenceManualClick);
-  iosPreferenceManualCloseBtn.addEventListener("click", closeIosPreferenceManualModal);
-  iosPreferenceManualOverlay.addEventListener("click", (e) => { if (e.target === iosPreferenceManualOverlay) closeIosPreferenceManualModal(); });
+  async function handleItakPreferenceManualClick() {
+    itakPreferenceManualInstructions.innerHTML = "<li>Loading...</li>";
+    openItakPreferenceManualModal();
+    try {
+      const data = await fetchPreferenceData();
+      const callsign = (data.callsign && escapeHtml(data.callsign)) || "";
+      const team = (data.teamLabel && escapeHtml(data.teamLabel)) || "";
+      const role = (data.roleLabel && escapeHtml(data.roleLabel)) || "Team Member";
+      itakPreferenceManualInstructions.innerHTML = [
+        "Open the iTAK app on your Apple device.",
+        "Select the settings gear icon in the top right.",
+        "Select the Callsign menu at the top.",
+        "Select Callsign and enter: <strong>" + callsign + "</strong>",
+        "Select Team and select: <strong>" + team + "</strong>",
+        "Select Role and select: <strong>" + role + "</strong>",
+        "Once complete you may select Save and close the settings window.",
+        "It is also recommended from the settings menu to open Map Source and change the Base Map to \"Apple - Hybrid\"."
+      ].map(function (s) { return "<li>" + s + "</li>"; }).join("");
+    } catch (err) {
+      itakPreferenceManualInstructions.innerHTML = "<li class=\"msg bad\">" + escapeHtml(err?.message || "Failed to load preference data") + "</li>";
+    }
+  }
+
+  if (iosPreferenceManualBtn) iosPreferenceManualBtn.addEventListener("click", handleIosPreferenceManualClick);
+  if (iosPreferenceManualCloseBtn) iosPreferenceManualCloseBtn.addEventListener("click", closeIosPreferenceManualModal);
+  if (iosPreferenceManualOverlay) iosPreferenceManualOverlay.addEventListener("click", (e) => { if (e.target === iosPreferenceManualOverlay) closeIosPreferenceManualModal(); });
+  if (itakPreferenceManualBtn) itakPreferenceManualBtn.addEventListener("click", handleItakPreferenceManualClick);
+  if (itakPreferenceManualCloseBtn) itakPreferenceManualCloseBtn.addEventListener("click", closeItakPreferenceManualModal);
+  if (itakPreferenceManualOverlay) itakPreferenceManualOverlay.addEventListener("click", (e) => { if (e.target === itakPreferenceManualOverlay) closeItakPreferenceManualModal(); });
 
   preferenceQrOpenBtn.addEventListener("click", () => {
     var url = getCurrentPreferenceUrl();
@@ -1088,13 +1296,12 @@
   // Attach handlers (buttons exist in DOM even when flows are hidden)
   if (scanQrBtnTakAware) scanQrBtnTakAware.addEventListener("click", () => handleScanClick("takaware"));
   if (scanQrBtnTakTracker) scanQrBtnTakTracker.addEventListener("click", () => handleScanClick("taktracker"));
+  if (scanQrBtnItak) scanQrBtnItak.addEventListener("click", () => handleScanClick("itak"));
   scanQrBtnAtak.addEventListener("click", () => handleScanClick("atak"));
   if (manualLoginBtnTakAware) manualLoginBtnTakAware.addEventListener("click", () => handleManualLoginClick("takaware"));
   if (manualLoginBtnTakTracker) manualLoginBtnTakTracker.addEventListener("click", () => handleManualLoginClick("taktracker"));
+  if (manualLoginBtnItak) manualLoginBtnItak.addEventListener("click", () => handleManualLoginClick("itak"));
   manualLoginBtnAtak.addEventListener("click", () => handleManualLoginClick("atak"));
-  if (showITakLinks && manualLoginBtnITak) {
-    manualLoginBtnITak.addEventListener("click", () => handleManualLoginClick("itak"));
-  }
 
   // Open TAK Tracker column: OTT enrollment QR (includes callsign/team/role), same manual enrollment modal
   const scanQrBtnOtt = document.getElementById("scanQrBtnOtt");
@@ -1119,6 +1326,7 @@
       if (preferenceQrOverlay.style.display !== "none") closePreferenceQrModal();
       if (preferenceManualOverlay.style.display !== "none") closePreferenceManualModal();
       if (iosPreferenceManualOverlay.style.display !== "none") closeIosPreferenceManualModal();
+      if (itakPreferenceManualOverlay.style.display !== "none") closeItakPreferenceManualModal();
     }
   });
 
@@ -1142,6 +1350,22 @@
   saveBtn.addEventListener("click", () => {
     if (!cached || !cached.username || !cached.token) {
       setMsg(msg, "Generate a QR first.", false);
+      return;
+    }
+
+    if (currentQrApp === "itak") {
+      if (!qrImg.src || !qrImg.src.startsWith("data:")) {
+        setMsg(msg, "QR image is not ready yet.", false);
+        return;
+      }
+
+      const a = document.createElement("a");
+      a.href = qrImg.src;
+      a.download = "itak-enrollment-qr.png";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setMsg(msg, "Downloading QR image...", true);
       return;
     }
 

@@ -33,6 +33,8 @@
         "TAK_DEBUG",
         "TAK_BYPASS_ENABLED",
         "SHOW_ITAK_LINKS",
+        "ONBOARDING_IOS_TAKAWARE_ENABLED",
+        "ONBOARDING_IOS_ITAK_ENABLED",
         "EMAIL_ENABLED",
         "SMTP_SECURE",
         "EMAIL_FAIL_HARD",
@@ -109,7 +111,10 @@
         "TAK_DEBUG",
         "TAK_BYPASS_ENABLED",
         "CLOUDTAK_URL",
+        "TAK_CLIENT_CONNECTION_PORT",
         "SHOW_ITAK_LINKS",
+        "ONBOARDING_IOS_TAKAWARE_ENABLED",
+        "ONBOARDING_IOS_ITAK_ENABLED",
         "TAK_SSH_HOST",
         "TAK_SSH_PORT",
         "TAK_SSH_USER",
@@ -280,7 +285,7 @@
             <% renderField("TAK_BYPASS_ENABLED","Bypass TAK","If true, disables all outbound TAK calls (for testing)."); %>
             <% renderField("DASHBOARD_TAK_STATS_REFRESH_SECONDS","Dashboard TAK stats refresh (seconds)","How often the server refreshes cached TAK metrics for the dashboard in the background. Lower = fresher numbers; the dashboard page does not wait on TAK. Server restart required for changes to take effect."); %>
             <% renderField("CLOUDTAK_URL","CloudTAK URL","Optional. Base URL for CloudTAK web (e.g. https://cloudtak.example.gov)."); %>
-            <% renderField("SHOW_ITAK_LINKS","Show iTAK Links","If true, Setup My Device shows iTAK options for Apple devices."); %>
+            <% renderField("TAK_CLIENT_CONNECTION_PORT","Client Connection Port","Port used by TAK clients for enrollment and TLS connections. Default: 8089.","8089"); %>
           </div>
 
           <hr style="margin:1rem 0;opacity:.35;" />
@@ -629,6 +634,25 @@
         }
       })();
     </script>
+
+    <!-- Device Onboarding -->
+    <div class="card">
+      <details class="settings-section">
+        <summary class="settings-summary">Device Onboarding</summary>
+
+        <div class="settings-body">
+          <h3 style="margin-top:0;">Enabled iOS Applications</h3>
+          <p class="settings-help" style="margin-top:0;">
+            Enable or disable applications to control which one(s) the user can see in the device onboarding page.
+          </p>
+
+          <div class="grid2">
+            <% renderField("ONBOARDING_IOS_TAKAWARE_ENABLED","TAK Aware","Show TAK Aware in the Apple/iOS onboarding flow."); %>
+            <% renderField("ONBOARDING_IOS_ITAK_ENABLED","iTAK","Show iTAK in the Apple/iOS onboarding flow."); %>
+          </div>
+        </div>
+      </details>
+    </div>
 
     <!-- Additional Agency Types -->
     <div class="card">
