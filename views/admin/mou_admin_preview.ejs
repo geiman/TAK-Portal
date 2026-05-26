@@ -1,0 +1,35 @@
+<%- include("../partials/header") %>
+<%- include("../partials/sidebar") %>
+
+<main class="main">
+  <div class="row" style="justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+    <div>
+      <h1 style="margin-bottom:6px;"><%= stream.title %></h1>
+      <div class="mouBadgeRow">
+        <span class="mouBadge"><%= scopeLabel || "Serverwide" %></span>
+        <span class="mouBadge mouBadge--soft">v<%= version.version %></span>
+        <span class="mouBadge mouBadge--soft"><%= String(contentType || "html").toUpperCase() %></span>
+      </div>
+    </div>
+    <div class="mouActionRow">
+      <% if (downloadUrl) { %>
+        <a class="btn secondary" href="<%= downloadUrl %>">Download</a>
+      <% } %>
+      <a class="btn" href="/admin/mou/<%= encodeURIComponent(stream.mouId) %>/<%= encodeURIComponent(version.version) %>/edit">Back to Edit</a>
+    </div>
+  </div>
+
+  <section class="card mouViewerCard">
+    <% if (contentType === "pdf") { %>
+      <div class="mouViewerToolbar">
+        <div class="muted">Previewing <%= fileName || "document PDF" %></div>
+        <a class="btn secondary" target="_blank" rel="noopener noreferrer" href="<%= fileUrl %>">Open PDF</a>
+      </div>
+      <iframe class="mouPdfFrame" src="<%= fileUrl %>" title="<%= stream.title %>"></iframe>
+    <% } else { %>
+      <div class="mouDocumentShell">
+        <%- html %>
+      </div>
+    <% } %>
+  </section>
+</main>

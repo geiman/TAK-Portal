@@ -1,0 +1,563 @@
+<%- include("partials/header") %>
+<%- include("partials/sidebar") %>
+
+<style>
+.mouPrintSignatureBlock {
+  display: none;
+}
+
+.mouSignerIntro {
+  margin: 0 0 12px 0;
+  padding: 14px 16px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.22);
+  line-height: 1.55;
+}
+
+.mouSignSection {
+  margin-top: 18px;
+}
+
+.mouSignSectionTitle {
+  margin: 0 0 6px 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.mouSignMethodSwitch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.mouSignMethodButton {
+  justify-content: center;
+}
+
+.mouSignMethodButton.is-active {
+  background: #7c3aed;
+  border-color: #7c3aed;
+  color: #ffffff;
+}
+
+.mouSignMethodPanel[hidden] {
+  display: none !important;
+}
+
+@media (max-width: 640px) {
+  .mouSignMethodSwitch {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+
+  #mouDocumentSection,
+  #mouDocumentSection * {
+    visibility: visible !important;
+  }
+
+  #mouDocumentSection {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    box-shadow: none;
+    background: #fff;
+    overflow: visible;
+  }
+
+  #mouDocumentSection .mouViewerToolbar {
+    display: none !important;
+  }
+
+  #mouDocumentSection .mouDocumentShell {
+    padding: 0;
+  }
+
+  #mouDocumentSection,
+  #mouDocumentSection *,
+  #mouDocumentSection .muted {
+    color: #000 !important;
+    -webkit-text-fill-color: #000 !important;
+  }
+
+  #mouDocumentSection .mouPdfFrame {
+    min-height: 100vh;
+    height: 100vh;
+  }
+
+  #mouDocumentSection .mouPrintSignatureBlock {
+    display: block;
+    margin-top: 28px;
+    padding-top: 18px;
+    border-top: 1px solid #d1d5db;
+    color: #111827;
+  }
+}
+</style>
+
+<% const hasPendingAgency = agencyChoices.some(function (agency) { return !agency.currentSignature; }); %>
+<% const firstPendingAgency = agencyChoices.find(function (agency) { return !agency.currentSignature; }); %>
+<% const currentAgency = agencyChoices[0] || null; %>
+<% const currentAgencySignature = currentAgency ? currentAgency.currentSignature : null; %>
+<% const signingAgencyName = firstPendingAgency ? firstPendingAgency.name : (currentAgency ? currentAgency.name : "your agency"); %>
+<% const showSignedEvidence = !!(currentAgencySignature && signedEvidenceHtml); %>
+<% const activeDownloadUrl = showSignedEvidence ? signedEvidenceDownloadUrl : downloadUrl; %>
+
+<main
+  class="main"
+  data-active-download-url="<%= activeDownloadUrl || '' %>"
+  data-content-type="<%= contentType || '' %>"
+  data-document-title="<%= stream.title || 'document' %>"
+  data-signing-agency-name="<%= signingAgencyName %>"
+>
+  <div class="mouPageHeader">
+    <div class="mouPageHeader__intro">
+      <h1 style="margin-bottom:6px;"><%= showSignedEvidence ? "View Document" : "View / Sign Document" %></h1>
+      <div class="muted"><%= showSignedEvidence ? "Your agency has already signed the current version." : "Review the current version, then sign on behalf of your agency." %></div>
+    </div>
+    <div class="mouActionRow mouPageHeader__actions">
+      <% if (showSignedEvidence) { %>
+        <a class="btn secondary" href="<%= activeDownloadUrl %>">Download</a>
+        <button class="btn secondary" type="button" id="printDocumentBtn">Print</button>
+      <% } else if (activeDownloadUrl) { %>
+        <button class="btn secondary" type="button" id="downloadDocumentBtn">Download</button>
+        <button class="btn secondary" type="button" id="printDocumentBtn">Print</button>
+      <% } %>
+      <a class="btn" href="/mou">Back to MOU / Documents</a>
+    </div>
+  </div>
+
+  <% if (error) { %>
+    <div class="card mouCallout mouCallout--danger">
+      <div class="msg bad"><%= error %></div>
+    </div>
+  <% } %>
+
+  <% if (success) { %>
+    <div class="card mouCallout">
+      <div class="msg ok"><%= success %></div>
+    </div>
+  <% } %>
+
+  <div class="mouWorkspace <%= showSignedEvidence ? "mouWorkspace--single" : "" %>">
+    <section class="card mouWorkspace__document <%= showSignedEvidence ? "mouViewerCard" : "" %>" id="mouDocumentSection">
+      <% if (showSignedEvidence) { %>
+        <%- signedEvidenceHtml %>
+      <% } else { %>
+        <div class="mouViewerToolbar">
+          <div>
+            <h2 style="margin:0;"><%= stream.title %></h2>
+            <div class="muted">Review the exact current version before signing.</div>
+          </div>
+          <% if (contentType === "pdf") { %>
+            <a class="btn secondary" target="_blank" rel="noopener noreferrer" href="<%= fileUrl %>">Open PDF</a>
+          <% } %>
+        </div>
+        <% if (contentType === "pdf") { %>
+          <iframe class="mouPdfFrame" src="<%= fileUrl %>" title="<%= stream.title %>"></iframe>
+        <% } else { %>
+          <div class="mouDocumentShell">
+            <%- html %>
+          </div>
+        <% } %>
+        <div class="mouPrintSignatureBlock" id="mouPrintSignatureBlock">
+          <p style="margin:0 0 16px 0;">
+            By signing this document, I affirm that I am authorized to sign on behalf of the <%= signingAgencyName %> and attest that this acknowledgment is made for my entire agency.
+          </p>
+          <div style="margin:0 0 12px 0;">Signature: ________________________________________________</div>
+          <div style="margin:0 0 12px 0;">Printed Name: <span id="printSignerName">_____________________________________________</span></div>
+          <div style="margin:0 0 12px 0;">Position / Role: <span id="printSignerRole">____________________________________________</span></div>
+          <div style="margin:0;">Date: ________________________________</div>
+        </div>
+      <% } %>
+    </section>
+
+    <% if (!showSignedEvidence) { %>
+    <section class="card mouWorkspace__sidebar mouWorkspace__sidebar--sticky">
+      <h2 style="margin-top:0;">Signer Action</h2>
+      <% if (!hasPendingAgency) { %>
+        <div class="msg ok" style="margin-bottom: 14px;">All agencies available to you have already signed this version.</div>
+      <% } %>
+
+      <form method="post" action="/mou/sign/<%= encodeURIComponent(stream.mouId) %>/<%= encodeURIComponent(version.version) %>" id="mouSignForm" enctype="multipart/form-data">
+        <input type="hidden" name="agencySuffix" value="<%= firstPendingAgency ? firstPendingAgency.suffix : '' %>" <%= hasPendingAgency ? "" : "disabled" %> />
+        <input type="hidden" name="signMethodMode" id="signMethodMode" value="" />
+
+        <div class="mouSignSection">
+          <div class="mouSignSectionTitle">Choose Signing Method</div>
+          <div class="mouSignMethodSwitch" role="tablist" aria-label="Signing method">
+            <button class="btn mouSignMethodButton" type="button" data-sign-method-toggle data-method="esign" aria-pressed="false" <%= hasPendingAgency ? "" : "disabled" %>>E-Sign Here</button>
+            <button class="btn mouSignMethodButton" type="button" data-sign-method-toggle data-method="upload" aria-pressed="false" <%= hasPendingAgency ? "" : "disabled" %>>Upload Signed Copy</button>
+          </div>
+          <div class="msg" id="signMethodMsg" style="margin-top:10px;"></div>
+        </div>
+
+        <div class="mouSignSection">
+          <div class="mouSignSectionTitle">Signer Details</div>
+          <div class="mouSignerIntro">
+            By signing this document, I affirm that I am authorized to sign on behalf of the <%= signingAgencyName %> and attest that this acknowledgment is made for my entire agency.
+          </div>
+
+          <div data-signer-fields hidden>
+            <label style="display:block;">
+              Full Name
+              <input type="text" name="attestationText" placeholder="Enter Full Name" style="width:100%;" <%= hasPendingAgency ? "required" : "disabled" %> />
+            </label>
+
+            <label style="margin-top:12px;display:block;">
+              Position / Role
+              <input type="text" name="signerRole" placeholder="Enter Position / Role" style="width:100%;" <%= hasPendingAgency ? "required" : "disabled" %> />
+            </label>
+          </div>
+        </div>
+
+        <input type="hidden" name="signatureDataUrl" id="signatureDataUrl" value="" />
+
+        <div class="mouSignSection mouSignMethodPanel" data-sign-method-panel="esign" hidden>
+          <div class="mouSignSectionTitle">E-Sign Here</div>
+
+          <label style="display:block;">
+            Draw Signature
+            <canvas id="signatureCanvas" width="520" height="180" class="mouSignatureCanvas" aria-label="Signature canvas"></canvas>
+          </label>
+
+          <div class="row" style="margin-top:10px;">
+            <button class="btn" type="button" id="clearSignatureBtn">Clear Signature</button>
+          </div>
+
+          <div class="row" style="margin-top:16px;justify-content:flex-end;">
+            <button class="btn success" type="submit" name="signMethod" value="esign" <%= hasPendingAgency ? "" : "disabled" %>>E-Sign Document</button>
+          </div>
+        </div>
+
+        <div class="mouSignSection mouSignMethodPanel" data-sign-method-panel="upload" hidden>
+          <div class="mouSignSectionTitle">Upload Signed Copy</div>
+
+          <label style="display:block;">
+            Signed Document File
+            <input type="file" name="signedCopyFile" id="signedCopyFile" accept=".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/png,image/jpeg,image/webp" style="width:100%;" <%= hasPendingAgency ? "" : "disabled" %> />
+          </label>
+
+          <div class="row" style="margin-top:16px;justify-content:flex-end;">
+            <button class="btn success" type="submit" name="signMethod" value="upload" <%= hasPendingAgency ? "" : "disabled" %>>Upload Signed Document</button>
+          </div>
+        </div>
+      </form>
+    </section>
+    <% } %>
+  </div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+(function () {
+  var mainEl = document.querySelector("main.main");
+  var canvas = document.getElementById("signatureCanvas");
+  var form = document.getElementById("mouSignForm");
+  var hidden = document.getElementById("signatureDataUrl");
+  var clearBtn = document.getElementById("clearSignatureBtn");
+  var printBtn = document.getElementById("printDocumentBtn");
+  var downloadBtn = document.getElementById("downloadDocumentBtn");
+  var signMethodMsg = document.getElementById("signMethodMsg");
+  var signerFieldsWrap = form ? form.querySelector("[data-signer-fields]") : null;
+  var signerNameInput = form ? form.querySelector("input[name='attestationText']") : null;
+  var signerRoleInput = form ? form.querySelector("input[name='signerRole']") : null;
+  var signedCopyInput = document.getElementById("signedCopyFile");
+  var signMethodModeInput = document.getElementById("signMethodMode");
+  var signMethodToggleButtons = form ? Array.from(form.querySelectorAll("[data-sign-method-toggle]")) : [];
+  var signMethodPanels = form ? Array.from(form.querySelectorAll("[data-sign-method-panel]")) : [];
+  var printSignerName = document.getElementById("printSignerName");
+  var printSignerRole = document.getElementById("printSignerRole");
+  var documentSection = document.getElementById("mouDocumentSection");
+  var documentShell = documentSection ? documentSection.querySelector(".mouDocumentShell") : null;
+  var activeDownloadUrl = mainEl ? String(mainEl.getAttribute("data-active-download-url") || "") : "";
+  var contentType = mainEl ? String(mainEl.getAttribute("data-content-type") || "") : "";
+  var documentTitle = mainEl ? String(mainEl.getAttribute("data-document-title") || "document") : "document";
+  var signingAgencyName = mainEl ? String(mainEl.getAttribute("data-signing-agency-name") || "") : "";
+  var activeSignMethod =
+    signMethodModeInput && /^(esign|upload)$/.test(String(signMethodModeInput.value || ""))
+      ? String(signMethodModeInput.value || "")
+      : "";
+
+  var ctx = canvas ? canvas.getContext("2d") : null;
+  var drawing = false;
+  var hasInk = false;
+
+  function setSignMethodMessage(text) {
+    if (!signMethodMsg) return;
+    signMethodMsg.className = "msg " + (text ? "bad" : "");
+    signMethodMsg.textContent = text || "";
+  }
+
+  function setActiveSignMethod(mode) {
+    activeSignMethod = mode === "upload" || mode === "esign" ? mode : "";
+    if (signMethodModeInput) signMethodModeInput.value = activeSignMethod;
+    signMethodToggleButtons.forEach(function (button) {
+      var isActive = button.getAttribute("data-method") === activeSignMethod;
+      button.classList.toggle("is-active", isActive);
+      button.setAttribute("aria-pressed", isActive ? "true" : "false");
+    });
+    signMethodPanels.forEach(function (panel) {
+      panel.hidden = panel.getAttribute("data-sign-method-panel") !== activeSignMethod;
+    });
+    if (signerFieldsWrap) {
+      var showSignerFields = !!activeSignMethod;
+      signerFieldsWrap.hidden = !showSignerFields;
+      if (signerNameInput && signerNameInput.hasAttribute("required")) {
+        signerNameInput.disabled = !showSignerFields;
+      }
+      if (signerRoleInput && signerRoleInput.hasAttribute("required")) {
+        signerRoleInput.disabled = !showSignerFields;
+      }
+    }
+    updateSignerFieldPlaceholders();
+    setSignMethodMessage("");
+  }
+
+  function sanitizeFileName(value) {
+    return String(value || "document")
+      .trim()
+      .replace(/[^a-z0-9_-]+/gi, "-")
+      .replace(/-+/g, "-")
+      .replace(/^[-_]+|[-_]+$/g, "")
+      .toLowerCase() || "document";
+  }
+
+  function getPdfSourceElement() {
+    return (documentSection && documentSection.querySelector(".signed-shell")) || documentShell || documentSection;
+  }
+
+  function getSignerNameValue() {
+    return signerNameInput ? String(signerNameInput.value || "").trim() : "";
+  }
+
+  function getSignerRoleValue() {
+    return signerRoleInput ? String(signerRoleInput.value || "").trim() : "";
+  }
+
+  function updateSignerFieldPlaceholders() {
+    if (signerNameInput) {
+      signerNameInput.placeholder =
+        activeSignMethod === "esign"
+          ? "Enter Your Full Name"
+          : activeSignMethod === "upload"
+            ? "Enter Signer's Full Name"
+            : "Enter Full Name";
+    }
+    if (signerRoleInput) {
+      signerRoleInput.placeholder =
+        activeSignMethod === "esign"
+          ? "Enter Your Position / Role"
+          : activeSignMethod === "upload"
+            ? "Enter Signer's Position / Role"
+            : "Enter Position / Role";
+    }
+  }
+
+  function updatePrintableFooterFields() {
+    if (printSignerName) {
+      printSignerName.textContent = getSignerNameValue() || "_____________________________________________";
+    }
+    if (printSignerRole) {
+      printSignerRole.textContent = getSignerRoleValue() || "____________________________________________";
+    }
+  }
+
+  function drawPdfFooter(doc, margin, y, pageWidth) {
+    var maxWidth = pageWidth - margin * 2;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    var disclaimer = "By signing this document, I affirm that I am authorized to sign on behalf of the " + signingAgencyName + " and attest that this acknowledgment is made for my entire agency.";
+    var lines = doc.splitTextToSize(disclaimer, maxWidth);
+    doc.text(lines, margin, y);
+    y += lines.length * 14 + 14;
+    doc.text("Signature: ________________________________________________", margin, y);
+    y += 20;
+    doc.text("Printed Name: " + (getSignerNameValue() || "_____________________________________________"), margin, y);
+    y += 20;
+    doc.text("Position / Role: " + (getSignerRoleValue() || "____________________________________________"), margin, y);
+    y += 20;
+    doc.text("Date: ________________________________", margin, y);
+  }
+
+  async function downloadDocumentPdf() {
+    if (String(contentType || "").toLowerCase() === "pdf") {
+      window.location.href = activeDownloadUrl;
+      return;
+    }
+
+    var jsPDF = window.jspdf && window.jspdf.jsPDF;
+    if (!jsPDF) {
+      throw new Error("PDF library failed to load.");
+    }
+
+    var doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "letter" });
+    var pageWidth = doc.internal.pageSize.getWidth();
+    var pageHeight = doc.internal.pageSize.getHeight();
+    var margin = 54;
+    var maxWidth = pageWidth - margin * 2;
+    var y = margin;
+    var title = String(documentTitle || "Document").trim() || "Document";
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(20);
+    doc.text(title, margin, y);
+    y += 28;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    var bodyText = String(documentShell.innerText || "").replace(/\r/g, "");
+    var paragraphs = bodyText.split(/\n{2,}/).map(function (part) { return part.trim(); }).filter(Boolean);
+
+    paragraphs.forEach(function (paragraph) {
+      var lines = doc.splitTextToSize(paragraph, maxWidth);
+      var neededHeight = lines.length * 14 + 10;
+      if (y + neededHeight > pageHeight - margin - 110) {
+        doc.addPage();
+        y = margin;
+      }
+      doc.text(lines, margin, y);
+      y += lines.length * 14 + 10;
+    });
+
+    if (y > pageHeight - margin - 110) {
+      doc.addPage();
+      y = margin;
+    }
+    drawPdfFooter(doc, margin, y + 8, pageWidth);
+    doc.save(sanitizeFileName(title) + ".pdf");
+  }
+
+  function pointFromEvent(evt) {
+    var rect = canvas.getBoundingClientRect();
+    var source = evt.touches && evt.touches[0] ? evt.touches[0] : evt;
+    var scaleX = rect.width ? canvas.width / rect.width : 1;
+    var scaleY = rect.height ? canvas.height / rect.height : 1;
+    return {
+      x: (source.clientX - rect.left) * scaleX,
+      y: (source.clientY - rect.top) * scaleY,
+    };
+  }
+
+  function begin(evt) {
+    evt.preventDefault();
+    drawing = true;
+    setSignMethodMessage("");
+    var point = pointFromEvent(evt);
+    ctx.beginPath();
+    ctx.moveTo(point.x, point.y);
+  }
+
+  function draw(evt) {
+    if (!drawing) return;
+    evt.preventDefault();
+    var point = pointFromEvent(evt);
+    ctx.lineWidth = 2;
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "#111827";
+    ctx.lineTo(point.x, point.y);
+    ctx.stroke();
+    hasInk = true;
+  }
+
+  function end(evt) {
+    if (evt) evt.preventDefault();
+    drawing = false;
+  }
+
+  if (printBtn) {
+    printBtn.addEventListener("click", function () {
+      updatePrintableFooterFields();
+      window.print();
+    });
+  }
+
+  if (downloadBtn) {
+    downloadBtn.addEventListener("click", function () {
+      downloadDocumentPdf().catch(function (err) {
+        console.error("[MOU_SIGN][download]", err);
+        setSignMethodMessage(err && err.message ? err.message : "Failed to download document.");
+      });
+    });
+  }
+
+  if (signerNameInput) signerNameInput.addEventListener("input", updatePrintableFooterFields);
+  if (signerRoleInput) signerRoleInput.addEventListener("input", updatePrintableFooterFields);
+  updateSignerFieldPlaceholders();
+  updatePrintableFooterFields();
+
+  if (!form) return;
+
+  signMethodToggleButtons.forEach(function (button) {
+    button.addEventListener("click", function () {
+      setActiveSignMethod(button.getAttribute("data-method"));
+    });
+  });
+  setActiveSignMethod(activeSignMethod);
+
+  var canDrawSignature = !!(canvas && hidden && ctx);
+  if (canDrawSignature) {
+    canvas.addEventListener("mousedown", begin);
+    canvas.addEventListener("mousemove", draw);
+    window.addEventListener("mouseup", end);
+    canvas.addEventListener("touchstart", begin, { passive: false });
+    canvas.addEventListener("touchmove", draw, { passive: false });
+    canvas.addEventListener("touchend", end, { passive: false });
+  }
+
+  if (clearBtn) {
+    clearBtn.addEventListener("click", function () {
+      if (!canDrawSignature) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      hasInk = false;
+      hidden.value = "";
+      setSignMethodMessage("");
+    });
+  }
+
+  form.addEventListener("submit", function (event) {
+    var submitter = event.submitter;
+    var signMethod = submitter && submitter.value ? submitter.value : activeSignMethod;
+    if (signMethod !== "upload" && signMethod !== "esign") {
+      event.preventDefault();
+      if (hidden) hidden.value = "";
+      setSignMethodMessage('Select "E-Sign Here" or "Upload Signed Copy" first.');
+      return;
+    }
+    if (signMethod === "upload") {
+      if (hidden) hidden.value = "";
+      if (!signedCopyInput || !signedCopyInput.files || !signedCopyInput.files.length) {
+        event.preventDefault();
+        setSignMethodMessage("Attach a PDF or image of the signed document.");
+        return;
+      }
+      setSignMethodMessage("");
+      return;
+    }
+    if (!canDrawSignature) {
+      event.preventDefault();
+      if (hidden) hidden.value = "";
+      setSignMethodMessage("Signature pad is unavailable. Please upload a signed copy instead.");
+      return;
+    }
+    if (!hasInk) {
+      event.preventDefault();
+      hidden.value = "";
+      setSignMethodMessage("A drawn signature is required.");
+      return;
+    }
+    setSignMethodMessage("");
+    hidden.value = hasInk ? canvas.toDataURL("image/png") : "";
+  });
+})();
+</script>

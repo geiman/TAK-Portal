@@ -2,7 +2,13 @@
 <%- include("partials/sidebar") %>
 
 <main class="main">
-  <h1>Email Users</h1>
+  <% const agencyOnlyEmailPage = !isGlobalAdmin && isAgencyAdmin; %>
+  <h1><%
+    const emailPageAbbrev = typeof agencyPageTitleAbbrev !== "undefined" ? agencyPageTitleAbbrev : null;
+    if (agencyOnlyEmailPage && emailPageAbbrev) { %>Email <%= emailPageAbbrev %> Users<% }
+    else if (agencyOnlyEmailPage) { %>Email Agency Users<% }
+    else { %>Email Users<% }
+  %></h1>
 
   <div class="card">
     <h2 style="margin-top:0;">Choose Recipients</h2>
@@ -21,15 +27,20 @@
 
     <label style="display:block; margin-bottom:6px;">Send to</label>
     <div class="segmented" style="margin-bottom:14px;">
-      <button class="segBtn active" type="button" data-mode="agency">Agency</button>
+      <button class="segBtn active" type="button" data-mode="agency"><%= agencyOnlyEmailPage ? "Entire Agency" : "Agency" %></button>
+      <% if (isGlobalAdmin) { %>
+        <button class="segBtn" type="button" data-mode="agency_admins">Agency Admins</button>
+      <% } %>
       <button class="segBtn" type="button" data-mode="groups">Groups</button>
       <button class="segBtn" type="button" data-mode="users">Users</button>
       <% if (isGlobalAdmin) { %>
         <button class="segBtn" type="button" data-mode="all" id="emailAllModeBtn">All Users</button>
+        <button class="segBtn" type="button" data-mode="all_agency_admins" id="emailAllAgencyAdminsModeBtn">All Agency Admins</button>
       <% } %>
     </div>
 
-    <!-- Agency: dropdown with checkboxes (audit-log style) -->
+    <% if (!agencyOnlyEmailPage) { %>
+    <!-- Agency: dropdown (global admins only) -->
     <div id="emailAgencyPane" style="margin-top:8px;">
       <label class="email-dropdown-label">Agencies</label>
       <div id="emailAgencyDropdown" class="email-dropdown filter-multiselect">
@@ -46,6 +57,7 @@
         </div>
       </div>
     </div>
+    <% } %>
 
     <!-- Groups: dropdown with checkboxes -->
     <div id="emailGroupsPane" style="display:none; margin-top:8px;">
@@ -91,6 +103,17 @@
       <label style="flex-direction:row; align-items:center; gap:6px;">
         <input type="checkbox" id="emailAllConfirm" />
         <span>I understand and want to email all users.</span>
+      </label>
+    </div>
+
+    <!-- All agency admins (global admins only) -->
+    <div id="emailAllAgencyAdminsPane" style="display:none; margin-top:8px;">
+      <p>
+        This will send an email to <strong>all users in any agency admin group</strong> across all agencies.
+      </p>
+      <label style="flex-direction:row; align-items:center; gap:6px;">
+        <input type="checkbox" id="emailAllAgencyAdminsConfirm" />
+        <span>I understand and want to email all agency admins.</span>
       </label>
     </div>
   </div>
@@ -193,11 +216,14 @@
 <script>
   (function () {
     const IS_GLOBAL_ADMIN = <%= isGlobalAdmin ? 'true' : 'false' %>;
+    const IS_AGENCY_ADMIN = <%= isAgencyAdmin ? 'true' : 'false' %>;
+    const AGENCY_ONLY_EMAIL = !IS_GLOBAL_ADMIN && IS_AGENCY_ADMIN;
 
     const emailAgencyPane = document.getElementById("emailAgencyPane");
     const emailGroupsPane = document.getElementById("emailGroupsPane");
     const emailUsersPane = document.getElementById("emailUsersPane");
     const emailAllPane = document.getElementById("emailAllPane");
+    const emailAllAgencyAdminsPane = document.getElementById("emailAllAgencyAdminsPane");
 
     const emailAgencySearch = document.getElementById("emailAgencySearch");
     const emailAgencyDropdown = document.getElementById("emailAgencyDropdown");
@@ -220,6 +246,7 @@
     const emailUserSelectAll = document.getElementById("emailUserSelectAll");
     const emailUserClearAll = document.getElementById("emailUserClearAll");
     const emailAllConfirm = document.getElementById("emailAllConfirm");
+    const emailAllAgencyAdminsConfirm = document.getElementById("emailAllAgencyAdminsConfirm");
     const emailSubject = document.getElementById("emailSubject");
     const emailBody = document.getElementById("emailBody");
     const emailStatus = document.getElementById("emailStatus");
@@ -227,6 +254,9 @@
     const emailSendBtn = document.getElementById("emailSendBtn");
 
     const emailAllModeBtn = document.getElementById("emailAllModeBtn");
+    const emailAllAgencyAdminsModeBtn = document.getElementById("emailAllAgencyAdminsModeBtn");
+
+    const GLOBAL_ONLY_EMAIL_MODES = new Set(["all", "all_agency_admins", "agency_admins"]);
 
     let agenciesCache = [];
     let groupsCache = [];
@@ -241,16 +271,32 @@
       document.querySelectorAll(".segBtn[data-mode]").forEach((b) => {
         b.classList.toggle("active", b.dataset.mode === mode);
       });
-      if (emailAgencyPane) emailAgencyPane.style.display = mode === "agency" ? "block" : "none";
+      if (emailAgencyPane && !AGENCY_ONLY_EMAIL) {
+        emailAgencyPane.style.display =
+          mode === "agency" || mode === "agency_admins" ? "block" : "none";
+      }
       if (emailGroupsPane) emailGroupsPane.style.display = mode === "groups" ? "block" : "none";
       if (emailUsersPane) emailUsersPane.style.display = mode === "users" ? "block" : "none";
       if (emailAllPane) emailAllPane.style.display = mode === "all" ? "block" : "none";
+      if (emailAllAgencyAdminsPane) {
+        emailAllAgencyAdminsPane.style.display =
+          mode === "all_agency_admins" ? "block" : "none";
+      }
       if (mode === "users" && usersCache.length === 0) loadEmailUsers();
       updateEmailDropdownLabels();
     }
 
+    function autoSelectAgencyAdminAgencies() {
+      if (!AGENCY_ONLY_EMAIL) return;
+      selectedAgencySuffixesSet.clear();
+      emailAgencyItems().forEach((x) => {
+        if (x.suffix) selectedAgencySuffixesSet.add(x.suffix);
+      });
+      updateEmailDropdownLabels();
+    }
+
     function updateEmailDropdownLabels() {
-      if (emailAgencyToggle) {
+      if (emailAgencyToggle && !AGENCY_ONLY_EMAIL) {
         const n = selectedAgencySuffixesSet.size;
         emailAgencyToggle.textContent = n ? n + " agency" + (n === 1 ? "" : " agencies") + " selected ▾" : "Select agencies ▾";
       }
@@ -349,6 +395,7 @@
         const res = await fetch("/api/agencies");
         const out = await res.json();
         agenciesCache = res.ok && Array.isArray(out) ? out : [];
+        autoSelectAgencyAdminAgencies();
         renderEmailAgencyList();
       } catch (e) {
         agenciesCache = [];
@@ -472,12 +519,23 @@
         return;
       }
 
-      if (emailMode === "agency") {
+      if (emailMode === "agency" || emailMode === "agency_admins") {
+        if (emailMode === "agency_admins" && !IS_GLOBAL_ADMIN) {
+          if (emailStatus) {
+            emailStatus.className = "msg bad";
+            emailStatus.textContent =
+              "Only global admins can email agency admins by agency.";
+          }
+          return;
+        }
+        if (AGENCY_ONLY_EMAIL) autoSelectAgencyAdminAgencies();
         payload.agencies = selectedAgencySuffixes();
         if (payload.agencies.length === 0) {
           if (emailStatus) {
             emailStatus.className = "msg bad";
-            emailStatus.textContent = "Select at least one agency.";
+            emailStatus.textContent = AGENCY_ONLY_EMAIL
+              ? "No agency is configured for your account."
+              : "Select at least one agency.";
           }
           return;
         }
@@ -513,6 +571,23 @@
             emailStatus.className = "msg bad";
             emailStatus.textContent =
               "Please confirm that you want to email all users.";
+          }
+          return;
+        }
+      } else if (emailMode === "all_agency_admins") {
+        if (!IS_GLOBAL_ADMIN) {
+          if (emailStatus) {
+            emailStatus.className = "msg bad";
+            emailStatus.textContent =
+              "Only global admins can email all agency admins.";
+          }
+          return;
+        }
+        if (!emailAllAgencyAdminsConfirm || !emailAllAgencyAdminsConfirm.checked) {
+          if (emailStatus) {
+            emailStatus.className = "msg bad";
+            emailStatus.textContent =
+              "Please confirm that you want to email all agency admins.";
           }
           return;
         }
@@ -569,14 +644,16 @@
       if (emailSubject) emailSubject.value = "";
       if (emailBody) emailBody.value = "";
       if (emailAllConfirm) emailAllConfirm.checked = false;
+      if (emailAllAgencyAdminsConfirm) emailAllAgencyAdminsConfirm.checked = false;
       selectedAgencySuffixesSet.clear();
       selectedGroupIdsSet.clear();
       selectedUsernamesSet.clear();
+      autoSelectAgencyAdminAgencies();
       if (emailAgencySearch) emailAgencySearch.value = "";
       if (emailGroupSearch) emailGroupSearch.value = "";
       if (emailUserSearch) emailUserSearch.value = "";
       document.querySelectorAll(".email-dropdown.open").forEach((el) => el.classList.remove("open"));
-      renderEmailAgencyList();
+      if (!AGENCY_ONLY_EMAIL) renderEmailAgencyList();
       renderEmailGroupList();
       renderEmailUserList();
       updateEmailDropdownLabels();
@@ -593,13 +670,13 @@
       .forEach((b) =>
         b.addEventListener("click", () => {
           const mode = b.dataset.mode;
-          if (mode === "all" && !IS_GLOBAL_ADMIN) return;
+          if (GLOBAL_ONLY_EMAIL_MODES.has(mode) && !IS_GLOBAL_ADMIN) return;
           setEmailMode(mode);
         })
       );
 
     // Filters
-    if (emailAgencySearch) {
+    if (emailAgencySearch && !AGENCY_ONLY_EMAIL) {
       emailAgencySearch.addEventListener("input", renderEmailAgencyList);
     }
     if (emailGroupSearch) {
@@ -610,7 +687,7 @@
     }
 
     // Keep selection in sync when checkboxes change (event delegation)
-    if (emailAgencyDropdown) {
+    if (emailAgencyDropdown && !AGENCY_ONLY_EMAIL) {
       emailAgencyDropdown.addEventListener("change", (e) => {
         const ch = e.target;
         if (!ch || ch.type !== "checkbox" || !ch.classList.contains("agencyChk")) return;
@@ -642,7 +719,9 @@
     }
 
     // Dropdown open/close
-    setupEmailDropdown(emailAgencyDropdown, emailAgencyToggle);
+    if (!AGENCY_ONLY_EMAIL) {
+      setupEmailDropdown(emailAgencyDropdown, emailAgencyToggle);
+    }
     setupEmailDropdown(emailGroupDropdown, emailGroupToggle);
     setupEmailDropdown(emailUserDropdown, emailUserToggle);
     document.querySelectorAll(".email-dropdown .filter-menu").forEach((menu) => {
@@ -653,7 +732,7 @@
     });
 
     // Select All: add all visible (filtered) items to set and re-render
-    if (emailAgencySelectAll) {
+    if (emailAgencySelectAll && !AGENCY_ONLY_EMAIL) {
       emailAgencySelectAll.onclick = () => {
         const needle = String(emailAgencySearch.value || "").trim().toLowerCase();
         const items = emailAgencyItems().filter((x) => {
@@ -664,7 +743,7 @@
         renderEmailAgencyList();
       };
     }
-    if (emailAgencyClearAll) {
+    if (emailAgencyClearAll && !AGENCY_ONLY_EMAIL) {
       emailAgencyClearAll.onclick = () => {
         selectedAgencySuffixesSet.clear();
         renderEmailAgencyList();

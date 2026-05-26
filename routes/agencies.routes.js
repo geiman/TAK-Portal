@@ -7,6 +7,8 @@ const usersService = require("../services/users.service");
 const groupsService = require("../services/groups.service");
 const api = require("../services/authentik");
 const auditSvc = require("../services/auditLog.service");
+const agencyAbbrevRenameSvc = require("../services/agencyAbbrevRename.service");
+const agencyNameRenameSvc = require("../services/agencyNameRename.service");
 const upload = multer({ storage: multer.memoryStorage() });
 
 function getAgencyAdminGroupName(agency) {
@@ -184,8 +186,27 @@ router.put("/:index/access-groups", (req, res) => {
   const list = Array.isArray(raw)
     ? raw.map((id) => String(id).trim()).filter(Boolean)
     : [];
+  const before = Array.isArray(agencies[idx].allowedAdminGroupIds)
+    ? agencies[idx].allowedAdminGroupIds.slice()
+    : [];
   agencies[idx].allowedAdminGroupIds = list;
   store.save(agencies);
+  const agency = agencies[idx];
+  auditSvc.logEvent({
+    actor: req.authentikUser || null,
+    request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+    action: "UPDATE_AGENCY_ACCESS_GROUPS",
+    targetType: "agency",
+    targetId: String(agency?.suffix || ""),
+    details: {
+      agencyName: String(agency?.name || ""),
+      beforeCount: before.length,
+      afterCount: list.length,
+      beforeGroupIds: before,
+      afterGroupIds: list,
+      summary: `Updated extra admin-access groups for agency ${agency?.name || agency?.suffix || ""}.`,
+    },
+  });
   return res.json({ allowedAdminGroupIds: list });
 });
 
@@ -534,6 +555,131 @@ router.patch("/:index/type", (req, res) => {
   res.json({ success: true, type: raw });
 });
 
+router.post("/:index/rename-agency-name", async (req, res) => {
+  try {
+    const idx = Number(req.params.index);
+    const agencies = store.load();
+    if (!Number.isInteger(idx) || !agencies[idx]) {
+      return res.status(404).json({ error: "Not found" });
+    }
+
+    const agency = agencies[idx];
+    if (!accessSvc.isSuffixAllowed(req.authentikUser, agency.suffix)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const validationErr = agencyNameRenameSvc.validateNewAgencyName(req.body?.name);
+    if (validationErr) {
+      return res.status(400).json({ error: validationErr });
+    }
+
+    const beforeName = String(agency.name || "").trim();
+    const result = await agencyNameRenameSvc.renameAgencyName(idx, req.body.name);
+
+    auditSvc.logEvent({
+      actor: req.authentikUser || null,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "RENAME_AGENCY_NAME",
+      targetType: "agency",
+      targetId: String(agency.suffix || ""),
+      details: {
+        suffix: agency.suffix,
+        before: beforeName,
+        after: result.newName,
+        usersUpdated: result.usersUpdated,
+        adminGroupUpdated: result.adminGroupUpdated,
+        groupsUpdated: result.groupsUpdated,
+        requestsUpdated: result.requestsUpdated,
+        skipped: !!result.skipped,
+      },
+    });
+
+    return res.json({
+      success: true,
+      usersUpdated: result.usersUpdated,
+      usersMatched: result.usersMatched,
+      adminGroupUpdated: result.adminGroupUpdated,
+      groupsUpdated: result.groupsUpdated,
+      requestsUpdated: result.requestsUpdated,
+      oldName: result.oldName,
+      newName: result.newName,
+      skipped: !!result.skipped,
+    });
+  } catch (err) {
+    const msg =
+      err?.response?.data?.detail ||
+      err?.response?.data ||
+      err?.message ||
+      "Failed to rename agency";
+    return res.status(500).json({ error: msg });
+  }
+});
+
+router.post("/:index/rename-group-prefix", async (req, res) => {
+  try {
+    const idx = Number(req.params.index);
+    const agencies = store.load();
+    if (!Number.isInteger(idx) || !agencies[idx]) {
+      return res.status(404).json({ error: "Not found" });
+    }
+
+    const agency = agencies[idx];
+    if (!accessSvc.isSuffixAllowed(req.authentikUser, agency.suffix)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const validationErr = agencyAbbrevRenameSvc.validateNewGroupPrefix(req.body?.groupPrefix);
+    if (validationErr) {
+      return res.status(400).json({ error: validationErr });
+    }
+
+    const beforeAbbr = String(agency.groupPrefix || "").trim().toUpperCase();
+    const result = await agencyAbbrevRenameSvc.renameAgencyGroupPrefix(
+      idx,
+      req.body.groupPrefix
+    );
+
+    auditSvc.logEvent({
+      actor: req.authentikUser || null,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "RENAME_AGENCY_GROUP_PREFIX",
+      targetType: "agency",
+      targetId: String(agency.suffix || ""),
+      details: {
+        agencyName: result.agencyName || agency.name,
+        before: beforeAbbr,
+        after: result.newPrefix,
+        usersUpdated: result.usersUpdated,
+        adminGroupRenamed: result.adminGroupRenamed,
+        groupsRenamed: result.groupsRenamed,
+        templatesUpdated: result.templatesUpdated,
+        currentTemplatesReconciled: result.currentTemplatesReconciled,
+        skipped: !!result.skipped,
+      },
+    });
+
+    return res.json({
+      success: true,
+      usersUpdated: result.usersUpdated,
+      usersMatched: result.usersMatched,
+      adminGroupRenamed: result.adminGroupRenamed,
+      groupsRenamed: result.groupsRenamed,
+      templatesUpdated: result.templatesUpdated,
+      currentTemplatesReconciled: result.currentTemplatesReconciled,
+      oldPrefix: result.oldPrefix,
+      newPrefix: result.newPrefix,
+      skipped: !!result.skipped,
+    });
+  } catch (err) {
+    const msg =
+      err?.response?.data?.detail ||
+      err?.response?.data ||
+      err?.message ||
+      "Failed to rename agency abbreviation";
+    return res.status(500).json({ error: msg });
+  }
+});
+
 router.put("/:index", async (req, res) => {
   const idx = Number(req.params.index);
   const agencies = store.load();
@@ -765,9 +911,24 @@ router.post("/:index/lookup/domain", (req, res) => {
     return res.status(400).json({ error: e?.message || "Invalid domain list" });
   }
 
+  const agency = agencies[idx];
+  const beforeDomain = String(agency.lookupDomain || "");
   agencies[idx].lookupDomain = normalized;
 
   store.save(agencies);
+
+  auditSvc.logEvent({
+    actor: req.authentikUser || null,
+    request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+    action: "UPDATE_AGENCY_LOOKUP_DOMAIN",
+    targetType: "agency",
+    targetId: String(agency?.suffix || ""),
+    details: {
+      beforeDomain,
+      afterDomain: normalized,
+      lookupEnabled: agency.lookupEnabled === true,
+    },
+  });
 
   return res.json({ success: true, lookupDomain: normalized });
 });
@@ -798,10 +959,23 @@ router.post("/:index/lookup/enable", (req, res) => {
     return res.status(404).json({ error: "Agency not found" });
   }
 
+  const agency = agencies[idx];
   agencies[idx].lookupEnabled = true;
   agencies[idx].lookupDomain = normalized;
 
   store.save(agencies);
+
+  auditSvc.logEvent({
+    actor: req.authentikUser || null,
+    request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+    action: "ENABLE_AGENCY_LOOKUP",
+    targetType: "agency",
+    targetId: String(agency?.suffix || ""),
+    details: {
+      lookupDomain: normalized,
+      summary: `Enabled enrollment lookup for agency ${agency?.name || agency?.suffix || ""}.`,
+    },
+  });
 
   return res.json({ success: true });
 });
@@ -821,9 +995,22 @@ router.post("/:index/lookup/disable", (req, res) => {
     return res.status(404).json({ error: "Agency not found" });
   }
 
+  const agency = agencies[idx];
   agencies[idx].lookupEnabled = false;
 
   store.save(agencies);
+
+  auditSvc.logEvent({
+    actor: req.authentikUser || null,
+    request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+    action: "DISABLE_AGENCY_LOOKUP",
+    targetType: "agency",
+    targetId: String(agency?.suffix || ""),
+    details: {
+      lookupDomain: String(agency.lookupDomain || ""),
+      summary: `Disabled enrollment lookup for agency ${agency?.name || agency?.suffix || ""}.`,
+    },
+  });
 
   return res.json({ success: true });
 });

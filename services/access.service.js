@@ -305,6 +305,27 @@ function isUsernameInAllowedAgencies(authUser, username) {
 }
 
 /**
+ * TAK subscription rows: match username tail against the viewer's allowed agency suffixes
+ * (longest suffix first to avoid partial overlaps).
+ */
+function isUsernameInAllowedAgencySuffixes(authUser, username) {
+  const access = getAgencyAccess(authUser);
+  if (access.isGlobalAdmin) return true;
+  const allowed = access.allowedAgencySuffixes || [];
+  if (!allowed.length) return false;
+
+  const u = String(username || "").trim().toLowerCase();
+  if (!u) return false;
+
+  const sorted = allowed
+    .map(normalizeSuffix)
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length);
+
+  return sorted.some((sfx) => u.endsWith(sfx));
+}
+
+/**
  * Compute the agency, county, and state prefixes that the current user is allowed to see.
  *
  * agencyPrefixes: e.g. ["CPD", "CFD"]
@@ -449,6 +470,43 @@ function canUserModifyGroup(authUser, group) {
   return Array.isArray(agencyPrefixes) && agencyPrefixes.length > 0 && agencyPrefixes.includes(prefix);
 }
 
+function isGroupMarkedPrivate(group) {
+  const privateFlag = String(group?.attributes?.private || "")
+    .trim()
+    .toLowerCase();
+  return privateFlag === "yes" || privateFlag === "true" || privateFlag === "1";
+}
+
+/** Uppercase name prefix before first space (after optional tak_ strip); empty for global-style names. */
+function getGroupNamePrefixUpper(group) {
+  let name = String(group?.name || "").trim();
+  if (!name) return "";
+  if (name.toLowerCase().startsWith("tak_")) {
+    name = name.slice(4);
+  }
+  const upper = name.toUpperCase();
+  const spaceIdx = upper.indexOf(" ");
+  if (spaceIdx <= 0) return "";
+  return upper.slice(0, spaceIdx).trim();
+}
+
+/**
+ * Agency dashboard group total: only groups named with this agency's groupPrefix.
+ * Excludes private groups and does not count county/state/global groups from allowedAdminGroupIds.
+ *
+ * @param {object[]} groups
+ * @param {string} groupPrefix - agency.groupPrefix (e.g. "HCSO")
+ */
+function filterAgencySpecificGroupsForDashboard(groups, groupPrefix) {
+  const prefix = String(groupPrefix || "").trim().toUpperCase();
+  if (!prefix) return [];
+
+  return (Array.isArray(groups) ? groups : []).filter((g) => {
+    if (isGroupMarkedPrivate(g)) return false;
+    return getGroupNamePrefixUpper(g) === prefix;
+  });
+}
+
 /**
  * Filter a list of Authentik groups for the current user.
  *
@@ -473,38 +531,48 @@ function filterGroupsForUser(authUser, groups) {
     Array.isArray(agencyPrefixes) && agencyPrefixes.length > 0;
 
   return list.filter((g) => {
-    const privateFlag = String(g?.attributes?.private || "")
-      .trim()
-      .toLowerCase();
-
-    if (privateFlag === "yes" || privateFlag === "true" || privateFlag === "1") {
-      return false;
-    }
+    if (isGroupMarkedPrivate(g)) return false;
 
     const pk = String(g?.pk ?? g?.id ?? "").trim();
     if (allowedExtraIds && pk && allowedExtraIds.has(pk)) return true;
 
-    let name = String(g?.name || "").trim();
-    if (!name) return false;
-
-    // Remove tak_ prefix before parsing
-    if (name.toLowerCase().startsWith("tak_")) {
-      name = name.slice(4);
-    }
-
-    const upper = name.toUpperCase();
-    const spaceIdx = upper.indexOf(" ");
-
-    // No space → global group; agency admins only see it if in allowedAdminGroupIds (handled above)
-    if (spaceIdx <= 0) return false;
-
-    const prefix = upper.slice(0, spaceIdx).trim();
+    const prefix = getGroupNamePrefixUpper(g);
+    if (!prefix) return false;
 
     // Agency admins: only their agency-prefixed groups by default (not county/state)
     if (hasAgencyPrefixes && agencyPrefixes.includes(prefix)) return true;
 
     return false;
   });
+}
+
+/**
+ * Agency-only page titles (Users, Groups, Templates): single managed agency → groupPrefix (e.g. "HCSO").
+ * Multiple agencies or global admin → null (views use generic "Agency …" or default title).
+ */
+function getAgencyPageTitleAbbrev(authUser) {
+  const access = getAgencyAccess(authUser);
+  if (access.isGlobalAdmin) return null;
+
+  const allowed = access.allowedAgencySuffixes || [];
+  if (!allowed.length) return null;
+
+  const agencies = agenciesStore.load();
+  const prefixes = [];
+  const seen = new Set();
+
+  for (const sfx of allowed) {
+    const norm = normalizeSuffix(sfx);
+    if (!norm) continue;
+    const agency = agencies.find((a) => normalizeSuffix(a && a.suffix) === norm);
+    if (!agency) continue;
+    const gp = String(agency.groupPrefix || "").trim().toUpperCase();
+    if (!gp || seen.has(gp)) continue;
+    seen.add(gp);
+    prefixes.push(gp);
+  }
+
+  return prefixes.length === 1 ? prefixes[0] : null;
 }
 
 /**
@@ -537,6 +605,7 @@ module.exports = {
   isSuffixAllowed,
   isUserInAllowedAgencies,
   isUsernameInAllowedAgencies,
+  isUsernameInAllowedAgencySuffixes,
   compareAgencyResolutionToUsernameInference,
   LOG_FALLBACK_ENV,
   SHADOW_ENV,
@@ -546,4 +615,8 @@ module.exports = {
   getAgencyCountyAndStatePrefixesForUser,
   getAgencyAndCountyPrefixesForUser,
   filterGroupsForUser,
+  isGroupMarkedPrivate,
+  getGroupNamePrefixUpper,
+  filterAgencySpecificGroupsForDashboard,
+  getAgencyPageTitleAbbrev,
 };

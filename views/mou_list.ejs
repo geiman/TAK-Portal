@@ -1,0 +1,1211 @@
+<%- include("partials/header") %>
+<%- include("partials/sidebar") %>
+
+<main class="main">
+  <h1>MOU Documents</h1>
+
+  <% if (error) { %>
+    <div class="card mouCallout mouCallout--danger">
+      <div class="msg bad"><%= error %></div>
+    </div>
+  <% } %>
+
+  <% if (success) { %>
+    <div class="card mouCallout">
+      <div class="msg ok"><%= success %></div>
+    </div>
+  <% } %>
+
+  <% if (isGlobalAdmin) { %>
+    <div class="mouWorkspace mouWorkspace--formSplit" style="margin-bottom:14px;">
+      <section class="card mouWorkspace__document">
+        <div class="mouSectionHeader">
+          <div>
+            <h2>Create New Document</h2>
+          </div>
+        </div>
+
+        <form method="post" action="/admin/mou" enctype="multipart/form-data" class="mouAdminForm" data-mou-create-form>
+          <input type="hidden" name="mandatory" value="true" />
+          <div class="grid2">
+            <label>
+              Title
+              <input type="text" name="title" placeholder="Document Title Here" required />
+            </label>
+            <label>
+              Content Type
+              <select name="contentType" data-mou-content-select>
+                <option value="markdown" selected>Markdown</option>
+                <option value="html">HTML</option>
+                <option value="pdf">PDF Upload</option>
+              </select>
+            </label>
+          </div>
+
+          <label data-mou-richtext-field>
+            <span data-mou-richtext-label>Document Markdown</span>
+            <textarea name="html" rows="16" placeholder="# Paste Document Markdown here" data-mou-richtext-input></textarea>
+          </label>
+
+          <label data-mou-file-field style="display:none;">
+            Upload PDF
+            <input type="file" name="contentFile" accept="application/pdf,.pdf" />
+          </label>
+
+          <div class="mouFormFooter">
+            <button class="btn success" type="submit">Create New Document</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="card mouWorkspace__sidebar">
+        <% const currentAgreement = adminAgreement && adminAgreement.current ? adminAgreement.current : null; %>
+        <% const agreementDefaults = defaultUserAgreement || { title: "User Agreement", markdown: "I understand that use of this TAK environment is subject to my agency's current MOU and local operating policies. I agree to use this access only for authorized mission purposes, to safeguard credentials and shared data, and to follow administrator direction regarding acceptable use and account security." }; %>
+        <form method="post" action="/admin/mou/user-agreement/save" class="mouAdminForm" data-user-agreement-form>
+          <div class="mouSectionHeader">
+            <div>
+              <h2>Serverwide User Agreement Prompt</h2>
+            </div>
+          </div>
+          <div class="mouAgreementTopRow">
+            <div data-user-agreement-title-wrap <%= adminAgreement && adminAgreement.enabled ? "" : 'style="display:none;"' %>>
+              <label>
+              Title
+              <input type="text" name="title" value="<%= currentAgreement ? currentAgreement.title : agreementDefaults.title %>" required />
+              </label>
+            </div>
+            <label class="mouToggleField" aria-label="Enable serverwide user agreement popup">
+              <span>Enabled</span>
+              <span class="mouToggleField__control">
+                <span class="muted" data-user-agreement-toggle-label><%= adminAgreement && adminAgreement.enabled ? "Enabled" : "Disabled" %></span>
+                <span class="mouSwitch">
+                  <input type="checkbox" name="enabled" value="true" <%= adminAgreement && adminAgreement.enabled ? "checked" : "" %> data-user-agreement-toggle />
+                  <span class="mouSwitch__slider"></span>
+                </span>
+              </span>
+            </label>
+          </div>
+          <div data-user-agreement-fields <%= adminAgreement && adminAgreement.enabled ? "" : 'style="display:none;"' %>>
+            <label>
+              Agreement Markdown
+              <textarea name="markdown" rows="16" required><%- currentAgreement ? currentAgreement.bodyMarkdown : agreementDefaults.markdown %></textarea>
+            </label>
+          </div>
+          <div class="mouFormFooter" data-user-agreement-footer <%= adminAgreement && adminAgreement.enabled ? "" : 'style="display:none;"' %>>
+            <button class="btn qr mouFormFooter__leftAction" type="submit" name="resetToDefault" value="true">Reset To Default</button>
+            <button class="btn success" type="submit">Save User Agreement</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  <% } %>
+
+  <% if (!isGlobalAdmin) { %>
+    <section class="card" style="margin-top:14px;">
+      <div class="mouSectionHeader">
+        <div>
+          <h2>Active Documents</h2>
+        </div>
+      </div>
+      <% if (!cards || !cards.length) { %>
+        <div class="mouEmptyState">
+          <h3>No documents available</h3>
+        </div>
+      <% } else { %>
+        <div class="mouListCardTableWrap">
+          <table class="table mouListCardTable mouActiveDocsTable">
+            <thead>
+              <tr>
+                <th>Document</th>
+                <th>Version</th>
+                <th>Agencies / Signatures</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% cards.forEach(function (card) { %>
+                <% const documentStatusLabel = card.signatures && card.signatures.length ? (card.allSigned ? "Signed" : "Pending signature") : "Active"; %>
+                <% const cardRowClass = card.signatures && card.signatures.length ? (card.allSigned ? "mouRow--signed" : "mouRow--pending") : ""; %>
+                <% const cardViewHref = card.currentVersion && String(card.currentVersion.contentType || "").toLowerCase() === "pdf"
+                  ? ("/mou/file/" + encodeURIComponent(card.stream.mouId) + "/" + encodeURIComponent(card.currentVersion.version))
+                  : ("/mou/view/" + encodeURIComponent(card.stream.mouId) + "/" + encodeURIComponent(card.currentVersion.version)); %>
+                <tr class="<%= cardRowClass %>">
+                  <td class="cardTitleCell">
+                    <span class="cardTitleText"><%= card.stream.title %></span>
+                  </td>
+                  <td class="mouVersionCell" data-label="Version">
+                    v<%= card.currentVersion ? card.currentVersion.version : "-" %>
+                    <% if (card.currentVersion && card.currentVersion.activeAt) { %>
+                      <div class="cardTitleMeta">Active <%= card.currentVersion.activeAt %></div>
+                    <% } %>
+                  </td>
+                  <td class="mouAgencyCell" data-label="Agencies / Signatures">
+                    <% if (card.signatures && card.signatures.length) { %>
+                      <% card.signatures.forEach(function (entry) { %>
+                        <div style="margin-bottom:6px;">
+                          <strong><%= entry.agency.name %></strong>
+                          <div class="muted"><%= entry.signature ? ("Signed by " + (entry.signature.attestationText || entry.signature.signerDisplayName)) : "Pending agency signature" %></div>
+                        </div>
+                      <% }); %>
+                    <% } else if (card.targetAgencies && card.targetAgencies.length) { %>
+                      <div class="muted"><%= card.targetAgencies.map(function (agency) { return agency.name; }).join(", ") %></div>
+                    <% } else { %>
+                      <span class="muted">-</span>
+                    <% } %>
+                  </td>
+                  <td class="mouStatusCell" data-label="Status">
+                    <%= documentStatusLabel %>
+                  </td>
+                  <td class="cardActionsCell" data-label="Actions">
+                    <div class="mouActionRow cardActionsRow">
+                      <% if (card.currentVersion) { %>
+                        <% if (isAgencyAdmin && card.signableAgencyChoices && card.signableAgencyChoices.length) { %>
+                          <a class="btn secondary" href="/mou/sign/<%= encodeURIComponent(card.stream.mouId) %>/<%= encodeURIComponent(card.currentVersion.version) %>">
+                            <%= card.allSigned ? "View Document" : "View / Sign" %>
+                          </a>
+                        <% } %>
+                      <% } %>
+                    </div>
+                  </td>
+                </tr>
+              <% }); %>
+            </tbody>
+          </table>
+        </div>
+      <% } %>
+    </section>
+  <% } %>
+
+  <% if (isGlobalAdmin) { %>
+    <section class="card" style="margin-top:14px;">
+      <div class="mouSectionHeader">
+        <div>
+          <h2>Documents</h2>
+        </div>
+      </div>
+      <% if (!adminStreams || !adminStreams.length) { %>
+        <div class="mouEmptyState">
+          <h3>No documents yet</h3>
+          <p class="muted">Create your first document using the form above.</p>
+        </div>
+      <% } else { %>
+        <div class="row" style="align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
+          <input
+            type="search"
+            id="mouDocumentsSearch"
+            placeholder="Search documents..."
+            autocomplete="off"
+            style="width:100%; box-sizing:border-box;"
+          />
+        </div>
+        <div class="mouListCardTableWrap">
+          <table class="table mouListCardTable mouDocumentsTable" id="mouDocumentsTable">
+            <thead>
+              <tr>
+                <th class="sortable" data-key="title">
+                  Document <span class="sortIndicator" aria-hidden="true"></span>
+                </th>
+                <th class="sortable" data-key="version">
+                  Current Version <span class="sortIndicator" aria-hidden="true"></span>
+                </th>
+                <th class="sortable" data-key="assignment">
+                  Assignment <span class="sortIndicator" aria-hidden="true"></span>
+                </th>
+                <th class="sortable" data-key="signatures">
+                  Signatures <span class="sortIndicator" aria-hidden="true"></span>
+                </th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="mouDocumentsTbody">
+              <% adminStreams.forEach(function (stream) { %>
+                <% const currentVersion = stream.currentVersion; %>
+                <% const adminRowClass = currentVersion && stream.targetAgencies && stream.targetAgencies.length
+                  ? (stream.pendingSignatureCount ? "mouRow--pending" : "mouRow--signed")
+                  : ""; %>
+                <% const editorOverlayId = currentVersion ? ("mouEditOverlay-" + stream.mouId + "-" + currentVersion.version) : ""; %>
+                <% const assignOverlayId = currentVersion ? ("mouAssignOverlay-" + stream.mouId) : ""; %>
+                <% const assignmentLabel = !currentVersion
+                  ? "Create version first"
+                  : !(stream.targetAgencies && stream.targetAgencies.length)
+                    ? "Inactive"
+                    : stream.assignments && stream.assignments.serverwide
+                      ? "Serverwide"
+                      : stream.targetAgencies.length === 1
+                        ? (stream.targetAgencies[0].name || stream.scopeLabel)
+                        : "Multiple Agencies"; %>
+                <% const adminViewHref = currentVersion && String(currentVersion.contentType || "").toLowerCase() === "pdf"
+                  ? ("/mou/file/" + encodeURIComponent(stream.mouId) + "/" + encodeURIComponent(currentVersion.version))
+                  : ("/mou/view/" + encodeURIComponent(stream.mouId) + "/" + encodeURIComponent(currentVersion.version)); %>
+                <tr
+                  class="<%= adminRowClass %>"
+                  data-table-row="documents"
+                  data-title="<%= stream.title %>"
+                  data-version="<%= currentVersion ? currentVersion.version : 0 %>"
+                  data-assignment="<%= assignmentLabel %>"
+                  data-signatures="<%= currentVersion ? stream.signedCount : -1 %>"
+                >
+                  <td class="cardTitleCell">
+                    <span class="cardTitleText"><%= stream.title %></span>
+                  </td>
+                  <td class="mouVersionCell" data-label="Current Version"><%= currentVersion ? ("v" + currentVersion.version) : "None" %></td>
+                  <td class="mouAssignmentCell" data-label="Assignment"><%= assignmentLabel %></td>
+                  <td class="mouSignatureCountCell" data-label="Signatures">
+                    <% if (currentVersion) { %>
+                      <%= stream.signedCount %>/<%= stream.targetAgencies.length %> signed
+                      <% if (stream.pendingSignatureCount) { %>
+                        <div class="muted"><%= stream.pendingSignatureCount %> pending</div>
+                      <% } %>
+                    <% } else { %>
+                      <span class="muted">-</span>
+                    <% } %>
+                  </td>
+                  <td class="cardActionsCell" data-label="Actions">
+                    <div class="mouActionRow cardActionsRow">
+                      <% if (currentVersion) { %>
+                        <button class="btn" type="button" data-overlay-target="<%= editorOverlayId %>">Edit</button>
+                      <% } else { %>
+                        <span class="muted">-</span>
+                      <% } %>
+                      <% if (currentVersion) { %>
+                        <button class="btn secondary" type="button" data-overlay-target="<%= assignOverlayId %>">Assign</button>
+                        <a class="btn secondary" href="<%= adminViewHref %>" <%= String(currentVersion.contentType || "").toLowerCase() === "pdf" ? 'target="_blank" rel="noopener noreferrer"' : "" %>>View</a>
+                      <% } %>
+                      <form method="post" action="/admin/mou/<%= encodeURIComponent(stream.mouId) %>/delete" style="display:inline;" onsubmit="return confirm('Delete this document and all of its versions, signatures, and signed document files?');">
+                        <button class="btn danger" type="submit">Delete</button>
+                      </form>
+                    </div>
+                  </td>
+                </tr>
+              <% }); %>
+            </tbody>
+          </table>
+        </div>
+      <% } %>
+    </section>
+
+    <section class="card" style="margin-top:14px;">
+      <div class="mouSectionHeader">
+        <div>
+          <h2>Agency Signatures</h2>
+        </div>
+        <div class="mouActionRow">
+          <a class="btn secondary" href="/mou?export=signatures">Export CSV</a>
+          <a class="btn secondary" href="/mou?export=signatures-zip">Export ZIP</a>
+        </div>
+      </div>
+      <% if (!signatureRows || !signatureRows.length) { %>
+        <div class="mouEmptyState">
+          <h3>No signature data yet</h3>
+          <p class="muted">Active documents will appear here once they target agencies.</p>
+        </div>
+      <% } else { %>
+        <% const signatureAgencyMap = new Map();
+           signatureRows.forEach(function (row) {
+             const agencyKey = String(row.agencyId || "").trim().toLowerCase();
+             if (!agencyKey || signatureAgencyMap.has(agencyKey)) return;
+             signatureAgencyMap.set(agencyKey, {
+               agencyId: row.agencyId,
+               agencyName: row.agencyName
+             });
+           });
+           const signatureAgencyOptions = Array.from(signatureAgencyMap.values()).sort(function (a, b) {
+             return String(a.agencyName || "").localeCompare(String(b.agencyName || ""), undefined, { sensitivity: "base" });
+           });
+        %>
+        <div class="row" style="align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
+          <label style="min-width:220px;">
+            <select id="mouSignatureAgencyFilter" aria-label="Agency filter">
+              <option value="all" selected>All Agencies</option>
+              <% signatureAgencyOptions.forEach(function (agency) { %>
+                <option value="<%= agency.agencyId %>"><%= agency.agencyName %></option>
+              <% }); %>
+            </select>
+          </label>
+          <label style="min-width:220px;">
+            <select id="mouSignatureStatusFilter" aria-label="Status filter">
+              <option value="all" selected>All Statuses</option>
+              <option value="needs-signature">Needs Signature</option>
+              <option value="signed">Signed</option>
+            </select>
+          </label>
+          <input
+            type="search"
+            id="mouSignatureSearch"
+            placeholder="Search document name..."
+            autocomplete="off"
+            style="flex:1; min-width:260px; width:auto; box-sizing:border-box;"
+          />
+        </div>
+        <div class="mouListCardTableWrap">
+          <table class="table mouListCardTable mouSignatureTable" id="mouSignatureTable">
+            <thead>
+              <tr>
+                <th class="sortable" data-key="title">
+                  Document <span class="sortIndicator" aria-hidden="true"></span>
+                </th>
+                <th class="sortable" data-key="scope">
+                  Scope <span class="sortIndicator" aria-hidden="true"></span>
+                </th>
+                <th class="sortable" data-key="agency">
+                  Agency <span class="sortIndicator" aria-hidden="true"></span>
+                </th>
+                <th class="sortable" data-key="currentversion">
+                  Current Version <span class="sortIndicator" aria-hidden="true"></span>
+                </th>
+                <th class="sortable" data-key="signedversion">
+                  Signed Version <span class="sortIndicator" aria-hidden="true"></span>
+                </th>
+                <th class="sortable" data-key="signer">
+                  Signer <span class="sortIndicator" aria-hidden="true"></span>
+                </th>
+                <th class="sortable" data-key="statuslabel">
+                  Status <span class="sortIndicator" aria-hidden="true"></span>
+                </th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="mouSignatureTbody">
+              <% signatureRows.forEach(function (row) { %>
+                <% const signatureRowClass = row.needsSignature ? "mouRow--pending" : (row.signedVersion ? "mouRow--signed" : ""); %>
+                <% const scopeDisplay = row.scopeType === "agency" ? String(row.agencyId || "").toUpperCase() : row.scopeLabel; %>
+                <% const statusLabel = row.needsSignature ? "Needs Signature" : "Signed"; %>
+                <tr
+                  class="<%= signatureRowClass %>"
+                  data-table-row="signatures"
+                  data-title="<%= row.mouTitle %>"
+                  data-scope="<%= scopeDisplay %>"
+                  data-agency="<%= row.agencyName %>"
+                  data-agencyid="<%= row.agencyId %>"
+                  data-currentversion="<%= row.currentVersion %>"
+                  data-signedversion="<%= row.signedVersion ? row.signedVersion : 0 %>"
+                  data-signer="<%= row.signerDisplayName || '' %>"
+                  data-status="<%= row.needsSignature ? 'needs-signature' : 'signed' %>"
+                  data-statuslabel="<%= statusLabel %>"
+                >
+                  <td class="cardTitleCell"><span class="cardTitleText"><%= row.mouTitle %></span></td>
+                  <td class="mouScopeCell" data-label="Scope"><%= scopeDisplay %></td>
+                  <td class="mouAgencyCell" data-label="Agency"><%= row.agencyName %></td>
+                  <td class="mouCurrentVersionCell" data-label="Current Version">v<%= row.currentVersion %></td>
+                  <td class="mouSignedVersionCell" data-label="Signed Version"><%= row.signedVersion ? ("v" + row.signedVersion) : "Not Signed" %></td>
+                  <td class="mouSignerCell" data-label="Signer"><%= row.signerDisplayName || "-" %></td>
+                  <td class="mouStatusCell" data-label="Status">
+                    <%= statusLabel %>
+                  </td>
+                  <td class="cardActionsCell" data-label="Actions">
+                    <div class="mouActionRow cardActionsRow">
+                      <% if (row.signedVersion) { %>
+                        <a class="btn secondary" href="/mou/agency/<%= encodeURIComponent(row.mouId) %>/<%= encodeURIComponent(row.agencyId) %>?version=<%= encodeURIComponent(row.signedVersion) %>">View Document</a>
+                        <% if (!row.needsSignature && Number(row.signedVersion || 0) === Number(row.currentVersion || 0)) { %>
+                          <form method="post" action="/admin/mou/<%= encodeURIComponent(row.mouId) %>/signatures/resign/<%= encodeURIComponent(row.agencyId) %>" style="display:inline;" onsubmit="return confirm('Clear the current signed document and require this agency to sign again?');">
+                            <button class="btn warning" type="submit">Re-Sign</button>
+                          </form>
+                        <% } %>
+                      <% } %>
+                      <% if (row.historicalSignedVersions && row.historicalSignedVersions.length) { %>
+                        <a class="btn qr" href="/admin/mou/<%= encodeURIComponent(row.mouId) %>/history.zip?agencyId=<%= encodeURIComponent(row.agencyId) %>">Download Historical</a>
+                      <% } %>
+                      <% if (row.needsSignature) { %>
+                        <form method="post" action="/admin/mou/<%= encodeURIComponent(row.mouId) %>/signatures/resend/<%= encodeURIComponent(row.agencyId) %>" style="display:inline;">
+                          <button class="btn secondary" type="submit">Resend Email</button>
+                        </form>
+                        <% const uploadOverlayId = "mouUploadSignedOverlay-" + row.mouId + "-" + row.agencyId; %>
+                        <button class="btn secondary" type="button" data-overlay-target="<%= uploadOverlayId %>">Upload</button>
+                      <% } %>
+                      <% if (row.needsSignature || (!row.needsSignature && Number(row.signedVersion || 0) === Number(row.currentVersion || 0))) { %>
+                        <form method="post" action="/admin/mou/<%= encodeURIComponent(row.mouId) %>/assignments/archive/<%= encodeURIComponent(row.agencyId) %>" style="display:inline;" onsubmit="return confirm('Archive this document for this agency? You can restore it later from Archived Documents.');">
+                          <button class="btn danger" type="submit">Archive</button>
+                        </form>
+                      <% } %>
+                      <% if (!row.signedVersion && !row.needsSignature) { %>
+                        <span class="muted">-</span>
+                      <% } %>
+                    </div>
+                  </td>
+                </tr>
+              <% }); %>
+            </tbody>
+          </table>
+        </div>
+      <% } %>
+    </section>
+
+    <details class="card" style="margin-top:14px;">
+      <summary style="cursor:pointer; font-weight:600; user-select:none;">
+        Archived Documents (<%= Array.isArray(archivedRows) ? archivedRows.length : 0 %>)
+      </summary>
+      <div style="margin-top:12px;">
+        <% if (!archivedRows || !archivedRows.length) { %>
+          <div class="mouEmptyState">
+            <h3>No archived documents</h3>
+            <p class="muted">Archived agency documents can be restored or permanently deleted here.</p>
+          </div>
+        <% } else { %>
+          <div class="mouListCardTableWrap">
+            <table class="table mouListCardTable mouArchivedTable">
+              <thead>
+                <tr>
+                  <th>Document</th>
+                  <th>Scope</th>
+                  <th>Agency</th>
+                  <th>Current Version</th>
+                  <th>Signed Version</th>
+                  <th>Status</th>
+                  <th>Archived At</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% archivedRows.forEach(function (row) { %>
+                  <tr class="<%= row.signedVersion ? 'mouRow--signed' : 'mouRow--pending' %>">
+                    <td class="cardTitleCell"><span class="cardTitleText"><%= row.mouTitle %></span></td>
+                    <td class="mouScopeCell" data-label="Scope"><%= row.scopeType === "agency" ? String(row.agencyId || "").toUpperCase() : row.scopeLabel %></td>
+                    <td class="mouAgencyCell" data-label="Agency"><%= row.agencyName %></td>
+                    <td class="mouCurrentVersionCell" data-label="Current Version"><%= row.currentVersion ? ("v" + row.currentVersion) : "-" %></td>
+                    <td class="mouSignedVersionCell" data-label="Signed Version"><%= row.signedVersion ? ("v" + row.signedVersion) : "Not Signed" %></td>
+                    <td class="mouStatusCell" data-label="Status"><%= row.status || "Archived" %></td>
+                    <td class="mouArchivedAtCell" data-label="Archived At"><%= row.archivedAt ? new Date(row.archivedAt).toLocaleString() : "-" %></td>
+                    <td class="cardActionsCell" data-label="Actions">
+                      <div class="mouActionRow cardActionsRow">
+                        <form method="post" action="/admin/mou/archive/<%= encodeURIComponent(row.archiveId) %>/restore" style="display:inline;" onsubmit="return confirm('Restore this archived document?');">
+                          <button class="btn secondary" type="submit">Restore</button>
+                        </form>
+                        <form method="post" action="/admin/mou/archive/<%= encodeURIComponent(row.archiveId) %>/delete" style="display:inline;" onsubmit="return confirm('Permanently delete this archived document? This cannot be undone and will remove any stored signed document evidence for this agency.');">
+                          <button class="btn danger" type="submit">Delete Permanently</button>
+                        </form>
+                      </div>
+                    </td>
+                  </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+        <% } %>
+      </div>
+    </details>
+  <% } %>
+</main>
+
+<% if (isGlobalAdmin && adminStreams && adminStreams.length) { %>
+  <% adminStreams.forEach(function (stream) { %>
+    <% const currentVersion = stream.currentVersion; %>
+    <% const editor = stream.editor; %>
+    <% if (currentVersion && editor) { %>
+      <% const editorOverlayId = "mouEditOverlay-" + stream.mouId + "-" + currentVersion.version; %>
+      <div class="modalOverlay" id="<%= editorOverlayId %>" style="display:none;" data-edit-key="<%= stream.mouId %>:<%= currentVersion.version %>">
+        <div class="modal mouEditorModal" role="dialog" aria-modal="true" aria-labelledby="<%= editorOverlayId %>-title">
+          <div class="modalHeader">
+            <div>
+              <h2 id="<%= editorOverlayId %>-title" style="margin:0;">Edit Document</h2>
+              <div class="muted" style="margin-top:4px;"><%= stream.title %> • v<%= currentVersion.version %></div>
+            </div>
+            <button class="btn" type="button" data-close-overlay>Close</button>
+          </div>
+          <div class="modalBody">
+            <form method="post" action="/admin/mou/<%= encodeURIComponent(stream.mouId) %>/<%= encodeURIComponent(currentVersion.version) %>/save" enctype="multipart/form-data" class="mouAdminForm" data-mou-editor-form>
+              <input type="hidden" name="mandatory" value="true" />
+              <div class="grid2">
+                <label>
+                  Title
+                  <input type="text" name="title" value="<%= stream.title %>" placeholder="Document Title Here" required />
+                </label>
+                <label>
+                  Content type
+                  <select name="contentType" data-mou-content-select>
+                    <option value="markdown" <%= editor.contentType === "markdown" ? "selected" : "" %>>Markdown</option>
+                    <option value="html" <%= editor.contentType === "html" ? "selected" : "" %>>HTML</option>
+                    <option value="pdf" <%= editor.contentType === "pdf" ? "selected" : "" %>>PDF upload</option>
+                  </select>
+                </label>
+              </div>
+
+              <label data-mou-richtext-field <% if (editor.contentType === "pdf") { %>style="display:none;"<% } %>>
+                <span data-mou-richtext-label><%= editor.contentType === "markdown" ? "Document Markdown" : "Document HTML" %></span>
+                <textarea name="html" rows="20" data-mou-richtext-input placeholder="<%= editor.contentType === 'markdown' ? '# Paste Document Markdown here' : '<p>Paste Document HTML here.</p>' %>"><%- editor.sourceText %></textarea>
+              </label>
+
+              <label data-mou-file-field <% if (editor.contentType !== "pdf") { %>style="display:none;"<% } %>>
+                Replace PDF
+                <input type="file" name="contentFile" accept="application/pdf,.pdf" />
+                <% if (editor.contentType === "pdf" && editor.fileName) { %>
+                  <div class="muted" style="margin-top:6px;">Current file: <%= editor.fileName %></div>
+                <% } %>
+              </label>
+
+              <div class="msg" data-editor-status></div>
+              <div class="mouFormFooter">
+                <button class="btn secondary" type="button" data-mou-preview-button>Preview</button>
+                <% if (editor.contentType === "pdf" && editor.fileUrl) { %>
+                  <a class="btn secondary" target="_blank" rel="noopener noreferrer" href="<%= editor.fileUrl %>" data-current-pdf-url>Open PDF</a>
+                <% } %>
+                <button class="btn success" type="button" data-save-current>Save As Current Version (v<%= currentVersion.version %>)</button>
+                <button class="btn success" type="button" data-save-new-version data-save-new-url="/admin/mou/<%= encodeURIComponent(stream.mouId) %>/<%= encodeURIComponent(currentVersion.version) %>/save-as-new">Save As New Version (v<%= Number(currentVersion.version) + 1 %>)</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    <% } %>
+
+    <% if (stream.currentVersion) { %>
+      <% const assignOverlayId = "mouAssignOverlay-" + stream.mouId; %>
+      <div class="modalOverlay" id="<%= assignOverlayId %>" style="display:none;">
+        <div class="modal mouAssignModal" role="dialog" aria-modal="true" aria-labelledby="<%= assignOverlayId %>-title">
+          <div class="modalHeader">
+            <div>
+              <h2 id="<%= assignOverlayId %>-title" style="margin:0;">Assign Document: <%= stream.title %></h2>
+              <div class="muted" style="margin-top:4px;">Current version v<%= stream.currentVersion.version %></div>
+            </div>
+            <button class="btn" type="button" data-close-overlay>Close</button>
+          </div>
+          <div class="modalBody">
+            <form method="post" action="/admin/mou/<%= encodeURIComponent(stream.mouId) %>/assignments/save" class="mouAdminForm" data-mou-assignment-form>
+              <div class="mouAssignServerwideBox">
+                <label class="mouAssignServerwideLabel">
+                  <span class="mouSwitch">
+                    <input type="checkbox" name="serverwide" value="true" <%= stream.assignments && stream.assignments.serverwide ? "checked" : "" %> data-mou-serverwide-toggle />
+                    <span class="mouSwitch__slider"></span>
+                  </span>
+                  <span>
+                    <strong>Make active for the whole server</strong>
+                  </span>
+                </label>
+                <div class="muted" style="margin-top:6px;">
+                  Enable this to make the document active serverwide. Leave it off to assign only selected agencies below.
+                </div>
+              </div>
+
+              <div data-mou-agency-assignment-block <%= stream.assignments && stream.assignments.serverwide ? "hidden" : "" %>>
+                <div class="row" style="margin-top:12px;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+                  <input type="text" placeholder="Search agencies..." data-mou-agency-search style="flex:1;min-width:240px;" />
+                  <div class="row" style="gap:10px;">
+                    <button class="btn" type="button" data-mou-agency-select-all>Select All</button>
+                    <button class="btn" type="button" data-mou-agency-clear-all>Clear</button>
+                  </div>
+                </div>
+                <div class="groupsBox" style="margin-top:10px;">
+                  <div class="mouAssignAgencyList">
+                    <% agencies.forEach(function (agency) { %>
+                      <label
+                        class="mouAssignAgencyRow"
+                        data-mou-agency-option
+                        data-agency-label="<%= String(agency.name || '').toLowerCase() %> <%= String(agency.suffix || '').toLowerCase() %>"
+                      >
+                        <input
+                          type="checkbox"
+                          name="agencySuffixes"
+                          value="<%= agency.suffix %>"
+                          <%= stream.assignments && stream.assignments.agencySuffixes && stream.assignments.agencySuffixes.includes(agency.suffix) ? "checked" : "" %>
+                        />
+                        <span><%= agency.name %> (<%= String(agency.suffix || "").toUpperCase() %>)</span>
+                      </label>
+                    <% }); %>
+                  </div>
+                </div>
+              </div>
+
+              <div class="msg" data-assignment-status></div>
+              <div class="mouFormFooter">
+                <button class="btn success" type="submit">Save Assignment</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    <% } %>
+  <% }); %>
+<% } %>
+
+<% if (isGlobalAdmin && signatureRows && signatureRows.length) { %>
+  <% signatureRows.forEach(function (row) { %>
+    <% if (row.needsSignature) { %>
+      <% const uploadOverlayId = "mouUploadSignedOverlay-" + row.mouId + "-" + row.agencyId; %>
+      <div class="modalOverlay" id="<%= uploadOverlayId %>" style="display:none;">
+        <div class="modal mouAssignModal" role="dialog" aria-modal="true" aria-labelledby="<%= uploadOverlayId %>-title">
+          <div class="modalHeader">
+            <div>
+              <h2 id="<%= uploadOverlayId %>-title" style="margin:0;">Upload Signed Document</h2>
+              <div class="muted" style="margin-top:4px;"><%= row.mouTitle %> • <%= row.agencyName %> • current version v<%= row.currentVersion %></div>
+            </div>
+            <button class="btn" type="button" data-close-overlay>Close</button>
+          </div>
+          <div class="modalBody">
+            <form method="post" action="/admin/mou/<%= encodeURIComponent(row.mouId) %>/signatures/upload/<%= encodeURIComponent(row.agencyId) %>" enctype="multipart/form-data" class="mouAdminForm">
+              <label>
+                Full Name
+                <input type="text" name="attestationText" placeholder="Enter Signer's Full Name" required />
+              </label>
+              <label>
+                Position / Role
+                <input type="text" name="signerRole" placeholder="Enter Signer's Position / Role" required />
+              </label>
+              <label>
+                Signed Document File
+                <input type="file" name="signedCopyFile" accept=".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/png,image/jpeg,image/webp" required />
+              </label>
+              <div class="mouFormFooter">
+                <button class="btn success" type="submit">Upload Signed Document</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    <% } %>
+  <% }); %>
+<% } %>
+
+<script>
+(function () {
+  var MOU_CREATE_DRAFT_KEY = "mouCreateDraft";
+
+  function setFieldVisible(field, visible) {
+    if (!field) return;
+    field.hidden = !visible;
+    field.style.display = visible ? "" : "none";
+  }
+
+  function getCurrentUrlWithoutFlashParams() {
+    try {
+      var url = new URL(window.location.href);
+      var hadFlash = false;
+      ["error", "success"].forEach(function (key) {
+        if (url.searchParams.has(key)) {
+          url.searchParams.delete(key);
+          hadFlash = true;
+        }
+      });
+      if (!hadFlash) return "";
+      return url.pathname + (url.searchParams.toString() ? "?" + url.searchParams.toString() : "") + (url.hash || "");
+    } catch (_err) {
+      return "";
+    }
+  }
+
+  function clearFlashQueryParams() {
+    if (!window.history || typeof window.history.replaceState !== "function") return;
+    var nextUrl = getCurrentUrlWithoutFlashParams();
+    if (!nextUrl) return;
+    window.history.replaceState({}, document.title, nextUrl);
+  }
+
+  function readCreateDraft() {
+    try {
+      if (!window.sessionStorage) return null;
+      var raw = window.sessionStorage.getItem(MOU_CREATE_DRAFT_KEY);
+      if (!raw) return null;
+      var parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch (_err) {
+      return null;
+    }
+  }
+
+  function writeCreateDraft(value) {
+    try {
+      if (!window.sessionStorage) return;
+      window.sessionStorage.setItem(MOU_CREATE_DRAFT_KEY, JSON.stringify(value || {}));
+    } catch (_err) {}
+  }
+
+  function clearCreateDraft() {
+    try {
+      if (!window.sessionStorage) return;
+      window.sessionStorage.removeItem(MOU_CREATE_DRAFT_KEY);
+    } catch (_err) {}
+  }
+
+  function openOverlay(overlay) {
+    if (!overlay) return;
+    overlay.style.display = "flex";
+    document.body.style.overflow = "hidden";
+  }
+
+  function closeOverlay(overlay) {
+    if (!overlay) return;
+    overlay.style.display = "none";
+    var anyOpen = Array.from(document.querySelectorAll(".modalOverlay")).some(function (item) {
+      return item.style.display !== "none";
+    });
+    if (!anyOpen) document.body.style.overflow = "";
+  }
+
+  function syncContentFields(form) {
+    if (!form) return;
+    var contentSelect = form.querySelector("[data-mou-content-select]");
+    var richtextField = form.querySelector("[data-mou-richtext-field]");
+    var richtextArea = form.querySelector("[data-mou-richtext-input]");
+    var richtextLabel = form.querySelector("[data-mou-richtext-label]");
+    var fileField = form.querySelector("[data-mou-file-field]");
+    var fileInput = fileField ? fileField.querySelector("input[type='file']") : null;
+
+    function sync() {
+      var contentValue = contentSelect ? contentSelect.value : "markdown";
+      setFieldVisible(richtextField, contentValue !== "pdf");
+      if (richtextArea) {
+        richtextArea.required = contentValue !== "pdf";
+        richtextArea.placeholder = contentValue === "markdown"
+          ? "# Paste Document Markdown here"
+          : "<p>Paste Document HTML here.</p>";
+      }
+      if (richtextLabel) {
+        richtextLabel.textContent = contentValue === "markdown" ? "Document Markdown" : "Document HTML";
+      }
+      setFieldVisible(fileField, contentValue === "pdf");
+      if (fileInput) {
+        fileInput.required = contentValue === "pdf";
+        if (contentValue !== "pdf") fileInput.value = "";
+      }
+    }
+
+    if (contentSelect) contentSelect.addEventListener("change", sync);
+    sync();
+  }
+
+  function syncCreateFormDraft(form) {
+    if (!form) return;
+    var titleInput = form.querySelector('input[name="title"]');
+    var contentSelect = form.querySelector("[data-mou-content-select]");
+    var richtextArea = form.querySelector("[data-mou-richtext-input]");
+    var successVisible = !!document.querySelector(".mouCallout .msg.ok");
+    var errorVisible = !!document.querySelector(".mouCallout--danger .msg.bad");
+
+    function saveDraft() {
+      writeCreateDraft({
+        title: titleInput ? String(titleInput.value || "") : "",
+        contentType: contentSelect ? String(contentSelect.value || "markdown") : "markdown",
+        html: richtextArea ? String(richtextArea.value || "") : "",
+      });
+    }
+
+    if (successVisible) {
+      clearCreateDraft();
+    } else {
+      var draft = readCreateDraft();
+      if (draft) {
+        if (titleInput && !String(titleInput.value || "").trim()) {
+          titleInput.value = String(draft.title || "");
+        }
+        if (contentSelect && draft.contentType) {
+          contentSelect.value = String(draft.contentType || "markdown");
+          contentSelect.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+        if (richtextArea && !String(richtextArea.value || "")) {
+          richtextArea.value = String(draft.html || "");
+        }
+      }
+      if (errorVisible || draft) {
+        saveDraft();
+      }
+    }
+
+    if (titleInput) titleInput.addEventListener("input", saveDraft);
+    if (contentSelect) contentSelect.addEventListener("change", saveDraft);
+    if (richtextArea) richtextArea.addEventListener("input", saveDraft);
+    form.addEventListener("submit", saveDraft);
+  }
+
+  function syncEditorForm(form) {
+    if (!form) return;
+    syncContentFields(form);
+    var overlay = form.closest(".modalOverlay");
+    var statusEl = form.querySelector("[data-editor-status]");
+    var previewBtn = form.querySelector("[data-mou-preview-button]");
+    var saveInFlight = null;
+    var saveCurrentBtn = form.querySelector("[data-save-current]");
+    var saveNewBtn = form.querySelector("[data-save-new-version]");
+    var currentPdfLink = form.querySelector("[data-current-pdf-url]");
+    var fileInput = form.querySelector("[data-mou-file-field] input[type='file']");
+    var contentSelect = form.querySelector("[data-mou-content-select]");
+
+    function setStatus(kind, text) {
+      if (!statusEl) return;
+      statusEl.className = "msg " + (kind || "");
+      statusEl.textContent = text || "";
+    }
+
+    function setBusy(isBusy) {
+      if (saveCurrentBtn) saveCurrentBtn.disabled = isBusy;
+      if (saveNewBtn) saveNewBtn.disabled = isBusy;
+      if (previewBtn) previewBtn.disabled = isBusy;
+    }
+
+    async function submitTo(url) {
+      if (saveInFlight) return saveInFlight;
+      var requestUrl = url + (url.indexOf("?") === -1 ? "?format=json" : "&format=json");
+      setBusy(true);
+      setStatus("pending", "Saving...");
+      saveInFlight = fetch(requestUrl, {
+        method: "POST",
+        headers: { Accept: "application/json" },
+        body: new FormData(form)
+      }).then(async function (res) {
+        var out = await res.json().catch(function () { return {}; });
+        if (!res.ok) throw new Error(out.error || "Failed to save document.");
+        setStatus("ok", "Saved.");
+        return out;
+      }).catch(function (err) {
+        setStatus("bad", err && err.message ? err.message : "Failed to save document.");
+        throw err;
+      }).finally(function () {
+        saveInFlight = null;
+        setBusy(false);
+      });
+      return saveInFlight;
+    }
+
+    function previewUnsaved() {
+      var contentValue = contentSelect ? contentSelect.value : "markdown";
+      if (contentValue === "pdf") {
+        var selectedFile = fileInput && fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
+        if (selectedFile) {
+          window.open(URL.createObjectURL(selectedFile), "_blank");
+          return;
+        }
+        if (currentPdfLink && currentPdfLink.href) {
+          window.open(currentPdfLink.href, "_blank");
+          return;
+        }
+        setStatus("bad", "Choose a PDF file to preview.");
+        return;
+      }
+
+      var previewWindow = window.open("", "_blank");
+      if (!previewWindow) {
+        setStatus("bad", "Preview popup was blocked.");
+        return;
+      }
+      setStatus("pending", "Opening preview...");
+      fetch(form.getAttribute("action").replace(/\/save$/, "/preview"), {
+        method: "POST",
+        body: new FormData(form)
+      }).then(function (res) {
+        if (!res.ok) throw new Error("Failed to preview document.");
+        return res.text();
+      }).then(function (html) {
+        previewWindow.document.open();
+        previewWindow.document.write(html);
+        previewWindow.document.close();
+        setStatus("", "");
+      }).catch(function (err) {
+        previewWindow.close();
+        setStatus("bad", err && err.message ? err.message : "Failed to preview document.");
+      });
+    }
+
+    form.addEventListener("submit", function (event) {
+      event.preventDefault();
+    });
+    if (saveCurrentBtn) {
+      saveCurrentBtn.addEventListener("click", function () {
+        submitTo(form.getAttribute("action"))
+          .then(function () {
+            closeOverlay(overlay);
+          })
+          .catch(function () {});
+      });
+    }
+    if (saveNewBtn) {
+      saveNewBtn.addEventListener("click", function () {
+        submitTo(saveNewBtn.getAttribute("data-save-new-url"))
+          .then(function (out) {
+            closeOverlay(overlay);
+            if (out && out.redirectUrl) {
+              window.location.href = out.redirectUrl;
+            }
+          })
+          .catch(function () {});
+      });
+    }
+    if (previewBtn) {
+      previewBtn.addEventListener("click", function () {
+        previewUnsaved();
+      });
+    }
+  }
+
+  function syncAssignmentForm(form) {
+    if (!form) return;
+    var serverwideToggle = form.querySelector("[data-mou-serverwide-toggle]");
+    var agencyBlock = form.querySelector("[data-mou-agency-assignment-block]");
+    var agencySearch = form.querySelector("[data-mou-agency-search]");
+    var agencyOptions = Array.from(form.querySelectorAll("[data-mou-agency-option]"));
+    var selectAllBtn = form.querySelector("[data-mou-agency-select-all]");
+    var clearAllBtn = form.querySelector("[data-mou-agency-clear-all]");
+    var statusEl = form.querySelector("[data-assignment-status]");
+    var submitBtn = form.querySelector("button[type='submit']");
+
+    function setStatus(kind, text) {
+      if (!statusEl) return;
+      statusEl.className = "msg " + (kind || "");
+      statusEl.textContent = text || "";
+    }
+
+    function filterOptions() {
+      var query = agencySearch ? String(agencySearch.value || "").trim().toLowerCase() : "";
+      agencyOptions.forEach(function (option) {
+        var label = String(option.getAttribute("data-agency-label") || "").toLowerCase();
+        option.style.display = !query || label.indexOf(query) !== -1 ? "" : "none";
+      });
+    }
+
+    function syncRowState() {
+      agencyOptions.forEach(function (option) {
+        var input = option.querySelector("input[type='checkbox']");
+        option.classList.toggle("mouAssignAgencyRow--selected", !!(input && input.checked));
+      });
+    }
+
+    function sync() {
+      var checked = !!(serverwideToggle && serverwideToggle.checked);
+      setFieldVisible(agencyBlock, !checked);
+      filterOptions();
+      syncRowState();
+    }
+
+    if (serverwideToggle) serverwideToggle.addEventListener("change", sync);
+    if (agencySearch) agencySearch.addEventListener("input", filterOptions);
+    agencyOptions.forEach(function (option) {
+      var input = option.querySelector("input[type='checkbox']");
+      if (input) {
+        input.addEventListener("change", syncRowState);
+      }
+    });
+    if (selectAllBtn) {
+      selectAllBtn.addEventListener("click", function () {
+        agencyOptions.forEach(function (option) {
+          if (option.style.display === "none") return;
+          var input = option.querySelector("input[type='checkbox']");
+          if (input) input.checked = true;
+        });
+        syncRowState();
+      });
+    }
+    if (clearAllBtn) {
+      clearAllBtn.addEventListener("click", function () {
+        agencyOptions.forEach(function (option) {
+          if (option.style.display === "none") return;
+          var input = option.querySelector("input[type='checkbox']");
+          if (input) input.checked = false;
+        });
+        syncRowState();
+      });
+    }
+    form.addEventListener("submit", function (event) {
+      event.preventDefault();
+      if (submitBtn) submitBtn.disabled = true;
+      setStatus("pending", "Saving assignment...");
+      var payload = new URLSearchParams(new FormData(form));
+      fetch(form.getAttribute("action") + "?format=json", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"
+        },
+        body: payload.toString()
+      }).then(async function (res) {
+        var out = await res.json().catch(function () { return {}; });
+        if (!res.ok) {
+          throw new Error(out.error || "Failed to save assignment.");
+        }
+        setStatus("ok", "Assignment saved.");
+        window.location.href = out.redirectUrl || "/mou?success=" + encodeURIComponent("Document assignment updated.");
+      }).catch(function (err) {
+        console.error("[MOU_ASSIGN][client]", err);
+        setStatus("bad", err && err.message ? err.message : "Failed to save assignment.");
+      }).finally(function () {
+        if (submitBtn) submitBtn.disabled = false;
+      });
+    });
+    sync();
+  }
+
+  function syncUserAgreementForm(form) {
+    if (!form) return;
+    var toggle = form.querySelector("[data-user-agreement-toggle]");
+    var label = form.querySelector("[data-user-agreement-toggle-label]");
+    var titleWrap = form.querySelector("[data-user-agreement-title-wrap]");
+    var fields = form.querySelector("[data-user-agreement-fields]");
+    var footer = form.querySelector("[data-user-agreement-footer]");
+    if (!toggle) return;
+
+    function sync() {
+      var enabled = !!toggle.checked;
+      if (label) label.textContent = enabled ? "Enabled" : "Disabled";
+      setFieldVisible(titleWrap, enabled);
+      setFieldVisible(fields, enabled);
+      setFieldVisible(footer, enabled);
+    }
+
+    toggle.addEventListener("change", function () {
+      sync();
+      if (typeof form.requestSubmit === "function") {
+        form.requestSubmit();
+      } else {
+        form.submit();
+      }
+    });
+
+    sync();
+  }
+
+  function parseSortableValue(value) {
+    var raw = String(value == null ? "" : value).trim();
+    if (!raw) return "";
+    if (/^-?\d+(\.\d+)?$/.test(raw)) return Number(raw);
+    return raw.toLowerCase();
+  }
+
+  function stableSortRows(rows, key, dir) {
+    return rows
+      .map(function (row, index) {
+        return { row: row, index: index };
+      })
+      .sort(function (a, b) {
+        var aValue = parseSortableValue(a.row.getAttribute("data-" + key));
+        var bValue = parseSortableValue(b.row.getAttribute("data-" + key));
+        if (aValue < bValue) return -1 * dir;
+        if (aValue > bValue) return 1 * dir;
+        return a.index - b.index;
+      })
+      .map(function (entry) {
+        return entry.row;
+      });
+  }
+
+  function initSortableTable(config) {
+    if (!config || !config.tableId || !config.tbodyId) return;
+    var table = document.getElementById(config.tableId);
+    var tbody = document.getElementById(config.tbodyId);
+    if (!table || !tbody) return;
+
+    var rows = Array.from(tbody.querySelectorAll("tr[data-table-row]"));
+    var headers = Array.from(table.querySelectorAll("th.sortable"));
+    var searchInput = config.searchInputId ? document.getElementById(config.searchInputId) : null;
+    var agencyFilter = config.agencyFilterId ? document.getElementById(config.agencyFilterId) : null;
+    var statusFilter = config.statusFilterId ? document.getElementById(config.statusFilterId) : null;
+    var sortKey = "";
+    var sortDir = 1;
+
+    function updateSortIndicators() {
+      headers.forEach(function (th) {
+        th.style.cursor = "pointer";
+        var indicator = th.querySelector(".sortIndicator");
+        var key = th.getAttribute("data-key");
+        if (!indicator) return;
+        indicator.textContent = key && key === sortKey ? (sortDir === 1 ? "▲" : "▼") : "";
+      });
+    }
+
+    function rowMatchesFilters(row) {
+      var searchValue = searchInput ? String(searchInput.value || "").trim().toLowerCase() : "";
+      var titleValue = String(row.getAttribute("data-title") || "").toLowerCase();
+      if (searchValue && titleValue.indexOf(searchValue) === -1) return false;
+
+      if (agencyFilter) {
+        var selectedAgency = String(agencyFilter.value || "all").trim().toLowerCase();
+        var rowAgency = String(row.getAttribute("data-agencyid") || "").trim().toLowerCase();
+        if (selectedAgency !== "all" && rowAgency !== selectedAgency) return false;
+      }
+
+      if (statusFilter) {
+        var selectedStatus = String(statusFilter.value || "all").trim().toLowerCase();
+        var rowStatus = String(row.getAttribute("data-status") || "").trim().toLowerCase();
+        if (selectedStatus !== "all" && rowStatus !== selectedStatus) return false;
+      }
+
+      return true;
+    }
+
+    function render() {
+      var orderedRows = sortKey ? stableSortRows(rows, sortKey, sortDir) : rows.slice();
+      orderedRows.forEach(function (row) {
+        row.style.display = rowMatchesFilters(row) ? "" : "none";
+        tbody.appendChild(row);
+      });
+      updateSortIndicators();
+    }
+
+    headers.forEach(function (th) {
+      th.addEventListener("click", function () {
+        var key = th.getAttribute("data-key");
+        if (!key) return;
+        if (sortKey === key) {
+          sortDir *= -1;
+        } else {
+          sortKey = key;
+          sortDir = 1;
+        }
+        render();
+      });
+    });
+
+    if (searchInput) {
+      searchInput.addEventListener("input", render);
+    }
+    if (agencyFilter) {
+      agencyFilter.addEventListener("change", render);
+    }
+    if (statusFilter) {
+      statusFilter.addEventListener("change", render);
+    }
+
+    render();
+  }
+
+  document.querySelectorAll("[data-overlay-target]").forEach(function (button) {
+    button.addEventListener("click", function () {
+      var overlay = document.getElementById(button.getAttribute("data-overlay-target"));
+      openOverlay(overlay);
+    });
+  });
+
+  document.querySelectorAll("[data-close-overlay]").forEach(function (button) {
+    button.addEventListener("click", function () {
+      closeOverlay(button.closest(".modalOverlay"));
+    });
+  });
+
+  document.querySelectorAll(".modalOverlay").forEach(function (overlay) {
+    overlay.addEventListener("click", function (event) {
+      if (event.target === overlay) closeOverlay(overlay);
+    });
+  });
+
+  window.addEventListener("keydown", function (event) {
+    if (event.key !== "Escape") return;
+    var openOverlayEl = Array.from(document.querySelectorAll(".modalOverlay")).find(function (overlay) {
+      return overlay.style.display !== "none";
+    });
+    if (openOverlayEl) closeOverlay(openOverlayEl);
+  });
+
+  document.querySelectorAll("[data-mou-create-form]").forEach(function (form) {
+    syncContentFields(form);
+    syncCreateFormDraft(form);
+  });
+  document.querySelectorAll("[data-mou-editor-form]").forEach(syncEditorForm);
+  document.querySelectorAll("[data-mou-assignment-form]").forEach(syncAssignmentForm);
+  document.querySelectorAll("[data-user-agreement-form]").forEach(syncUserAgreementForm);
+  initSortableTable({
+    tableId: "mouDocumentsTable",
+    tbodyId: "mouDocumentsTbody",
+    searchInputId: "mouDocumentsSearch"
+  });
+  initSortableTable({
+    tableId: "mouSignatureTable",
+    tbodyId: "mouSignatureTbody",
+    searchInputId: "mouSignatureSearch",
+    agencyFilterId: "mouSignatureAgencyFilter",
+    statusFilterId: "mouSignatureStatusFilter"
+  });
+
+  var editVersionKey = new URLSearchParams(window.location.search).get("editVersion");
+  if (editVersionKey) {
+    var editorOverlay = document.querySelector('[data-edit-key="' + editVersionKey.replace(/"/g, '\\"') + '"]');
+    if (editorOverlay) openOverlay(editorOverlay);
+  }
+
+  clearFlashQueryParams();
+})();
+</script>

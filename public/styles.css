@@ -7,6 +7,7 @@
     --line: #1f2a44;
     --btn: #2b6cff;
     --warning: #ff6600;
+    --caution: #ff6600;
     --danger: #ff3b3b;
     --success: #18b35a;
     /* Sidebar link highlight (dark themes: lighter overlay so it stands out) */
@@ -567,6 +568,12 @@ label.btn {
     background: var(--warning);
 }
 
+.btn.caution {
+    background: var(--caution);
+    border-color: var(--caution);
+    color: #fff;
+}
+
 .btn.success {
     background: var(--success);
 }
@@ -631,6 +638,14 @@ label.btn {
     border-top: none;
     color: var(--text);
     font-size: 12px;
+}
+
+.table tbody tr.mouRow--signed td {
+    background: rgba(24, 179, 90, 0.14);
+}
+
+.table tbody tr.mouRow--pending td {
+    background: rgba(255, 102, 0, 0.12);
 }
 
 /* ======================
@@ -773,6 +788,639 @@ label.btn {
 
 .modalBody {
     padding: 14px;
+}
+
+.userAgreementModal {
+    width: min(760px, 96vw);
+}
+
+.mouEditorModal {
+    width: min(1040px, 96vw);
+}
+
+.mouAssignModal {
+    width: min(920px, 96vw);
+}
+
+.mouHero {
+    display: flex;
+    justify-content: space-between;
+    gap: 18px;
+    align-items: flex-start;
+    padding: 24px;
+    margin-bottom: 14px;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background:
+        radial-gradient(circle at top right, rgba(37, 99, 235, 0.12), transparent 28%),
+        linear-gradient(180deg, color-mix(in srgb, var(--panel) 90%, #2563eb 10%), var(--panel));
+}
+
+.mouHero__copy h1 {
+    margin: 4px 0 10px 0;
+}
+
+.mouHero__copy p {
+    max-width: 760px;
+    margin: 0;
+}
+
+.mouHero__actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.mouEyebrow {
+    display: inline-block;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.mouSectionHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 14px;
+}
+
+.mouSectionHeader h2,
+.mouSectionHeader p {
+    margin: 0;
+}
+
+.mouSectionHeader p {
+    margin-top: 4px;
+}
+
+.mouBadgeRow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 10px 0 0;
+}
+
+.mouBadge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    background: rgba(37, 99, 235, 0.12);
+    color: var(--text);
+    border: 1px solid rgba(37, 99, 235, 0.18);
+}
+
+.mouBadge--soft {
+    background: rgba(148, 163, 184, 0.18);
+    border-color: rgba(148, 163, 184, 0.22);
+}
+
+.mouBadge--accent {
+    background: rgba(234, 179, 8, 0.18);
+    border-color: rgba(234, 179, 8, 0.28);
+}
+
+.mouCardGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 14px;
+}
+
+.mouSummaryCard {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    border-radius: 18px;
+}
+
+.mouSummaryCard h3 {
+    margin: 10px 0 6px 0;
+}
+
+.mouSummaryCard__top {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    align-items: flex-start;
+}
+
+.mouMetaPill {
+    min-width: 84px;
+    padding: 10px 12px;
+    border-radius: 16px;
+    border: 1px solid var(--line);
+    background: color-mix(in srgb, var(--panel) 88%, #0f172a 12%);
+    text-align: center;
+}
+
+.mouMetaPill strong,
+.mouMetaPill span {
+    display: block;
+}
+
+.mouMetaPill span {
+    font-size: 0.8rem;
+    color: var(--muted);
+}
+
+.mouAgencyList {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.mouAgencyList__row {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    align-items: center;
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1px solid var(--line);
+    background: color-mix(in srgb, var(--panel) 93%, #020617 7%);
+}
+
+.mouStatus {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+    min-width: 94px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.mouStatus--ok {
+    background: rgba(34, 197, 94, 0.16);
+    color: #16a34a;
+}
+
+.mouStatus--pending {
+    background: rgba(234, 179, 8, 0.16);
+    color: #b45309;
+}
+
+.mouStatus--soft {
+    background: rgba(148, 163, 184, 0.16);
+    color: var(--muted);
+}
+
+.mouActionRow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.mouActionRow form {
+    display: inline-flex;
+}
+
+.mouActionRow .btn {
+    width: auto;
+}
+
+.table .mouActionRow {
+    align-items: center;
+}
+
+.mouTargetList {
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1px dashed var(--line);
+}
+
+.mouWorkspace {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(300px, 0.9fr);
+    gap: 14px;
+}
+
+.mouWorkspace--formSplit {
+    grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr);
+    align-items: stretch;
+}
+
+.mouWorkspace--single {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.mouWorkspace__document,
+.mouWorkspace__sidebar {
+    min-width: 0;
+}
+
+.mouWorkspace--formSplit > .mouWorkspace__document,
+.mouWorkspace--formSplit > .mouWorkspace__sidebar {
+    display: flex;
+    flex-direction: column;
+}
+
+.mouWorkspace--formSplit .mouAdminForm {
+    flex: 1 1 auto;
+}
+
+.mouWorkspace--formSplit .mouSectionHeader {
+    min-height: 34px;
+    align-items: center;
+}
+
+.mouWorkspace--formSplit .mouSectionHeader > div {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.mouWorkspace--formSplit [data-user-agreement-fields] {
+    flex: 1 1 auto;
+}
+
+.mouWorkspace--formSplit [data-user-agreement-title-wrap] {
+    min-width: 0;
+}
+
+.mouWorkspace--formSplit [data-user-agreement-fields][hidden] {
+    display: none !important;
+}
+
+.mouWorkspace > .card,
+.mouWorkspace > .mouWorkspace__document,
+.mouWorkspace > .mouWorkspace__sidebar {
+    margin: 0;
+}
+
+.mouWorkspace__sidebar--sticky {
+    align-self: start;
+}
+
+@media (min-width: 992px) {
+    .mouWorkspace__sidebar--sticky {
+        position: sticky;
+        top: 12px;
+        max-height: calc(100vh - 24px);
+        overflow-y: auto;
+    }
+}
+
+.mouViewerCard {
+    padding: 0;
+    overflow: hidden;
+}
+
+.mouViewerToolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 18px 22px;
+    border-bottom: 1px solid var(--line);
+}
+
+.mouDocumentShell {
+    padding: 22px;
+    line-height: 1.6;
+}
+
+.mouDocumentShell table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.mouDocumentShell th,
+.mouDocumentShell td {
+    border: 1px solid var(--line);
+    padding: 8px;
+    text-align: left;
+}
+
+.mouDocumentShell blockquote {
+    margin: 1rem 0;
+    padding-left: 1rem;
+    border-left: 4px solid var(--line);
+    color: var(--muted);
+}
+
+.signed-shell .signed-header,
+.signed-shell .signed-header *,
+.signed-shell .signed-body,
+.signed-shell .signed-body * {
+    color: #111827 !important;
+    -webkit-text-fill-color: #111827 !important;
+}
+
+.signed-shell .signed-header,
+.signed-shell .signed-body {
+    background: #ffffff;
+}
+
+.signed-shell .signed-header a,
+.signed-shell .signed-body a {
+    color: #2563eb !important;
+}
+
+.mouSignatureCanvas {
+    width: 100%;
+    max-width: 520px;
+    background: #ffffff;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    touch-action: none;
+}
+
+.mouPdfFrame {
+    display: block;
+    width: 100%;
+    min-height: 780px;
+    border: 0;
+    background: #ffffff;
+}
+
+.mouCallout {
+    margin-bottom: 12px;
+}
+
+.mouListCardTableWrap {
+    width: 100%;
+}
+
+.mouListCardTable td {
+    vertical-align: top;
+}
+
+.mouListCardTable .cardTitleText {
+    display: block;
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+.mouListCardTable .cardTitleMeta {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.mouListCardTable .cardActionsRow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.mouListCardTable .cardActionsRow form {
+    display: inline-flex;
+}
+
+.mouListCardTable .cardActionsRow .btn,
+.mouListCardTable .cardActionsRow .muted {
+    width: auto;
+    white-space: nowrap;
+    word-break: normal;
+    overflow-wrap: normal;
+}
+
+.mouPageHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+
+.mouPageHeader__intro {
+    flex: 1 1 320px;
+    min-width: 0;
+}
+
+.mouPageHeader__actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.mouPageHeader__actions .btn {
+    width: auto;
+}
+
+.mouCallout--warning {
+    border-color: var(--warning);
+}
+
+.mouCallout--danger {
+    border-color: var(--danger);
+}
+
+.mouEmptyState {
+    text-align: center;
+    padding: 18px;
+}
+
+.mouEmptyState h3 {
+    margin: 0 0 6px 0;
+}
+
+.mouAdminForm {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.mouAdminForm textarea {
+    width: 100%;
+    min-height: 220px;
+    box-sizing: border-box;
+}
+
+.mouCheckboxLabel {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+}
+
+.mouSectionHeader__toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+}
+
+.mouAgreementTopRow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(180px, 220px);
+    gap: 12px;
+    align-items: start;
+}
+
+.mouToggleField {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    min-width: 0;
+}
+
+.mouToggleField__control {
+    height: 42px;
+    min-height: 42px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--panel);
+    box-sizing: border-box;
+}
+
+.mouSwitch {
+    position: relative;
+    display: inline-flex;
+    width: 46px;
+    height: 26px;
+    flex: 0 0 auto;
+}
+
+@media (max-width: 900px) {
+    .mouAgreementTopRow {
+        grid-template-columns: 1fr;
+    }
+}
+
+.mouSwitch input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    margin: 0;
+    cursor: pointer;
+}
+
+.mouSwitch__slider {
+    width: 100%;
+    height: 100%;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--line) 70%, #000 30%);
+    border: 1px solid var(--line);
+    transition: background 0.2s ease, border-color 0.2s ease;
+    position: relative;
+}
+
+.mouSwitch__slider::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+    transition: transform 0.2s ease;
+}
+
+.mouSwitch input:checked + .mouSwitch__slider {
+    background: color-mix(in srgb, var(--success) 78%, #ffffff 22%);
+    border-color: color-mix(in srgb, var(--success) 70%, #ffffff 30%);
+}
+
+.mouSwitch input:checked + .mouSwitch__slider::after {
+    transform: translateX(20px);
+}
+
+.mouFormFooter {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 4px;
+}
+
+.mouFormFooter .btn {
+    width: auto;
+}
+
+.mouFormFooter__leftAction {
+    margin-right: auto;
+}
+
+.mouAgencyCheckboxGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px;
+}
+
+.mouAgencyCheckbox {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--panel) 93%, #020617 7%);
+}
+
+.mouAssignServerwideBox {
+    margin-top: 2px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--panel) 94%, #0f172a 6%);
+}
+
+.mouAssignServerwideLabel {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+}
+
+.mouAssignAgencyList {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.mouAssignAgencyRow {
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 10px;
+    border-radius: 10px;
+    border: 1px solid rgba(248, 81, 73, 0.35);
+    background: rgba(248, 81, 73, 0.14);
+    cursor: pointer;
+    user-select: none;
+    min-height: 30px;
+    text-align: left;
+}
+
+.mouAssignAgencyRow input[type="checkbox"] {
+    margin: 0;
+    flex: 0 0 auto;
+}
+
+.mouAssignAgencyRow span {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.mouAssignAgencyRow--selected {
+    border-color: rgba(46, 160, 67, 0.45);
+    background: rgba(46, 160, 67, 0.18);
 }
 
 .noScroll {
@@ -921,6 +1569,175 @@ body.modal-open .sidebarToggle {
         word-break: break-word;
     }
 
+    .mouHero,
+    .mouSectionHeader,
+    .mouSummaryCard__top,
+    .mouViewerToolbar,
+    .mouAgencyList__row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .mouWorkspace {
+        grid-template-columns: 1fr;
+    }
+
+    .mouListCardTableWrap {
+        overflow-x: hidden;
+    }
+
+    .mouListCardTable {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0 12px;
+    }
+
+    .mouListCardTable thead {
+        display: none;
+    }
+
+    .mouListCardTable tbody tr {
+        display: flex;
+        flex-direction: column;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--panel);
+        overflow: hidden;
+    }
+
+    .mouActiveDocsTable .cardTitleCell { order: 1; }
+    .mouActiveDocsTable .mouVersionCell { order: 2; }
+    .mouActiveDocsTable .mouAgencyCell { order: 3; }
+    .mouActiveDocsTable .mouStatusCell { order: 4; }
+    .mouActiveDocsTable .cardActionsCell { order: 5; }
+
+    .mouDocumentsTable .cardTitleCell { order: 1; }
+    .mouDocumentsTable .mouVersionCell { order: 2; }
+    .mouDocumentsTable .mouAssignmentCell { order: 3; }
+    .mouDocumentsTable .mouSignatureCountCell { order: 4; }
+    .mouDocumentsTable .cardActionsCell { order: 5; }
+
+    .mouSignatureTable .cardTitleCell { order: 1; }
+    .mouSignatureTable .mouStatusCell { order: 2; }
+    .mouSignatureTable .mouAgencyCell { order: 3; }
+    .mouSignatureTable .mouSignerCell { order: 4; }
+    .mouSignatureTable .mouSignedVersionCell { order: 5; }
+    .mouSignatureTable .mouCurrentVersionCell { order: 6; }
+    .mouSignatureTable .mouScopeCell { order: 7; }
+    .mouSignatureTable .cardActionsCell { order: 8; }
+
+    .mouArchivedTable .cardTitleCell { order: 1; }
+    .mouArchivedTable .mouStatusCell { order: 2; }
+    .mouArchivedTable .mouAgencyCell { order: 3; }
+    .mouArchivedTable .mouSignedVersionCell { order: 4; }
+    .mouArchivedTable .mouCurrentVersionCell { order: 5; }
+    .mouArchivedTable .mouScopeCell { order: 6; }
+    .mouArchivedTable .mouArchivedAtCell { order: 7; }
+    .mouArchivedTable .cardActionsCell { order: 8; }
+
+    .mouListCardTable tbody td {
+        display: block;
+        border-top: none;
+        padding: 8px 12px;
+        word-break: normal;
+        overflow-wrap: normal;
+        min-width: 0 !important;
+        max-width: none !important;
+        white-space: normal;
+    }
+
+    .mouListCardTable tbody td[data-label]::before {
+        content: attr(data-label);
+        display: block;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        color: var(--muted);
+        margin-bottom: 4px;
+    }
+
+    .mouListCardTable .cardTitleCell::before,
+    .mouListCardTable .cardActionsCell::before {
+        display: none;
+    }
+
+    .mouListCardTable .cardTitleCell {
+        padding-top: 12px;
+        padding-bottom: 4px;
+    }
+
+    .mouListCardTable .cardActionsCell {
+        border-top: 1px solid var(--line);
+        padding-top: 10px;
+        padding-bottom: 12px;
+    }
+
+    .mouListCardTable .cardActionsRow {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        width: 100%;
+        min-width: 0;
+    }
+
+    .mouListCardTable .cardActionsRow .btn,
+    .mouListCardTable .cardActionsRow .muted {
+        width: 100% !important;
+        max-width: 100%;
+        min-width: 0;
+        margin: 0;
+        white-space: nowrap;
+        word-break: normal !important;
+        overflow-wrap: normal !important;
+        box-sizing: border-box;
+        text-align: center;
+    }
+
+    .mouListCardTable .cardActionsRow .muted {
+        grid-column: 1 / -1;
+        padding: 8px 0;
+    }
+
+    .mouListCardTable .cardActionsRow form {
+        display: block !important;
+        width: 100%;
+    }
+
+    .mouPageHeader {
+        align-items: stretch;
+    }
+
+    .mouPageHeader__actions,
+    .mouViewerToolbar .mouActionRow {
+        width: 100%;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .mouPageHeader__actions .btn,
+    .mouViewerToolbar .mouActionRow .btn {
+        width: 100%;
+    }
+
+    .mouViewerToolbar {
+        padding: 16px;
+    }
+
+    .mouDocumentShell {
+        padding: 16px;
+    }
+
+    .mouDocumentShell table {
+        display: block;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .mouPdfFrame {
+        min-height: 68vh;
+    }
+
     /* Long strings/URLs/code blocks should wrap instead of pushing layout wider */
     pre,
     code,
@@ -929,6 +1746,14 @@ body.modal-open .sidebarToggle {
     .muted {
         overflow-wrap: anywhere;
         word-break: break-word;
+    }
+}
+
+@media (max-width: 640px) {
+    .mouPageHeader__actions,
+    .mouViewerToolbar .mouActionRow,
+    .mouListCardTable .cardActionsRow {
+        grid-template-columns: 1fr;
     }
 }
 

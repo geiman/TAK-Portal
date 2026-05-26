@@ -2411,6 +2411,62 @@ async function searchUsersByAgencyNamePaged({
   };
 }
 
+const AGENCY_DASHBOARD_USER_PAGE_SIZE = 300;
+
+function userPassesAgencySuffixSafety(user, expectedAgencySuffix) {
+  const expected = String(expectedAgencySuffix || "").trim().toLowerCase();
+  if (!expected) return true;
+  const attrs =
+    user && typeof user.attributes === "object" && user.attributes ? user.attributes : {};
+  const agency = String(attrs.agency || "").trim().toLowerCase();
+  if (!agency) return true;
+  return agency === expected;
+}
+
+async function countUsersByAgencyName(agencyName) {
+  const name = String(agencyName || "").trim();
+  if (!name) return 0;
+  const page = await searchUsersByAgencyNamePaged({
+    agencyName: name,
+    page: 1,
+    pageSize: 1,
+    includeGroups: false,
+  });
+  return Number(page.total) || 0;
+}
+
+async function buildUsersByTemplateForAgencyName(agencyName, { expectedAgencySuffix } = {}) {
+  const name = String(agencyName || "").trim();
+  if (!name) return {};
+
+  const counts = Object.create(null);
+  let page = 1;
+  let hasNext = true;
+
+  while (hasNext) {
+    const result = await searchUsersByAgencyNamePaged({
+      agencyName: name,
+      page,
+      pageSize: AGENCY_DASHBOARD_USER_PAGE_SIZE,
+      includeGroups: false,
+    });
+
+    for (const u of result.users || []) {
+      if (!userPassesAgencySuffixSafety(u, expectedAgencySuffix)) continue;
+      const attrs =
+        u && typeof u.attributes === "object" && u.attributes ? u.attributes : {};
+      let tmpl = String(attrs.current_template || "").trim();
+      if (!tmpl) tmpl = "Manual Group Selection";
+      counts[tmpl] = (counts[tmpl] || 0) + 1;
+    }
+
+    hasNext = result.hasNext;
+    page += 1;
+  }
+
+  return counts;
+}
+
 async function resetPassword(userId, password) {
   await assertUserNotActionLocked(userId);
   const err = validatePassword(password);
@@ -3170,6 +3226,98 @@ function computeCurrentTemplateForUser({
   return "Manual Group Selection";
 }
 
+/**
+ * Recompute attributes.current_template for users in an agency after group/template renames.
+ * Uses fresh group list + template definitions so template-prefill matching stays consistent.
+ */
+async function reconcileCurrentTemplateForAgencySuffix(agencySuffix) {
+  const sfx = String(agencySuffix || "").trim().toLowerCase();
+  if (!sfx) return { scanned: 0, updated: 0 };
+
+  const templates = templatesStore.load();
+  const templatesByAgencySuffix = new Map();
+  for (const t of Array.isArray(templates) ? templates : []) {
+    const ts = String(t?.agencySuffix || "").trim().toLowerCase();
+    if (ts !== sfx) continue;
+    if (!templatesByAgencySuffix.has(ts)) templatesByAgencySuffix.set(ts, []);
+    templatesByAgencySuffix.get(ts).push(t);
+  }
+
+  const allGroups = await getAllGroups({ includeHidden: false });
+  const groupNameToId = new Map(
+    (Array.isArray(allGroups) ? allGroups : []).map((g) => [
+      String(g?.name || "").trim().toLowerCase(),
+      String(g?.pk || "").trim(),
+    ])
+  );
+  const visibleGroupIds = new Set(
+    (Array.isArray(allGroups) ? allGroups : [])
+      .map((g) => String(g?.pk || "").trim())
+      .filter(Boolean)
+  );
+
+  let scanned = 0;
+  let updated = 0;
+  let page = 1;
+  let hasNext = true;
+
+  while (hasNext) {
+    const params = {
+      page,
+      page_size: 200,
+      include_groups: "true",
+      include_roles: "false",
+      attributes: JSON.stringify({ agency: sfx }),
+    };
+
+    const res = await api.get("/core/users/", { params });
+    const data = res?.data || {};
+    const rows = Array.isArray(data.results) ? data.results : [];
+
+    for (const user of rows) {
+      const attrs = user?.attributes && typeof user.attributes === "object" ? user.attributes : {};
+      if (String(attrs.agency || "").trim().toLowerCase() !== sfx) continue;
+
+      scanned += 1;
+      const desired = computeCurrentTemplateForUser({
+        user,
+        templatesByAgencySuffix,
+        groupNameToId,
+        visibleGroupIds,
+      });
+      if (desired == null) continue;
+
+      const current = String(attrs.current_template || "").trim();
+      if (current === desired) continue;
+
+      const uid = String(user?.pk ?? user?.id ?? "").trim();
+      if (!uid) continue;
+
+      await api.patch(`/core/users/${uid}/`, {
+        attributes: {
+          ...attrs,
+          current_template: desired,
+        },
+      });
+      updated += 1;
+    }
+
+    const pagination = data.pagination || {};
+    if (pagination && pagination.next) {
+      page = pagination.next;
+      hasNext = true;
+    } else if (data.next) {
+      page += 1;
+      hasNext = true;
+    } else {
+      hasNext = false;
+    }
+  }
+
+  if (updated > 0) invalidateUsersCache();
+  return { scanned, updated };
+}
+
 async function getCurrentTemplateBackfillStats() {
   const users = await getAllUsersRaw({ includeHiddenPrefixes: true });
   const list = Array.isArray(users) ? users : [];
@@ -3403,9 +3551,153 @@ async function getCurrentTemplateCountsByTemplate(options = {}) {
   return counts;
 }
 
+function splitDisplayName(full) {
+  const t = String(full || "").trim();
+  if (!t) return { first: "", last: "" };
+
+  if (t.includes(",")) {
+    const [last, first] = t.split(",").map((x) => String(x || "").trim());
+    return { first, last };
+  }
+
+  const parts = t.split(/\s+/);
+  if (parts.length === 1) return { first: parts[0], last: "" };
+  const last = parts.pop();
+  const first = parts.join(" ");
+  return { first, last };
+}
+
+function csvEscapeCell(value) {
+  const s = String(value == null ? "" : value);
+  return `"${s.replace(/"/g, '""')}"`;
+}
+
+function stripTakPrefixForUserExport(name) {
+  const n = String(name || "").trim();
+  if (n.toLowerCase().startsWith("tak_")) return n.slice(4);
+  return n;
+}
+
+function getHiddenGroupPrefixes() {
+  return String(getString("GROUPS_HIDDEN_PREFIXES", "") || "")
+    .split(",")
+    .map((p) => String(p || "").trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function isGroupNameHiddenByPrefix(groupName, hiddenPrefixes) {
+  const prefixes = Array.isArray(hiddenPrefixes) ? hiddenPrefixes : getHiddenGroupPrefixes();
+  if (!prefixes.length) return false;
+
+  const raw = String(groupName || "").trim().toLowerCase();
+  const withoutTak = raw.startsWith("tak_") ? raw.slice(4) : raw;
+
+  return prefixes.some(
+    (prefix) => raw.startsWith(prefix) || withoutTak.startsWith(prefix)
+  );
+}
+
+function resolvePortalPermissionLabel(user, { globalAdminGroupPks, groupNameByPk }) {
+  const groups = Array.isArray(user?.groups) ? user.groups.map(String) : [];
+  const globalSet = new Set((globalAdminGroupPks || []).map(String));
+  if (groups.some((gid) => globalSet.has(gid))) return "Global Admin";
+
+  for (const gid of groups) {
+    const name = String(groupNameByPk.get(String(gid)) || "")
+      .trim()
+      .toLowerCase();
+    if (name && name.endsWith("-agencyadmin")) return "Agency Admin";
+  }
+
+  return "Standard User";
+}
+
+function formatUserGroupMemberships(user, groupNameByPk, hiddenGroupPrefixes) {
+  const groups = Array.isArray(user?.groups) ? user.groups.map(String) : [];
+  const hiddenPrefixes =
+    hiddenGroupPrefixes === undefined ? getHiddenGroupPrefixes() : hiddenGroupPrefixes;
+
+  return groups
+    .map((gid) => {
+      const raw = groupNameByPk.get(String(gid));
+      if (!raw || isGroupNameHiddenByPrefix(raw, hiddenPrefixes)) return "";
+      return stripTakPrefixForUserExport(raw);
+    })
+    .filter(Boolean)
+    .sort((a, b) =>
+      a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })
+    )
+    .join("; ");
+}
+
+/**
+ * Build a CSV export for the users list (RFC 4180-style quoted fields).
+ */
+function buildUsersExportCsv(users, options = {}) {
+  const {
+    groupNameByPk = new Map(),
+    globalAdminGroupPks = [],
+    agencyNameByAbbr = new Map(),
+    hiddenGroupPrefixes = getHiddenGroupPrefixes(),
+  } = options;
+
+  const header = [
+    "Username",
+    "First",
+    "Last",
+    "Radio Callsign",
+    "Email",
+    "Agency",
+    "Template",
+    "Role",
+    "Permissions",
+    "Status",
+    "Groups",
+  ];
+
+  const lines = [header.map(csvEscapeCell).join(",")];
+
+  for (const user of Array.isArray(users) ? users : []) {
+    const attrs = user?.attributes || {};
+    const { first, last } = splitDisplayName(user?.name || "");
+    const abbr = String(
+      attrs.agency_abbreviation ||
+        attrs.agencyAbbreviation ||
+        attrs.agencyAbbr ||
+        attrs.agencyabbr ||
+        ""
+    )
+      .trim()
+      .toLowerCase();
+    const agency =
+      agencyNameByAbbr.get(abbr) ||
+      String(attrs.agency_name || "").trim() ||
+      (abbr ? abbr.toUpperCase() : "");
+
+    const row = [
+      user?.username || "",
+      first,
+      last,
+      String(attrs.radio_callsign || "").trim(),
+      user?.email || "",
+      agency,
+      String(attrs.current_template || "").trim() || "Manual Group Selection",
+      normalizeTakRole(attrs.role, DEFAULT_ATAK_ROLE),
+      resolvePortalPermissionLabel(user, { globalAdminGroupPks, groupNameByPk }),
+      user?.is_active ? "Active" : "Disabled",
+      formatUserGroupMemberships(user, groupNameByPk, hiddenGroupPrefixes),
+    ];
+
+    lines.push(row.map(csvEscapeCell).join(","));
+  }
+
+  return `${lines.join("\n")}\n`;
+}
+
 module.exports = {
   // meta/template support
   getTemplatesForAgency,
+  buildTakPortalBlock,
 
   // shared data
   getAllGroups,
@@ -3432,6 +3724,8 @@ module.exports = {
   searchUsersByAgencyAbbreviationPaged,
   searchUsersByAgencySuffixPaged,
   searchUsersByAgencyNamePaged,
+  countUsersByAgencyName,
+  buildUsersByTemplateForAgencyName,
   resetPassword,
   resendOnboardingEmail,
   updateEmail,
@@ -3452,6 +3746,8 @@ module.exports = {
 
   getUsersByGroups,
   getUsersByUsernames,
+  buildUsersExportCsv,
   bulkSetCurrentTemplateForAgencyUsers,
   syncUsersForTemplateSave,
+  reconcileCurrentTemplateForAgencySuffix,
 };

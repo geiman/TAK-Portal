@@ -20,6 +20,8 @@ const agenciesStore = require("./services/agencies.service");
 const userRequestsSvc = require("./services/userRequests.service");
 const auditSvc = require("./services/auditLog.service");
 const permsSvc = require("./services/permissions.service");
+const mouSvc = require("./services/mouService");
+const mouScheduler = require("./services/mouScheduler");
 const accessControlRoutes = require("./routes/accessControl.routes");
 const usersSvc = require("./services/users.service");
 const groupsSvc = require("./services/groups.service");
@@ -27,6 +29,10 @@ const agencyTypesSvc = require("./services/agencyTypes.service");
 const locatorsSvc = require("./services/locators.service");
 const pluginsSvc = require("./services/plugins.service");
 const { toSafeApiError } = require("./services/apiErrorPayload.service");
+const {
+  USER_AGREEMENT_SESSION_COOKIE,
+  hasAcceptedAgreementForSession,
+} = require("./services/userAgreementSession.service");
 
 const app = express();
 
@@ -218,6 +224,48 @@ app.use((req, res, next) => {
   return portalAuth(req, res, next);
 });
 
+app.use((req, res, next) => {
+  try {
+    const user = req.authentikUser;
+    const normalizedPath = (req.path || "").replace(/\/+$/, "") || "/";
+    const isApi = normalizedPath.startsWith("/api/");
+    const currentAgreement = mouSvc.getCurrentUserAgreement().current;
+    const hasAcceptedAgreement =
+      hasAcceptedAgreementForSession(req, user, currentAgreement);
+    const isAgreementTargetUser = !!(user && user.username) && !user.isGlobalAdmin;
+    const isAgreementExemptPath =
+      normalizedPath === "/logout" ||
+      normalizedPath === "/setup-my-device" ||
+      normalizedPath === "/api/mou/user-agreement/accept" ||
+      normalizedPath === "/api/mou/user-agreement/decline";
+
+    if (
+      !isAgreementTargetUser ||
+      !mouSvc.isEnabled() ||
+      !mouSvc.shouldRequireUserAgreement(user, {
+        acceptedForSession: hasAcceptedAgreement,
+      })
+    ) {
+      return next();
+    }
+
+    if (isAgreementExemptPath) {
+      return next();
+    }
+
+    if (isApi) {
+      return res.status(423).json({
+        error: "You must accept the current user agreement before continuing.",
+      });
+    }
+
+    return res.redirect("/setup-my-device");
+  } catch (err) {
+    console.warn("[mou-gate] Failed to evaluate user agreement gate:", err?.message || err);
+    return next();
+  }
+});
+
 function isApiRequest(req) {
   const p = req.originalUrl || req.path || "";
   return p.startsWith("/api/");
@@ -278,6 +326,9 @@ app.get("/logout", (req, res) => {
   const portalUrlRaw =
     getString("TAK_PORTAL_PUBLIC_URL", "") ||
     `${req.protocol}://${req.get("host")}/`;
+  res.clearCookie(USER_AGREEMENT_SESSION_COOKIE, {
+    path: "/",
+  });
   try {
     // Canonicalize so rd is always a full normalized URL (includes trailing slash on host roots).
     const portalUrl = new URL(portalUrlRaw).toString();
@@ -315,6 +366,15 @@ app.get("/api/plugins/:id/download", (req, res) => {
       return res.status(404).json({ error: "Plugin not found." });
     }
     const filename = path.basename(filePath);
+    auditSvc.auditFromRequest(req, {
+      action: "PLUGIN_DOWNLOADED",
+      targetType: "plugin",
+      targetId: String(id),
+      details: {
+        filename,
+        summary: `Downloaded plugin file ${filename}.`,
+      },
+    });
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     return res.sendFile(filePath);
   } catch (err) {
@@ -478,6 +538,23 @@ function handlePublicLocateStopSharing(req, res) {
       return res.status(403).json({ ok: false, error: "This locator is inactive." });
     }
     locatorsSvc.setSharingStoppedByUser(loc.id, true);
+    auditSvc.logEvent({
+      actor: null,
+      request: {
+        method: req.method,
+        path: req.originalUrl || req.path,
+        ip: req.ip,
+      },
+      action: "LOCATE_PUBLIC_SHARING_STOPPED",
+      targetType: "locator",
+      targetId: loc.id,
+      details: {
+        slug,
+        locatorTitle: loc.title,
+        clientUserAgent: String(req.get("user-agent") || "").trim().slice(0, 400) || undefined,
+        summary: `Someone using the public locate page stopped sharing for "${loc.title}" (${slug}).`,
+      },
+    });
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ ok: false, error: toSafeApiError(err) });
@@ -501,6 +578,7 @@ app.post("/locate/:slug/ping", publicLocateApiCors, handlePublicLocatePing);
 app.options("/locate/:slug/stop-sharing", publicLocateApiCors);
 app.post("/locate/:slug/stop-sharing", publicLocateApiCors, handlePublicLocateStopSharing);
 app.use("/api/email", requirePermission("page.email"), require("./routes/email.routes"));
+app.use("/", require("./routes/mou.routes"));
 app.use("/dashboard", require("./routes/dashboard.routes"));
 
 // Access control (per-user permission deny overrides)
@@ -720,8 +798,10 @@ app.get("/audit-log", requirePermission("page.audit_log"), async (req, res) => {
   }
 
   const pageLinks = {
+    first: buildLink(1),
     prev: buildLink(Math.max(1, result.page - 1)),
     next: buildLink(Math.min(result.pageCount, result.page + 1)),
+    last: buildLink(result.pageCount),
   };
 
   return res.render("audit-log", {
@@ -783,7 +863,17 @@ app.get("/setup-my-device", async (req, res) => {
       enrollQrBootstrap = null;
     }
   }
-  return res.render("setup-my-device", { takHost, enrollQrBootstrap });
+  return res.render("setup-my-device", {
+    takHost,
+    enrollQrBootstrap,
+    agreementSummary: mouSvc.getAgreementSummaryForUser(req.authentikUser, {
+      acceptedForSession: hasAcceptedAgreementForSession(
+        req,
+        req.authentikUser,
+        mouSvc.getCurrentUserAgreement().current
+      ),
+    }),
+  });
 });
 
 
@@ -914,6 +1004,21 @@ app.post("/lookup", async (req, res) => {
       ]
     });
 
+    auditSvc.logEvent({
+      actor: null,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "LOOKUP_QR_EMAIL_SENT",
+      targetType: "user",
+      targetId: String(user.username || "").trim().toLowerCase(),
+      details: {
+        username: user.username,
+        agencySuffix: String(agency?.suffix || "").trim().toLowerCase() || undefined,
+        agencyName: String(agency?.name || "") || undefined,
+        emailDomain: domain,
+        summary: `Enrollment lookup sent QR email to user ${user.username}.`,
+      },
+    });
+
     return res.render("lookup", {
       form: {},
       error: null,
@@ -987,14 +1092,32 @@ app.post("/request-access", async (req, res) => {
       }
     }
 
-    await userRequestsSvc.createRequest({
+    const created = await userRequestsSvc.createRequest({
       firstName: body.firstName,
       lastName: body.lastName,
       email: body.email,
       badgeNumber: body.badgeNumber,
+      radioCallsign: body.radioCallsign,
       agencySuffix: body.agencySuffix,
       otherAgency: body.otherAgency,
       otherReason: body.otherReason,
+    });
+
+    auditSvc.logEvent({
+      actor: req.authentikUser || null,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "CREATE_ACCESS_REQUEST",
+      targetType: "user_request",
+      targetId: String(created?.id || ""),
+      details: {
+        source: "request-access-form",
+        firstName: body.firstName,
+        lastName: body.lastName,
+        email: body.email,
+        badgeNumber: body.badgeNumber,
+        agencySuffix: body.agencySuffix,
+        otherAgency: body.otherAgency,
+      },
     });
 
     return res.redirect("/request-access/confirmation");
@@ -1399,7 +1522,7 @@ app.post(
 // Send a simple SMTP test email using Always CC / BCC lists
 
 app.post("/settings/test-email", requirePermission("page.settings"), async (req, res) => {
-  console.log("[settings] Test email requested");
+    console.log("[settings] Test email requested");
 
   try {
     const result = await emailSvc.sendMail({
@@ -1407,6 +1530,15 @@ app.post("/settings/test-email", requirePermission("page.settings"), async (req,
       subject: "TAK Portal - Email SMTP Test",
       text: "TAK Portal - Email SMTP Test",
     });
+
+    if (result.sent) {
+      auditSvc.auditFromRequest(req, {
+        action: "SETTINGS_TEST_EMAIL_SENT",
+        targetType: "settings",
+        targetId: "smtp",
+        details: { summary: "Sent SMTP test email from Settings." },
+      });
+    }
 
     console.log("[settings] Test email result:", result);
     return res.redirect("/settings");
@@ -1479,6 +1611,17 @@ app.post(
         }
       }
 
+      auditSvc.auditFromRequest(req, {
+        action: "SETTINGS_TEST_SMS_SENT",
+        targetType: "settings",
+        targetId: "sms",
+        details: {
+          provider,
+          recipientCount: parsed.phones.length,
+          summary: `Sent SMS test to ${parsed.phones.length} number(s).`,
+        },
+      });
+
       return res.redirect("/settings?smsTest=ok#sms-settings");
     } catch (err) {
       console.error("[settings] Test SMS failed:", err?.message || err);
@@ -1519,6 +1662,8 @@ app.post(
 
       const directory = await unzipper.Open.file(zipPath);
       const dataDirResolved = path.resolve(dataDir) + path.sep;
+      let filesExtracted = 0;
+      const extractedPaths = [];
 
       // Extract entries safely (prevent Zip Slip)
       for (const entry of directory.files) {
@@ -1565,7 +1710,21 @@ app.post(
         // Overwrite/create file
         const writeStream = fs.createWriteStream(outResolved);
         await finished(entry.stream().pipe(writeStream));
+        filesExtracted += 1;
+        if (extractedPaths.length < 30) extractedPaths.push(rel);
       }
+
+      auditSvc.auditFromRequest(req, {
+        action: "SETTINGS_DATA_IMPORTED",
+        targetType: "settings",
+        targetId: "data",
+        details: {
+          zipName: path.basename(zipPath),
+          filesExtracted,
+          samplePaths: extractedPaths,
+          summary: `Imported configuration zip (${filesExtracted} file(s) into data/).`,
+        },
+      });
 
       // Cleanup uploaded zip
       try {
@@ -1599,6 +1758,15 @@ app.get("/settings/export-data", requirePermission("page.settings"), (req, res) 
   if (!fs.existsSync(dataDir)) {
     return res.status(404).send("No data directory to export");
   }
+
+  auditSvc.auditFromRequest(req, {
+    action: "SETTINGS_DATA_EXPORTED",
+    targetType: "settings",
+    targetId: "data",
+    details: {
+      summary: "Exported portal data folder as zip (tak-portal-data.zip).",
+    },
+  });
 
   res.setHeader("Content-Type", "application/zip");
   res.setHeader(
@@ -1637,6 +1805,12 @@ app.listen(port, () => {
       "⚠️ Mutual aid expiration scheduler init failed",
       e?.message || e
     );
+  }
+
+  try {
+    mouScheduler.startScheduler();
+  } catch (e) {
+    console.log("⚠️ MOU reminder scheduler init failed", e?.message || e);
   }
 
   try {

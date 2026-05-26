@@ -74,6 +74,23 @@ function stripTakPrefix(name) {
   return n.toLowerCase().startsWith("tak_") ? n.slice(4) : n;
 }
 
+function isAgencyAdminGroupName(name) {
+  return /-AgencyAdmin$/i.test(String(name || "").trim());
+}
+
+/** Portal TAK groups get tak_; agency admin groups keep authentik-* names as-is. */
+function resolveAuthentikGroupName(raw) {
+  const n = String(raw || "").trim();
+  if (!n) return "";
+  return isAgencyAdminGroupName(n) ? n : ensureTakPrefix(n);
+}
+
+function cnBasisForGroupName(resolvedName) {
+  const n = String(resolvedName || "").trim();
+  if (!n) return "";
+  return isAgencyAdminGroupName(n) ? n : stripTakPrefix(n);
+}
+
 // Normalize the Authentik CN attribute:
 // - attribute key must be "CN" (uppercase)
 // - value must be exactly "CN: <nameWithoutTak>" (no surrounding quotes)
@@ -324,12 +341,7 @@ async function getUsersByGroupIdPagedRaw({ groupId, agencyAbbreviation, page = 1
 async function createGroup(name, opts = {}) {
   const raw = String(name || "").trim();
 
-  // Do NOT add tak_ for AgencyAdmin groups
-  const isAgencyAdminGroup = /-AgencyAdmin$/i.test(raw);
-
-  const n = isAgencyAdminGroup
-    ? raw
-    : ensureTakPrefix(raw);
+  const n = resolveAuthentikGroupName(raw);
   if (!n) throw new Error("Group name is required");
 
   const payload = { name: n };
@@ -347,7 +359,7 @@ async function createGroup(name, opts = {}) {
   delete attributes.cn;
   attributes.CN = normalizeCNValue(
     Object.prototype.hasOwnProperty.call(attributes, "CN") ? attributes.CN : "",
-    stripTakPrefix(n)
+    cnBasisForGroupName(n)
   );
 
   if (Object.keys(attributes).length > 0) {
@@ -460,6 +472,96 @@ async function renameGroup(groupId, newName, opts = {}) {
       templatesUpdated
     }
   };
+}
+
+/**
+ * Rename a group in Authentik (name + CN). Does not update agency-templates.json
+ * (caller batches template updates separately).
+ */
+async function patchGroupNameAndCn(groupId, newName, opts = {}) {
+  const id = normalizeId(groupId);
+  if (!id) throw new Error("Group id is required");
+
+  const current = opts.skipActionLock
+    ? await getGroupById(id)
+    : await assertGroupNotActionLocked(id, opts);
+
+  const n = resolveAuthentikGroupName(newName);
+  if (!n) throw new Error("Group name is required");
+
+  const existingAttrs =
+    current && typeof current.attributes === "object" && current.attributes
+      ? { ...current.attributes }
+      : {};
+
+  const nextAttrs = { ...existingAttrs };
+  delete nextAttrs.cn;
+  delete nextAttrs.CN;
+
+  if (opts.attributes && typeof opts.attributes === "object") {
+    const merged = { ...opts.attributes };
+    delete merged.cn;
+    delete merged.CN;
+    Object.assign(nextAttrs, merged);
+  }
+
+  const wantsCN =
+    Object.prototype.hasOwnProperty.call(opts, "CN") ||
+    Object.prototype.hasOwnProperty.call(opts, "cn");
+  const provided = wantsCN
+    ? Object.prototype.hasOwnProperty.call(opts, "CN")
+      ? opts.CN
+      : opts.cn
+    : "";
+  nextAttrs.CN = normalizeCNValue(provided, cnBasisForGroupName(n));
+
+  const res = await api.patch(`/core/groups/${id}/`, {
+    name: n,
+    attributes: nextAttrs,
+  });
+  invalidateGroupsCache();
+  return res.data;
+}
+
+function rewriteTakGroupNamePrefix(groupName, oldPrefix, newPrefix) {
+  const oldP = String(oldPrefix || "").trim().toUpperCase();
+  const newP = String(newPrefix || "").trim().toUpperCase();
+  const original = String(groupName || "").trim();
+  if (!oldP || !newP || oldP === newP) return original;
+
+  let n = stripTakPrefix(original);
+  let behavior = "";
+  if (n.endsWith("_READ")) {
+    behavior = "_READ";
+    n = n.slice(0, -5);
+  } else if (n.endsWith("_WRITE")) {
+    behavior = "_WRITE";
+    n = n.slice(0, -6);
+  }
+
+  const dashIdx = n.indexOf(" - ");
+  if (dashIdx > 0) {
+    const left = n.slice(0, dashIdx).trim().toUpperCase();
+    const right = n.slice(dashIdx + 3);
+    if (left === oldP) {
+      return ensureTakPrefix(`${newP} - ${right}${behavior}`);
+    }
+  }
+
+  const spaceIdx = n.indexOf(" ");
+  if (spaceIdx > 0) {
+    const left = n.slice(0, spaceIdx).trim().toUpperCase();
+    const right = n.slice(spaceIdx + 1);
+    if (left === oldP) {
+      return ensureTakPrefix(`${newP} ${right}${behavior}`);
+    }
+  }
+
+  if (n.trim().toUpperCase() === oldP) {
+    return ensureTakPrefix(`${newP}${behavior}`);
+  }
+
+  return original;
 }
 
 // ---------- impact + cleanup ----------
@@ -1046,7 +1148,111 @@ async function getAllUsers(options = {}) {
   return await getAllUsersRaw();
 }
 
+function stripTakPrefixForExport(name) {
+  const n = String(name || "").trim();
+  if (n.toLowerCase().startsWith("tak_")) return n.slice(4);
+  return n;
+}
 
+function parseChannelBehaviorFromGroupName(fullName) {
+  let name = stripTakPrefixForExport(fullName);
+  if (name.endsWith("_READ")) return "READ";
+  if (name.endsWith("_WRITE")) return "WRITE";
+  return "BOTH";
+}
+
+function csvEscapeCell(value) {
+  const s = String(value == null ? "" : value);
+  return `"${s.replace(/"/g, '""')}"`;
+}
+
+function getGroupExportColumns(group) {
+  const attrs = group?.attributes || {};
+  const priv = String(attrs.private || "no").trim().toLowerCase();
+
+  return {
+    groupName: stripTakPrefixForExport(group?.name || ""),
+    behavior: parseChannelBehaviorFromGroupName(group?.name),
+    private: priv === "yes" ? "Yes" : "No",
+    type: String(attrs.created_type || "").trim(),
+  };
+}
+
+/**
+ * Build CSV: one row per member; group columns only on the first member row.
+ * @param {Array<{ group: object, members: object[] }>} rows
+ */
+function buildGroupsExportCsv(rows) {
+  const header = ["Group Name", "Behavior", "Private", "Type", "Username", "Name"];
+  const lines = [header.map(csvEscapeCell).join(",")];
+
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const group = row?.group || {};
+    const cols = getGroupExportColumns(group);
+    const members = (Array.isArray(row?.members) ? row.members : [])
+      .map((m) => ({
+        username: String(m?.username || "").trim(),
+        name: String(m?.name || "").trim(),
+      }))
+      .filter((m) => m.username)
+      .sort((a, b) =>
+        a.username.localeCompare(b.username, undefined, {
+          numeric: true,
+          sensitivity: "base",
+        })
+      );
+
+    if (!members.length) {
+      lines.push(
+        [cols.groupName, cols.behavior, cols.private, cols.type, "", ""]
+          .map(csvEscapeCell)
+          .join(",")
+      );
+      continue;
+    }
+
+    members.forEach((member, idx) => {
+      if (idx === 0) {
+        lines.push(
+          [
+            cols.groupName,
+            cols.behavior,
+            cols.private,
+            cols.type,
+            member.username,
+            member.name,
+          ]
+            .map(csvEscapeCell)
+            .join(",")
+        );
+      } else {
+        lines.push(
+          ["", "", "", "", member.username, member.name].map(csvEscapeCell).join(",")
+        );
+      }
+    });
+  }
+
+  return `${lines.join("\n")}\n`;
+}
+
+/**
+ * Collect member lists for export (sequential Authentik calls per group).
+ */
+async function collectGroupsExportRows(groups, { authUser, agencyAbbreviation } = {}) {
+  const out = [];
+  const list = Array.isArray(groups) ? groups : [];
+
+  for (const group of list) {
+    const gid = normalizeId(group?.pk ?? group?.id);
+    if (!gid) continue;
+
+    const members = await getGroupMembers(gid, { authUser, agencyAbbreviation });
+    out.push({ group, members });
+  }
+
+  return out;
+}
 
 module.exports = {
   getAllGroups,
@@ -1055,6 +1261,11 @@ module.exports = {
   deleteGroup,
 
   renameGroup,
+  patchGroupNameAndCn,
+  rewriteTakGroupNamePrefix,
+  stripTakPrefix,
+  ensureTakPrefix,
+  invalidateGroupsCache,
 
   getDeleteImpact,
   deleteGroupWithCleanup,
@@ -1062,6 +1273,8 @@ module.exports = {
   getGroupMembers,
   getGroupMembersPaged,
   massUnassignUsersFromGroup,
+  buildGroupsExportCsv,
+  collectGroupsExportRows,
 
   // shared for other services if needed
   getAllUsers,

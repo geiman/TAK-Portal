@@ -65,6 +65,22 @@ function parseGroupList(raw) {
     .filter(Boolean);
 }
 
+async function resolveGroupLabels(groupIds) {
+  const ids = (Array.isArray(groupIds) ? groupIds : [])
+    .map((id) => String(id || "").trim())
+    .filter(Boolean);
+  if (!ids.length) return { ids: [], names: [] };
+  const allGroups = await groupsSvc.getAllGroups({ includeHidden: true });
+  const byPk = new Map(
+    (Array.isArray(allGroups) ? allGroups : []).map((g) => [
+      String(g?.pk),
+      String(g?.name || "").trim(),
+    ])
+  );
+  const names = ids.map((id) => byPk.get(id) || id);
+  return { ids, names };
+}
+
 async function getGlobalAdminGroupPks() {
   const raw = String(getString("PORTAL_AUTH_REQUIRED_GROUP", "").trim());
   const namesLower = parseGroupList(raw);
@@ -1221,6 +1237,86 @@ router.get("/roles/backfill-status", async (req, res) => {
   }
 });
 
+router.get("/export-csv", async (req, res) => {
+  try {
+    const authUser = req.authentikUser || null;
+    if (!authUser) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const access = accessSvc.getAgencyAccess(authUser);
+    if (!access.isGlobalAdmin && !access.isAgencyAdmin) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const globalAdminGroupPks = await getGlobalAdminGroupPks();
+    const globalAdminSet = new Set(globalAdminGroupPks.map(String));
+
+    const allGroups = await groupsSvc.getAllGroups({ includeHidden: true });
+    const groupNameByPk = new Map(
+      (Array.isArray(allGroups) ? allGroups : []).map((g) => [
+        String(g.pk),
+        String(g.name || "").trim(),
+      ])
+    );
+
+    let visible = await users.findUsers({ q: "", forceRefresh: false });
+
+    if (!access.isGlobalAdmin) {
+      visible = visible.filter((u) => accessSvc.isUserInAllowedAgencies(authUser, u));
+      if (globalAdminSet.size) {
+        visible = visible.filter((u) => {
+          const gs = Array.isArray(u?.groups) ? u.groups.map(String) : [];
+          return !gs.some((gid) => globalAdminSet.has(gid));
+        });
+      }
+    }
+
+    visible.sort((a, b) =>
+      String(a?.username || "").localeCompare(String(b?.username || ""), undefined, {
+        numeric: true,
+        sensitivity: "base",
+      })
+    );
+
+    const agencies = require("../services/agencies.service").load();
+    const agencyNameByAbbr = new Map();
+    for (const agency of Array.isArray(agencies) ? agencies : []) {
+      const abbr = String(agency?.groupPrefix || "").trim().toLowerCase();
+      if (!abbr) continue;
+      agencyNameByAbbr.set(abbr, String(agency?.name || "").trim());
+    }
+
+    const csv = users.buildUsersExportCsv(visible, {
+      groupNameByPk,
+      globalAdminGroupPks,
+      agencyNameByAbbr,
+    });
+
+    auditSvc.logEvent({
+      actor: authUser,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "EXPORT_USERS_CSV",
+      targetType: "user",
+      targetId: "bulk",
+      details: {
+        rowCount: visible.length,
+        scope: access.isGlobalAdmin ? "global" : "agency",
+      },
+    });
+
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="tak-portal-users-${stamp}.csv"`
+    );
+    return res.send(csv);
+  } catch (err) {
+    return res.status(500).json({ error: toErrorPayload(err) });
+  }
+});
+
 /**
  * Full user record (including group memberships) for the edit modal.
  * List/search endpoints often omit or strip groups; this avoids stale UI.
@@ -1304,7 +1400,9 @@ router.post("/:userId/resend-onboarding", async (req, res) => {
 router.put("/:userId/email", async (req, res) => {
   try {
     const authUser = req.authentikUser || null;
-    await users.updateEmail(req.params.userId, req.body?.email);
+    const beforeUser = await users.getUserById(req.params.userId).catch(() => null);
+    const newEmail = String(req.body?.email || "").trim();
+    await users.updateEmail(req.params.userId, newEmail);
     const user = await users.getUserById(req.params.userId).catch(() => null);
 
     auditSvc.logEvent({
@@ -1313,7 +1411,11 @@ router.put("/:userId/email", async (req, res) => {
       action: "UPDATE_USER_EMAIL",
       targetType: "user",
       targetId: String(req.params.userId),
-      details: { username: user?.username ?? null, email: user?.email ?? null },
+      details: {
+        username: user?.username ?? beforeUser?.username ?? null,
+        beforeEmail: beforeUser?.email ?? null,
+        afterEmail: user?.email ?? newEmail ?? null,
+      },
     });
     res.json({ success: true });
   } catch (err) {
@@ -1325,7 +1427,9 @@ router.put("/:userId/email", async (req, res) => {
 router.put("/:userId/name", async (req, res) => {
   try {
     const authUser = req.authentikUser || null;
-    await users.updateName(req.params.userId, req.body?.name);
+    const beforeUser = await users.getUserById(req.params.userId).catch(() => null);
+    const newName = String(req.body?.name || "").trim();
+    await users.updateName(req.params.userId, newName);
     const user = await users.getUserById(req.params.userId).catch(() => null);
     auditSvc.logEvent({
       actor: authUser,
@@ -1333,7 +1437,11 @@ router.put("/:userId/name", async (req, res) => {
       action: "UPDATE_USER_NAME",
       targetType: "user",
       targetId: String(req.params.userId),
-      details: { username: user?.username ?? null, name: user?.name ?? null },
+      details: {
+        username: user?.username ?? beforeUser?.username ?? null,
+        beforeName: beforeUser?.name ?? null,
+        afterName: user?.name ?? newName ?? null,
+      },
     });
     res.json({ success: true });
   } catch (err) {
@@ -1344,6 +1452,11 @@ router.put("/:userId/name", async (req, res) => {
 router.put("/:userId/role", async (req, res) => {
   try {
     const authUser = req.authentikUser || null;
+    const beforeUser = await users.getUserById(req.params.userId).catch(() => null);
+    const beforeRole =
+      beforeUser?.attributes?.role != null
+        ? String(beforeUser.attributes.role)
+        : null;
     const role = String(req.body?.role || "").trim() || "Team Member";
     await users.updateUserAttributes(req.params.userId, {
       role,
@@ -1355,7 +1468,11 @@ router.put("/:userId/role", async (req, res) => {
       action: "UPDATE_USER_ROLE",
       targetType: "user",
       targetId: String(req.params.userId),
-      details: { username: user?.username ?? null, role },
+      details: {
+        username: user?.username ?? beforeUser?.username ?? null,
+        beforeRole,
+        afterRole: role,
+      },
     });
     res.json({ success: true, role });
   } catch (err) {
@@ -1366,6 +1483,13 @@ router.put("/:userId/role", async (req, res) => {
 router.put("/:userId/radio-callsign", async (req, res) => {
   try {
     const authUser = req.authentikUser || null;
+    const beforeUser = await users.getUserById(req.params.userId).catch(() => null);
+    const beforeCallsign =
+      beforeUser?.attributes?.radio_callsign != null
+        ? String(beforeUser.attributes.radio_callsign)
+        : beforeUser?.attributes?.radioCallsign != null
+          ? String(beforeUser.attributes.radioCallsign)
+          : null;
     const radioCallsign = String(req.body?.radioCallsign ?? "").trim();
     await users.updateRadioCallsign(req.params.userId, radioCallsign);
     const user = await users.getUserById(req.params.userId).catch(() => null);
@@ -1376,8 +1500,9 @@ router.put("/:userId/radio-callsign", async (req, res) => {
       targetType: "user",
       targetId: String(req.params.userId),
       details: {
-        username: user?.username ?? null,
-        radio_callsign: radioCallsign || null,
+        username: user?.username ?? beforeUser?.username ?? null,
+        beforeCallsign,
+        afterCallsign: radioCallsign || null,
       },
     });
     res.json({ success: true, radioCallsign: radioCallsign || null });
@@ -1497,10 +1622,16 @@ router.put("/:userId/groups", async (req, res) => {
     const hasCurrentTemplate = Object.prototype.hasOwnProperty.call(req.body || {}, "currentTemplate");
     const currentTemplate = hasCurrentTemplate ? String(req.body?.currentTemplate || "").trim() : undefined;
     const authUser = req.authentikUser || null;
+    const beforeUser = await users.getUserById(req.params.userId).catch(() => null);
+    const beforeIds = Array.isArray(beforeUser?.groups)
+      ? beforeUser.groups.map(String)
+      : [];
+    const beforeLabels = await resolveGroupLabels(beforeIds);
     await users.setUserGroups(req.params.userId, groupIds, {
       ...(hasCurrentTemplate ? { currentTemplate } : {}),
     });
     const user = await users.getUserById(req.params.userId).catch(() => null);
+    const afterLabels = await resolveGroupLabels(groupIds);
 
     auditSvc.logEvent({
       actor: authUser,
@@ -1509,8 +1640,12 @@ router.put("/:userId/groups", async (req, res) => {
       targetType: "user",
       targetId: String(req.params.userId),
       details: {
-        username: user?.username ?? null,
-        groups: groupIds,
+        username: user?.username ?? beforeUser?.username ?? null,
+        beforeGroupIds: beforeLabels.ids,
+        beforeGroupNames: beforeLabels.names,
+        afterGroupIds: afterLabels.ids,
+        afterGroupNames: afterLabels.names,
+        currentTemplate: hasCurrentTemplate ? currentTemplate : undefined,
       },
     });
     res.json({ success: true, groups: groupIds });
@@ -1525,10 +1660,16 @@ router.post("/:userId/groups", async (req, res) => {
     const hasCurrentTemplate = Object.prototype.hasOwnProperty.call(req.body || {}, "currentTemplate");
     const currentTemplate = hasCurrentTemplate ? String(req.body?.currentTemplate || "").trim() : undefined;
     const authUser = req.authentikUser || null;
+    const beforeUser = await users.getUserById(req.params.userId).catch(() => null);
+    const beforeIds = Array.isArray(beforeUser?.groups)
+      ? beforeUser.groups.map(String)
+      : [];
+    const beforeLabels = await resolveGroupLabels(beforeIds);
     await users.setUserGroups(req.params.userId, groupIds, {
       ...(hasCurrentTemplate ? { currentTemplate } : {}),
     });
     const user = await users.getUserById(req.params.userId).catch(() => null);
+    const afterLabels = await resolveGroupLabels(groupIds);
     auditSvc.logEvent({
       actor: authUser,
       request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
@@ -1536,8 +1677,12 @@ router.post("/:userId/groups", async (req, res) => {
       targetType: "user",
       targetId: String(req.params.userId),
       details: {
-        username: user?.username ?? null,
-        groups: groupIds,
+        username: user?.username ?? beforeUser?.username ?? null,
+        beforeGroupIds: beforeLabels.ids,
+        beforeGroupNames: beforeLabels.names,
+        afterGroupIds: afterLabels.ids,
+        afterGroupNames: afterLabels.names,
+        currentTemplate: hasCurrentTemplate ? currentTemplate : undefined,
       },
     });
     res.json({ success: true, groups: groupIds });
@@ -1553,10 +1698,13 @@ router.post("/:userId/groups/add", async (req, res) => {
     const hasCurrentTemplate = Object.prototype.hasOwnProperty.call(req.body || {}, "currentTemplate");
     const currentTemplate = hasCurrentTemplate ? String(req.body?.currentTemplate || "").trim() : undefined;
     const authUser = req.authentikUser || null;
+    const addedLabels = await resolveGroupLabels(groupIds);
     const out = await users.addUserGroups(req.params.userId, groupIds, {
       ...(hasCurrentTemplate ? { currentTemplate } : {}),
     });
     const user = await users.getUserById(req.params.userId).catch(() => null);
+    const finalIds = Array.isArray(out) ? out.map(String) : groupIds.map(String);
+    const finalLabels = await resolveGroupLabels(finalIds);
 
     auditSvc.logEvent({
       actor: authUser,
@@ -1566,7 +1714,10 @@ router.post("/:userId/groups/add", async (req, res) => {
       targetId: String(req.params.userId),
       details: {
         username: user?.username ?? null,
-        groups: Array.isArray(out) ? out : groupIds,
+        addedGroupIds: addedLabels.ids,
+        addedGroupNames: addedLabels.names,
+        afterGroupIds: finalLabels.ids,
+        afterGroupNames: finalLabels.names,
       },
     });
     res.json({ success: true, groups: out });
@@ -1582,10 +1733,13 @@ router.post("/:userId/groups/remove", async (req, res) => {
     const hasCurrentTemplate = Object.prototype.hasOwnProperty.call(req.body || {}, "currentTemplate");
     const currentTemplate = hasCurrentTemplate ? String(req.body?.currentTemplate || "").trim() : undefined;
     const authUser = req.authentikUser || null;
+    const removedLabels = await resolveGroupLabels(groupIds);
     const out = await users.removeUserGroups(req.params.userId, groupIds, {
       ...(hasCurrentTemplate ? { currentTemplate } : {}),
     });
     const user = await users.getUserById(req.params.userId).catch(() => null);
+    const finalIds = Array.isArray(out) ? out.map(String) : [];
+    const finalLabels = await resolveGroupLabels(finalIds);
 
     auditSvc.logEvent({
       actor: authUser,
@@ -1595,7 +1749,10 @@ router.post("/:userId/groups/remove", async (req, res) => {
       targetId: String(req.params.userId),
       details: {
         username: user?.username ?? null,
-        groups: Array.isArray(out) ? out : groupIds,
+        removedGroupIds: removedLabels.ids,
+        removedGroupNames: removedLabels.names,
+        afterGroupIds: finalLabels.ids,
+        afterGroupNames: finalLabels.names,
       },
     });
     res.json({ success: true, groups: out });
@@ -1608,6 +1765,7 @@ router.put("/:userId/active", async (req, res) => {
   try {
     const isActive = !!req.body?.is_active;
     const authUser = req.authentikUser || null;
+    const beforeUser = await users.getUserById(req.params.userId).catch(() => null);
     await users.toggleUserActive(req.params.userId, isActive);
     const user = await users.getUserById(req.params.userId).catch(() => null);
 
@@ -1617,7 +1775,11 @@ router.put("/:userId/active", async (req, res) => {
       action: "SET_USER_ACTIVE",
       targetType: "user",
       targetId: String(req.params.userId),
-      details: { username: user?.username ?? null, is_active: !!isActive },
+      details: {
+        username: user?.username ?? beforeUser?.username ?? null,
+        beforeActive: !!beforeUser?.is_active,
+        afterActive: !!isActive,
+      },
     });
     res.json({ success: true });
   } catch (err) {
@@ -1637,7 +1799,12 @@ router.delete("/:userId", async (req, res) => {
       action: "DELETE_USER",
       targetType: "user",
       targetId: String(req.params.userId),
-      details: { username: before?.username || null },
+      details: {
+        username: before?.username || null,
+        email: before?.email || null,
+        name: before?.name || null,
+        wasActive: !!before?.is_active,
+      },
     });
     res.json({ success: true });
   } catch (err) {
@@ -1726,6 +1893,73 @@ router.post("/enroll-qr", async (req, res) => {
         err?.response?.status
           ? `Authentik API error (HTTP ${err.response.status})`
           : (err?.message || "Failed to generate enrollment QR"),
+    });
+  }
+});
+
+// Device preferences QR for a specific user (admin-only; ATAK / TAK Aware Step 3)
+router.post("/preference-qr", async (req, res) => {
+  try {
+    const authUser = req.authentikUser || null;
+    const access = accessSvc.getAgencyAccess(authUser);
+    if (!authUser || (!access.isGlobalAdmin && !access.isAgencyAdmin)) {
+      return res.status(403).json({ ok: false, error: "Admin access required" });
+    }
+
+    const userId = String(req.body?.userId || req.body?.pk || "").trim();
+    if (!userId) {
+      return res.status(400).json({ ok: false, error: "Missing userId" });
+    }
+
+    const targetUser = await users.getUserById(userId).catch(() => null);
+    if (!targetUser || targetUser.pk == null) {
+      return res.status(404).json({ ok: false, error: "User not found" });
+    }
+
+    if (!access.isGlobalAdmin && !accessSvc.isUserInAllowedAgencies(authUser, targetUser)) {
+      return res.status(403).json({ ok: false, error: "You do not have access to that user." });
+    }
+
+    const pref = users.getPreferenceDataForUser(targetUser);
+    const preferenceUrl = qrSvc.buildPreferenceUrl({
+      callsign: pref.callsign,
+      teamLabel: pref.teamLabel,
+      roleLabel: pref.roleLabel,
+    });
+
+    let qrCode = null;
+    if (preferenceUrl) {
+      qrCode = await qrSvc.generateDisplayQrDataUrl(preferenceUrl);
+    }
+
+    auditSvc.logEvent({
+      actor: authUser,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "GENERATE_PREFERENCE_QR",
+      targetType: "user",
+      targetId: String(userId),
+      details: {
+        username: String(targetUser.username || "").trim(),
+        callsign: pref.callsign || null,
+        teamLabel: pref.teamLabel || null,
+        roleLabel: pref.roleLabel || null,
+      },
+    });
+
+    return res.json({
+      ok: true,
+      username: String(targetUser.username || "").trim(),
+      callsign: pref.callsign,
+      teamLabel: pref.teamLabel,
+      roleLabel: pref.roleLabel,
+      preferenceUrl: preferenceUrl || "",
+      qrCode,
+    });
+  } catch (err) {
+    console.error("[users] Failed to create preference QR:", err?.message || err);
+    return res.status(500).json({
+      ok: false,
+      error: err?.message || "Failed to generate preference QR",
     });
   }
 });

@@ -93,6 +93,7 @@ function portalAuthMiddleware(req, res, next) {
     res.locals.isGlobalAdmin = true;
     res.locals.isAgencyAdmin = true;
     res.locals.allowedAgencySuffixes = [];
+    res.locals.agencyPageTitleAbbrev = null;
     attachPermissions(req, res, bootstrapUser, authEnabled);
     return next();
   }
@@ -172,6 +173,8 @@ function portalAuthMiddleware(req, res, next) {
       const isAllowedNonAdminPath =
         normalizedPath === "/setup-my-device" ||
         normalizedPath.startsWith("/api/setup-my-device") ||
+        normalizedPath === "/api/mou/user-agreement/accept" ||
+        normalizedPath === "/api/mou/user-agreement/decline" ||
         normalizedPath === "/plugins" ||
         isPluginDownloadApi;
       if (!isAllowedNonAdminPath) {
@@ -209,6 +212,7 @@ function portalAuthMiddleware(req, res, next) {
   res.locals.isGlobalAdmin = isGlobalAdmin;
   res.locals.isAgencyAdmin = isAgencyAdmin;
   res.locals.allowedAgencySuffixes = agencySuffixesForUser || [];
+  res.locals.agencyPageTitleAbbrev = accessSvc.getAgencyPageTitleAbbrev(authUser);
   attachPermissions(req, res, authUser, authEnabled);
 
   return next();

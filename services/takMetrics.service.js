@@ -468,6 +468,99 @@ async function getTakMetricsSnapshot() {
 
 // ---- Marti subscriptions (connected clients list) ----
 
+const NODERED_PREFIX = "nodered-";
+
+/**
+ * Federation hubs often appear with long colon-separated hex token usernames
+ * (not portal/TAK usernames). Hide these from Connected Users and exclude from counts.
+ */
+function isFederationTokenUsername(username) {
+  const u = String(username || "").trim();
+  if (!u || u.indexOf(":") < 0) return false;
+  const parts = u.split(":");
+  if (parts.length < 6) return false;
+  return parts.every((part) => /^[0-9a-f]{2}$/i.test(part));
+}
+
+function isNoderedUsername(username) {
+  const u = String(username || "").trim().toLowerCase();
+  return u.indexOf(NODERED_PREFIX) === 0;
+}
+
+function isExcludedConnectedUserSubscription(item) {
+  const username = item && item.username;
+  return isNoderedUsername(username) || isFederationTokenUsername(username);
+}
+
+function subscriptionMatchesAgencyScope(authUser, username, agencyOnly) {
+  if (!agencyOnly || !authUser) return true;
+  const accessSvc = require("./access.service");
+  return accessSvc.isUsernameInAllowedAgencySuffixes(authUser, username);
+}
+
+/** Remove federation hub token rows; keep nodered (needed by integrations page). */
+function filterFederationSubscriptions(list) {
+  return (Array.isArray(list) ? list : []).filter(
+    (item) => !isFederationTokenUsername(item && item.username)
+  );
+}
+
+/** Human connected users for dashboard list/count (no nodered, no federation). */
+function filterConnectedUserSubscriptions(list, options = {}) {
+  const { authUser = null, agencyOnly = false } = options;
+  return filterFederationSubscriptions(list).filter((item) => {
+    if (isNoderedUsername(item && item.username)) return false;
+    return subscriptionMatchesAgencyScope(authUser, item && item.username, agencyOnly);
+  });
+}
+
+function computeSubscriptionExclusionCounts(list, options = {}) {
+  const { authUser = null, agencyOnly = false } = options;
+  let noderedCount = 0;
+  let federationCount = 0;
+
+  for (const item of Array.isArray(list) ? list : []) {
+    const username = item && item.username;
+    if (isNoderedUsername(username)) {
+      if (subscriptionMatchesAgencyScope(authUser, username, agencyOnly)) {
+        noderedCount += 1;
+      }
+    } else if (!agencyOnly && isFederationTokenUsername(username)) {
+      federationCount += 1;
+    }
+  }
+
+  return { noderedCount, federationCount };
+}
+
+function applySubscriptionMetricsSplit(takMetricsBase, subscriptions, options = {}) {
+  if (!takMetricsBase || !subscriptions) return takMetricsBase;
+  const list = Array.isArray(subscriptions.data) ? subscriptions.data : [];
+  const { authUser = null, agencyOnly = false } = options;
+  const { noderedCount, federationCount } = computeSubscriptionExclusionCounts(list, options);
+
+  // Agency dashboard: count only subscriptions whose username matches allowed agency suffixes.
+  if (agencyOnly && authUser) {
+    const connectedClients = filterConnectedUserSubscriptions(list, {
+      authUser,
+      agencyOnly: true,
+    }).length;
+    return {
+      ...takMetricsBase,
+      connectedClients,
+    };
+  }
+
+  const total =
+    typeof takMetricsBase.connectedClients === "number" ? takMetricsBase.connectedClients : 0;
+
+  return {
+    ...takMetricsBase,
+    connectedClients: Math.max(0, total - noderedCount - federationCount),
+    connectedIntegrations: noderedCount,
+  };
+}
+
 async function fetchSubscriptionsAll() {
   const takUrl = getString("TAK_URL", "");
   if (!String(takUrl || "").trim()) {
@@ -525,4 +618,10 @@ module.exports = {
   getTakMetricsSnapshot,
   getSubscriptionsAll,
   buildTakMtlsHttpsAgent,
+  isFederationTokenUsername,
+  isNoderedUsername,
+  isExcludedConnectedUserSubscription,
+  filterFederationSubscriptions,
+  filterConnectedUserSubscriptions,
+  applySubscriptionMetricsSplit,
 };

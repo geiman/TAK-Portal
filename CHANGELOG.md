@@ -12,6 +12,37 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.3.23 - 5/25/26
+🐛 `Bug Fix` - Fixes issue with user agreement prompt not always prompting upon session change
+
+### v1.3.22 - 5/25/26
+🎉 `New Feature` - Added a fully functional MOU Documents section where global admins can create, edit, and manage serverwide and agency specific documents.  Agency admins can then e-sign or upload digial copies of the signed documents. If a document is set to be "serverwide" the document will automatically be assigned to new agencies as agency admins are created! Global admins can also set a serverwide user agreement prompt for every login.  (More enhancements and improvements in the next few days!)
+
+### v1.3.21 - 5/23/26
+✨ `Enhancement` - Radio Callsign added to Request Access page<br>
+✨ `Enhancement` - QR Code for callsign, team, and role preferences added to TAK Aware instructions<br>
+✨ `Enhancement` - Users page now displays onboarding qr and pref qr for users in admin views
+
+### v1.3.20 - 5/22/26
+✨ `Enhancement` - Updated logging service to include more events<br>
+✨ `Enhancement` - Limited log file to 5gb max<br>
+✨ `Enhancement` - Added ability for global admins to email agency admins
+
+### v1.3.19 - 5/20/26
+✨ `Enhancement` - Dashboard redesigned and all headers are now customized to better fit the needs of agency admins<br>
+✨ `Enhancement` - Edits to agencies now trigger a server stats refresh for dashboards
+
+### v1.3.18 - 5/20/26
+✨ `Enhancement` - Added the ability to rename agency's full names and abbreviations. (Please be patient with large user count servers).<br>
+✨ `Enhancement` - Cleaned up group filtering on the groups page for agency admins
+
+### v1.3.17 - 5/20/26
+🐛 `Bug Fix` - Fixes issue with email service caching old credentials till a restart<br>
+🐛 `Bug Fix` - Fixes issue with sort order of templates on user edit modal<br>
+✨ `Enhancement` - Adds a button to Users and to Groups pages to export csv lists (filtered for agency admins as well)<br>
+✨ `Enhancement` - Cleaned up layout and buttons on Agencies page to better reflect the Users page<br>
+✨ `Enhancement` - Agencies page better optimized for mobile
+
 ### v1.3.16 - 5/17/26
 ✨ `Enhancement` - Added a dedicated field for radio callsign<br>
 ✨ `Enhancement` - Cleaned up edit user modal<br>

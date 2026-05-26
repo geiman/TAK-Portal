@@ -5,6 +5,19 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>TAK Portal</title>
     <link rel="stylesheet" href="/styles.css" />
+    <style>
+      .requestAccessContactRow {
+        grid-column: 1 / -1;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+      }
+      @media (max-width: 640px) {
+        .requestAccessContactRow {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
 
     <% if (brandLogoUrl) { %>
       <link rel="icon" href="<%= brandLogoUrl %>" type="image/png" />
@@ -81,31 +94,43 @@
     <form method="POST" action="/request-access" class="grid2" autocomplete="off">
 
       <label>First Name
-        <input name="firstName" required value="<%= (form && form.firstName) ? form.firstName : '' %>" />
+        <input name="firstName" placeholder="John" required value="<%= (form && form.firstName) ? form.firstName : '' %>" />
       </label>
 
       <label>Last Name
-        <input name="lastName" required value="<%= (form && form.lastName) ? form.lastName : '' %>" />
+        <input name="lastName" placeholder="Doe" required value="<%= (form && form.lastName) ? form.lastName : '' %>" />
       </label>
 
-      <label>Email Address
-        <input name="email" type="email" required value="<%= (form && form.email) ? form.email : '' %>" />
-      </label>
+      <div class="requestAccessContactRow">
+        <label>Email Address
+          <input name="email" type="email" placeholder="example@agency.gov" required value="<%= (form && form.email) ? form.email : '' %>" />
+        </label>
 
-      <label><%= usernamePrefixLabel %>
-        <input
-          name="badgeNumber"
-          required
-          placeholder="Enter <%= usernamePrefixLabel %>"
-          pattern="[A-Za-z0-9._-]+"
-          title="Use letters, numbers, periods, dashes, and underscores only."
-          value="<%= (form && form.badgeNumber) ? form.badgeNumber : '' %>"
-          autocorrect="off"
-          autocapitalize="off"
-          spellcheck="false"
-          autocomplete="off"
-        />
-      </label>
+        <label><%= usernamePrefixLabel %>
+          <input
+            name="badgeNumber"
+            required
+            placeholder="Enter <%= usernamePrefixLabel %>"
+            pattern="[A-Za-z0-9._-]+"
+            title="Use letters, numbers, periods, dashes, and underscores only."
+            value="<%= (form && form.badgeNumber) ? form.badgeNumber : '' %>"
+            autocorrect="off"
+            autocapitalize="off"
+            spellcheck="false"
+            autocomplete="off"
+          />
+        </label>
+
+        <label>Radio Callsign (optional)
+          <input
+            name="radioCallsign"
+            type="text"
+            placeholder="ex. T05 or C10 or B01G"
+            autocomplete="off"
+            value="<%= (form && form.radioCallsign) ? form.radioCallsign : '' %>"
+          />
+        </label>
+      </div>
 
       <label style="grid-column: 1 / -1;">Agency
         <select name="agencySuffix" id="agencySelect" required>
@@ -136,18 +161,18 @@
       </div>
 
       <% if (hcaptchaEnabled && hcaptchaSiteKey) { %>
-      <div style="grid-column: 1 / -1; margin-top: 10px;">
+      <div style="grid-column: 1 / -1; margin-top: 10px; display: flex; flex-direction: column; align-items: center;">
         <div id="hcaptchaWidget"></div>
         <div class="msg bad" id="hcaptchaError"
-             style="margin-top: 8px; display:none;">
+             style="margin-top: 8px; display:none; text-align: center;">
           Please complete the captcha before submitting.
         </div>
       </div>
       <% } %>
 
-      <div style="grid-column: 1 / -1; display:flex; align-items:center; gap:10px; flex-wrap: wrap;">
-        <button class="btn" id="submitRequestBtn" type="submit">
-          Submit Request
+      <div style="grid-column: 1 / -1; display:flex; align-items:center; justify-content:center; gap:10px; flex-wrap: wrap;">
+        <button class="btn success" id="submitRequestBtn" type="submit">
+          Submit Access Request
         </button>
       </div>
 
