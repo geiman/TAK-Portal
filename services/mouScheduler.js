@@ -43,30 +43,166 @@ function reminderSweepMs() {
   return normalized * 60 * 60 * 1000;
 }
 
-async function getUsersInGroup(groupName) {
-  if (!groupName) return [];
+function parseConfiguredGroupNames(raw) {
+  if (!raw) return [];
+  return String(raw)
+    .split(/[;,]/)
+    .map((entry) => String(entry || "").trim())
+    .filter(Boolean);
+}
 
-  const groupResp = await authentik.get(
-    `/core/groups/?name=${encodeURIComponent(groupName)}`
-  );
-  const group = groupResp.data?.results?.[0];
-  if (!group) return [];
+async function resolveGroupByName(groupName) {
+  const name = String(groupName || "").trim();
+  if (!name) return null;
 
-  const groupPk = group.pk;
-  const users = [];
-  let next = "/core/users/?page_size=200";
-  while (next) {
-    const resp = await authentik.get(next);
-    const data = resp.data || {};
-    users.push(...(Array.isArray(data.results) ? data.results : []));
-    next = data.next ? data.next.replace(/^.*\/api\/v3/, "") : null;
+  try {
+    const groupResp = await authentik.get(
+      `/core/groups/?name=${encodeURIComponent(name)}`
+    );
+    const results = Array.isArray(groupResp.data?.results)
+      ? groupResp.data.results
+      : [];
+    const exact = results.find(
+      (group) =>
+        String(group?.name || "").trim().toLowerCase() === name.toLowerCase()
+    );
+    if (exact) return exact;
+  } catch (err) {
+    console.warn(
+      "[mou-scheduler] group lookup by name failed:",
+      name,
+      err?.message || err
+    );
   }
 
-  return users.filter((user) =>
-    Array.isArray(user.groups) &&
-    user.groups.includes(groupPk) &&
-    user.email
+  try {
+    const searchResp = await authentik.get(
+      `/core/groups/?search=${encodeURIComponent(name)}`
+    );
+    const results = Array.isArray(searchResp.data?.results)
+      ? searchResp.data.results
+      : [];
+    return (
+      results.find(
+        (group) =>
+          String(group?.name || "").trim().toLowerCase() === name.toLowerCase()
+      ) || null
+    );
+  } catch (err) {
+    console.warn(
+      "[mou-scheduler] group search lookup failed:",
+      name,
+      err?.message || err
+    );
+    return null;
+  }
+}
+
+async function getUsersInGroupByPk(groupPk) {
+  const gid = String(groupPk || "").trim();
+  if (!gid) return [];
+
+  const users = [];
+  const pageSize = 200;
+  let page = 1;
+  let url =
+    `/core/users/?page=${page}&page_size=${pageSize}` +
+    `&groups_by_pk=${encodeURIComponent(gid)}` +
+    "&include_groups=false&include_roles=false";
+
+  while (url) {
+    const resp = await authentik.get(url);
+    const data = resp.data || {};
+    users.push(...(Array.isArray(data.results) ? data.results : []));
+
+    const pagination = data.pagination || {};
+    if (pagination && pagination.next) {
+      page = pagination.next;
+      url =
+        `/core/users/?page=${page}&page_size=${pageSize}` +
+        `&groups_by_pk=${encodeURIComponent(gid)}` +
+        "&include_groups=false&include_roles=false";
+    } else if (data.next) {
+      url = data.next.replace(/^.*\/api\/v3/, "");
+    } else {
+      url = null;
+    }
+  }
+
+  return users;
+}
+
+async function fetchUsersFromGroupMembershipList(group) {
+  const groupPk = String(group?.pk || group?.id || "").trim();
+  if (!groupPk) return [];
+
+  let memberRefs = Array.isArray(group?.users) ? group.users : [];
+  if (!memberRefs.length) {
+    try {
+      const detailResp = await authentik.get(`/core/groups/${encodeURIComponent(groupPk)}/`);
+      const detail = detailResp.data || {};
+      memberRefs = Array.isArray(detail.users) ? detail.users : [];
+    } catch (err) {
+      console.warn(
+        "[mou-scheduler] group detail lookup failed:",
+        groupPk,
+        err?.message || err
+      );
+      return [];
+    }
+  }
+
+  const memberPks = Array.from(
+    new Set(
+      memberRefs
+        .map((entry) => {
+          if (entry && typeof entry === "object") {
+            return String(entry.pk || entry.id || "").trim();
+          }
+          return String(entry || "").trim();
+        })
+        .filter(Boolean)
+    )
   );
+  if (!memberPks.length) return [];
+
+  const users = [];
+  for (const memberPk of memberPks) {
+    try {
+      const userResp = await authentik.get(`/core/users/${encodeURIComponent(memberPk)}/`);
+      if (userResp?.data) users.push(userResp.data);
+    } catch (err) {
+      console.warn(
+        "[mou-scheduler] group member user lookup failed:",
+        memberPk,
+        err?.message || err
+      );
+    }
+  }
+  return users;
+}
+
+async function getUsersForConfiguredGroup(groupName) {
+  const group = await resolveGroupByName(groupName);
+  if (!group?.pk) {
+    return { groupName, group: null, users: [] };
+  }
+
+  let users = await getUsersInGroupByPk(group.pk);
+  if (!users.length) {
+    users = await fetchUsersFromGroupMembershipList(group);
+  }
+
+  return {
+    groupName,
+    group,
+    users: Array.isArray(users) ? users : [],
+  };
+}
+
+async function getUsersInGroup(groupName) {
+  const result = await getUsersForConfiguredGroup(groupName);
+  return result.users.filter((user) => String(user.email || "").trim());
 }
 
 async function getAgencyAdminUsers(agency) {
@@ -85,22 +221,42 @@ async function getAgencyAdminUsers(agency) {
   return out;
 }
 
-async function getGlobalAdminUsers() {
-  const seen = new Set();
-  const out = [];
-  const groupNames = accessSvc.normalizeGroupList(
+async function getGlobalAdminRecipientLookup() {
+  const configuredGroupNames = parseConfiguredGroupNames(
     getString("PORTAL_AUTH_REQUIRED_GROUP", "")
   );
-  for (const groupName of groupNames) {
-    const users = await getUsersInGroup(groupName);
-    for (const user of users) {
-      const key = String(user.email || "").trim().toLowerCase();
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      out.push(user);
+  const resolvedGroups = [];
+  const seenEmail = new Set();
+  const users = [];
+
+  for (const groupName of configuredGroupNames) {
+    const result = await getUsersForConfiguredGroup(groupName);
+    if (result.group?.pk) {
+      resolvedGroups.push({
+        name: result.groupName,
+        pk: String(result.group.pk),
+        memberCount: result.users.length,
+      });
+    }
+    for (const user of result.users) {
+      const email = String(user?.email || "").trim();
+      const emailKey = email.toLowerCase();
+      if (!email || seenEmail.has(emailKey)) continue;
+      seenEmail.add(emailKey);
+      users.push(user);
     }
   }
-  return out;
+
+  return {
+    configuredGroupNames,
+    resolvedGroups,
+    users,
+  };
+}
+
+async function getGlobalAdminUsers() {
+  const lookup = await getGlobalAdminRecipientLookup();
+  return lookup.users;
 }
 
 async function sendAgencyAdminEmail({ agency, subject, html, text }) {
@@ -120,12 +276,45 @@ async function sendAgencyAdminEmail({ agency, subject, html, text }) {
 }
 
 async function sendGlobalAdminEmail({ subject, html, text }) {
-  const users = await getGlobalAdminUsers();
-  const recipients = users
+  const lookup = await getGlobalAdminRecipientLookup();
+  if (!lookup.configuredGroupNames.length) {
+    return {
+      sent: false,
+      skipped: true,
+      reason: "PORTAL_AUTH_REQUIRED_GROUP is not configured.",
+    };
+  }
+  if (!lookup.resolvedGroups.length) {
+    return {
+      sent: false,
+      skipped: true,
+      reason:
+        "Global admin group not found. Check PORTAL_AUTH_REQUIRED_GROUP matches an Authentik group name.",
+    };
+  }
+
+  const recipients = lookup.users
     .map((user) => String(user.email || "").trim())
     .filter(Boolean);
   if (!recipients.length) {
-    return { sent: false, skipped: true, reason: "No global admin recipients found." };
+    const memberCount = lookup.resolvedGroups.reduce(
+      (sum, group) => sum + Number(group.memberCount || 0),
+      0
+    );
+    console.warn("[mou-scheduler] global admin email recipients unavailable", {
+      configuredGroups: lookup.configuredGroupNames,
+      resolvedGroups: lookup.resolvedGroups,
+      memberCount,
+      recipientCount: recipients.length,
+    });
+    return {
+      sent: false,
+      skipped: true,
+      reason:
+        memberCount > 0
+          ? "Global admin group members were found, but none have email addresses in Authentik."
+          : "No users found in the configured global admin group(s).",
+    };
   }
   return emailSvc.sendMail({
     to: recipients.join(","),
@@ -265,6 +454,24 @@ async function sendSignedNotificationToGlobalAdmins({
         signerDisplayName:
           signature?.attestationText || signature?.signerDisplayName || "",
         signMethod: signMethodLabel,
+      },
+    });
+  } else if (result.skipped) {
+    console.warn(
+      "[mou-scheduler] signed global admin notification skipped:",
+      result.reason || "Unknown reason"
+    );
+    auditSvc.logEvent({
+      actor: null,
+      action: "MOU_SIGNED_NOTIFICATION_SKIPPED",
+      targetType: "mou",
+      targetId: String(stream?.mouId || ""),
+      agencySuffix: String(signature?.agencyId || "").trim().toLowerCase() || null,
+      details: {
+        mouId: stream?.mouId || "",
+        version: version?.version || null,
+        agencyName: signature?.agencyNameAtSign || signature?.agencyId || "",
+        reason: result.reason || "Notification skipped.",
       },
     });
   } else if (!result.skipped) {

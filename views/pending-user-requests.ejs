@@ -364,9 +364,9 @@ th.sortable:hover{
             </div>
 
             <div style="grid-column: 1 / -1; display:flex; align-items:center; gap:10px; flex-wrap: wrap; justify-content:flex-end;">
-              <span class="msg createMsg" style="margin-right:auto;"></span>
               <button class="btn cancelBtn" type="button">Cancel</button>
               <button class="btn success" type="submit">Create New User</button>
+              <span class="msg createMsg"></span>
             </div>
           </form>
         </div>
@@ -417,6 +417,12 @@ th.sortable:hover{
     if (!el) return;
     el.textContent = text || '';
     el.className = 'msg createMsg ' + (ok ? 'ok' : 'bad');
+  }
+
+  function setInlinePendingMsg(el, text) {
+    if (!el) return;
+    el.textContent = text || '';
+    el.className = 'msg createMsg pending';
   }
 
   function esc(s) {
@@ -707,6 +713,7 @@ th.sortable:hover{
     const selectAllBtn = form.querySelector('.selectAllBtn');
     const clearAllBtn = form.querySelector('.clearAllBtn');
     const cancelBtn = form.querySelector('.cancelBtn');
+    const createUserSubmitBtn = form.querySelector('button[type="submit"]');
 
     // Password toggle
     const passwordInput = form.querySelector('.passwordInput');
@@ -896,6 +903,8 @@ th.sortable:hover{
       delete payload.requestId;
 
       try {
+        if (createUserSubmitBtn) createUserSubmitBtn.disabled = true;
+        setInlinePendingMsg(msg, 'User creation in progress…');
         const res = await fetch('/api/users', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -905,7 +914,10 @@ th.sortable:hover{
         if (!res.ok) throw new Error(out.error?.message || out.error || 'Failed to create user');
 
         if (requestId) {
-          await fetch('/api/user-requests/' + encodeURIComponent(requestId), { method: 'DELETE' });
+          await fetch(
+            '/api/user-requests/' + encodeURIComponent(requestId) + '?reason=approved',
+            { method: 'DELETE' }
+          );
         }
 
         // Confirmation message
@@ -917,6 +929,8 @@ th.sortable:hover{
         await loadRequests();
       } catch (err) {
         setInlineMsg(msg, err.message || 'Failed to create user', false);
+      } finally {
+        if (createUserSubmitBtn) createUserSubmitBtn.disabled = false;
       }
     });
   }

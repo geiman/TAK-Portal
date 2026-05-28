@@ -140,6 +140,14 @@ async function resolveGroupNames(groupIds) {
     .sort((a, b) => a.localeCompare(b));
 }
 
+function stripGroupNamePrefixesForDisplay(groupName) {
+  let out = String(groupName || "").trim();
+  if (!out) return out;
+  out = out.replace(/^tak[_-]/i, "");
+  out = out.replace(/^authentik[_-]/i, "");
+  return out.trim();
+}
+
 function safeMailTo(user) {
   const to = String(user?.email || "").trim();
   return to || null;
@@ -744,6 +752,34 @@ async function emailPasswordChanged(user) {
   await emailSvc.sendMail({ to, subject, text, html });
 }
 
+function normalizeGroupIdList(raw) {
+  const list = Array.isArray(raw) ? raw : raw === undefined || raw === null ? [] : [raw];
+  return list
+    .map((entry) => {
+      if (entry && typeof entry === "object") {
+        return String(entry.pk ?? entry.id ?? "").trim();
+      }
+      return String(entry || "").trim();
+    })
+    .filter(Boolean);
+}
+
+function formatGroupLabelsCsv(groupNames) {
+  const labels = (Array.isArray(groupNames) ? groupNames : [])
+    .map(stripGroupNamePrefixesForDisplay)
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+  return labels.length ? labels.join(", ") : "(none)";
+}
+
+function diffGroupIds(beforeIds, afterIds) {
+  const beforeSet = new Set(normalizeGroupIdList(beforeIds));
+  const afterSet = new Set(normalizeGroupIdList(afterIds));
+  const addedIds = [...afterSet].filter((id) => !beforeSet.has(id));
+  const removedIds = [...beforeSet].filter((id) => !afterSet.has(id));
+  return { addedIds, removedIds };
+}
+
 async function emailGroupsUpdated({ user, beforeIds, afterIds }) {
   let u = user;
   try {
@@ -756,9 +792,12 @@ async function emailGroupsUpdated({ user, beforeIds, afterIds }) {
   const to = safeMailTo(u);
   if (!to) return;
 
-  const [beforeNames, afterNames] = await Promise.all([
-    resolveGroupNames(beforeIds),
-    resolveGroupNames(afterIds),
+  const { addedIds, removedIds } = diffGroupIds(beforeIds, afterIds);
+  if (!addedIds.length && !removedIds.length) return;
+
+  const [addedNames, removedNames] = await Promise.all([
+    resolveGroupNames(addedIds),
+    resolveGroupNames(removedIds),
   ]);
 
   const attrs = u?.attributes || {};
@@ -793,8 +832,8 @@ async function emailGroupsUpdated({ user, beforeIds, afterIds }) {
   const subject = "TAK Groups Updated";
   const displayName = String(u?.name || "").trim() || "there";
   const { lastName, lastNameUpper, firstName } = parseName(displayName);
-  const beforeGroupsCsv = beforeNames.length ? beforeNames.join(", ") : "(none)";
-  const afterGroupsCsv = afterNames.length ? afterNames.join(", ") : "(none)";
+  const addedGroupsCsv = formatGroupLabelsCsv(addedNames);
+  const removedGroupsCsv = formatGroupLabelsCsv(removedNames);
 
   const takPortalPublicUrl = getTakPortalPublicUrl();
   const takPortalBlock = buildTakPortalBlock({
@@ -828,8 +867,8 @@ async function emailGroupsUpdated({ user, beforeIds, afterIds }) {
     lastNameUpper,
     firstName,
     username: String(u?.username || ""),
-    beforeGroupsCsv,
-    afterGroupsCsv,
+    addedGroupsCsv,
+    removedGroupsCsv,
     badgeNumber,
     agencyAbbreviation,
     agencyColor,
@@ -841,7 +880,20 @@ async function emailGroupsUpdated({ user, beforeIds, afterIds }) {
     takPortalBlock,
   });
 
-  const text = htmlToText(html);
+  const text = [
+    `Hi ${firstName} ${lastName},`,
+    "",
+    "Your TAK account access groups were recently changed by your agency administrator.",
+    "",
+    `Removed Groups: ${removedGroupsCsv}`,
+    `Added Groups: ${addedGroupsCsv}`,
+    "",
+    takPortalPublicUrl
+      ? `Open TAK Portal: ${takPortalPublicUrl}`
+      : "Open TAK Portal to review your access.",
+    "",
+    "If you do not recognize these changes, contact your TAK agency administrator.",
+  ].join("\n");
 
   await emailSvc.sendMail({ to, subject, text, html });
 }
@@ -868,10 +920,9 @@ function scheduleDebouncedGroupsEmail({ user, beforeIds, afterIds }) {
     // Keep the very first snapshot of "before" so the email shows all changes.
     user: existing?.user || user,
     beforeIds:
-      existing?.beforeIds ||
-      (Array.isArray(beforeIds) ? beforeIds.slice() : []),
+      existing?.beforeIds || normalizeGroupIdList(beforeIds),
     // Always use the latest "after" set so we reflect the final state.
-    afterIds: Array.isArray(afterIds) ? afterIds.slice() : [],
+    afterIds: normalizeGroupIdList(afterIds),
   };
 
   entry.timeout = setTimeout(async () => {
@@ -2999,14 +3050,16 @@ async function getAllGroups(options = {}) {
 async function fetchUsersByGroupId(groupId, options = {}) {
   const gid = String(groupId || "").trim();
   if (!gid) return [];
-  const { includeHiddenPrefixes = false } = options;
+  const { includeHiddenPrefixes = false, ignoreUserPathFilter = false } = options;
   let users = [];
   const pageSize = 200;
   let page = 1;
-  let hasNext = true;
+  let url =
+    `/core/users/?page=${page}&page_size=${pageSize}` +
+    `&groups_by_pk=${encodeURIComponent(gid)}` +
+    "&include_groups=false&include_roles=false";
 
-  while (hasNext) {
-    const url = `${getString("AUTHENTIK_URL", "")}/api/v3/core/users/?page=${page}&page_size=${pageSize}&groups_by_pk=${encodeURIComponent(gid)}&include_groups=false&include_roles=false`;
+  while (url) {
     const res = await api.get(url);
     const data = res?.data || {};
     const results = Array.isArray(data.results) ? data.results : [];
@@ -3015,9 +3068,14 @@ async function fetchUsersByGroupId(groupId, options = {}) {
     const pagination = data.pagination || {};
     if (pagination && pagination.next) {
       page = pagination.next;
-      hasNext = true;
+      url =
+        `/core/users/?page=${page}&page_size=${pageSize}` +
+        `&groups_by_pk=${encodeURIComponent(gid)}` +
+        "&include_groups=false&include_roles=false";
+    } else if (data.next) {
+      url = String(data.next).replace(`${getString("AUTHENTIK_URL", "")}/api/v3`, "");
     } else {
-      hasNext = false;
+      url = null;
     }
   }
 
@@ -3032,7 +3090,7 @@ async function fetchUsersByGroupId(groupId, options = {}) {
   }
 
   const folderRaw = String(getString("AUTHENTIK_USER_PATH", "")).trim();
-  if (folderRaw) {
+  if (folderRaw && !ignoreUserPathFilter) {
     const target = normalizePath(folderRaw);
     users = users.filter((u) => {
       const up = normalizePath(u.path);
