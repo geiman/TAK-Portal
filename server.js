@@ -187,6 +187,12 @@ app.use((req, res, next) => {
     // Server default is used when no per-device theme has been saved yet.
     res.locals.brandTheme = defaultTheme === "light" ? "light" : "dark";
     res.locals.brandLogoUrl = settings.BRAND_LOGO_URL || "";
+    const serverAbbrev =
+      String(settings.SERVER_NAME || "")
+        .trim()
+        .toUpperCase() || "TAK";
+    res.locals.serverAbbrev = serverAbbrev;
+    res.locals.portalTitle = `${serverAbbrev} Portal`;
     res.locals.primaryButtonColor = primaryButtonColor;
     res.locals.siteFontFamily = siteFontFamily;
     res.locals.currentPath = (req.path || "/").replace(/\/+$/, "") || "/";
@@ -195,6 +201,8 @@ app.use((req, res, next) => {
     res.locals.settings = {};
     res.locals.brandTheme = "dark";
     res.locals.brandLogoUrl = "";
+    res.locals.serverAbbrev = "TAK";
+    res.locals.portalTitle = "TAK Portal";
     res.locals.primaryButtonColor = "";
     res.locals.siteFontFamily = "";
     res.locals.currentPath = (req.path || "/").replace(/\/+$/, "") || "/";
@@ -247,11 +255,18 @@ app.use((req, res, next) => {
     const hasAcceptedAgreement =
       hasAcceptedAgreementForSession(req, user, currentAgreement);
     const isAgreementTargetUser = !!(user && user.username) && !user.isGlobalAdmin;
-    const isAgreementExemptPath =
-      normalizedPath === "/logout" ||
-      normalizedPath === "/setup-my-device" ||
+    const isPortalAdmin = !!(user && (user.isGlobalAdmin || user.isAgencyAdmin));
+    const isAgreementApiPath =
       normalizedPath === "/api/mou/user-agreement/accept" ||
       normalizedPath === "/api/mou/user-agreement/decline";
+    const isSetupMyDevicePath =
+      normalizedPath === "/setup-my-device" ||
+      normalizedPath.startsWith("/api/setup-my-device");
+    const isAgreementExemptPath =
+      normalizedPath === "/logout" ||
+      isAgreementApiPath ||
+      (isPortalAdmin && normalizedPath === "/dashboard") ||
+      isSetupMyDevicePath;
 
     if (
       !isAgreementTargetUser ||
@@ -273,7 +288,7 @@ app.use((req, res, next) => {
       });
     }
 
-    return res.redirect("/setup-my-device");
+    return res.redirect(isPortalAdmin ? "/dashboard" : "/setup-my-device");
   } catch (err) {
     console.warn("[mou-gate] Failed to evaluate user agreement gate:", err?.message || err);
     return next();
@@ -410,7 +425,6 @@ app.use("/api/locate", requirePermission("page.locate"), require("./routes/locat
 app.use(
   "/api/data-sync",
   requirePermission("page.data_sync"),
-  requireBetaModeApi,
   require("./routes/dataSync.routes")
 );
 app.use(
@@ -667,7 +681,7 @@ app.get("/locate-persons", (req, res) => {
 // Locate admin page: global admins only (not beta-gated).
 app.get("/locate", requirePermission("page.locate"), (req, res) => res.render("locate"));
 
-app.get("/data-sync", requirePermission("page.data_sync"), requireBetaMode, (req, res) =>
+app.get("/data-sync", requirePermission("page.data_sync"), (req, res) =>
   res.render("data-sync")
 );
 
@@ -1344,6 +1358,11 @@ app.post(
         key === "EMAIL_TEMPLATES_OVERRIDES" ||
         key === "EMAIL_TEMPLATES_OVERRIDES_RESET"
       ) {
+        return;
+      }
+      if (key === "SERVER_NAME") {
+        const raw = String(bodySettings[key] || "").trim();
+        merged[key] = raw ? raw.toUpperCase() : "";
         return;
       }
       merged[key] = bodySettings[key];

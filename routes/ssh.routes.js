@@ -11,6 +11,8 @@ router.get("/status", (req, res) => {
     const username = String(cfg.TAK_SSH_USER || "").trim();
     const port = String(cfg.TAK_SSH_PORT || "22").trim() || "22";
     const onboarded = String(cfg.TAK_SSH_ONBOARDED || "").toLowerCase() === "true";
+    const sudoersConfigured =
+      String(cfg.TAK_SSH_SUDOERS_CONFIGURED || "").toLowerCase() === "true";
     res.json({
       ok: true,
       status: {
@@ -18,6 +20,7 @@ router.get("/status", (req, res) => {
         username,
         port,
         onboarded,
+        sudoersConfigured,
         lastHandshakeAt: cfg.TAK_SSH_LAST_HANDSHAKE_AT || "",
         ...keyStatus,
       },
@@ -97,31 +100,179 @@ router.post("/run-command", async (req, res) => {
   }
 });
 
+router.post("/reconfigure-sudo", async (req, res) => {
+  try {
+    const body = req.body || {};
+    const cfg = settingsSvc.getSettings() || {};
+    const host = String(body.host || cfg.TAK_SSH_HOST || "").trim();
+    const username = String(body.username || cfg.TAK_SSH_USER || "").trim();
+    const password = String(body.password || "");
+    const port = Number.parseInt(String(body.port || cfg.TAK_SSH_PORT || "22"), 10) || 22;
+
+    if (!host || !username || !password) {
+      return res.status(400).json({
+        ok: false,
+        error: "Host, username, and password are required to configure sudo on the TAK Server.",
+      });
+    }
+
+    const sudoSetup = await takSshSvc.configureRemoteSudoAccessAfterHandshake({
+      host,
+      port,
+      username,
+      password,
+    });
+
+    const current = settingsSvc.getSettings() || {};
+    const nextSettings = { ...current };
+    if (sudoSetup.method === "sudoers") {
+      nextSettings.TAK_SSH_SUDOERS_CONFIGURED = "true";
+      nextSettings.TAK_SSH_SUDO_PASSWORD = "";
+    } else if (sudoSetup.method === "password" && sudoSetup.sudoPassword) {
+      nextSettings.TAK_SSH_SUDO_PASSWORD = sudoSetup.sudoPassword;
+      nextSettings.TAK_SSH_SUDOERS_CONFIGURED = "false";
+    } else {
+      nextSettings.TAK_SSH_SUDOERS_CONFIGURED = "false";
+    }
+    settingsSvc.saveSettings(nextSettings);
+    takSshSvc.clearPrivilegedModeCache();
+
+    if (!sudoSetup.ok) {
+      return res.status(400).json({
+        ok: false,
+        error: sudoSetup.message || "Could not configure sudo on the TAK Server.",
+      });
+    }
+
+    auditSvc.auditFromRequest(req, {
+      action: "SSH_RECONFIGURE_SUDO",
+      targetType: "ssh",
+      targetId: host,
+      details: {
+        method: sudoSetup.method,
+        summary: `Configured TAK Portal sudo access on ${host} (${sudoSetup.method}).`,
+      },
+    });
+
+    return res.json({
+      ok: true,
+      method: sudoSetup.method,
+      message:
+        sudoSetup.method === "sudoers"
+          ? "Passwordless sudo configured for the portal SSH user."
+          : "Sudo access will use the provided password for privileged SSH commands.",
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err?.message || String(err) });
+  }
+});
+
 router.post("/test-connection", async (req, res) => {
   try {
-    const result = await takSshSvc.runRemoteSshCommand("whoami");
-    if (!result.ok) {
-      return res.status(400).json(result);
+    const test = await takSshSvc.testSshConnectionAndPrivilegedAccess();
+    if (!test.ok) {
+      return res.status(400).json({
+        ok: false,
+        error: test.message,
+        remoteUser: test.remoteUser,
+        loginOk: test.loginOk,
+      });
     }
     auditSvc.auditFromRequest(req, {
       action: "SSH_TEST_CONNECTION",
       targetType: "ssh",
       targetId: "remote",
       details: {
-        remoteUser: String(result.stdout || "").trim() || undefined,
-        summary: "SSH connection test succeeded (whoami).",
+        remoteUser: test.remoteUser || undefined,
+        summary: "SSH connection test succeeded (whoami + privileged sudo).",
       },
     });
     res.json({
       ok: true,
-      message: "SSH connection successful.",
-      remoteUser: String(result.stdout || "").trim(),
-      stdout: result.stdout || "",
-      stderr: result.stderr || "",
-      exitCode: result.exitCode,
+      message: test.message,
+      remoteUser: test.remoteUser,
+      testPassed: true,
+      loginOk: true,
+      privilegedOk: true,
     });
   } catch (err) {
     res.status(500).json({ ok: false, error: err?.message || String(err) });
+  }
+});
+
+/**
+ * One-shot: generate local key, install on server, configure sudo, verify privileged access.
+ */
+router.post("/setup", async (req, res) => {
+  try {
+    const body = req.body || {};
+    const host = String(body.host || "").trim();
+    const username = String(body.username || "").trim();
+    const password = String(body.password || "");
+    const port = Number.parseInt(String(body.port || "22"), 10) || 22;
+
+    if (!host || !username || !password) {
+      return res.status(400).json({
+        ok: false,
+        error: "Host, username, and password are required for SSH setup.",
+      });
+    }
+
+    const keyStatus = takSshSvc.ensureLocalSshKeyPair();
+    const handshake = await takSshSvc.onboardTakSshWithPassword({
+      host,
+      port,
+      username,
+      password,
+    });
+    if (!handshake?.ok) {
+      return res.status(400).json({
+        ok: false,
+        error: handshake?.message || "SSH handshake failed.",
+      });
+    }
+
+    const test = await takSshSvc.testSshConnectionAndPrivilegedAccess();
+    if (!test.ok) {
+      return res.status(400).json({
+        ok: false,
+        error: test.message,
+        remoteUser: test.remoteUser,
+        loginOk: test.loginOk,
+        handshakeMessage: handshake.message,
+        sudoSetup: handshake.sudoSetup,
+      });
+    }
+
+    auditSvc.auditFromRequest(req, {
+      action: "SSH_FULL_SETUP",
+      targetType: "ssh",
+      targetId: host,
+      details: {
+        host,
+        port: String(port),
+        username,
+        remoteUser: test.remoteUser,
+        sudoSetup: handshake.sudoSetup,
+        summary: "Completed full SSH setup (key, sudo, and verification test).",
+      },
+    });
+
+    return res.json({
+      ok: true,
+      message:
+        (handshake.message || "SSH setup complete.") +
+        " " +
+        (test.message || ""),
+      remoteUser: test.remoteUser,
+      keyStatus,
+      sudoSetup: handshake.sudoSetup,
+      testPassed: true,
+      loginOk: true,
+      privilegedOk: true,
+    });
+  } catch (err) {
+    return res.status(400).json({ ok: false, error: err?.message || String(err) });
   }
 });
 

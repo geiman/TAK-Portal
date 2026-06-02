@@ -165,6 +165,7 @@
         ...additionalAgencyTypeKeys,
 
         "BRAND_THEME",
+        "SERVER_NAME",
         "BRAND_LOGO_URL",
 
         "CALLSIGN_FORMAT_EXPRESSION"
@@ -321,7 +322,7 @@
                   type="password"
                   value=""
                   autocomplete="new-password"
-                  placeholder="Used once for handshake"
+                  placeholder="Account password (used once for full SSH setup)"
                 />
                 <button
                   type="button"
@@ -336,12 +337,17 @@
             </label>
           </div>
 
-          <div style="margin-top:.75rem;display:flex;gap:.5rem;flex-wrap:wrap;">
-            <button type="button" class="btn" id="sshHandshakeBtn">Generate Key + Run One-Time Handshake</button>
-            <button type="button" class="btn" id="sshTestConnectionBtn">Test SSH Connection</button>
+          <div style="margin-top:.75rem;display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;">
+            <button type="button" class="btn" id="sshSetupBtn">Set Up SSH (Generate Key, Install on Server, Configure Sudo, and Test)</button>
+            <button type="button" class="btn" id="sshTestOnlyBtn">Test SSH Connection</button>
           </div>
+          <p class="settings-help" style="margin-top:.5rem;">
+            Enter the TAK Server SSH host, port, username, and that user&apos;s password above, then run setup once.
+            The portal generates a key pair, installs it on the server, configures passwordless sudo for Locate and maintenance, and verifies access automatically.
+            The account must be allowed to run <code>sudo</code> with its password during setup.
+          </p>
 
-          <div id="sshStatusBox" class="settings-help" style="margin-top:.5rem;"></div>
+          <div id="sshStatusBox" class="settings-help" style="margin-top:.5rem;white-space:pre-line;"></div>
         </div>
       </details>
     </div>
@@ -1141,13 +1147,36 @@
       </details>
     </div>
 
-    <!-- Appearance & Beta -->
+    <!-- Branding, Appearance & Beta -->
     <div class="card">
       <details class="settings-section">
-        <summary class="settings-summary">Appearance &amp; Beta</summary>
+        <summary class="settings-summary">Branding, Appearance, and Beta</summary>
 
         <div class="settings-body">
           <div class="grid2">
+            <label class="settings-field">
+              <span class="settings-label">Server Name Abbreviation</span>
+              <input
+                type="text"
+                id="serverNameAbbrevInput"
+                name="settings[SERVER_NAME]"
+                value="<%= (typeof settings.SERVER_NAME === 'string' ? settings.SERVER_NAME : '').toUpperCase() %>"
+                autocomplete="off"
+                autocapitalize="characters"
+                spellcheck="false"
+                style="text-transform: uppercase;"
+              />
+              <small class="settings-help">Server Abbreviation to add custom branding to the portal.</small>
+            </label>
+            <label class="settings-field">
+              <span class="settings-label">Portal Logo</span>
+              <input type="file" name="BRAND_LOGO_UPLOAD" accept="image/*" />
+              <% if (settings.BRAND_LOGO_URL) { %>
+                <small class="settings-help">Current: <code><%= settings.BRAND_LOGO_URL %></code></small>
+              <% } else { %>
+                <small class="settings-help">Shown in sidebar and QR codes.</small>
+              <% } %>
+            </label>
             <label class="settings-field">
               <span class="settings-label">Default Theme Mode</span>
               <%
@@ -1240,20 +1269,29 @@
                 Sets the default color used for primary action buttons across the portal.
               </small>
             </label>
-            <label class="settings-field">
-              <span class="settings-label">Portal Logo</span>
-              <input type="file" name="BRAND_LOGO_UPLOAD" accept="image/*" />
-              <% if (settings.BRAND_LOGO_URL) { %>
-                <small class="settings-help">Current: <code><%= settings.BRAND_LOGO_URL %></code></small>
-              <% } else { %>
-                <small class="settings-help">Shown in sidebar and QR codes.</small>
-              <% } %>
-            </label>
             <% renderField("USERNAME_PREFIX_LABEL","Username Descriptor Text","Displayed on Users, Pending User Requests, and Request Access pages. Default: Badge Number / Username","Badge Number / Username"); %>
-            <% renderField("BETA_MODE","Enable Beta Features","If true, shows in-development features for global admins (e.g. Data Sync, Getting Started). Data Package and Locate Persons are available to global admins regardless of this setting."); %>
+            <% renderField("BETA_MODE","Enable Beta Features","If true, shows in-development features for global admins (e.g. Getting Started). Data Package, Locate Persons, and Data Sync are available regardless of this setting."); %>
           </div>
           <script>
             (function () {
+              var serverNameInput = document.getElementById("serverNameAbbrevInput");
+              if (serverNameInput) {
+                serverNameInput.addEventListener("input", function () {
+                  var start = serverNameInput.selectionStart;
+                  var end = serverNameInput.selectionEnd;
+                  var upper = String(serverNameInput.value || "").toUpperCase();
+                  if (serverNameInput.value !== upper) {
+                    serverNameInput.value = upper;
+                    try {
+                      serverNameInput.setSelectionRange(start, end);
+                    } catch (_) {}
+                  }
+                });
+                serverNameInput.addEventListener("blur", function () {
+                  serverNameInput.value = String(serverNameInput.value || "").toUpperCase();
+                });
+              }
+
               var colorInput = document.getElementById("primaryButtonColorInput");
               var colorSettingInput = document.getElementById("primaryButtonColorSettingValue");
               var colorValue = document.getElementById("primaryButtonColorValue");
@@ -1741,13 +1779,29 @@
     const portInput = document.getElementById("sshPortInput");
     const userInput = document.getElementById("sshUserInput");
     const passInput = document.getElementById("sshPasswordInput");
-    const btnHandshake = document.getElementById("sshHandshakeBtn");
-    const btnTestConnection = document.getElementById("sshTestConnectionBtn");
+    const btnSetup = document.getElementById("sshSetupBtn");
+    const btnTestOnly = document.getElementById("sshTestOnlyBtn");
+    var lastSshTestPassed = null;
 
     function setStatus(msg, isError) {
       if (!statusBox) return;
       statusBox.textContent = msg || "";
-      statusBox.style.color = isError ? "#dc2626" : "";
+      statusBox.style.color = isError ? "#dc2626" : isError === false && lastSshTestPassed ? "#15803d" : "";
+    }
+
+    function formatSshTestSuccess(data) {
+      var remoteUser = String((data && data.remoteUser) || "").trim();
+      var lines = [
+        "SSH test passed.",
+        "  • Key login (whoami): OK" + (remoteUser ? " — remote user \"" + remoteUser + "\"" : ""),
+        "  • Privileged access (read CoreConfig.xml): OK",
+      ];
+      if (data && data.sudoSetup === "sudoers") {
+        lines.push("  • Sudo: passwordless (sudoers configured)");
+      } else if (data && data.sudoSetup === "password") {
+        lines.push("  • Sudo: using stored password for privileged commands");
+      }
+      return lines.join("\n");
     }
 
     async function getStatus() {
@@ -1760,8 +1814,10 @@
         " | User: " + (s.username || "(not set)") +
         " | Port: " + (s.port || "22") +
         " | Keypair: " + (s.hasKeyPair ? "present" : "missing") +
-        " | Handshake: " + (s.onboarded ? "complete" : "pending") +
-        (s.lastHandshakeAt ? " | Last: " + s.lastHandshakeAt : ""),
+        " | Setup: " + (s.onboarded ? "complete" : "not run yet") +
+        (s.sudoersConfigured ? " | Sudo: passwordless" : "") +
+        (lastSshTestPassed === true ? " | Last test: passed" : lastSshTestPassed === false ? " | Last test: failed" : "") +
+        (s.lastHandshakeAt ? " | Last setup: " + s.lastHandshakeAt : ""),
         false
       );
     }
@@ -1779,47 +1835,48 @@
       return data;
     }
 
-    if (btnHandshake) {
-      btnHandshake.addEventListener("click", async function () {
+    if (btnSetup) {
+      btnSetup.addEventListener("click", async function () {
         const host = (hostInput && hostInput.value || "").trim();
         const port = (portInput && portInput.value || "22").trim();
         const username = (userInput && userInput.value || "").trim();
         const password = (passInput && passInput.value || "");
         if (!host || !username || !password) {
-          setStatus("Host, username, and one-time password are required.", true);
+          setStatus("Host, username, and password are required for SSH setup.", true);
           return;
         }
         try {
-          btnHandshake.disabled = true;
-          setStatus("Generating SSH key...", false);
-          await postJson("/api/ssh/generate-key", {});
-          setStatus("Running one-time handshake...", false);
-          await postJson("/api/ssh/handshake", { host, port, username, password });
+          btnSetup.disabled = true;
+          setStatus(
+            "Running full SSH setup: generate key, install on server, configure sudo, and test…",
+            false
+          );
+          const data = await postJson("/api/ssh/setup", { host, port, username, password });
           if (passInput) passInput.value = "";
-          await getStatus();
+          lastSshTestPassed = !!data.testPassed;
+          setStatus(formatSshTestSuccess(data), false);
         } catch (err) {
-          setStatus(err.message || String(err), true);
+          lastSshTestPassed = false;
+          setStatus("SSH setup failed: " + (err.message || String(err)), true);
         } finally {
-          btnHandshake.disabled = false;
+          btnSetup.disabled = false;
         }
       });
     }
 
-    if (btnTestConnection) {
-      btnTestConnection.addEventListener("click", async function () {
+    if (btnTestOnly) {
+      btnTestOnly.addEventListener("click", async function () {
         try {
-          btnTestConnection.disabled = true;
-          setStatus("Testing SSH connection...", false);
+          btnTestOnly.disabled = true;
+          setStatus("Testing SSH login and privileged access (CoreConfig read)…", false);
           const data = await postJson("/api/ssh/test-connection", {});
-          const remoteUser = String(data.remoteUser || "").trim();
-          setStatus(
-            "SSH connection successful" + (remoteUser ? " (whoami: " + remoteUser + ")" : "."),
-            false
-          );
+          lastSshTestPassed = !!data.testPassed;
+          setStatus(formatSshTestSuccess(data), false);
         } catch (err) {
+          lastSshTestPassed = false;
           setStatus("SSH test failed: " + (err.message || String(err)), true);
         } finally {
-          btnTestConnection.disabled = false;
+          btnTestOnly.disabled = false;
         }
       });
     }

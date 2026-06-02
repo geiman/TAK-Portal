@@ -1,0 +1,432 @@
+/**
+ * Access rules for Data Sync missions — single-group missions only;
+ * agency admins scoped to agency-specific groups (not county/state extras).
+ *
+ * TAK Marti uses LDAP CN (no tak_ prefix). Authentik stores tak_<CN>.
+ * All matching compares canonical keys after stripping tak_.
+ */
+
+const accessSvc = require("./access.service");
+const agenciesSvc = require("./agencies.service");
+const groupsSvc = require("./groups.service");
+const dataSyncSvc = require("./dataSync.service");
+const { getString } = require("./env");
+
+function canonicalGroupKey(name) {
+  let n = String(name || "").trim().toLowerCase();
+  if (n.startsWith("tak_")) n = n.slice(4);
+  return n.replace(/\s+/g, " ").trim();
+}
+
+function takDisplayName(name) {
+  return groupsSvc.stripTakPrefix(String(name || "").trim());
+}
+
+/** Global admin dropdown: hide internal / LDAP-prefixed TAK group names. */
+function isHiddenGlobalAdminGroupName(name) {
+  const n = String(name || "").trim();
+  if (!n) return true;
+  if (n.startsWith("_")) return true;
+  return n.toLowerCase().startsWith("tak_");
+}
+
+function filterGlobalAdminGroupNames(names) {
+  return (Array.isArray(names) ? names : []).filter((n) => !isHiddenGlobalAdminGroupName(n));
+}
+
+function isAuthentikAgencyAdminGroupName(name) {
+  return /-AgencyAdmin$/i.test(String(name || "").trim());
+}
+
+/** Match Groups page visibility for global admins (all portal group types). */
+function filterAuthentikGroupsForGlobalAdminDataSync(authUser, allGroups) {
+  let filtered = accessSvc.filterGroupsForUser(authUser, allGroups);
+
+  const hiddenPrefixes = String(getString("GROUPS_HIDDEN_PREFIXES", "") || "")
+    .split(",")
+    .map((p) => String(p || "").trim().toLowerCase())
+    .filter(Boolean);
+
+  if (hiddenPrefixes.length) {
+    filtered = filtered.filter((g) => {
+      const raw = String(g?.name || "").trim().toLowerCase();
+      const withoutTak = raw.startsWith("tak_") ? raw.slice(4) : raw;
+      return !hiddenPrefixes.some(
+        (prefix) => raw.startsWith(prefix) || withoutTak.startsWith(prefix)
+      );
+    });
+  }
+
+  return filtered;
+}
+
+/**
+ * All portal-managed groups for global admin (agency, county, state, global, private agency).
+ * Uses Authentik as source of truth; TAK CN display names (no tak_ prefix).
+ */
+async function getGlobalAdminGroupDisplayNames(authUser) {
+  const authentikGroups = await groupsSvc.getAllGroups({});
+  const visible = filterAuthentikGroupsForGlobalAdminDataSync(authUser, authentikGroups);
+  const out = [];
+  const seen = new Set();
+
+  for (const g of visible) {
+    const authentikName = String(g?.name || "").trim();
+    if (!authentikName || isAuthentikAgencyAdminGroupName(authentikName)) continue;
+    const display = takDisplayName(authentikName);
+    if (!display || display.startsWith("_")) continue;
+    const key = canonicalGroupKey(display);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(display);
+  }
+
+  return out;
+}
+
+function entryToGroupName(entry) {
+  if (entry == null) return "";
+  if (typeof entry === "string") return String(entry).trim();
+  if (typeof entry === "object") {
+    return String(
+      entry.name || entry.groupName || entry.group || entry.title || entry.cn || ""
+    ).trim();
+  }
+  return String(entry).trim();
+}
+
+function extractGroupEntries(payload) {
+  if (!payload) return [];
+  if (Array.isArray(payload)) return payload;
+  if (typeof payload !== "object") return [];
+
+  if (Array.isArray(payload.data)) return payload.data;
+  if (Array.isArray(payload.groups)) return payload.groups;
+
+  const inner = payload.data;
+  if (inner && typeof inner === "object" && Array.isArray(inner.groups)) {
+    return inner.groups;
+  }
+
+  return [];
+}
+
+function extractTakGroupNameList(payload) {
+  return extractGroupEntries(payload).map(entryToGroupName).filter(Boolean);
+}
+
+function extractMissionGroupNames(mission) {
+  const groups = mission && Array.isArray(mission.groups) ? mission.groups : [];
+  return groups.map(entryToGroupName).filter(Boolean);
+}
+
+function missionSingleGroupName(mission) {
+  const names = extractMissionGroupNames(mission);
+  if (names.length !== 1) return null;
+  return names[0];
+}
+
+function unwrapMission(payload) {
+  if (!payload) return null;
+  if (payload.data != null) {
+    if (Array.isArray(payload.data) && payload.data.length) return payload.data[0];
+    if (typeof payload.data === "object" && !Array.isArray(payload.data)) return payload.data;
+  }
+  if (payload.Mission && typeof payload.Mission === "object") return payload.Mission;
+  return payload;
+}
+
+function takGroupNameAllowed(name, allowedKeySet) {
+  if (allowedKeySet === null) return true;
+  const key = canonicalGroupKey(name);
+  if (!key) return false;
+  return allowedKeySet.has(key);
+}
+
+/**
+ * Agency-specific Authentik groups the user may use for Data Sync.
+ * @returns {null} global admin — all groups
+ * @returns {Array<{ authentikName, takDisplayName, canonicalKey, agencySuffix, groupPrefix }>}
+ */
+async function buildAgencyAllowedGroups(authUser) {
+  const access = accessSvc.getAgencyAccess(authUser);
+  if (access.isGlobalAdmin) return null;
+
+  const authentikGroups = await groupsSvc.getAllGroups({});
+  const allowedSuffixes = access.allowedAgencySuffixes || [];
+  const agencies = agenciesSvc.load();
+  const out = [];
+  const seenKeys = new Set();
+
+  for (const sfx of allowedSuffixes) {
+    const norm = accessSvc.normalizeSuffix(sfx);
+    const agency = agencies.find((a) => accessSvc.normalizeSuffix(a?.suffix) === norm);
+    if (!agency) continue;
+    const gp = String(agency.groupPrefix || "").trim();
+    if (!gp) continue;
+    const filtered = accessSvc.filterAgencySpecificGroupsForDashboard(authentikGroups, gp);
+    for (const g of filtered) {
+      const authentikName = String(g?.name || "").trim();
+      if (!authentikName) continue;
+      const canonicalKey = canonicalGroupKey(authentikName);
+      if (!canonicalKey || seenKeys.has(canonicalKey)) continue;
+      seenKeys.add(canonicalKey);
+      out.push({
+        authentikName,
+        takDisplayName: takDisplayName(authentikName),
+        canonicalKey,
+        agencySuffix: norm,
+        groupPrefix: gp.toUpperCase(),
+      });
+    }
+  }
+
+  return out;
+}
+
+async function getAllowedCanonicalKeySet(authUser) {
+  const allowed = await buildAgencyAllowedGroups(authUser);
+  if (allowed === null) return null;
+  return new Set(allowed.map((g) => g.canonicalKey));
+}
+
+/** @deprecated name retained for callers — returns canonical key Set */
+async function getAllowedTakGroupNameSet(authUser) {
+  return getAllowedCanonicalKeySet(authUser);
+}
+
+/**
+ * Group names for the create/edit dropdown.
+ * Agency admins: agency-specific groups; prefer TAK server spelling when present.
+ */
+async function resolveGroupsForUser(authUser, takPayload) {
+  const access = accessSvc.getAgencyAccess(authUser);
+  const takNames = extractTakGroupNameList(takPayload);
+  const takByKey = new Map();
+  for (const t of takNames) {
+    const k = canonicalGroupKey(t);
+    if (k && !takByKey.has(k)) takByKey.set(k, t);
+  }
+
+  if (access.isGlobalAdmin) {
+    const authentikNames = await getGlobalAdminGroupDisplayNames(authUser);
+    const byKey = new Map();
+
+    for (const name of authentikNames) {
+      const k = canonicalGroupKey(name);
+      if (!k) continue;
+      byKey.set(k, takByKey.get(k) || name);
+    }
+
+    // Include any TAK-only groups not mirrored in Authentik (exclude _ / tak_ raw names).
+    for (const t of filterGlobalAdminGroupNames(takNames)) {
+      const k = canonicalGroupKey(t);
+      if (k && !byKey.has(k)) byKey.set(k, t);
+    }
+
+    const groups = Array.from(byKey.values()).sort((a, b) => a.localeCompare(b));
+    return {
+      groups,
+      debug: {
+        scope: "global",
+        authentikGroupCount: authentikNames.length,
+        takGroupCount: takNames.length,
+        visibleGroupCount: groups.length,
+      },
+    };
+  }
+
+  const allowed = await buildAgencyAllowedGroups(authUser);
+  const resolved = [];
+  const matchDetails = [];
+
+  for (const ag of allowed) {
+    const fromTak = takByKey.get(ag.canonicalKey);
+    const chosen = fromTak || ag.takDisplayName;
+    resolved.push(chosen);
+    matchDetails.push({
+      authentikName: ag.authentikName,
+      takDisplayName: ag.takDisplayName,
+      canonicalKey: ag.canonicalKey,
+      matchedTakName: fromTak || null,
+      chosenForUi: chosen,
+    });
+  }
+
+  const groups = [...new Set(resolved)].sort((a, b) => a.localeCompare(b));
+
+  return {
+    groups,
+    debug: {
+      scope: "agency",
+      allowedAgencySuffixes: access.allowedAgencySuffixes || [],
+      authentikAllowedCount: allowed.length,
+      takGroupCount: takNames.length,
+      takSample: takNames.slice(0, 12),
+      resolvedGroupCount: groups.length,
+      matches: matchDetails,
+    },
+  };
+}
+
+function filterMissionsForAccess(missions, allowedKeySet) {
+  const list = Array.isArray(missions) ? missions : [];
+  return list.filter((m) => {
+    const g = missionSingleGroupName(m);
+    if (!g) return false;
+    return takGroupNameAllowed(g, allowedKeySet);
+  });
+}
+
+function filterGroupsPayload(payload, allowedKeySet) {
+  if (allowedKeySet === null) return payload;
+
+  const keepEntry = (entry) => {
+    const n = entryToGroupName(entry);
+    return n && takGroupNameAllowed(n, allowedKeySet);
+  };
+
+  if (Array.isArray(payload)) {
+    return payload.filter(keepEntry);
+  }
+  if (payload && typeof payload === "object" && Array.isArray(payload.data)) {
+    return { ...payload, data: payload.data.filter(keepEntry) };
+  }
+  if (payload && typeof payload === "object" && Array.isArray(payload.groups)) {
+    return { ...payload, groups: payload.groups.filter(keepEntry) };
+  }
+  return [];
+}
+
+function filterMissionsPayload(payload, allowedKeySet) {
+  if (allowedKeySet === null) {
+    if (Array.isArray(payload)) return filterMissionsForAccess(payload, null);
+    if (payload && Array.isArray(payload.data)) {
+      return { ...payload, data: filterMissionsForAccess(payload.data, null) };
+    }
+    return payload;
+  }
+
+  if (Array.isArray(payload)) return filterMissionsForAccess(payload, allowedKeySet);
+  if (payload && Array.isArray(payload.data)) {
+    return { ...payload, data: filterMissionsForAccess(payload.data, allowedKeySet) };
+  }
+  return payload;
+}
+
+function assertSingleGroupBody(body) {
+  const groups = Array.isArray(body?.groups) ? body.groups : [];
+  if (groups.length > 1) {
+    const err = new Error("Only one group is allowed per Data Sync mission.");
+    err.code = "MULTIPLE_GROUPS";
+    throw err;
+  }
+}
+
+function assertGroupAllowed(body, allowedKeySet) {
+  if (allowedKeySet === null) return;
+  const groups = Array.isArray(body?.groups) ? body.groups : [];
+  if (!groups.length) return;
+  for (const g of groups) {
+    const name = entryToGroupName(g);
+    if (!takGroupNameAllowed(name, allowedKeySet)) {
+      const err = new Error("Forbidden");
+      err.code = "FORBIDDEN";
+      throw err;
+    }
+  }
+}
+
+async function assertMissionReadable(authUser, missionName) {
+  const allowedKeySet = await getAllowedCanonicalKeySet(authUser);
+  const raw = await dataSyncSvc.getMission(missionName);
+  const mission = unwrapMission(raw);
+  const g = missionSingleGroupName(mission);
+  if (!g || !takGroupNameAllowed(g, allowedKeySet)) {
+    const err = new Error("Forbidden");
+    err.code = "FORBIDDEN";
+    throw err;
+  }
+  return raw;
+}
+
+async function buildAccessDebug(authUser) {
+  const access = accessSvc.getAgencyAccess(authUser);
+  let takGroupsRaw = [];
+  let takError = null;
+  try {
+    const data = await dataSyncSvc.listGroupsAll();
+    takGroupsRaw = extractTakGroupNameList(data);
+  } catch (err) {
+    takError = err?.message || String(err);
+  }
+
+  let missionsRaw = [];
+  let missionsError = null;
+  try {
+    const data = await dataSyncSvc.listPagedMissions({});
+    const list = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
+    missionsRaw = list.map((m) => ({
+      name: m?.name,
+      groups: extractMissionGroupNames(m),
+      singleGroup: missionSingleGroupName(m),
+      singleGroupKey: canonicalGroupKey(missionSingleGroupName(m) || ""),
+    }));
+  } catch (err) {
+    missionsError = err?.message || String(err);
+  }
+
+  const allowed = await buildAgencyAllowedGroups(authUser);
+  const allowedKeySet = allowed === null ? null : new Set(allowed.map((g) => g.canonicalKey));
+  const resolved = await resolveGroupsForUser(authUser, takGroupsRaw);
+
+  const missionFilterPreview = missionsRaw.map((m) => ({
+    ...m,
+    allowed: takGroupNameAllowed(m.singleGroup || "", allowedKeySet),
+  }));
+
+  return {
+    user: {
+      username: authUser?.username || null,
+      isGlobalAdmin: access.isGlobalAdmin,
+      isAgencyAdmin: access.isAgencyAdmin,
+      allowedAgencySuffixes: access.allowedAgencySuffixes,
+    },
+    takGroups: {
+      count: takGroupsRaw.length,
+      sample: takGroupsRaw.slice(0, 20),
+      error: takError,
+    },
+    authentikAllowedGroups: allowed,
+    resolvedUiGroups: resolved.groups,
+    resolvedDebug: resolved.debug,
+    missions: {
+      count: missionsRaw.length,
+      preview: missionFilterPreview,
+      error: missionsError,
+    },
+  };
+}
+
+module.exports = {
+  canonicalGroupKey,
+  takDisplayName,
+  entryToGroupName,
+  extractTakGroupNameList,
+  extractMissionGroupNames,
+  missionSingleGroupName,
+  buildAgencyAllowedGroups,
+  getAllowedTakGroupNameSet,
+  getAllowedCanonicalKeySet,
+  resolveGroupsForUser,
+  filterMissionsForAccess,
+  filterGroupsPayload,
+  filterMissionsPayload,
+  assertSingleGroupBody,
+  assertGroupAllowed,
+  assertMissionReadable,
+  takGroupNameAllowed,
+  buildAccessDebug,
+  isHiddenGlobalAdminGroupName,
+  filterGlobalAdminGroupNames,
+};
