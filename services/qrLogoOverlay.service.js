@@ -33,9 +33,14 @@ async function addLogoToQrPng(pngBuffer, logoFsPath, options = {}) {
     const origW = logoImage.getWidth();
     const origH = logoImage.getHeight();
 
-    // Fit inside inner area; never upscale (avoids soft stretch artifacts).
+    // Fit inside inner area; never upscale. Resize directly instead of using
+    // contain() so transparent logo edges do not become a padded square.
     if (origW > innerMax || origH > innerMax) {
-      logoImage.contain(innerMax, innerMax);
+      const scale = Math.min(innerMax / origW, innerMax / origH);
+      logoImage.resize(
+        Math.max(1, Math.floor(origW * scale)),
+        Math.max(1, Math.floor(origH * scale))
+      );
     }
 
     const lw = logoImage.getWidth();
@@ -45,13 +50,6 @@ async function addLogoToQrPng(pngBuffer, logoFsPath, options = {}) {
 
     const bgX = Math.floor((qrWidth - bgWidth) / 2);
     const bgY = Math.floor((qrHeight - bgHeight) / 2);
-
-    qrImage.scan(bgX, bgY, bgWidth, bgHeight, function (x, y, idx) {
-      this.bitmap.data[idx + 0] = 255;
-      this.bitmap.data[idx + 1] = 255;
-      this.bitmap.data[idx + 2] = 255;
-      this.bitmap.data[idx + 3] = 255;
-    });
 
     const logoX = bgX + Math.floor((bgWidth - lw) / 2);
     const logoY = bgY + Math.floor((bgHeight - lh) / 2);
