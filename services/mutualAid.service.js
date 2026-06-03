@@ -11,6 +11,10 @@ const store = require("./mutualAid.store");
 const settingsSvc = require("./settings.service");
 const emailSvc = require("./email.service");
 const { renderTemplate, htmlToText } = require("./emailTemplates.service");
+const { addLogoToQrPng } = require("./qrLogoOverlay.service");
+
+const MA_LOGO_DIR = path.join(__dirname, "..", "data", "mutual-aid-logos");
+const MA_LOGO_ALLOWED_EXT = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif"]);
 
 // ---- Expiration scheduler (in-memory) ----
 // Expiration settings are persisted in mutual-aid.json. Timers are best-effort
@@ -104,6 +108,14 @@ function buildMutualAidUsername(type, title) {
   return `ma-${slug}`;
 }
 
+/** Additional MA user on a shared channel: ma-{masterTitleSlug}-{childTitleSlug} */
+function buildLinkedMutualAidUsername(masterTitle, childTitle) {
+  const masterSlug = sanitizeUsernameSlug(masterTitle);
+  const childSlug = sanitizeUsernameSlug(childTitle);
+  if (!masterSlug || !childSlug) return "";
+  return `ma-${masterSlug}-${childSlug}`;
+}
+
 function buildGroupName(type, title) {
   const name = sanitizeTitle(title);
   if (!name) throw new Error("Name is required");
@@ -195,71 +207,123 @@ function enrollUrlForCreds(username, token) {
   );
 }
 
+// ---- Deployment logo (master only; subs inherit from group anchor) ----
+
+function ensureMaLogoDir() {
+  if (!fs.existsSync(MA_LOGO_DIR)) {
+    fs.mkdirSync(MA_LOGO_DIR, { recursive: true });
+  }
+}
+
+function logoUrlToFsPath(logoUrl) {
+  const rel = String(logoUrl || "")
+    .trim()
+    .replace(/^\//, "");
+  if (!rel || rel.includes("..")) return null;
+  if (!rel.startsWith("mutual-aid-logos/")) return null;
+  return path.join(__dirname, "..", "data", rel);
+}
+
+function getBrandLogoFsPath() {
+  const settings = settingsSvc.getSettings ? settingsSvc.getSettings() || {} : {};
+  const logoUrl = settings.BRAND_LOGO_URL;
+  if (!logoUrl || typeof logoUrl !== "string") return null;
+  const logoUrlPath = logoUrl.replace(/^\//, "");
+  const logoFsPath = path.join(__dirname, "..", "data", logoUrlPath);
+  return fs.existsSync(logoFsPath) ? logoFsPath : null;
+}
+
+function resolveLogoFsPathForItem(item) {
+  const items = store.load();
+  const anchor = findGroupAnchorItem(items, item?.groupId) || item;
+  if (anchor?.logoUrl) {
+    const custom = logoUrlToFsPath(anchor.logoUrl);
+    if (custom && fs.existsSync(custom)) return custom;
+  }
+  return getBrandLogoFsPath();
+}
+
+function deleteLogoFilesForDeployment(deploymentId) {
+  const id = String(deploymentId || "").trim();
+  if (!id) return;
+  ensureMaLogoDir();
+  try {
+    for (const name of fs.readdirSync(MA_LOGO_DIR)) {
+      if (name === id || name.startsWith(`${id}.`)) {
+        fs.unlinkSync(path.join(MA_LOGO_DIR, name));
+      }
+    }
+  } catch (err) {
+    console.warn("[MUTUAL AID] failed to delete logo files:", err?.message || err);
+  }
+}
+
+function getLogoOwnerItem(items, item) {
+  if (!item || isSubMutualAidType(item.type)) return null;
+  return findGroupAnchorItem(items, item.groupId) || item;
+}
+
+async function applyDeploymentLogo({ id, file, removeLogo }) {
+  const items = store.load();
+  const idx = items.findIndex((x) => String(x.id) === String(id));
+  if (idx < 0) throw new Error("Mutual aid item not found");
+
+  const current = items[idx];
+  if (isSubMutualAidType(current.type)) {
+    throw new Error("Sub deployments cannot set a custom logo");
+  }
+
+  const owner = getLogoOwnerItem(items, current);
+  if (!owner) throw new Error("Logo can only be set on a master deployment");
+
+  const ownerIdx = items.findIndex((x) => String(x.id) === String(owner.id));
+  if (ownerIdx < 0) throw new Error("Master deployment not found");
+
+  if (removeLogo) {
+    deleteLogoFilesForDeployment(owner.id);
+    const nextOwner = { ...items[ownerIdx] };
+    delete nextOwner.logoUrl;
+    nextOwner.updatedAt = nowIso();
+    items[ownerIdx] = nextOwner;
+    saveAll(items);
+    return nextOwner;
+  }
+
+  if (!file || !file.path) return items[ownerIdx];
+
+  const ext = path.extname(file.originalname || file.path || "").toLowerCase();
+  if (!MA_LOGO_ALLOWED_EXT.has(ext)) {
+    try {
+      fs.unlinkSync(file.path);
+    } catch {
+      /* ignore */
+    }
+    throw new Error("Logo must be PNG, JPEG, WebP, or GIF");
+  }
+
+  ensureMaLogoDir();
+  deleteLogoFilesForDeployment(owner.id);
+
+  const destName = `${owner.id}${ext}`;
+  const destPath = path.join(MA_LOGO_DIR, destName);
+  fs.renameSync(file.path, destPath);
+
+  const logoUrl = `/mutual-aid-logos/${destName}`;
+  const nextOwner = {
+    ...items[ownerIdx],
+    logoUrl,
+    updatedAt: nowIso(),
+  };
+  items[ownerIdx] = nextOwner;
+  saveAll(items);
+  return nextOwner;
+}
+
 // ---- Jimp helpers (Jimp 0.22.x) ----
 
-async function addLogoToPng(pngBuffer) {
-  try {
-    const settings = settingsSvc.getSettings ? settingsSvc.getSettings() || {} : {};
-    const logoUrl = settings.BRAND_LOGO_URL;
-
-    if (!logoUrl || typeof logoUrl !== "string") {
-      return pngBuffer;
-    }
-
-    // BRAND_LOGO_URL is like "/branding/logo.png"
-    // Files are stored under /data/branding and served via app.use("/branding", ...)
-    const logoUrlPath = logoUrl.replace(/^\//, ""); // "branding/logo.png"
-    const logoFsPath = path.join(__dirname, "..", "data", logoUrlPath);
-
-    if (!fs.existsSync(logoFsPath)) {
-      console.warn("[MUTUAL AID] BRAND_LOGO_URL file not found at", logoFsPath);
-      return pngBuffer;
-    }
-
-    const [qrImage, logoImageOriginal] = await Promise.all([
-      Jimp.read(pngBuffer),
-      Jimp.read(logoFsPath),
-    ]);
-
-    const qrWidth = qrImage.getWidth();
-    const qrHeight = qrImage.getHeight();
-
-    // Max logo size: 25% of QR's smaller dimension (safe for error-correction H)
-    const logoMaxSize = Math.floor(Math.min(qrWidth, qrHeight) * 0.25);
-
-    // Clone and resize logo
-    const logoImage = logoImageOriginal.clone();
-    logoImage.contain(logoMaxSize, logoMaxSize);
-
-    // White background "badge" behind logo
-    const padding = Math.floor(logoMaxSize * 0.12); // 12% padding around logo
-    const bgWidth = logoImage.getWidth() + padding * 2;
-    const bgHeight = logoImage.getHeight() + padding * 2;
-
-    // Position of the white background (centered)
-    const bgX = Math.floor((qrWidth - bgWidth) / 2);
-    const bgY = Math.floor((qrHeight - bgHeight) / 2);
-
-    // Fill a white rectangle directly onto the QR image
-    qrImage.scan(bgX, bgY, bgWidth, bgHeight, function (x, y, idx) {
-      // RGBA = 255, 255, 255, 255
-      this.bitmap.data[idx + 0] = 255; // R
-      this.bitmap.data[idx + 1] = 255; // G
-      this.bitmap.data[idx + 2] = 255; // B
-      this.bitmap.data[idx + 3] = 255; // A
-    });
-
-    // Now center the logo on top of that white rectangle
-    const logoX = bgX + padding;
-    const logoY = bgY + padding;
-
-    qrImage.composite(logoImage, logoX, logoY);
-
-    return await qrImage.getBufferAsync(Jimp.MIME_PNG);
-  } catch (err) {
-    console.error("[MUTUAL AID] Failed to add logo to QR:", err);
-    return pngBuffer;
-  }
+async function addLogoToPng(pngBuffer, logoFsPath, options = {}) {
+  if (!logoFsPath || !fs.existsSync(logoFsPath)) return pngBuffer;
+  return addLogoToQrPng(pngBuffer, logoFsPath, options);
 }
 
 async function addUsernameLabel(pngBuffer, username) {
@@ -310,32 +374,34 @@ async function addUsernameLabel(pngBuffer, username) {
 
 // ---- QR helpers ----
 
-async function qrDataUrl(username, token) {
+async function qrDataUrl(username, token, item) {
   const enrollUrl = enrollUrlForCreds(username, token);
   const basePng = await QRCode.toBuffer(enrollUrl, {
     errorCorrectionLevel: "H",
     type: "png",
-    width: 512,
+    width: 1024,
     margin: 2,
     color: { dark: "#000000", light: "#FFFFFF" },
   });
-  const finalPng = await addLogoToPng(basePng);
+  const logoPath = resolveLogoFsPathForItem(item);
+  const finalPng = await addLogoToPng(basePng, logoPath, { logoRatio: 0.28 });
   const qrCode = "data:image/png;base64," + finalPng.toString("base64");
   return { enrollUrl, qrCode };
 }
 
-async function qrPngBuffer(username, token) {
+async function qrPngBuffer(username, token, item) {
   const enrollUrl = enrollUrlForCreds(username, token);
   const pngBuffer = await QRCode.toBuffer(enrollUrl, {
     errorCorrectionLevel: "H",
     type: "png",
-    width: 1200,
+    width: 1800,
     margin: 3,
     color: { dark: "#000000", light: "#FFFFFF" },
   });
 
+  const logoPath = resolveLogoFsPathForItem(item);
   // 1) Add logo in the center (with white badge)
-  let finalPng = await addLogoToPng(pngBuffer);
+  let finalPng = await addLogoToPng(pngBuffer, logoPath, { logoRatio: 0.28 });
 
   // 2) Add username label underneath
   finalPng = await addUsernameLabel(finalPng, username);
@@ -343,12 +409,150 @@ async function qrPngBuffer(username, token) {
   return finalPng;
 }
 
+function isSubMutualAidType(type) {
+  return String(type || "")
+    .trim()
+    .toUpperCase()
+    .startsWith("SUB-");
+}
+
+function baseMutualAidType(type) {
+  return String(type || "")
+    .trim()
+    .toUpperCase()
+    .replace(/^SUB-/, "");
+}
+
+function formatMutualAidTypeLabel(type) {
+  const t = String(type || "").trim().toUpperCase();
+  if (!t) return "";
+  if (isSubMutualAidType(t)) {
+    const base = baseMutualAidType(t);
+    if (!base) return "Sub";
+    return `Sub-${base.charAt(0)}${base.slice(1).toLowerCase()}`;
+  }
+  return `${t.charAt(0)}${t.slice(1).toLowerCase()}`;
+}
+
+function isGroupCreatorItem(item) {
+  if (isSubMutualAidType(item?.type)) return false;
+  if (item?.groupWasCreated === true) return true;
+  const mode = String(item?.groupMode || "new").trim().toLowerCase();
+  return mode !== "existing";
+}
+
+function findGroupMasterItem(items, groupId) {
+  const gid = String(groupId || "").trim();
+  if (!gid) return null;
+  const creators = (Array.isArray(items) ? items : []).filter(
+    (x) => String(x?.groupId || "") === gid && isGroupCreatorItem(x)
+  );
+  if (!creators.length) return null;
+  creators.sort((a, b) =>
+    String(a?.createdAt || "").localeCompare(String(b?.createdAt || ""))
+  );
+  return creators[0];
+}
+
+/** MA-created group master, or earliest non-sub deployment on the shared group. */
+function findGroupAnchorItem(items, groupId) {
+  const master = findGroupMasterItem(items, groupId);
+  if (master) return master;
+  const gid = String(groupId || "").trim();
+  if (!gid) return null;
+  const primaries = (Array.isArray(items) ? items : []).filter(
+    (x) => String(x?.groupId || "") === gid && !isSubMutualAidType(x?.type)
+  );
+  if (!primaries.length) return null;
+  primaries.sort((a, b) =>
+    String(a?.createdAt || "").localeCompare(String(b?.createdAt || ""))
+  );
+  return primaries[0];
+}
+
+function itemsSharingGroupId(items, groupId) {
+  const gid = String(groupId || "").trim();
+  if (!gid) return [];
+  return (Array.isArray(items) ? items : []).filter((x) => String(x?.groupId || "") === gid);
+}
+
+async function syncLinkedSubDeployments(items, parentItem, { nextBaseType } = {}) {
+  const gid = String(parentItem?.groupId || "").trim();
+  if (!gid) return 0;
+
+  const baseType = String(nextBaseType || baseMutualAidType(parentItem?.type) || "")
+    .trim()
+    .toUpperCase();
+  if (!baseType) return 0;
+
+  const subType = `SUB-${baseType}`;
+  let updated = 0;
+
+  for (let i = 0; i < items.length; i++) {
+    const entry = items[i];
+    if (String(entry?.groupId || "") !== gid) continue;
+    if (!isSubMutualAidType(entry?.type)) continue;
+
+    const childTitle = sanitizeTitle(entry?.title);
+
+    if (String(entry?.userId || "").trim()) {
+      await api
+        .patch(`/core/users/${entry.userId}/`, {
+          name: childTitle,
+          attributes: {
+            ...(entry.attributes || {}),
+            mutual_aid: true,
+            mutual_aid_type: subType,
+            mutual_aid_group: String(parentItem?.groupName || entry?.groupName || ""),
+          },
+        })
+        .catch(() => null);
+    }
+
+    const nextEntry = {
+      ...entry,
+      type: subType,
+      groupMasterId: String(parentItem?.id || entry?.groupMasterId || ""),
+      updatedAt: nowIso(),
+    };
+    items[i] = nextEntry;
+    scheduleExpiration(nextEntry);
+    updated += 1;
+  }
+
+  return updated;
+}
+
+function itemsSharingGroup(items, groupId) {
+  const gid = String(groupId || "").trim();
+  if (!gid) return [];
+  return (Array.isArray(items) ? items : []).filter((x) => String(x?.groupId || "") === gid);
+}
+
+function enrichItemForList(item, allItems) {
+  const gid = String(item?.groupId || "");
+  const master = findGroupAnchorItem(allItems, gid);
+  const siblings = itemsSharingGroup(allItems, gid);
+  const isGroupMaster = !!(master && String(master.id) === String(item.id));
+  const logoUrl = master?.logoUrl || null;
+  return {
+    ...item,
+    isGroupMaster,
+    isLinkedDeployment: !isGroupCreatorItem(item) && siblings.length > 1,
+    groupMasterId: master ? String(master.id) : null,
+    sharedGroupDeploymentCount: siblings.length,
+    logoUrl,
+    hasCustomLogo: !!logoUrl,
+  };
+}
+
 function list() {
   const items = store.load();
+  const enriched = items.map((it) => enrichItemForList(it, items));
   // newest first
-  return items
-    .slice()
-    .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+  return enriched.sort((a, b) =>
+    String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
+  );
 }
 
 function getById(id) {
@@ -413,13 +617,43 @@ function parseExpireAt(value) {
   return d.toISOString();
 }
 
-async function create({ type, title, expireEnabled, expireAt, groupMode, existingGroupId }) {
+function assertNotMutualAidChannelGroup(group, { allowMutualAidGroup = false } = {}) {
+  if (allowMutualAidGroup || !group) return;
+  const gid = String(group.pk || "").trim();
+  if (gid && store.getMutualAidGroupIdSet().has(gid)) {
+    throw new Error(
+      "Mutual aid channels cannot be selected as an existing group. Use Create Additional MA User on an existing deployment instead."
+    );
+  }
+  const raw = String(group.name || "").trim().toLowerCase();
+  const withoutTak = raw.startsWith("tak_") ? raw.slice(4) : raw;
+  if (withoutTak.startsWith("ma -") || withoutTak.startsWith("ma-")) {
+    throw new Error(
+      "Mutual aid channels cannot be selected as an existing group. Use Create Additional MA User on an existing deployment instead."
+    );
+  }
+}
+
+async function create({
+  type,
+  title,
+  expireEnabled,
+  expireAt,
+  groupMode,
+  existingGroupId,
+  allowMutualAidGroup = false,
+  usernameOverride = null,
+} = {}) {
   const t = String(type || "").trim().toUpperCase();
   const name = sanitizeTitle(title);
   const desiredGroupName = buildGroupName(t, name);
-  // Username should be incident-xxx / event-xxx.
-  const username = buildMutualAidUsername(t, name);
+  const username = usernameOverride
+    ? String(usernameOverride).trim()
+    : buildMutualAidUsername(t, name);
   if (!username) throw new Error("Name must contain at least one letter/number for username");
+
+  const taken = await usersSvc.userExists(username);
+  if (taken) throw new Error(`Username already exists: ${username}`);
 
   // Expiration options (EVENT + INCIDENT)
   const wantExpire = coerceBool(expireEnabled);
@@ -446,6 +680,7 @@ async function create({ type, title, expireEnabled, expireAt, groupMode, existin
     if (!gid) throw new Error("Existing group is required when using an existing group");
     group = await groupsSvc.getGroupById(gid);
     if (!group || !group.pk) throw new Error("Group not found");
+    assertNotMutualAidChannelGroup(group, { allowMutualAidGroup });
   } else {
     // 1) Create group
     group = await groupsSvc.createGroup(desiredGroupName);
@@ -453,6 +688,9 @@ async function create({ type, title, expireEnabled, expireAt, groupMode, existin
   }
 
   const groupName = String(group?.name || desiredGroupName);
+  const existingItems = store.load();
+  const groupMaster =
+    mode === "existing" ? findGroupAnchorItem(existingItems, String(group.pk)) : null;
 
   // 2) Create user (minimal fields; password is numeric as requested)
   const password = randomPassword(18);
@@ -500,6 +738,7 @@ async function create({ type, title, expireEnabled, expireAt, groupMode, existin
     groupName,
     groupMode: mode,
     groupWasCreated,
+    groupMasterId: groupMaster ? String(groupMaster.id) : null,
     userId: String(user.pk),
     username,
     password,
@@ -532,7 +771,41 @@ async function create({ type, title, expireEnabled, expireAt, groupMode, existin
   return item;
 }
 
-async function update({ id, type, title, expireEnabled, expireAt }) {
+/**
+ * Add another deployment user on the same channel as an existing master MA record.
+ */
+async function createLinkedUser({ parentId, title, expireEnabled, expireAt }) {
+  const parent = getById(parentId);
+  if (!parent) throw new Error("Parent mutual aid item not found");
+
+  const parentType = baseMutualAidType(parent.type);
+  if (!parentType) throw new Error("Parent mutual aid type is invalid");
+
+  const childTitle = sanitizeTitle(title);
+  if (!childTitle) throw new Error("Name is required");
+
+  const items = store.load();
+  const master = findGroupAnchorItem(items, parent.groupId) || parent;
+  const masterTitle = sanitizeTitle(master.title);
+  const username = buildLinkedMutualAidUsername(masterTitle, childTitle);
+  if (!username) {
+    throw new Error("Name must contain at least one letter/number for username");
+  }
+
+  const subType = `SUB-${parentType}`;
+  return create({
+    type: subType,
+    title: childTitle,
+    expireEnabled,
+    expireAt,
+    groupMode: "existing",
+    existingGroupId: parent.groupId,
+    allowMutualAidGroup: true,
+    usernameOverride: username,
+  });
+}
+
+async function update({ id, type, title, expireEnabled, expireAt, logoFile, removeLogo }) {
   const items = store.load();
   const idx = items.findIndex((x) => String(x.id) === String(id));
   if (idx < 0) throw new Error("Mutual aid item not found");
@@ -540,7 +813,8 @@ async function update({ id, type, title, expireEnabled, expireAt }) {
   const current = items[idx];
   const currentMode = String(current.groupMode || "new").toLowerCase();
   const groupWasCreated = current.groupWasCreated === true;
-  const canModifyGroup = groupWasCreated || currentMode !== "existing";
+  const isSub = isSubMutualAidType(current.type);
+  const canModifyGroup = !isSub && (groupWasCreated || currentMode !== "existing");
 
   const nextType = String(type || current.type || "").trim().toUpperCase();
   const nextTitle = sanitizeTitle(title ?? current.title);
@@ -550,9 +824,9 @@ async function update({ id, type, title, expireEnabled, expireAt }) {
     ? buildGroupName(nextType, nextTitle)
     : String(current.groupName || "");
 
-  // Username should follow the same formatting rules as creation.
-  const nextUsername = buildMutualAidUsername(nextType, nextTitle);
-  if (!nextUsername) throw new Error("Name must contain at least one letter/number for username");
+  // Username is assigned at creation and never changed on edit (needed for cert revocation on delete).
+  const nextUsername = String(current.username || "").trim();
+  if (!nextUsername) throw new Error("Mutual aid deployment username is missing");
 
   // Expiration options (EVENT + INCIDENT)
   const nextExpireEnabled = coerceBool(expireEnabled ?? current.expireEnabled);
@@ -571,17 +845,10 @@ async function update({ id, type, title, expireEnabled, expireAt }) {
     await groupsSvc.renameGroup(current.groupId, nextGroupName, { ignoreLocks: true });
   }
 
-  // Update user display name + username to match formatting rules.
+  // Update display name and MA metadata only; username stays fixed.
   if (String(current.userId || "").trim()) {
-    // If username is changing, ensure it isn't already taken (except by this user).
-    if (String(current.username || "") !== String(nextUsername)) {
-      const taken = await usersSvc.userExists(nextUsername);
-      if (taken) throw new Error(`Username already exists: ${nextUsername}`);
-    }
-
     await api
       .patch(`/core/users/${current.userId}/`, {
-        username: nextUsername,
         name: nextTitle,
         attributes: {
           ...(current.attributes || {}),
@@ -607,11 +874,25 @@ async function update({ id, type, title, expireEnabled, expireAt }) {
     updatedAt: nowIso(),
   };
   items[idx] = updated;
+
+  if (!isSub) {
+    const prevBase = baseMutualAidType(current.type);
+    const nextBase = baseMutualAidType(nextType);
+    if (prevBase !== nextBase) {
+      await syncLinkedSubDeployments(items, updated, { nextBaseType: nextBase });
+    }
+  }
+
   saveAll(items);
 
   // Update expiration schedule
   scheduleExpiration(updated);
-  return updated;
+
+  if (logoFile || removeLogo) {
+    await applyDeploymentLogo({ id, file: logoFile, removeLogo: !!removeLogo });
+  }
+
+  return getById(id) || updated;
 }
 
 async function remove({ id }) {
@@ -620,39 +901,53 @@ async function remove({ id }) {
   if (idx < 0) throw new Error("Mutual aid item not found");
 
   const item = items[idx];
+  const anchor = findGroupAnchorItem(items, item.groupId);
+  const isAnchor = !!(anchor && String(anchor.id) === String(item.id));
 
-  // If this item had an expiration timer, clear it.
-  clearExpirationTimer(item.id);
+  // Deleting the anchor removes every deployment on the same group (master + all subs).
+  const cascade = isAnchor ? itemsSharingGroup(items, item.groupId) : [item];
 
-  // Deletion semantics: like deleting a user
-  // - revoke all client certs with matching creatorDn (done by usersSvc.deleteUser)
-  // - delete the user in Authentik
-  // - delete the group
-  if (item.userId) {
-    await usersSvc.deleteUser(item.userId, { ignoreLocks: true });
-  }
+  const deleteSharedGroup =
+    isAnchor &&
+    isGroupCreatorItem(item) &&
+    (item.groupWasCreated === true ||
+      String(item.groupMode || "new").toLowerCase() !== "existing");
 
-  if (item.groupId) {
-    // Only delete the group if this mutual aid created it.
-    // When using an existing group, we must not delete shared groups.
-    const mode = String(item.groupMode || "new").toLowerCase();
-    const shouldDelete = item.groupWasCreated === true || mode !== "existing";
-    if (shouldDelete) {
-      // Use cleanup delete to keep templates consistent (safest)
-      await groupsSvc.deleteGroupWithCleanup(item.groupId, { ignoreLocks: true });
+  // Delete linked deployment users first, then remove shared group once.
+  for (const entry of cascade) {
+    clearExpirationTimer(entry.id);
+    if (entry.userId) {
+      await usersSvc.deleteUser(entry.userId, { ignoreLocks: true });
     }
   }
 
-  // Remove from store
-  items.splice(idx, 1);
-  saveAll(items);
-  return { success: true };
+  if (deleteSharedGroup && item.groupId) {
+    await groupsSvc.deleteGroupWithCleanup(item.groupId, { ignoreLocks: true });
+  }
+
+  if (isAnchor) {
+    deleteLogoFilesForDeployment(item.id);
+  }
+
+  const removeIds = new Set(cascade.map((x) => String(x.id)));
+  const next = items.filter((x) => !removeIds.has(String(x.id)));
+  saveAll(next);
+
+  return {
+    success: true,
+    deletedCount: cascade.length,
+    deletedIds: cascade.map((x) => String(x.id)),
+    cascade: cascade.length > 1,
+    groupDeleted: !!deleteSharedGroup,
+  };
 }
 
 async function getQr({ id }) {
   const item = getById(id);
   if (!item) throw new Error("Mutual aid item not found");
-  const { enrollUrl, qrCode } = await qrDataUrl(item.username, item.password);
+  const { enrollUrl, qrCode } = await qrDataUrl(item.username, item.password, item);
+  const items = store.load();
+  const anchor = findGroupAnchorItem(items, item.groupId);
   return {
     id: item.id,
     type: item.type,
@@ -660,13 +955,15 @@ async function getQr({ id }) {
     username: item.username,
     enrollUrl,
     qrCode,
+    hasCustomLogo: !!anchor?.logoUrl,
+    logoUrl: anchor?.logoUrl || null,
   };
 }
 
 async function getQrDownload({ id }) {
   const item = getById(id);
   if (!item) throw new Error("Mutual aid item not found");
-  const pngBuffer = await qrPngBuffer(item.username, item.password);
+  const pngBuffer = await qrPngBuffer(item.username, item.password, item);
   const safeUser = String(item.username || "")
     .toLowerCase()
     .replace(/[^a-z0-9_-]/g, "") || "mutual-aid";
@@ -688,8 +985,11 @@ module.exports = {
   initExpirationScheduler,
   list,
   create,
+  createLinkedUser,
   update,
   remove,
   getQr,
   getQrDownload,
+  formatMutualAidTypeLabel,
+  isSubMutualAidType,
 };

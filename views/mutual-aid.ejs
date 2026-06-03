@@ -102,6 +102,83 @@
   .btn.qrEmail:hover { filter: brightness(0.95); }
   .btn.qrEmail:disabled { opacity: 0.6; }
 
+  /* Linked mutual aid deployments (shared channel) */
+  .ma-unit-master td {
+    background: rgba(124, 58, 237, 0.08);
+    border-top: 1px solid var(--line);
+  }
+  .ma-unit-master:first-child td {
+    border-top: none;
+  }
+  .ma-unit-child td {
+    background: rgba(255, 255, 255, 0.02);
+    border-top: 1px dashed rgba(255, 255, 255, 0.08);
+    padding-left: 28px;
+  }
+  .ma-unit-child-last td {
+    border-bottom: 2px solid var(--line);
+  }
+
+  .btn.maAddUser {
+    background: #ea580c;
+    border-color: #ea580c;
+    color: #fff;
+  }
+  .btn.maAddUser:hover {
+    filter: brightness(0.95);
+  }
+
+  #addMaUserOverlay #addMaExpireAt::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+  }
+  #addMaUserOverlay #addMaExpireAt {
+    color: #fff;
+  }
+
+  /* Modal footer actions: secondary left, primary/success on the far right */
+  .maModalActions {
+    justify-content: flex-end;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 12px;
+  }
+  .maModalActions .msg {
+    margin-right: auto;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  #editLogoWrap .edit-logo-row {
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 0;
+  }
+  #editLogoWrap .edit-logo-file-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+  #editLogoWrap #editLogoFile {
+    position: absolute;
+    width: 0.1px;
+    height: 0.1px;
+    opacity: 0;
+    overflow: hidden;
+    z-index: -1;
+  }
+  #editLogoWrap .edit-logo-current {
+    font-size: 13px;
+    opacity: 0.85;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
 </style>
 
 
@@ -149,9 +226,9 @@
         To
         <textarea id="emailPacketTo" rows="3" placeholder="name@example.com, other@example.com" style="width:100%;"></textarea>
       </label>
-      <div id="emailPacketMsg" class="msg"></div>
-      <div class="row" style="justify-content:flex-end; gap:10px; margin-top:12px;">
-        <button class="btn" type="button" id="emailPacketSendBtn" style="background:#2e7d32;border-color:#2e7d32;">Send</button>
+      <div class="row maModalActions">
+        <span id="emailPacketMsg" class="msg"></span>
+        <button class="btn success" type="button" id="emailPacketSendBtn">Send</button>
       </div>
     </div>
   </div>
@@ -166,7 +243,7 @@
     </div>
     <div class="modalBody">
       <div class="grid2">
-        <label>Type
+        <label id="editTypeWrap">Type
           <select id="editType">
             <option value="INCIDENT">Incident</option>
             <option value="EVENT">Event</option>
@@ -177,8 +254,8 @@
           <input id="editName" />
         </label>
 
-        <label id="editExpireEnabledWrap" style="display:block; align-items:center; gap:8px;">
-          <span>Expires</span>
+        <label id="editExpireEnabledWrap" style="display:block;">
+          Expires
           <div class="row" style="gap:10px; align-items:center; flex-wrap:wrap;">
             <select id="editExpireEnabled">
               <option value="no">No</option>
@@ -188,10 +265,53 @@
           </div>
         </label>
 
-        <div class="row" style="grid-column:1/-1; gap:10px; align-items:center; flex-wrap:wrap;">
-          <button class="btn" id="editSaveBtn" type="button">Save</button>
+        <label id="editLogoWrap" style="display:none;">
+          Custom Logo
+          <div class="row edit-logo-row">
+            <div class="edit-logo-file-wrap">
+              <input type="file" id="editLogoFile" accept="image/png,image/jpeg,image/webp,image/gif" />
+              <button type="button" class="btn" id="editLogoChooseBtn">Choose file</button>
+              <span id="editLogoCurrent" class="edit-logo-current muted">No file chosen</span>
+            </div>
+            <button type="button" class="btn" id="editLogoRemoveBtn" style="display:none;">Remove Custom Logo</button>
+          </div>
+        </label>
+
+        <div class="row maModalActions" style="grid-column:1/-1;">
           <span id="editMsg" class="msg"></span>
+          <button class="btn success" id="editSaveBtn" type="button">Save</button>
         </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Create Additional MA User Modal -->
+<div class="modalOverlay" id="addMaUserOverlay" style="display:none;">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="addMaUserTitle">
+    <div class="modalHeader">
+      <h2 id="addMaUserTitle" style="margin:0;">Create Additional MA User</h2>
+      <button class="btn" id="addMaUserCloseBtn" type="button">Close</button>
+    </div>
+    <div class="modalBody">
+      <div class="grid2">
+        <label>Title
+          <input id="addMaUserTitleInput" placeholder="Title For Sub-User" />
+        </label>
+        <label id="addMaUserExpireEnabledWrap" style="display:block;">
+          <span>Expires</span>
+          <div class="row" style="gap:10px; align-items:center; flex-wrap:wrap;">
+            <select id="addMaUserExpireEnabled">
+              <option value="no" selected>No</option>
+              <option value="yes">Yes</option>
+            </select>
+            <input id="addMaExpireAt" type="datetime-local" style="min-width: 240px; display:none;" />
+          </div>
+        </label>
+      </div>
+      <div class="row maModalActions">
+        <span id="addMaUserMsg" class="msg"></span>
+        <button class="btn maAddUser" id="addMaUserSaveBtn" type="button">Create User</button>
       </div>
     </div>
   </div>
@@ -248,10 +368,10 @@
         <small>Search and pick specific users to add the target group to.</small>
       </div>
 
-      <div class="row" style="margin-top:16px; align-items:center; flex-wrap:wrap; gap:10px;">
-        <button class="btn success" id="massApplyBtn" type="button">Mass Assign</button>
-        <button class="btn" id="massSkipBtn" type="button">Skip Group Assignment</button>
+      <div class="row maModalActions" style="margin-top:16px;">
         <span id="massMsg" class="msg"></span>
+        <button class="btn" id="massSkipBtn" type="button">Skip Group Assignment</button>
+        <button class="btn success" id="massApplyBtn" type="button">Mass Assign</button>
       </div>
     </div>
   </div>
@@ -598,28 +718,53 @@ maType.onchange = updateCreateExpireUi;
 maExpireEnabled.onchange = updateCreateExpireUi;
 updateCreateExpireUi();
 
-// ----- Create: group mode controls -----
+// Group IDs tied to mutual aid channels — excluded from "Use Existing Group" picker.
+let mutualAidExcludedGroupIds = new Set();
+
+function refreshMutualAidExcludedGroupIds() {
+  mutualAidExcludedGroupIds = new Set(
+    (allItems || [])
+      .map((it) => String(it?.groupId || "").trim())
+      .filter(Boolean)
+  );
+}
+
+function isMutualAidGroupName(name) {
+  const raw = String(name || "").trim().toLowerCase();
+  const withoutTak = raw.startsWith("tak_") ? raw.slice(4) : raw;
+  return withoutTak.startsWith("ma -") || withoutTak.startsWith("ma-");
+}
+
+function groupsForExistingSelect() {
+  return (groupsCache || []).filter((g) => {
+    const id = String(g?.pk || "").trim();
+    if (id && mutualAidExcludedGroupIds.has(id)) return false;
+    if (isMutualAidGroupName(g?.name)) return false;
+    return true;
+  });
+}
+
 function renderExistingGroupSelect() {
   if (!maExistingGroup) return;
   const current = String(maExistingGroup.value || "");
-  const items = (groupsCache || [])
+  const items = groupsForExistingSelect()
     .slice()
-    .sort((a,b)=>displayGroupName(a.name).localeCompare(displayGroupName(b.name)));
+    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
 
-  const opts = [`<option value="">-- Select A Group --</option>`]
-  .concat(items.map(g => {
-    const id = String(g.pk);
-    const rawName = String(g.name || "");
-    const label = displayGroupName(rawName);
-    return `<option value="${esc(id)}">${esc(label)}</option>`;
-  }));
-
+  const opts = [`<option value="">-- Select A Group --</option>`].concat(
+    items.map((g) => {
+      const id = String(g.pk);
+      const rawName = String(g.name || "");
+      const label = displayGroupName(rawName);
+      return `<option value="${esc(id)}">${esc(label)}</option>`;
+    })
+  );
 
   maExistingGroup.innerHTML = opts.join("");
   if (current) maExistingGroup.value = current;
 }
 
-function updateCreateGroupModeUi(){
+function updateCreateGroupModeUi() {
   const mode = String(maGroupMode?.value || "new").toLowerCase();
   const isExisting = mode === "existing";
   // Use flex so the "Existing Group" label sits above the dropdown.
@@ -634,7 +779,7 @@ function updateCreateGroupModeUi(){
   if (isExisting) {
     // Ensure groups are loaded and dropdown is populated.
     if (!groupsCache || !groupsCache.length) {
-      loadGroups().catch(()=>{});
+      loadGroups().catch(() => {});
     } else {
       renderExistingGroupSelect();
     }
@@ -922,9 +1067,30 @@ function drawNumberedList(doc, items, x, y, maxWidth, lineHeight = 16, indent = 
 }
 
 
+async function loadHiResEnrollmentQrDataUrl(itemId) {
+  const res = await fetch(`/api/mutual-aid/${encodeURIComponent(itemId)}/qr/download`);
+  if (!res.ok) {
+    let msg = "Failed to load enrollment QR";
+    try {
+      const t = await res.text();
+      if (t) msg = t;
+    } catch {
+      /* ignore */
+    }
+    throw new Error(msg);
+  }
+  const blob = await res.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Failed to read enrollment QR"));
+    reader.readAsDataURL(blob);
+  });
+}
+
 async function buildDeploymentPacketPdf() {
   try {
-    if (!qrEnrollUrl || !qrImg?.src) {
+    if (!qrEnrollUrl || !qrActiveId) {
       throw new Error("QR not ready yet.");
     }
 
@@ -1027,16 +1193,28 @@ async function buildDeploymentPacketPdf() {
     doc.setTextColor(0);
     doc.text(callsignText, pageW / 2, margin + 42, { align: "center" });
 
-    // Main enrollment QR
-    const qrSize2 = Math.min(pageW - margin * 2, pageH - (margin * 2 + 120));
+    // Main enrollment QR (high-res download — preserve aspect ratio; includes username strip)
+    const maxQrBox = Math.min(pageW - margin * 2, pageH - (margin * 2 + 120));
     const qrY2 = margin + 70;
+    const hiResEnrollmentQr = await loadHiResEnrollmentQrDataUrl(qrActiveId);
+    const qrProps = doc.getImageProperties(hiResEnrollmentQr);
+    const qrScale = Math.min(maxQrBox / qrProps.width, maxQrBox / qrProps.height);
+    const drawQrW = qrProps.width * qrScale;
+    const drawQrH = qrProps.height * qrScale;
 
-    doc.addImage(qrImg.src, "PNG", (pageW - qrSize2) / 2, qrY2, qrSize2, qrSize2);
+    doc.addImage(
+      hiResEnrollmentQr,
+      "PNG",
+      (pageW - drawQrW) / 2,
+      qrY2,
+      drawQrW,
+      drawQrH
+    );
 
     // Username label
     const userLabel = String(qrActiveItem?.username || "").trim();
     if (userLabel) {
-      const userY = Math.min(pageH - margin, qrY2 + qrSize2 + 32);
+      const userY = Math.min(pageH - margin, qrY2 + drawQrH + 32);
       doc.setFont("helvetica", "bold");
       doc.setFontSize(24);
       doc.text(userLabel, pageW / 2, userY, { align: "center" });
@@ -1131,6 +1309,7 @@ if (qrPacketBtn) {
 // ----- Edit modal -----
 const editOverlay = document.getElementById("editOverlay");
 const editCloseBtn = document.getElementById("editCloseBtn");
+const editTypeWrap = document.getElementById("editTypeWrap");
 const editType = document.getElementById("editType");
 const editName = document.getElementById("editName");
 const editExpireEnabledWrap = document.getElementById("editExpireEnabledWrap");
@@ -1138,13 +1317,47 @@ const editExpireEnabled = document.getElementById("editExpireEnabled");
 const editExpireAt = document.getElementById("editExpireAt");
 const editSaveBtn = document.getElementById("editSaveBtn");
 const editMsg = document.getElementById("editMsg");
+const editLogoWrap = document.getElementById("editLogoWrap");
+const editLogoFile = document.getElementById("editLogoFile");
+const editLogoChooseBtn = document.getElementById("editLogoChooseBtn");
+const editLogoCurrent = document.getElementById("editLogoCurrent");
+const editLogoRemoveBtn = document.getElementById("editLogoRemoveBtn");
+let editLogoRemovePending = false;
 
+function logoUrlToDisplayName(logoUrl) {
+  const path = String(logoUrl || "").trim();
+  if (!path) return "";
+  const base = path.split("/").pop() || path;
+  try {
+    return decodeURIComponent(base);
+  } catch {
+    return base;
+  }
+}
+
+function setEditLogoCurrentLabel(text) {
+  if (!editLogoCurrent) return;
+  const label = String(text || "").trim() || "No file chosen";
+  editLogoCurrent.textContent = label;
+  editLogoCurrent.title = label;
+}
+
+function updateEditLogoRemoveBtn(hasCustom) {
+  if (!editLogoRemoveBtn) return;
+  editLogoRemoveBtn.style.display = hasCustom ? "inline-block" : "none";
+}
 
 function openEdit(item){
   activeItem = item;
   editOverlay.style.display = "flex";
   document.body.classList.add("noScroll");
-  editType.value = item.type || "INCIDENT";
+  const sub = isSubMutualAidType(item?.type);
+  if (editTypeWrap) editTypeWrap.style.display = sub ? "none" : "";
+  if (editType) {
+    const base = baseMutualAidType(item?.type) || "INCIDENT";
+    editType.value = base;
+    editType.disabled = false;
+  }
   editName.value = item.title || "";
   // Expiration fields (EVENT + INCIDENT)
   editExpireEnabled.value = item.expireEnabled ? "yes" : "no";
@@ -1165,7 +1378,55 @@ function openEdit(item){
 	    editExpireAt.value = "";
 	  }
   updateEditExpireUi();
+
+  editLogoRemovePending = false;
+  if (editLogoFile) editLogoFile.value = "";
+
+  const anchor = getGroupAnchorForGroup(item?.groupId);
+  const isAnchor = !!(anchor && String(anchor.id) === String(item.id));
+  const showLogo = !sub && isAnchor;
+  if (editLogoWrap) editLogoWrap.style.display = showLogo ? "block" : "none";
+  if (showLogo) {
+    const customLogo = String(anchor?.logoUrl || item?.logoUrl || "").trim();
+    if (customLogo) {
+      setEditLogoCurrentLabel(logoUrlToDisplayName(customLogo));
+    } else {
+      setEditLogoCurrentLabel("No file chosen");
+    }
+    updateEditLogoRemoveBtn(!!customLogo);
+  } else {
+    setEditLogoCurrentLabel("No file chosen");
+    updateEditLogoRemoveBtn(false);
+  }
+
   setMsg(editMsg, "", true);
+}
+
+if (editLogoChooseBtn && editLogoFile) {
+  editLogoChooseBtn.onclick = () => editLogoFile.click();
+}
+
+if (editLogoFile) {
+  editLogoFile.onchange = () => {
+    editLogoRemovePending = false;
+    const file = editLogoFile.files && editLogoFile.files[0];
+    if (file) {
+      setEditLogoCurrentLabel(file.name);
+      updateEditLogoRemoveBtn(true);
+    } else {
+      setEditLogoCurrentLabel("No file chosen");
+      updateEditLogoRemoveBtn(false);
+    }
+  };
+}
+
+if (editLogoRemoveBtn) {
+  editLogoRemoveBtn.onclick = () => {
+    editLogoRemovePending = true;
+    if (editLogoFile) editLogoFile.value = "";
+    setEditLogoCurrentLabel("No file chosen");
+    updateEditLogoRemoveBtn(false);
+  };
 }
 
 function updateEditExpireUi(){
@@ -1184,10 +1445,132 @@ function updateEditExpireUi(){
 
 editType.onchange = updateEditExpireUi;
 editExpireEnabled.onchange = updateEditExpireUi;
-editCloseBtn.onclick = () => { editOverlay.style.display = "none"; document.body.classList.remove("noScroll"); };
+editCloseBtn.onclick = () => {
+  editOverlay.style.display = "none";
+  document.body.classList.remove("noScroll");
+  editLogoRemovePending = false;
+  if (editLogoFile) editLogoFile.value = "";
+  setEditLogoCurrentLabel("No file chosen");
+};
+
+// ----- Additional MA user modal -----
+const addMaUserOverlay = document.getElementById("addMaUserOverlay");
+const addMaUserCloseBtn = document.getElementById("addMaUserCloseBtn");
+const addMaUserTitleEl = document.getElementById("addMaUserTitle");
+const addMaUserTitleInput = document.getElementById("addMaUserTitleInput");
+const addMaUserExpireEnabled = document.getElementById("addMaUserExpireEnabled");
+const addMaExpireAt = document.getElementById("addMaExpireAt");
+const addMaUserSaveBtn = document.getElementById("addMaUserSaveBtn");
+const addMaUserMsg = document.getElementById("addMaUserMsg");
+let addMaUserParent = null;
+
+function isSubMutualAidType(type) {
+  return String(type || "").trim().toUpperCase().startsWith("SUB-");
+}
+
+function baseMutualAidType(type) {
+  return String(type || "").trim().toUpperCase().replace(/^SUB-/, "");
+}
+
+function formatMutualAidTypeLabel(type) {
+  const t = String(type || "").trim().toUpperCase();
+  if (!t) return "";
+  if (isSubMutualAidType(t)) {
+    const base = baseMutualAidType(t);
+    if (!base) return "Sub";
+    return `Sub-${base.charAt(0)}${base.slice(1).toLowerCase()}`;
+  }
+  return `${t.charAt(0)}${t.slice(1).toLowerCase()}`;
+}
+
+function createSubButtonLabel(type) {
+  const base = baseMutualAidType(type);
+  if (!base) return "Create Sub";
+  return `Create Sub-${base.charAt(0)}${base.slice(1).toLowerCase()}`;
+}
+
+function updateAddMaUserExpireUi() {
+  const enabled = String(addMaUserExpireEnabled?.value || "").toLowerCase() === "yes";
+  if (addMaExpireAt) {
+    addMaExpireAt.disabled = !enabled;
+    addMaExpireAt.style.display = enabled ? "block" : "none";
+    if (!enabled) addMaExpireAt.value = "";
+  }
+}
+
+function openAddMaUserModal(parentItem) {
+  addMaUserParent = parentItem;
+  const subBtnLabel = createSubButtonLabel(parentItem?.type);
+  if (addMaUserTitleEl) addMaUserTitleEl.textContent = subBtnLabel;
+  if (addMaUserSaveBtn) addMaUserSaveBtn.textContent = subBtnLabel;
+  if (addMaUserTitleInput) addMaUserTitleInput.value = "";
+  if (addMaUserExpireEnabled) addMaUserExpireEnabled.value = "no";
+  if (addMaExpireAt) addMaExpireAt.value = "";
+  updateAddMaUserExpireUi();
+  setMsg(addMaUserMsg, "", true);
+  addMaUserOverlay.style.display = "flex";
+  document.body.classList.add("noScroll");
+}
+
+function closeAddMaUserModal() {
+  addMaUserOverlay.style.display = "none";
+  document.body.classList.remove("noScroll");
+  addMaUserParent = null;
+}
+
+if (addMaUserCloseBtn) addMaUserCloseBtn.onclick = closeAddMaUserModal;
+if (addMaUserExpireEnabled) addMaUserExpireEnabled.onchange = updateAddMaUserExpireUi;
+if (addMaUserSaveBtn) {
+  addMaUserSaveBtn.onclick = async () => {
+    if (!addMaUserParent) return;
+    const title = String(addMaUserTitleInput?.value || "").trim();
+    if (!title) {
+      setMsg(addMaUserMsg, "Title is required.", false);
+      return;
+    }
+
+    let expireEnabled = false;
+    let expireAt = null;
+    expireEnabled = String(addMaUserExpireEnabled?.value || "").toLowerCase() === "yes";
+    if (expireEnabled) {
+      const raw = String(addMaExpireAt?.value || "").trim();
+      if (!raw) {
+        setMsg(addMaUserMsg, "Expiration date/time is required.", false);
+        return;
+      }
+      expireAt = new Date(raw).toISOString();
+    }
+
+    addMaUserSaveBtn.disabled = true;
+    setMsg(addMaUserMsg, "Creating...", true);
+    try {
+      const res = await fetch(
+        `/api/mutual-aid/${encodeURIComponent(addMaUserParent.id)}/additional-user`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title, expireEnabled, expireAt }),
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Create failed");
+      closeAddMaUserModal();
+      setMsg(maListMsg, `Additional user created (${data.item?.username || "ok"}).`, true);
+      await loadList();
+    } catch (e) {
+      setMsg(addMaUserMsg, e?.message || String(e), false);
+    } finally {
+      addMaUserSaveBtn.disabled = false;
+    }
+  };
+}
+
 editSaveBtn.onclick = async () => {
   if(!activeItem) return;
-  const type = String(editType.value || "").trim().toUpperCase();
+  const sub = isSubMutualAidType(activeItem?.type);
+  const type = sub
+    ? String(activeItem.type || "").trim().toUpperCase()
+    : String(editType?.value || "").trim().toUpperCase();
   const title = String(editName.value || "").trim();
   if(!title){ setMsg(editMsg, "Name is required.", false); return; }
 
@@ -1205,13 +1588,27 @@ editSaveBtn.onclick = async () => {
     }
     expireAt = new Date(raw).toISOString();
   }
+  const fd = new FormData();
+  fd.append("type", type);
+  fd.append("title", title);
+  fd.append("expireEnabled", expireEnabled ? "true" : "false");
+  if (expireAt) fd.append("expireAt", expireAt);
+  if (editLogoRemovePending) fd.append("removeLogo", "1");
+  const logoUpload = editLogoFile?.files?.[0];
+  if (logoUpload) fd.append("logo", logoUpload);
+
   const res = await fetch(`/api/mutual-aid/${encodeURIComponent(activeItem.id)}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ type, title, expireEnabled, expireAt })
+    body: fd,
   });
-  const data = await res.json();
-  if(!res.ok){ setMsg(editMsg, data.error || "Failed to save", false); return; }
+  const data = await res.json().catch(() => ({}));
+  if(!res.ok){
+    const errMsg = typeof data.error === "string" ? data.error : data.error?.message || "Failed to save";
+    setMsg(editMsg, errMsg, false);
+    return;
+  }
+  editLogoRemovePending = false;
+  if (editLogoFile) editLogoFile.value = "";
   setMsg(editMsg, "Saved.", true);
   editOverlay.style.display = "none";
   document.body.classList.remove("noScroll");
@@ -1578,45 +1975,176 @@ massApplyBtn.onclick = async () => {
 };
 
 // ----- List rendering -----
+function isGroupCreatorItem(it) {
+  if (isSubMutualAidType(it?.type)) return false;
+  if (it?.groupWasCreated === true) return true;
+  return String(it?.groupMode || "new").toLowerCase() !== "existing";
+}
+
+function getGroupAnchorForGroup(groupId) {
+  const gid = String(groupId || "");
+  const master = (allItems || []).filter(
+    (x) => String(x.groupId || "") === gid && isGroupCreatorItem(x)
+  );
+  if (master.length) {
+    master.sort((a, b) =>
+      String(a.createdAt || "").localeCompare(String(b.createdAt || ""))
+    );
+    return master[0];
+  }
+  const primaries = (allItems || []).filter(
+    (x) => String(x.groupId || "") === gid && !isSubMutualAidType(x?.type)
+  );
+  primaries.sort((a, b) =>
+    String(a.createdAt || "").localeCompare(String(b.createdAt || ""))
+  );
+  return primaries[0] || null;
+}
+
+function displayTitleForRow(it, masterOpt) {
+  const title = String(it?.title || "").trim();
+  if (!isSubMutualAidType(it?.type)) return title;
+  const master = masterOpt || getGroupAnchorForGroup(it?.groupId);
+  const masterTitle = String(master?.title || "").trim();
+  if (masterTitle && title) return `${masterTitle} - ${title}`;
+  return title || masterTitle;
+}
+
+function buildDisplayUnits(filteredItems) {
+  const filteredIdSet = new Set(filteredItems.map((x) => String(x.id)));
+  const groupIds = [...new Set(filteredItems.map((x) => String(x.groupId || "")))];
+  const units = [];
+
+  for (const gid of groupIds) {
+    const allInGroup = (allItems || []).filter((x) => String(x.groupId || "") === gid);
+    const anchor = getGroupAnchorForGroup(gid);
+    const visible = allInGroup.filter((x) => filteredIdSet.has(String(x.id)));
+    if (!visible.length) continue;
+
+    if (anchor && allInGroup.length > 1) {
+      const children = visible
+        .filter((x) => String(x.id) !== String(anchor.id))
+        .sort((a, b) =>
+          String(a.createdAt || "").localeCompare(String(b.createdAt || ""))
+        );
+      if (!filteredIdSet.has(String(anchor.id)) && !children.length) continue;
+      units.push({
+        kind: "unit",
+        master: anchor,
+        children,
+        totalCount: allInGroup.length,
+      });
+    } else {
+      for (const it of visible) {
+        units.push({ kind: "single", item: it });
+      }
+    }
+  }
+  return units;
+}
+
+function unitSortValue(unit, key) {
+  const it = unit.kind === "unit" ? unit.master : unit.item;
+  return maGetSortValue(it, key);
+}
+
+function sortDisplayUnits(units, key, dir) {
+  const sign = dir === "desc" ? -1 : 1;
+  return units.slice().sort((a, b) => {
+    const av = unitSortValue(a, key);
+    const bv = unitSortValue(b, key);
+    const cmp = av.localeCompare(bv, undefined, { numeric: true, sensitivity: "base" });
+    if (cmp !== 0) return cmp * sign;
+    return 0;
+  });
+}
+
+function renderMutualAidRow(it, opts = {}) {
+  const isChild = !!opts.isChild;
+  const isLastChild = !!opts.isLastChild;
+  const isSub = isSubMutualAidType(it.type);
+  const groupAnchor = getGroupAnchorForGroup(it?.groupId);
+  const master = opts.master || groupAnchor || null;
+  const canCreateSub = !isSub;
+  const typeLabel = formatMutualAidTypeLabel(it.type);
+  const displayTitle = displayTitleForRow(it, master);
+  const isAnchor = !!(groupAnchor && String(groupAnchor.id) === String(it.id));
+  const showMassAssign = isAnchor && isGroupCreatorItem(it);
+  const rowClass = [
+    isAnchor && !isSub ? "ma-unit-master" : "",
+    isChild || isSub ? "ma-unit-child" : "",
+    (isChild || isSub) && isLastChild ? "ma-unit-child-last" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const titleBlock = `<div style="font-weight:600;">${esc(displayTitle)}</div>`;
+  const channelLine = `<div style="color: var(--muted); font-size: 12px;">${esc(displayGroupName(it.groupName || ""))}</div>`;
+
+  return `
+    <tr class="${rowClass}">
+      <td>${esc(typeLabel)}</td>
+      <td>
+        ${titleBlock}
+        ${channelLine}
+        ${it.expireEnabled && it.expireAt ? `<div style="color: var(--muted); font-size: 12px;">Expires: ${esc(new Date(it.expireAt).toLocaleString())}</div>` : ""}
+      </td>
+      <td>
+        <div class="row" style="gap:10px; flex-wrap: wrap;">
+          ${isSub ? "" : `<button class="btn" type="button" data-act="members" data-id="${esc(it.id)}">View Members</button>`}
+          ${showMassAssign ? `<button class="btn success" type="button" data-act="assign" data-id="${esc(it.id)}">Assign</button>` : ""}
+          ${showMassAssign ? `<button class="btn" type="button" data-act="unassign" data-id="${esc(it.id)}">Unassign</button>` : ""}
+          <button class="btn" type="button" data-act="edit" data-id="${esc(it.id)}">Edit</button>
+          <button class="btn qr" type="button" data-act="qr" data-id="${esc(it.id)}">Show QR</button>
+          ${canCreateSub ? `<button class="btn maAddUser" type="button" data-act="adduser" data-id="${esc(it.id)}">${esc(createSubButtonLabel(it.type))}</button>` : ""}
+          <button class="btn danger" type="button" data-act="del" data-id="${esc(it.id)}">Delete</button>
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
 function renderList(){
   const needle = String(maFilter.value||"").trim().toLowerCase();
   let items = allItems.filter(it => {
     if(!needle) return true;
+    const master = getGroupAnchorForGroup(it.groupId);
+    const rowTitle = displayTitleForRow(it, master).toLowerCase();
     return (
       String(it.type||"").toLowerCase().includes(needle) ||
       String(it.title||"").toLowerCase().includes(needle) ||
+      rowTitle.includes(needle) ||
       String(it.groupName||"").toLowerCase().includes(needle) ||
       displayGroupName(it.groupName||"").toLowerCase().includes(needle) ||
       String(it.username||"").toLowerCase().includes(needle)
     );
   });
 
-    items = stableSortedCopy(items, maSortState.key, maSortState.dir);
+  const units = sortDisplayUnits(buildDisplayUnits(items), maSortState.key, maSortState.dir);
   updateSortIndicators();
 
-  maTbody.innerHTML = items.map(it => {
-    const isExistingGroup = String(it.groupMode || "new").toLowerCase() === "existing";
-    return `
-      <tr>
-        <td>${esc(it.type||"")}</td>
-        <td>
-          <div style="font-weight:600;">${esc(it.title||"")}</div>
-          <div style="color: var(--muted); font-size: 12px;">${esc(displayGroupName(it.groupName||""))}</div>
-          ${it.expireEnabled && it.expireAt ? `<div style="color: var(--muted); font-size: 12px;">Expires: ${esc(new Date(it.expireAt).toLocaleString())}</div>` : ""}
-        </td>
-        <td>
-          <div class="row" style="gap:10px; flex-wrap: wrap;">
-            <button class="btn" type="button" data-act="members" data-id="${esc(it.id)}">View Members</button>
-            ${isExistingGroup ? "" : `<button class=\"btn success\" type=\"button\" data-act=\"assign\" data-id=\"${esc(it.id)}\">Assign</button>`}
-            ${isExistingGroup ? "" : `<button class=\"btn\" type=\"button\" data-act=\"unassign\" data-id=\"${esc(it.id)}\">Unassign</button>`}
-            <button class="btn" type="button" data-act="edit" data-id="${esc(it.id)}">Edit</button>
-            <button class="btn qr" type="button" data-act="qr" data-id="${esc(it.id)}">Show QR</button>
-            <button class="btn danger" type="button" data-act="del" data-id="${esc(it.id)}">Delete</button>
-          </div>
-        </td>
-      </tr>
-    `;
-  }).join("") || `<tr><td colspan="3" style="color:var(--muted); padding: 10px;">No mutual aid items found.</td></tr>`;
+  const html = units
+    .map((unit) => {
+      if (unit.kind === "single") {
+        return renderMutualAidRow(unit.item, {});
+      }
+      const parts = [];
+      parts.push(renderMutualAidRow(unit.master, { master: unit.master }));
+      unit.children.forEach((child, idx) => {
+        parts.push(
+          renderMutualAidRow(child, {
+            isChild: true,
+            isLastChild: idx === unit.children.length - 1,
+            master: unit.master,
+          })
+        );
+      });
+      return parts.join("");
+    })
+    .join("");
+
+  maTbody.innerHTML =
+    html || `<tr><td colspan="3" style="color:var(--muted); padding: 10px;">No mutual aid items found.</td></tr>`;
 
   maTbody.querySelectorAll("button[data-act]").forEach(btn => {
     const id = String(btn.dataset.id);
@@ -1629,6 +2157,7 @@ function renderList(){
       if(act === "unassign") return openMassUnassign({ groupId: it.groupId, groupName: it.groupName });
       if(act === "edit") return openEdit(it);
       if(act === "qr") return openQrModal(it);
+      if(act === "adduser") return openAddMaUserModal(it);
       if(act === "del") return deleteItem(it);
     };
   });
@@ -1645,6 +2174,8 @@ async function loadList(){
     return;
   }
   allItems = Array.isArray(data) ? data : [];
+  refreshMutualAidExcludedGroupIds();
+  renderExistingGroupSelect();
   renderList();
   setMsg(maListMsg, `Loaded ${allItems.length} item(s).`, true);
 }
@@ -1652,17 +2183,39 @@ async function loadList(){
 maFilter.oninput = () => renderList();
 
 async function deleteItem(item){
-  const willDeleteGroup = String(item.groupMode||"new").toLowerCase() !== "existing";
-  const extra = willDeleteGroup
-    ? "This will revoke TAK certs, delete the user, and delete the group."
-    : "This will revoke TAK certs and delete the user. (The existing group will NOT be deleted.)";
+  const anchor = getGroupAnchorForGroup(item.groupId);
+  const isAnchor = !!(anchor && String(anchor.id) === String(item.id));
+  const isCreator = isGroupCreatorItem(item);
+  const linkedCount = (allItems || []).filter(
+    (x) => String(x.groupId || "") === String(item.groupId || "")
+  ).length;
+
+  let extra;
+  if (isAnchor && isCreator && linkedCount > 1) {
+    extra =
+      `This is the master deployment for this channel.\n\n` +
+      `This will delete all ${linkedCount} deployment(s) (including sub-users), revoke TAK certs for each user, and delete the shared group.`;
+  } else if (isAnchor && isCreator) {
+    extra = "This will revoke TAK certs, delete the user, and delete the group.";
+  } else if (isAnchor && linkedCount > 1) {
+    extra =
+      `This is the master deployment for this channel.\n\n` +
+      `This will delete all ${linkedCount} deployment(s) (including sub-users) and revoke TAK certs for each user. The shared group will remain.`;
+  } else if (isAnchor) {
+    extra = "This will revoke TAK certs and delete the user.";
+  } else {
+    extra =
+      "This will revoke TAK certs and delete this deployment user only. (Other deployments on this channel will remain.)";
+  }
+
   const ok = confirm(`Delete ${item.type} "${item.title}"?\n\n${extra}`);
   if(!ok) return;
   setMsg(maListMsg, "Deleting...", true);
   const res = await fetch(`/api/mutual-aid/${encodeURIComponent(item.id)}`, { method: "DELETE" });
   const data = await res.json().catch(()=>({}));
   if(!res.ok){ setMsg(maListMsg, data.error || "Delete failed", false); return; }
-  setMsg(maListMsg, "Deleted.", true);
+  const n = Number(data.deletedCount || 1);
+  setMsg(maListMsg, n > 1 ? `Deleted ${n} linked deployments.` : "Deleted.", true);
   await loadList();
 }
 
@@ -1689,9 +2242,10 @@ maCreateBtn.onclick = async () => {
       }
       expireAt = new Date(raw).toISOString();
     }
-    // Group mode payload
-    const groupMode = String(maGroupMode?.value || "new").toLowerCase() === "existing" ? "existing" : "new";
-    const existingGroupId = groupMode === "existing" ? String(maExistingGroup?.value || "").trim() : "";
+    const groupMode =
+      String(maGroupMode?.value || "new").toLowerCase() === "existing" ? "existing" : "new";
+    const existingGroupId =
+      groupMode === "existing" ? String(maExistingGroup?.value || "").trim() : "";
     if (groupMode === "existing" && !existingGroupId) {
       setMsg(maCreateMsg, "Please select an existing group.", false);
       maCreateBtn.disabled = false;
@@ -1701,7 +2255,7 @@ maCreateBtn.onclick = async () => {
     const res = await fetch("/api/mutual-aid", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type, title, expireEnabled, expireAt, groupMode, existingGroupId })
+      body: JSON.stringify({ type, title, expireEnabled, expireAt, groupMode, existingGroupId }),
     });
     const data = await res.json();
     if(!res.ok) throw new Error(data.error || "Create failed");
@@ -1717,7 +2271,6 @@ maCreateBtn.onclick = async () => {
     updateCreateExpireUi();
     await loadList();
 
-    // Immediately offer mass-assign (optional) ONLY when we created a new group.
     if (groupMode !== "existing") {
       openMassAssign({ groupId: item.groupId, groupName: displayGroupName(item.groupName) });
     }

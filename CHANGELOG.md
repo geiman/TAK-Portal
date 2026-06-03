@@ -12,6 +12,21 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.3.31 - 6/3/26
+🐛 `Bug Fix` - Fixes issue with Integrations failing to download certs<br>
+🐛 `Bug Fix` - Fixes issue with Mutual Aid not populating the Assign/Unassign buttons
+
+### v1.3.30 - 6/2/26
+✨ `Enhancement` - Custom logos added to mutual aid events to reflect special logs for special events<br>
+✨ `Enhancement` - Logo sizing, padding, and scaling cleaned across TAK Portal
+
+### v1.3.29 - 6/2/26
+✨ `Enhancement` - Adds mutual aid groups to Data Sync groups dropdown for global admins
+
+### v1.3.28 - 6/2/26
+🐛 `Bug Fix` - Fixes issue with role and template migrations attempting to run after assigning users a mutual aid group<br>
+✨ `Enhancement` - Allow mutual aid incidents and events to have additional logins/sub-events.  (My use case: Have a "Master" MA group for a big event, and then create sub-incidents and sub-events using the existing mutual aid group to control access for each operational period, agency, etc...  Users needing access throughout the entire event will get the "master" group, but then others needing access only for a day or such can use the "sub" event user that feeds the same group for better access control.)
+
 ### v1.3.27 - 5/31/26
 ✨ `Enhancement` - Data Sync moved out of beta and can now be accessed by global and agency admins (more features to be added soon)<br>
 🐛 `Bug Fix` - Fixes issue with tak_ naming showing up in random sections of the UI of the Groups and Mutual Aid page modals/popups

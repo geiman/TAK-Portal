@@ -3,6 +3,7 @@ const path = require("path");
 const fs = require("fs");
 const Jimp = require("jimp"); // Jimp 0.22.x
 const settingsSvc = require("./settings.service");
+const { addLogoToQrPng } = require("./qrLogoOverlay.service");
 
 // Prefer TAK_URL from settings.json, fall back to .env if needed
 function getTakUrl() {
@@ -143,69 +144,16 @@ function buildPreferenceUrl({ callsign, teamLabel, roleLabel }) {
   return `tak://com.atakmap.app/preference?${params.join("&")}`;
 }
 
-// Overlay branding logo (if configured) onto the center of a QR PNG buffer.
-async function addLogoToPng(pngBuffer) {
-  try {
-    const settings = settingsSvc.getSettings() || {};
-    const logoUrl = settings.BRAND_LOGO_URL;
+async function addLogoToPng(pngBuffer, options = {}) {
+  const settings = settingsSvc.getSettings() || {};
+  const logoUrl = settings.BRAND_LOGO_URL;
+  if (!logoUrl || typeof logoUrl !== "string") return pngBuffer;
 
-    if (!logoUrl || typeof logoUrl !== "string") {
-      return pngBuffer;
-    }
+  const logoUrlPath = logoUrl.replace(/^\//, "");
+  const logoFsPath = path.join(__dirname, "..", "data", logoUrlPath);
+  if (!fs.existsSync(logoFsPath)) return pngBuffer;
 
-    // BRAND_LOGO_URL is like "/branding/logo.png"
-    // Files are stored under /data/branding and served via app.use("/branding", ...)
-    const logoUrlPath = logoUrl.replace(/^\//, ""); // "branding/logo.png"
-    const logoFsPath = path.join(__dirname, "..", "data", logoUrlPath);
-
-    if (!fs.existsSync(logoFsPath)) {
-      return pngBuffer;
-    }
-
-    const [qrImage, logoImageOriginal] = await Promise.all([
-      Jimp.read(pngBuffer),
-      Jimp.read(logoFsPath),
-    ]);
-
-    const qrWidth = qrImage.getWidth();
-    const qrHeight = qrImage.getHeight();
-
-    // Max logo size: 25% of QR's smaller dimension (safe for error-correction H)
-    const logoMaxSize = Math.floor(Math.min(qrWidth, qrHeight) * 0.25);
-
-    // Clone and resize logo
-    const logoImage = logoImageOriginal.clone();
-    logoImage.contain(logoMaxSize, logoMaxSize);
-
-    // White background "badge" behind logo
-    const padding = Math.floor(logoMaxSize * 0.12); // 12% padding around logo
-    const bgWidth = logoImage.getWidth() + padding * 2;
-    const bgHeight = logoImage.getHeight() + padding * 2;
-
-    // Position of the white background (centered)
-    const bgX = Math.floor((qrWidth - bgWidth) / 2);
-    const bgY = Math.floor((qrHeight - bgHeight) / 2);
-
-    // Fill a white rectangle directly onto the QR image
-    qrImage.scan(bgX, bgY, bgWidth, bgHeight, function (x, y, idx) {
-      // RGBA = 255, 255, 255, 255
-      this.bitmap.data[idx + 0] = 255; // R
-      this.bitmap.data[idx + 1] = 255; // G
-      this.bitmap.data[idx + 2] = 255; // B
-      this.bitmap.data[idx + 3] = 255; // A
-    });
-
-    // Now center the logo on top of that white rectangle
-    const logoX = bgX + padding;
-    const logoY = bgY + padding;
-
-    qrImage.composite(logoImage, logoX, logoY);
-
-    return await qrImage.getBufferAsync(Jimp.MIME_PNG);
-  } catch (err) {
-    console.error("Failed to add logo to QR:", err);
-    return pngBuffer;
-  }
+  return addLogoToQrPng(pngBuffer, logoFsPath, options);
 }
 
 // Add username label underneath the QR image (for downloaded image only)

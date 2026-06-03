@@ -114,6 +114,10 @@ app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 app.use("/branding", express.static(path.join(__dirname, "data", "branding")));
+app.use(
+  "/mutual-aid-logos",
+  express.static(path.join(__dirname, "data", "mutual-aid-logos"))
+);
 
 // Multer storage for settings uploads (certs + branding)
 const uploadStorage = multer.diskStorage({
