@@ -3834,6 +3834,7 @@ module.exports = {
   // meta/template support
   getTemplatesForAgency,
   buildTakPortalBlock,
+  validatePassword,
 
   // shared data
   getAllGroups,

@@ -58,6 +58,7 @@ router.post("/", async (req, res) => {
       expireAt: req.body?.expireAt,
       groupMode: req.body?.groupMode,
       existingGroupId: req.body?.existingGroupId,
+      password: req.body?.password,
     });
 
     auditSvc.logEvent({
@@ -90,6 +91,7 @@ router.post("/:id/additional-user", async (req, res) => {
       title: req.body?.title,
       expireEnabled: req.body?.expireEnabled,
       expireAt: req.body?.expireAt,
+      password: req.body?.password,
     });
 
     auditSvc.logEvent({

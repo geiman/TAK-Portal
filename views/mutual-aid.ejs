@@ -17,6 +17,21 @@
       <label>Title
       <input id="maTitle" placeholder="Title (ex. County Fair, Search, etc...)" style="min-width: 240px;" /></label>
 
+      <label>Password (optional)
+        <div class="passwordWrap" style="min-width: 280px;">
+          <input
+            id="maPassword"
+            type="password"
+            placeholder="Blank generates a secure password"
+            minlength="12"
+            pattern="(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[^A-Za-z0-9]).{12,}"
+            title="Password must contain a minimum of 12 characters, upper, lower, number, and symbol"
+            autocomplete="off"
+          />
+          <button type="button" id="maPasswordToggle" class="passwordToggle" aria-label="Show password">👁</button>
+        </div>
+      </label>
+
       <label id="maExpireWrap" style="display:flex; align-items:center; gap:8px;">
         <span>Expires</span>
         <select id="maExpireEnabled">
@@ -48,6 +63,9 @@
 
       <div id="maCreateMsg" class="msg" style="margin-top:10px;"></div>
 
+    </div>
+    <div id="maCreateHelp" class="msg" style="margin-top:8px;">
+      Leave password blank to generate a secure 18-character password. Custom passwords must meet the Users page password rule.
     </div>
   </div>
 
@@ -297,6 +315,20 @@
       <div class="grid2">
         <label>Title
           <input id="addMaUserTitleInput" placeholder="Title For Sub-User" />
+        </label>
+        <label>Password (optional)
+          <div class="passwordWrap">
+            <input
+              id="addMaUserPassword"
+              type="password"
+              placeholder="Blank generates a secure password"
+              minlength="12"
+              pattern="(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[^A-Za-z0-9]).{12,}"
+              title="Password must contain a minimum of 12 characters, upper, lower, number, and symbol"
+              autocomplete="off"
+            />
+            <button type="button" id="addMaUserPasswordToggle" class="passwordToggle" aria-label="Show password">👁</button>
+          </div>
         </label>
         <label id="addMaUserExpireEnabledWrap" style="display:block;">
           <span>Expires</span>
@@ -619,6 +651,8 @@ if (membersNextBtn) {
 
 const maType = document.getElementById("maType");
 const maTitle = document.getElementById("maTitle");
+const maPassword = document.getElementById("maPassword");
+const maPasswordToggle = document.getElementById("maPasswordToggle");
 const maCreateBtn = document.getElementById("maCreateBtn");
 const maCreateMsg = document.getElementById("maCreateMsg");
 
@@ -707,6 +741,31 @@ if (maThead){
 let allItems = [];
 let activeItem = null;
 
+function isValidPassword(pwd) {
+  if (!pwd) return true;
+  const re = /^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[^A-Za-z0-9]).{12,}$/;
+  return re.test(pwd);
+}
+
+function passwordValidationMessage() {
+  return "Password must be at least 12 characters and include uppercase, lowercase, number, and symbol, or be left blank.";
+}
+
+function wirePasswordToggle(inputEl, toggleEl) {
+  if (!inputEl || !toggleEl) return;
+  toggleEl.textContent = "👁";
+  toggleEl.setAttribute("aria-label", "Show password");
+  toggleEl.title = "Show password";
+  toggleEl.addEventListener("click", () => {
+    const isHidden = inputEl.type === "password";
+    inputEl.type = isHidden ? "text" : "password";
+    toggleEl.setAttribute("aria-label", isHidden ? "Hide password" : "Show password");
+    toggleEl.title = isHidden ? "Hide password" : "Show password";
+  });
+}
+
+wirePasswordToggle(maPassword, maPasswordToggle);
+
 // ----- Create: expiration controls -----
 function updateCreateExpireUi(){
   // Expiration is supported for both EVENT and INCIDENT.
@@ -772,8 +831,8 @@ function updateCreateGroupModeUi() {
 
   if (maCreateHelp) {
     maCreateHelp.innerHTML = isExisting
-      ? `This will create a matching user with an auto-generated 18-character password and add it to the selected group.`
-      : `This will create a group named <strong>MA - TITLE</strong> and a matching user with an auto-generated 18-character password.`;
+      ? `This will create a matching user and add it to the selected group. Leave password blank to generate a secure 18-character password.`
+      : `This will create a group named <strong>MA - TITLE</strong> and a matching user. Leave password blank to generate a secure 18-character password.`;
   }
 
   if (isExisting) {
@@ -1458,11 +1517,14 @@ const addMaUserOverlay = document.getElementById("addMaUserOverlay");
 const addMaUserCloseBtn = document.getElementById("addMaUserCloseBtn");
 const addMaUserTitleEl = document.getElementById("addMaUserTitle");
 const addMaUserTitleInput = document.getElementById("addMaUserTitleInput");
+const addMaUserPassword = document.getElementById("addMaUserPassword");
+const addMaUserPasswordToggle = document.getElementById("addMaUserPasswordToggle");
 const addMaUserExpireEnabled = document.getElementById("addMaUserExpireEnabled");
 const addMaExpireAt = document.getElementById("addMaExpireAt");
 const addMaUserSaveBtn = document.getElementById("addMaUserSaveBtn");
 const addMaUserMsg = document.getElementById("addMaUserMsg");
 let addMaUserParent = null;
+wirePasswordToggle(addMaUserPassword, addMaUserPasswordToggle);
 
 function isSubMutualAidType(type) {
   return String(type || "").trim().toUpperCase().startsWith("SUB-");
@@ -1504,6 +1566,7 @@ function openAddMaUserModal(parentItem) {
   if (addMaUserTitleEl) addMaUserTitleEl.textContent = subBtnLabel;
   if (addMaUserSaveBtn) addMaUserSaveBtn.textContent = subBtnLabel;
   if (addMaUserTitleInput) addMaUserTitleInput.value = "";
+  if (addMaUserPassword) addMaUserPassword.value = "";
   if (addMaUserExpireEnabled) addMaUserExpireEnabled.value = "no";
   if (addMaExpireAt) addMaExpireAt.value = "";
   updateAddMaUserExpireUi();
@@ -1528,6 +1591,11 @@ if (addMaUserSaveBtn) {
       setMsg(addMaUserMsg, "Title is required.", false);
       return;
     }
+    const password = String(addMaUserPassword?.value || "");
+    if (!isValidPassword(password)) {
+      setMsg(addMaUserMsg, passwordValidationMessage(), false);
+      return;
+    }
 
     let expireEnabled = false;
     let expireAt = null;
@@ -1549,7 +1617,7 @@ if (addMaUserSaveBtn) {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title, expireEnabled, expireAt }),
+          body: JSON.stringify({ title, expireEnabled, expireAt, password }),
         }
       );
       const data = await res.json();
@@ -2225,6 +2293,11 @@ maCreateBtn.onclick = async () => {
   const type = String(maType.value || "").trim().toUpperCase();
   const title = String(maTitle.value || "").trim();
   if(!title){ setMsg(maCreateMsg, "Name is required.", false); return; }
+  const password = String(maPassword?.value || "");
+  if (!isValidPassword(password)) {
+    setMsg(maCreateMsg, passwordValidationMessage(), false);
+    return;
+  }
 
   maCreateBtn.disabled = true;
   setMsg(maCreateMsg, "Creating...", true);
@@ -2255,7 +2328,7 @@ maCreateBtn.onclick = async () => {
     const res = await fetch("/api/mutual-aid", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type, title, expireEnabled, expireAt, groupMode, existingGroupId }),
+      body: JSON.stringify({ type, title, expireEnabled, expireAt, groupMode, existingGroupId, password }),
     });
     const data = await res.json();
     if(!res.ok) throw new Error(data.error || "Create failed");
@@ -2263,6 +2336,7 @@ maCreateBtn.onclick = async () => {
     const item = data.item;
     setMsg(maCreateMsg, `Created ${displayGroupName(item.groupName)} (user: ${item.username}).`, true);
     maTitle.value = "";
+    if (maPassword) maPassword.value = "";
     maExpireEnabled.value = "no";
     maExpireAt.value = "";
     if (maGroupMode) maGroupMode.value = "new";

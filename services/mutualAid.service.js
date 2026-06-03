@@ -641,6 +641,7 @@ async function create({
   expireAt,
   groupMode,
   existingGroupId,
+  password,
   allowMutualAidGroup = false,
   usernameOverride = null,
 } = {}) {
@@ -692,13 +693,19 @@ async function create({
   const groupMaster =
     mode === "existing" ? findGroupAnchorItem(existingItems, String(group.pk)) : null;
 
-  // 2) Create user (minimal fields; password is numeric as requested)
-  const password = randomPassword(18);
+  const requestedPassword = String(password || "").trim();
+  if (requestedPassword) {
+    const pwdErr = usersSvc.validatePassword(requestedPassword);
+    if (pwdErr) throw new Error(pwdErr);
+  }
+
+  // 2) Create user
+  const resolvedPassword = requestedPassword || randomPassword(18);
   const userPayload = {
     username,
     name, // display name
     is_active: true,
-    password,
+    password: resolvedPassword,
     attributes: {
       mutual_aid: true,
       mutual_aid_type: t,
@@ -720,7 +727,7 @@ async function create({
   // users.service.js was updated to always set passwords using the dedicated
   // set_password endpoint; mutual-aid users should follow the same pattern
   // so the stored password always matches the actual Authentik password.
-  await api.post(`/core/users/${user.pk}/set_password/`, { password });
+  await api.post(`/core/users/${user.pk}/set_password/`, { password: resolvedPassword });
 
   // 3) Ensure user gets this mutual aid group
   const finalGroups = [group];
@@ -741,7 +748,7 @@ async function create({
     groupMasterId: groupMaster ? String(groupMaster.id) : null,
     userId: String(user.pk),
     username,
-    password,
+    password: resolvedPassword,
     expireEnabled: wantExpire,
     expireAt: parsedExpireAt,
     createdAt: nowIso(),
@@ -761,7 +768,7 @@ async function create({
       type: t,
       title: name,
       username,
-      password,
+      password: resolvedPassword,
       groupName,
     });
   } catch (e) {
@@ -774,7 +781,7 @@ async function create({
 /**
  * Add another deployment user on the same channel as an existing master MA record.
  */
-async function createLinkedUser({ parentId, title, expireEnabled, expireAt }) {
+async function createLinkedUser({ parentId, title, expireEnabled, expireAt, password }) {
   const parent = getById(parentId);
   if (!parent) throw new Error("Parent mutual aid item not found");
 
@@ -800,6 +807,7 @@ async function createLinkedUser({ parentId, title, expireEnabled, expireAt }) {
     expireAt,
     groupMode: "existing",
     existingGroupId: parent.groupId,
+    password,
     allowMutualAidGroup: true,
     usernameOverride: username,
   });
