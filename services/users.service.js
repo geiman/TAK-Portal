@@ -1157,6 +1157,8 @@ async function createUser(
     role,
     /** "user" | "agency_admin" | "global_admin" — extra groups applied after template groups */
     permissions,
+    /** Agency suffixes to grant agency-admin groups (defaults to user's create agency) */
+    managedAgencySuffixes,
     // Optional optimization: pass preloaded Authentik groups to avoid refetching for each user
     allGroups,
   },
@@ -1193,6 +1195,7 @@ async function createUser(
       a.suffix.toLowerCase() === String(agencySuffix || "").toLowerCase()
   );
   if (!agency) throw new Error("Invalid agency");
+  agenciesStore.assertAgencyActiveBySuffix(agency.suffix, agencies);
 
   const username = `${normalizedBadge}${agency.suffix}`;
   if (!skipExistenceCheck && await userExists(username)) {
@@ -1288,10 +1291,24 @@ async function createUser(
   if (perm === "agency_admin" || perm === "global_admin") {
     const extra = [];
     if (perm === "agency_admin") {
-      const names = accessSvc.getAllAgencyAdminGroupNames(agency);
-      for (const n of names) {
-        const g = byNameLower.get(String(n).trim().toLowerCase());
-        if (g) extra.push(g);
+      const actorScope = Array.isArray(opts.allowedAgencySuffixesForAssign)
+        ? opts.allowedAgencySuffixesForAssign
+        : null;
+      let suffixes = accessSvc.normalizeManagedAgencySuffixes(
+        Array.isArray(managedAgencySuffixes) && managedAgencySuffixes.length
+          ? managedAgencySuffixes
+          : [agency.suffix],
+        { allowedForActor: actorScope }
+      );
+      if (!suffixes.includes(String(agency.suffix || "").trim().toLowerCase())) {
+        suffixes = [...suffixes, String(agency.suffix || "").trim().toLowerCase()];
+      }
+      const adminPkSet = accessSvc.resolveAgencyAdminGroupIdsForSuffixes(
+        suffixes,
+        allGroupsLocal
+      );
+      for (const g of allGroupsLocal) {
+        if (adminPkSet.has(String(g.pk))) extra.push(g);
       }
       if (!extra.length) {
         throw new Error(
@@ -1553,6 +1570,68 @@ async function findIntegrationUsers() {
   );
 }
 
+function agencyIntegrationUsernamePrefix(agencySuffix) {
+  const sfx = toSlug(agencySuffix);
+  if (!sfx) return "";
+  return `${INTEGRATION_PREFIX}agency-${sfx}-`.toLowerCase();
+}
+
+function isAgencyIntegrationUser(user, agencySuffix) {
+  const username = String(user?.username || "").trim().toLowerCase();
+  if (!username.startsWith(INTEGRATION_PREFIX.toLowerCase())) return false;
+
+  const prefix = agencyIntegrationUsernamePrefix(agencySuffix);
+  if (!prefix || !username.startsWith(prefix)) return false;
+
+  const scope = String(user?.attributes?.integration_scope || "")
+    .trim()
+    .toLowerCase();
+  return !scope || scope === "agency";
+}
+
+async function findAgencyIntegrationUsersForSuffix(agencySuffix) {
+  const integrations = await findIntegrationUsers();
+  return integrations.filter((u) => isAgencyIntegrationUser(u, agencySuffix));
+}
+
+async function deleteIntegrationUser(userOrId) {
+  const takSshSvc = require("./takSsh.service");
+
+  const user =
+    userOrId && typeof userOrId === "object" && (userOrId.pk != null || userOrId.id != null)
+      ? userOrId
+      : await getUserById(userOrId);
+
+  const userId = String(user?.pk ?? user?.id ?? "").trim();
+  const username = String(user?.username || "").trim().toLowerCase();
+  if (!userId || !username.startsWith(INTEGRATION_PREFIX.toLowerCase())) {
+    throw new Error("Not an integration user.");
+  }
+
+  const dataFeedName = user?.attributes?.tak_data_feed_name;
+  if (dataFeedName && tak.isTakConfigured()) {
+    try {
+      const takClient = tak.buildTakAxios();
+      await takClient.delete(`/api/datafeeds/${encodeURIComponent(dataFeedName)}`);
+    } catch (err) {
+      console.warn(
+        `[integrations] Could not delete data feed "${dataFeedName}" for "${username}":`,
+        err?.message || err
+      );
+    }
+  }
+
+  await takSshSvc.revokeIntegrationCertViaSshScript(username);
+  try {
+    takSshSvc.deleteStoredIntegrationCertFiles(username);
+  } catch (_) {
+    // ignore local cache cleanup errors
+  }
+
+  await deleteUser(userId, { ignoreLocks: true, skipTakCertRevoke: true });
+  return { userId, username };
+}
+
 /**
  * One Authentik user-directory pass for dashboard stats (4000+ users: avoids doubling HTTP work).
  * Fetches with hidden-prefix accounts included, then derives visible totals + integration count in memory.
@@ -1576,10 +1655,10 @@ async function fetchUsersForDashboardStats() {
 //   agency   (suffix or prefix)
 //   firstName
 //   lastName
-//   email
 //   password (may be blank)
 //   template (name must exist for the agency)
 // OPTIONAL columns (may be omitted entirely):
+//   email — if non-blank, must be a valid email address
 //   radioCallsign — if non-blank, sets Authentik attribute radio_callsign
 //   role — if blank or omitted, use the template's role (same as UI).
 // Rows that fail validation or Authentik creation are skipped; valid rows are still created.
@@ -1634,7 +1713,6 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
     "agency",
     "firstname",
     "lastname",
-    "email",
     "password",
     "template",
   ];
@@ -1702,12 +1780,8 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
     if (!lastName) rowErrors.push("Missing last name");
     if (!templateName) rowErrors.push("Missing template");
 
-    if (!String(email || "").trim()) {
-      rowErrors.push("Missing email");
-    } else {
-      const emailErr = validateEmailFormatIfPresent(email);
-      if (emailErr) rowErrors.push(emailErr);
-    }
+    const emailErr = validateEmailFormatIfPresent(email);
+    if (emailErr) rowErrors.push(emailErr);
 
     // Badge/username base must match the same allowed characters as UI/backend validation.
     const badgeErr = validateBadgeNumber(badge);
@@ -1936,6 +2010,15 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
   failed.sort((a, b) => Number(a.line) - Number(b.line));
 
   invalidateUsersCache();
+  try {
+    const dashboardStatsCache = require("./dashboardStatsCache.service");
+    dashboardStatsCache.refreshAfterUsersChanged();
+  } catch (err) {
+    console.warn(
+      "[USERS] Dashboard stats refresh after CSV import failed:",
+      err?.message || err
+    );
+  }
   return { count: created.length, created, skipped, failed };
 }
 
@@ -2254,6 +2337,28 @@ async function searchUsersByAgencyAbbreviationPaged({
   };
 }
 
+async function listAllUsersByAgencySuffix(agencySuffix) {
+  const sfx = String(agencySuffix || "").trim();
+  if (!sfx) return [];
+
+  const all = [];
+  let page = 1;
+  let hasNext = true;
+  while (hasNext) {
+    const batch = await searchUsersByAgencySuffixPaged({
+      agencySuffix: sfx,
+      page,
+      pageSize: 200,
+      includeGroups: false,
+      includeRoles: false,
+    });
+    all.push(...(Array.isArray(batch.users) ? batch.users : []));
+    hasNext = !!batch.hasNext;
+    page += 1;
+  }
+  return all;
+}
+
 async function searchUsersByAgencySuffixPaged({
   agencySuffix,
   q,
@@ -2391,6 +2496,7 @@ async function searchUsersByAgencyNamePaged({
   includeRoles = false,
   includeGroups = true,
   currentTemplate,
+  activeOnly = false,
 } = {}) {
   const name = String(agencyName || "").trim();
   if (!name) {
@@ -2421,6 +2527,8 @@ async function searchUsersByAgencyNamePaged({
     include_roles: includeRoles ? "true" : "false",
     include_groups: includeGroups ? "true" : "false",
   };
+
+  if (activeOnly) params.is_active = true;
 
   if (hiddenPrefixes.length) {
     params.type = ["external", "internal"];
@@ -2498,6 +2606,228 @@ async function searchUsersByAgencyNamePaged({
     hasNext: Boolean(pagination.next ?? data.next),
     hasPrev: Boolean(pagination.previous ?? data.previous),
   };
+}
+
+async function listAllUsersByAgencyName(agencyName, { activeOnly = false } = {}) {
+  const name = String(agencyName || "").trim();
+  if (!name) return [];
+
+  const all = [];
+  let page = 1;
+  let hasNext = true;
+  while (hasNext) {
+    const batch = await searchUsersByAgencyNamePaged({
+      agencyName: name,
+      page,
+      pageSize: 200,
+      includeGroups: false,
+      includeRoles: false,
+      activeOnly,
+    });
+    all.push(...(Array.isArray(batch.users) ? batch.users : []));
+    hasNext = !!batch.hasNext;
+    page += 1;
+  }
+  return all;
+}
+
+function getAgencyActiveConcurrency() {
+  const defaultLimit = 5;
+  const envVal = getInt("AGENCY_ACTIVE_CONCURRENCY", defaultLimit);
+  return Number.isFinite(envVal) && envVal > 0 && envVal <= 25 ? envVal : defaultLimit;
+}
+
+async function runWithConcurrencyLimit(items, limit, worker) {
+  const list = Array.isArray(items) ? items : [];
+  if (!list.length) return;
+
+  let index = 0;
+  const workers = [];
+  const maxWorkers = Math.max(1, Math.min(Number(limit) || 1, list.length));
+
+  for (let i = 0; i < maxWorkers; i++) {
+    workers.push(
+      (async () => {
+        while (true) {
+          const current = index++;
+          if (current >= list.length) break;
+          await worker(list[current], current);
+        }
+      })()
+    );
+  }
+
+  await Promise.all(workers);
+}
+
+/**
+ * Disable many agency users efficiently: one TAK cert fetch/verify pass, then
+ * concurrent Authentik PATCH calls (no redundant GET per user).
+ */
+async function bulkDisableUsersForAgency(users) {
+  const active = (Array.isArray(users) ? users : []).filter((u) => {
+    const pk = u?.pk ?? u?.id;
+    return pk != null && u?.is_active;
+  });
+
+  const toDisable = [];
+  const failures = [];
+
+  for (const user of active) {
+    const userId = String(user.pk ?? user.id);
+    if (isUserActionLocked(user?.username)) {
+      failures.push({
+        userId,
+        error: `Actions are locked for user ${user?.username || userId}`,
+      });
+      continue;
+    }
+    toDisable.push(user);
+  }
+
+  const usernames = toDisable.map((u) => u.username).filter(Boolean);
+  if (getBool("TAK_REVOKE_ON_DISABLE", true) && usernames.length) {
+    await tak.revokeCertsForUsersBulk(usernames, { requireVerified: true });
+  }
+
+  const affectedIds = [];
+  const concurrency = getAgencyActiveConcurrency();
+
+  await runWithConcurrencyLimit(toDisable, concurrency, async (user) => {
+    const userId = String(user.pk ?? user.id);
+    try {
+      await api.patch(`/core/users/${userId}/`, { is_active: false });
+      affectedIds.push(userId);
+    } catch (err) {
+      failures.push({
+        userId,
+        error: err?.message || String(err),
+      });
+    }
+  });
+
+  invalidateUsersCache();
+
+  if (failures.length) {
+    const detail = failures
+      .slice(0, 5)
+      .map((f) => `${f.userId}: ${f.error}`)
+      .join(" | ");
+    throw new Error(
+      `Failed to disable ${failures.length} user(s) for this agency. ${detail}${
+        failures.length > 5 ? " | …" : ""
+      }`
+    );
+  }
+
+  return { affectedIds };
+}
+
+/**
+ * Re-enable users previously disabled with an agency. Uses concurrent GET/PATCH
+ * and sends re-enable emails for users that were inactive.
+ */
+async function bulkEnableUsersForAgency(userIds) {
+  const ids = (Array.isArray(userIds) ? userIds : [])
+    .map((id) => String(id).trim())
+    .filter(Boolean);
+
+  if (!ids.length) return { usersUpdated: 0 };
+
+  const failures = [];
+  const reenabledIds = [];
+  const concurrency = getAgencyActiveConcurrency();
+
+  await runWithConcurrencyLimit(ids, concurrency, async (userId) => {
+    try {
+      const user = await getUserById(userId);
+      if (!user) return;
+
+      if (isUserActionLocked(user?.username)) {
+        throw new Error(`Actions are locked for user ${user?.username || userId}`);
+      }
+
+      if (user.is_active) return;
+
+      await api.patch(`/core/users/${userId}/`, { is_active: true });
+      reenabledIds.push(String(userId));
+
+      try {
+        await emailUserReenabled(user);
+      } catch (e) {
+        console.error("[EMAIL] user re-enabled notice failed:", e?.message || e);
+      }
+    } catch (err) {
+      failures.push({
+        userId: String(userId),
+        error: err?.message || String(err),
+      });
+    }
+  });
+
+  if (reenabledIds.length > 0) invalidateUsersCache();
+
+  if (failures.length) {
+    const detail = failures
+      .slice(0, 5)
+      .map((f) => `${f.userId}: ${f.error}`)
+      .join(" | ");
+    throw new Error(
+      `Failed to re-enable ${failures.length} user(s) for this agency. ${detail}${
+        failures.length > 5 ? " | …" : ""
+      }`
+    );
+  }
+
+  return { usersUpdated: reenabledIds.length };
+}
+
+/**
+ * Delete many agency users: bulk TAK cert revoke, then concurrent Authentik DELETE.
+ */
+async function bulkDeleteUsersForAgency(users) {
+  const list = (Array.isArray(users) ? users : []).filter((u) => {
+    const pk = u?.pk ?? u?.id;
+    return pk != null;
+  });
+
+  const usernames = list.map((u) => u.username).filter(Boolean);
+  if (usernames.length) {
+    await tak.revokeCertsForUsersBulk(usernames, { requireVerified: true });
+  }
+
+  const deletedIds = [];
+  const failures = [];
+  const concurrency = getAgencyActiveConcurrency();
+
+  await runWithConcurrencyLimit(list, concurrency, async (user) => {
+    const userId = String(user.pk ?? user.id);
+    try {
+      await api.delete(`/core/users/${userId}/`);
+      deletedIds.push(userId);
+    } catch (err) {
+      failures.push({
+        userId,
+        error: err?.message || String(err),
+      });
+    }
+  });
+
+  if (deletedIds.length > 0) invalidateUsersCache();
+
+  if (failures.length) {
+    const detail = failures
+      .slice(0, 5)
+      .map((f) => `${f.userId}: ${f.error}`)
+      .join(" | ");
+    throw new Error(
+      `Failed to delete ${failures.length} user(s) for this agency. ${detail}${
+        failures.length > 5 ? " | …" : ""
+      }`
+    );
+  }
+
+  return { deletedIds };
 }
 
 const AGENCY_DASHBOARD_USER_PAGE_SIZE = 300;
@@ -2668,6 +2998,13 @@ async function toggleUserActive(userId, isActive) {
     throw e;
   }
   const wasActive = !!userBefore?.is_active;
+
+  if (isActive && !wasActive) {
+    const suffix = accessSvc.resolveAgencySuffixFromUser(userBefore);
+    if (suffix) {
+      agenciesStore.assertAgencyActiveBySuffix(suffix);
+    }
+  }
 
   // If disabling, revoke + VERIFY TAK certs first (if enabled)
   if (!isActive) {
@@ -3033,15 +3370,24 @@ let USERS_CACHE = null;
 let USERS_CACHE_TS = 0;
 let USERS_LIGHTWEIGHT_CACHE = null;
 let USERS_LIGHTWEIGHT_CACHE_TS = 0;
+let TEMPLATE_COUNTS_CACHE = null;
+let TEMPLATE_COUNTS_CACHE_KEY = "";
+let TEMPLATE_COUNTS_CACHE_TS = 0;
 // TTL in seconds; defaults to 60s. Use 0 to disable caching and always hit Authentik.
 // Cache is invalidated on create/delete/update so paging/sorting stays fast without stale data.
 const USERS_CACHE_TTL_MS = (getInt("USERS_CACHE_TTL_SECONDS", 60) || 0) * 1000;
+// Template user counts change less often than the full user list; longer TTL keeps Templates page snappy.
+const TEMPLATE_COUNTS_CACHE_TTL_MS =
+  (getInt("TEMPLATE_COUNTS_CACHE_TTL_SECONDS", 300) || 0) * 1000;
 
 function invalidateUsersCache() {
   USERS_CACHE = null;
   USERS_CACHE_TS = 0;
   USERS_LIGHTWEIGHT_CACHE = null;
   USERS_LIGHTWEIGHT_CACHE_TS = 0;
+  TEMPLATE_COUNTS_CACHE = null;
+  TEMPLATE_COUNTS_CACHE_KEY = "";
+  TEMPLATE_COUNTS_CACHE_TS = 0;
 }
 
 function invalidateGroupsCache() {
@@ -3686,6 +4032,21 @@ async function getCurrentTemplateCountsByTemplate(options = {}) {
           .filter(Boolean)
       )
     : null;
+  const cacheKey = allowedSet
+    ? Array.from(allowedSet).sort().join("|")
+    : "*global*";
+
+  if (TEMPLATE_COUNTS_CACHE_TTL_MS > 0) {
+    const now = Date.now();
+    const cacheValid =
+      TEMPLATE_COUNTS_CACHE &&
+      TEMPLATE_COUNTS_CACHE_KEY === cacheKey &&
+      TEMPLATE_COUNTS_CACHE_TS &&
+      now - TEMPLATE_COUNTS_CACHE_TS < TEMPLATE_COUNTS_CACHE_TTL_MS;
+    if (cacheValid) {
+      return TEMPLATE_COUNTS_CACHE;
+    }
+  }
 
   const users = await getAllUsersLightweight({});
   const list = Array.isArray(users) ? users : [];
@@ -3701,6 +4062,12 @@ async function getCurrentTemplateCountsByTemplate(options = {}) {
 
     const key = `${agencySuffix}::${currentTemplate.toLowerCase()}`;
     counts[key] = Number(counts[key] || 0) + 1;
+  }
+
+  if (TEMPLATE_COUNTS_CACHE_TTL_MS > 0) {
+    TEMPLATE_COUNTS_CACHE = counts;
+    TEMPLATE_COUNTS_CACHE_KEY = cacheKey;
+    TEMPLATE_COUNTS_CACHE_TS = Date.now();
   }
 
   return counts;
@@ -3873,13 +4240,17 @@ module.exports = {
   getStreamingDataFeedNameForTitle,
   STREAMING_DATA_FEED_NAME_MAX_LEN,
   findIntegrationUsers,
+  findAgencyIntegrationUsersForSuffix,
+  deleteIntegrationUser,
   importUsersFromCsvBuffer,
   getUserById,
   findUsers,
   searchUsersPaged,
   searchUsersByAgencyAbbreviationPaged,
   searchUsersByAgencySuffixPaged,
+  listAllUsersByAgencySuffix,
   searchUsersByAgencyNamePaged,
+  listAllUsersByAgencyName,
   countUsersByAgencyName,
   buildUsersByTemplateForAgencyName,
   resetPassword,
@@ -3896,6 +4267,9 @@ module.exports = {
   getCurrentTemplateBackfillPreviewRows,
   getCurrentTemplateCountsByTemplate,
   toggleUserActive,
+  bulkDisableUsersForAgency,
+  bulkEnableUsersForAgency,
+  bulkDeleteUsersForAgency,
   deleteUser,
   addUserGroups,
   removeUserGroups,

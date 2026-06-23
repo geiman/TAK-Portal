@@ -208,17 +208,64 @@ async function getUsersInGroup(groupName) {
 async function getAgencyAdminUsers(agency) {
   const seen = new Set();
   const out = [];
-  const groupNames = accessSvc.getAllAgencyAdminGroupNames(agency);
+  const groupNames = accessSvc.getAgencyAdminGroupNamesForAgency(agency);
   for (const groupName of groupNames) {
-    const users = await getUsersInGroup(groupName);
-    for (const user of users) {
-      const key = String(user.email || "").trim().toLowerCase();
+    const result = await getUsersForConfiguredGroup(groupName);
+    for (const user of result.users) {
+      const username = String(user.username || user.uid || "").trim();
+      const email = String(user.email || "").trim();
+      const key = (email || username).toLowerCase();
       if (!key || seen.has(key)) continue;
       seen.add(key);
       out.push(user);
     }
   }
   return out;
+}
+
+function userBelongsToAgency(user, agency) {
+  const agencySuffix = accessSvc.normalizeSuffix(agency?.suffix);
+  if (!agencySuffix) return false;
+  const userSuffix = accessSvc.normalizeSuffix(
+    accessSvc.resolveAgencySuffixFromUser(user)
+  );
+  return !!userSuffix && userSuffix === agencySuffix;
+}
+
+async function getGlobalAdminUsersForAgency(agency) {
+  const configuredGroupNames = parseConfiguredGroupNames(
+    getString("PORTAL_AUTH_REQUIRED_GROUP", "")
+  );
+  const seen = new Set();
+  const out = [];
+  for (const groupName of configuredGroupNames) {
+    const result = await getUsersForConfiguredGroup(groupName);
+    for (const user of result.users) {
+      if (!userBelongsToAgency(user, agency)) continue;
+      const username = String(user.username || user.uid || "").trim();
+      const email = String(user.email || "").trim();
+      const key = (username || email).toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push(user);
+    }
+  }
+  return out;
+}
+
+function normalizeUserForAssignList(user, { isGlobalAdmin = false } = {}) {
+  const username = String(user.username || user.uid || "").trim();
+  const email = String(user.email || "").trim();
+  const name =
+    String(user.name || "").trim() ||
+    String(user.display_name || "").trim() ||
+    username;
+  return {
+    username,
+    email,
+    name,
+    ...(isGlobalAdmin ? { isGlobalAdmin: true } : {}),
+  };
 }
 
 async function getGlobalAdminRecipientLookup() {
@@ -273,6 +320,43 @@ async function sendAgencyAdminEmail({ agency, subject, html, text }) {
     html,
     text,
   });
+}
+
+async function sendAssignmentEmailToAddress({ to, subject, html, text }) {
+  const recipient = String(to || "").trim();
+  if (!recipient) {
+    return { sent: false, skipped: true, reason: "No recipient email configured." };
+  }
+  return emailSvc.sendMail({
+    to: recipient,
+    subject,
+    html,
+    text,
+  });
+}
+
+async function listAgencyAdminUsersForAssign(agency) {
+  const seen = new Set();
+  const out = [];
+
+  function appendUsers(users, { isGlobalAdmin = false } = {}) {
+    for (const user of users) {
+      const normalized = normalizeUserForAssignList(user, { isGlobalAdmin });
+      const key = String(normalized.username || normalized.email || "")
+        .trim()
+        .toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push(normalized);
+    }
+  }
+
+  appendUsers(await getAgencyAdminUsers(agency));
+  appendUsers(await getGlobalAdminUsersForAgency(agency), { isGlobalAdmin: true });
+
+  return out
+    .filter((user) => user.username || user.email)
+    .sort((a, b) => String(a.name || a.username).localeCompare(String(b.name || b.username)));
 }
 
 async function sendGlobalAdminEmail({ subject, html, text }) {
@@ -332,6 +416,10 @@ async function sendAssignmentNotificationForAgency({ stream, version, agency, ac
   if (!agencySuffix) {
     return { sent: false, skipped: true, reason: "Agency suffix was missing." };
   }
+  const signingMode = mouService.getAgencySigningMode(stream, agencySuffix);
+  if (signingMode === mouService.AGENCY_SIGNING_MODE_EXTERNAL_LINK) {
+    return { sent: false, skipped: true, reason: "Agency uses external sign link." };
+  }
 
   const baseUrl = getPortalBaseUrl();
   const takPortalBlock = buildMouPortalBlock(baseUrl);
@@ -344,9 +432,33 @@ async function sendAssignmentNotificationForAgency({ stream, version, agency, ac
     takPortalBlock,
   });
   const text = htmlToText(html);
+  const subject = `TAK Portal MOU Updated - ${stream.title} (v${version.version})`;
+
+  if (signingMode === mouService.AGENCY_SIGNING_MODE_SPECIFIC_ADMIN) {
+    const assignedEmail = mouService.getAgencySigningAssignedAdminEmail(stream, agencySuffix);
+    if (!assignedEmail) {
+      return {
+        sent: false,
+        skipped: true,
+        agencySuffix,
+        reason: "Assigned admin has no email; they can sign in through the portal.",
+      };
+    }
+    const result = await sendAssignmentEmailToAddress({
+      to: assignedEmail,
+      subject,
+      html,
+      text,
+    });
+    return {
+      ...result,
+      agencySuffix,
+    };
+  }
+
   const result = await sendAgencyAdminEmail({
     agency,
-    subject: `TAK Portal MOU Updated - ${stream.title} (v${version.version})`,
+    subject,
     html,
     text,
   });
@@ -354,6 +466,85 @@ async function sendAssignmentNotificationForAgency({ stream, version, agency, ac
     ...result,
     agencySuffix,
   };
+}
+
+async function sendExternalSignInviteEmail({ stream, version, agency, invite, actor }) {
+  if (!shouldSendMouEmails()) {
+    return { sent: false, skipped: true, reason: "MOU emails are disabled." };
+  }
+  const recipient = String(invite?.recipientEmail || "").trim();
+  if (!recipient) {
+    return { sent: false, skipped: true, reason: "No recipient email configured." };
+  }
+
+  const baseUrl = getPortalBaseUrl();
+  const signPath = mouService.buildExternalSignPath(invite.token);
+  const signUrl = baseUrl ? `${baseUrl}${signPath}` : signPath;
+  const html = renderTemplate("mou_external_sign_invite.html", {
+    mouTitle: stream.title,
+    version: version.version,
+    agencyName: agency.name || agency.groupPrefix || agency.suffix,
+    operatorName: actor?.displayName || actor?.username || "TAK Portal",
+    signUrl,
+    portalBaseUrl: baseUrl,
+    emailHeading: "Document Signature Required",
+  });
+  const text = htmlToText(html);
+  const result = await emailSvc.sendMail({
+    to: recipient,
+    subject: `Sign Required: ${stream.title} (v${version.version})`,
+    html,
+    text,
+  });
+  return {
+    ...result,
+    agencySuffix: String(agency?.suffix || "").trim().toLowerCase(),
+  };
+}
+
+async function sendExternalSignedPdfEmail({
+  stream,
+  version,
+  agency,
+  signerEmail,
+  signature,
+}) {
+  if (!shouldSendMouEmails()) {
+    return { sent: false, skipped: true, reason: "MOU emails are disabled." };
+  }
+  const recipient = String(signerEmail || "").trim();
+  if (!recipient) {
+    return { sent: false, skipped: true, reason: "No signer email provided." };
+  }
+
+  const pdfExport = await mouService.getSignedPdfExport({
+    mouId: stream.mouId,
+    agencyId: signature?.agencyId || agency?.suffix,
+    version: version?.version,
+  });
+
+  const html = renderTemplate("mou_external_signed_copy.html", {
+    mouTitle: stream.title,
+    version: version.version,
+    agencyName: agency?.name || agency?.groupPrefix || agency?.suffix || "",
+    signerDisplayName:
+      signature?.attestationText || signature?.signerDisplayName || "Signer",
+  });
+  const text = htmlToText(html);
+
+  return emailSvc.sendMail({
+    to: recipient,
+    subject: `Signed Copy: ${stream.title} (v${version.version})`,
+    html,
+    text,
+    attachments: [
+      {
+        filename: pdfExport.fileName,
+        content: pdfExport.buffer,
+        contentType: pdfExport.contentType,
+      },
+    ],
+  });
 }
 
 async function sendAssignmentNotificationsForVersion({ stream, version, actor }) {
@@ -364,13 +555,65 @@ async function sendAssignmentNotificationsForVersion({ stream, version, actor })
   let sent = 0;
 
   for (const agency of mouService.getTargetAgenciesForStream(stream)) {
+    const agencySuffix = String(agency?.suffix || "").trim().toLowerCase();
+    if (
+      mouService.getAgencySigningMode(stream, agencySuffix) ===
+      mouService.AGENCY_SIGNING_MODE_EXTERNAL_LINK
+    ) {
+      const invites = mouService.syncExternalSignInvitesForStream({
+        stream,
+        actor,
+        agencySuffixes: [agencySuffix],
+      });
+      const invite = invites[0];
+      if (invite?.recipientEmail) {
+        const result = await sendExternalSignInviteEmail({
+          stream,
+          version,
+          agency,
+          invite,
+          actor,
+        });
+        if (result.sent) {
+          sent += 1;
+          auditSvc.logEvent({
+            actor: actor || null,
+            action: "MOU_EXTERNAL_SIGN_INVITE_SENT",
+            targetType: "mou",
+            targetId: String(stream.mouId),
+            agencySuffix,
+            details: {
+              mouId: stream.mouId,
+              version: version.version,
+              agencyName: agency.name || agencySuffix,
+            },
+          });
+        } else if (!result.skipped) {
+          auditSvc.logEvent({
+            actor: actor || null,
+            action: "MOU_EMAIL_FAILURE",
+            targetType: "mou",
+            targetId: String(stream.mouId),
+            agencySuffix,
+            details: {
+              mouId: stream.mouId,
+              version: version.version,
+              agencyName: agency.name || agencySuffix,
+              error: result.error || "Failed to send external sign invite.",
+            },
+          });
+        }
+      }
+      continue;
+    }
+
     const result = await sendAssignmentNotificationForAgency({
       stream,
       version,
       agency,
       actor,
     });
-    const agencySuffix = result.agencySuffix || String(agency?.suffix || "").trim().toLowerCase();
+    const resolvedAgencySuffix = result.agencySuffix || agencySuffix;
     if (result.sent) {
       sent += 1;
       auditSvc.logEvent({
@@ -378,7 +621,7 @@ async function sendAssignmentNotificationsForVersion({ stream, version, actor })
         action: "MOU_ASSIGNMENT_NOTIFICATION_SENT",
         targetType: "mou",
         targetId: String(stream.mouId),
-        agencySuffix: agencySuffix,
+        agencySuffix: resolvedAgencySuffix,
         details: {
           mouId: stream.mouId,
           version: version.version,
@@ -391,7 +634,7 @@ async function sendAssignmentNotificationsForVersion({ stream, version, actor })
         action: "MOU_EMAIL_FAILURE",
         targetType: "mou",
         targetId: String(stream.mouId),
-        agencySuffix: agencySuffix,
+        agencySuffix: resolvedAgencySuffix,
         details: {
           mouId: stream.mouId,
           version: version.version,
@@ -513,6 +756,88 @@ async function runReminderSweep() {
     const agency = mouService.getAgencyBySuffix(row.agencyId);
     if (!agency) continue;
 
+    if (row.signingMode === mouService.AGENCY_SIGNING_MODE_EXTERNAL_LINK) {
+      const invite = mouService.getActiveSignInviteForAgency({
+        mouId: row.mouId,
+        agencyId: row.agencyId,
+      });
+      if (!invite?.recipientEmail) continue;
+      const signPath = mouService.buildExternalSignPath(invite.token);
+      const signUrl = baseUrl ? `${baseUrl}${signPath}` : signPath;
+      const html = renderTemplate("mou_external_sign_invite.html", {
+        mouTitle: row.mouTitle,
+        version: row.currentVersion,
+        agencyName: row.agencyName,
+        operatorName: "TAK Portal",
+        signUrl,
+        portalBaseUrl: baseUrl,
+        emailHeading: `Reminder: Document Signature Required`,
+      });
+      const text = htmlToText(html);
+      const result = await emailSvc.sendMail({
+        to: invite.recipientEmail,
+        subject: `Reminder: MOU signature required - ${row.mouTitle} (v${row.currentVersion})`,
+        html,
+        text,
+      });
+      if (result.sent) {
+        const sentAt = new Date().toISOString();
+        mouService.markAgencyReminderSent({
+          mouId: row.mouId,
+          agencyId: row.agencyId,
+          version: row.currentVersion,
+          sentAt,
+        });
+        sent += 1;
+        auditSvc.logEvent({
+          actor: null,
+          action: "MOU_REMINDER_SENT",
+          targetType: "mou",
+          targetId: String(row.mouId),
+          agencySuffix: row.agencyId,
+          details: {
+            mouId: row.mouId,
+            version: row.currentVersion,
+            agencyName: row.agencyName,
+            sentAt,
+            externalLink: true,
+          },
+        });
+      }
+      continue;
+    }
+
+    if (row.signingMode === mouService.AGENCY_SIGNING_MODE_SPECIFIC_ADMIN) {
+      const stream = mouService.getStreamById(row.mouId);
+      const assignedEmail = mouService.getAgencySigningAssignedAdminEmail(stream, row.agencyId);
+      if (!assignedEmail) continue;
+      const takPortalBlock = buildMouPortalBlock(baseUrl);
+      const html = renderTemplate("mou_reminder_agency.html", {
+        mouTitle: row.mouTitle,
+        version: row.currentVersion,
+        agencyName: row.agencyName,
+        takPortalBlock,
+      });
+      const text = htmlToText(html);
+      const result = await sendAssignmentEmailToAddress({
+        to: assignedEmail,
+        subject: `Reminder: MOU signature required - ${row.mouTitle} (v${row.currentVersion})`,
+        html,
+        text,
+      });
+      if (result.sent) {
+        const sentAt = new Date().toISOString();
+        mouService.markAgencyReminderSent({
+          mouId: row.mouId,
+          agencyId: row.agencyId,
+          version: row.currentVersion,
+          sentAt,
+        });
+        sent += 1;
+      }
+      continue;
+    }
+
     const takPortalBlock = buildMouPortalBlock(baseUrl);
     const html = renderTemplate("mou_reminder_agency.html", {
       mouTitle: row.mouTitle,
@@ -573,7 +898,11 @@ function startScheduler() {
 module.exports = {
   sendAssignmentNotificationForAgency,
   sendAssignmentNotificationsForVersion,
+  sendExternalSignInviteEmail,
+  sendExternalSignedPdfEmail,
   sendSignedNotificationToGlobalAdmins,
+  listAgencyAdminUsersForAssign,
   runReminderSweep,
   startScheduler,
+  getPortalBaseUrl,
 };

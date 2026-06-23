@@ -4,6 +4,7 @@ const accessSvc = require("./access.service");
 const store = require("./userRequests.store");
 const emailSvc = require("./email.service");
 const settingsSvc = require("./settings.service");
+const usersSvc = require("./users.service");
 const authentik = require("./authentik");
 
 function genId() {
@@ -21,6 +22,74 @@ function normalizeEmail(v) {
 
 function normalizeStr(v) {
   return String(v || "").trim();
+}
+
+/**
+ * If the badge ends with the agency username suffix (exact match), remove it
+ * so the stored badge is suffix-free (username is badge + suffix on approval).
+ */
+function normalizeBadgeForUsername(badgeNumber) {
+  return String(badgeNumber || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\p{White_Space}+/gu, "");
+}
+
+function buildUsernameForAgency(badgeNumber, agencySuffix) {
+  const badge = normalizeBadgeForUsername(badgeNumber);
+  const suffix = normalizeStr(agencySuffix);
+  if (!badge || !suffix) return "";
+  return `${badge}${suffix}`;
+}
+
+function userAlreadyExistsError() {
+  const err = new Error(
+    "An account with this badge number already exists. To login or to reset your password, visit the portal."
+  );
+  err.code = "USER_ALREADY_EXISTS";
+  return err;
+}
+
+function pendingRequestExistsError() {
+  const err = new Error(
+    "An access request is already pending. Please check your email for updates from your administrator."
+  );
+  err.code = "ACCESS_REQUEST_PENDING";
+  return err;
+}
+
+function findPendingDuplicateRequest(validated) {
+  const all = store.load();
+  const email = normalizeEmail(validated.email);
+  const agencySuffix = normalizeStr(validated.agencySuffix).toLowerCase();
+  const badgeNumber = normalizeBadgeForUsername(validated.badgeNumber);
+
+  return (
+    all.find((r) => {
+      const rEmail = normalizeEmail(r.email);
+      if (email && rEmail && email === rEmail) return true;
+
+      if (agencySuffix && agencySuffix !== "__other__" && badgeNumber) {
+        const rSuffix = normalizeStr(r.agencySuffix).toLowerCase();
+        const rBadge = normalizeBadgeForUsername(r.badgeNumber);
+        if (rSuffix === agencySuffix && rBadge === badgeNumber) return true;
+      }
+
+      return false;
+    }) || null
+  );
+}
+
+function stripMatchingAgencySuffixFromBadge(badgeNumber, agencySuffix) {
+  const badge = normalizeStr(badgeNumber);
+  const suffix = normalizeStr(agencySuffix).toLowerCase();
+  if (!badge || !suffix || suffix === "__other__") return badge;
+
+  if (badge.toLowerCase().endsWith(suffix)) {
+    const trimmed = badge.slice(0, badge.length - suffix.length);
+    if (trimmed) return trimmed;
+  }
+  return badge;
 }
 
 function escapeHtml(value) {
@@ -47,9 +116,12 @@ function validateCreate(input) {
   const firstName = normalizeStr(input.firstName);
   const lastName = normalizeStr(input.lastName);
   const email = normalizeEmail(input.email);
-  const badgeNumber = normalizeStr(input.badgeNumber);
-  const radioCallsign = normalizeStr(input.radioCallsign);
   const agencySuffix = normalizeStr(input.agencySuffix);
+  const badgeNumber = stripMatchingAgencySuffixFromBadge(
+    input.badgeNumber,
+    agencySuffix
+  );
+  const radioCallsign = normalizeStr(input.radioCallsign);
   const otherAgency = normalizeStr(input.otherAgency);
   const otherReason = normalizeStr(input.otherReason);
 
@@ -77,6 +149,11 @@ function validateCreate(input) {
       (a) => String(a?.suffix || "").toLowerCase() === agencySuffix.toLowerCase()
     );
     if (!agency) throw new Error("Selected agency is not valid");
+    if (!agenciesStore.isAgencyPublicEnrollmentEligible(agency)) {
+      throw new Error(
+        "The selected agency is not currently accepting access requests."
+      );
+    }
 
     const list = agenciesStore.domainsListFromStored(agency.lookupDomain);
     if (list.length > 0 && !agenciesStore.emailDomainInAgencyList(email, agency.lookupDomain)) {
@@ -116,6 +193,27 @@ function countRequestsForUser(authUser) {
   return listRequestsForUser(authUser).length;
 }
 
+function countPendingRequestsForAgencySuffix(suffix) {
+  const sfx = String(suffix || "").trim().toLowerCase();
+  if (!sfx) return 0;
+  return store.load().filter(
+    (r) => String(r?.agencySuffix || "").trim().toLowerCase() === sfx
+  ).length;
+}
+
+function deleteRequestsForAgencySuffix(suffix) {
+  const sfx = String(suffix || "").trim().toLowerCase();
+  if (!sfx) return 0;
+
+  const all = store.load();
+  const next = all.filter(
+    (r) => String(r?.agencySuffix || "").trim().toLowerCase() !== sfx
+  );
+  const removed = all.length - next.length;
+  if (removed > 0) store.save(next);
+  return removed;
+}
+
 async function createRequest(input) {
   const v = validateCreate(input || {});
   const agencies = agenciesStore.load();
@@ -123,6 +221,17 @@ async function createRequest(input) {
   const agency = agencies.find(
     (a) => String(a?.suffix || "").toLowerCase() === v.agencySuffix.toLowerCase()
   );
+
+  if (findPendingDuplicateRequest(v)) {
+    throw pendingRequestExistsError();
+  }
+
+  if (v.agencySuffix !== "__other__" && agency) {
+    const username = buildUsernameForAgency(v.badgeNumber, agency.suffix);
+    if (username && (await usersSvc.userExists(username))) {
+      throw userAlreadyExistsError();
+    }
+  }
 
   const now = new Date().toISOString();
 
@@ -313,6 +422,8 @@ module.exports = {
   listRequests,
   listRequestsForUser,
   countRequestsForUser,
+  countPendingRequestsForAgencySuffix,
+  deleteRequestsForAgencySuffix,
   createRequest,
   deleteRequest,
   deleteRequestForUser,

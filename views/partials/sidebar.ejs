@@ -1,6 +1,11 @@
 <%
   const _isGlobalAdmin = typeof isGlobalAdmin !== "undefined" ? !!isGlobalAdmin : false;
   const _isAgencyAdmin = typeof isAgencyAdmin !== "undefined" ? !!isAgencyAdmin : false;
+  const _allowedAgencySuffixes = Array.isArray(typeof allowedAgencySuffixes !== "undefined" ? allowedAgencySuffixes : null)
+    ? allowedAgencySuffixes
+    : [];
+  const _isMultiAgencyAdmin =
+    _isAgencyAdmin && !_isGlobalAdmin && _allowedAgencySuffixes.length > 1;
 
   const _displayName =
     typeof authUser !== "undefined" &&
@@ -74,7 +79,7 @@
             <a href="/users/manage" class="<%= isActive('/users/manage') ? 'active' : '' %>">Users</a>
             <% } %>
             <% if (_perm("page.groups")) { %>
-            <a href="/groups" class="<%= isActive('/groups') ? 'active' : '' %>">Groups</a>
+            <a href="/groups" class="<%= isActive('/groups') ? 'active' : '' %>">Groups / Channels</a>
             <% } %>
             <% if (_perm("page.templates")) { %>
             <a href="/templates" class="<%= isActive('/templates') ? 'active' : '' %>">Templates</a>
@@ -165,6 +170,8 @@
         <%= _displayName %>
         <% if (_isGlobalAdmin) { %>
           - Global Admin
+        <% } else if (_isMultiAgencyAdmin) { %>
+          - Multi-Agency Admin
         <% } else if (_isAgencyAdmin) { %>
           - Agency Admin
         <% } %>

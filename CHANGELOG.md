@@ -12,6 +12,34 @@ Planned features can be accessed [here](docs/roadmap.md)
 
 ## Version History
 
+### v1.3.38 - 6/15/26
+✨ `Enhancement` - MOU Documents - Added ability for MOUs to be signed by a specific agency/global admin or provide an external link via email or copy/paste<br>
+✨ `Enhancement` - MOU Documents - Added better protection against accidental deletion of signed MOUs
+
+### v1.3.37 - 6/14/26
+🎉 `New Feature` - Agencies - Entire agencies can be Disabled/Enabled through the agencies page, allowing global admins to prevent access and revoke certs for an entire agency, while leaving users intact (examples of use include internal investigations, breach of security, etc)<br>
+✨ `Enhancement`- Agencies - Agency County Names, County Codes, and States can now be edited.  Changing a county's full name or state also updates the name for all specific groups (State groups are only renamed if no other agency depends on that state).<br>
+✨ `Enhancement` - Agencies - Deleting an agency now deletes & revokes all users, deletes agency specific groups, templates, integrations, and state and county groups if other agencies don't rely on it<br>
+✨ `Enhancement` - Data Sync - Data Sync now allows for archive and restoration of old Data Sync Missions<br>
+✨ `Enhancement` - Groups - Renamed page to "Groups / Channels" to help with naming confusion<br>
+🐛 `Bug Fix` - Data Sync - Fixes issue with an incorrect Marti API call to TAK Server, limiting the amount of shown missions
+
+### v1.3.36 - 6/14/26
+✨ `Enhancement` - Users - Improved formatting for mobile and adjusted modal titles<br>
+✨ `Enhancement` - Users - Split QR into two buttons, allowing for better visibility/scanning<br>
+✨ `Enhancement` - Data Sync - Cleaned up wording and layouts page<br>
+✨ `Enhancement` - Dashboard - Hid tls connections from connected clients<br>
+✨ `Enhancement` - Lookup - Enhanced logging service to capture better details
+
+### v1.3.35 - 6/9/26
+🎉 `New Feature` - Introduction of a new access level "Multi-Agency Admin." This is designed for users that may need access to manage multiple agencies, without the need for full, global admin access.
+
+### v1.3.34 - 6/9/26
+✨ `Enhancement` - Request access page now checks for existing users and existing access requests before submitting a new one<br>
+✨ `Enhancement` - Request access page will automatically remove an agency suffix if one is found on the badge number<br>
+✨ `Enhancement` - Added export to CSV button to Agencies and Templates pages for better visibility<br>
+🐛 `Bug Fix` - Fixes issue with User CSV Imports failing due to blank email fields
+
 ### v1.3.33 - 6/5/26
 ✨ `Enhancement` - Allow two letter county codes when creating agencies
 

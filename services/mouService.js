@@ -26,6 +26,10 @@ const SIGNED_COPY_CONTENT_TYPES = {
   jpeg: "image/jpeg",
   webp: "image/webp",
 };
+const AGENCY_SIGNING_MODE_AGENCY_ADMINS = "agency_admins";
+const AGENCY_SIGNING_MODE_SPECIFIC_ADMIN = "specific_agency_admin";
+const AGENCY_SIGNING_MODE_EXTERNAL_LINK = "external_link";
+const SIGN_INVITE_EXPIRY_DAYS = 30;
 const PDF_FONT_PATHS = {
   regular: [
     "C:\\Windows\\Fonts\\arial.ttf",
@@ -207,6 +211,696 @@ function getArchivedDocumentsStore() {
 
 function saveArchivedDocumentsStore(data) {
   store.saveArchivedDocuments(data);
+}
+
+function saveArchivedDocumentsStore(data) {
+  store.saveArchivedDocuments(data);
+}
+
+function getSignInvitesStore() {
+  const data = store.loadSignInvites();
+  if (!data || typeof data !== "object") {
+    return { schemaVersion: 1, items: [] };
+  }
+  if (!Array.isArray(data.items)) data.items = [];
+  return data;
+}
+
+function saveSignInvitesStore(data) {
+  store.saveSignInvites(data);
+}
+
+function genSignInviteToken() {
+  return crypto.randomBytes(24).toString("hex");
+}
+
+function normalizeAgencySigningMode(value) {
+  const mode = normalizeLower(value);
+  if (mode === AGENCY_SIGNING_MODE_EXTERNAL_LINK) {
+    return AGENCY_SIGNING_MODE_EXTERNAL_LINK;
+  }
+  if (mode === AGENCY_SIGNING_MODE_SPECIFIC_ADMIN) {
+    return AGENCY_SIGNING_MODE_SPECIFIC_ADMIN;
+  }
+  return AGENCY_SIGNING_MODE_AGENCY_ADMINS;
+}
+
+function normalizeAgencySigningConfig(raw) {
+  if (!raw || typeof raw !== "object") return {};
+  const out = {};
+  for (const [key, entry] of Object.entries(raw)) {
+    const suffix = normalizeAgencySuffix(key);
+    if (!suffix) continue;
+    const mode = normalizeAgencySigningMode(entry?.mode);
+    const inviteEmail = normalizeText(entry?.inviteEmail);
+    const assignedAdminEmail = normalizeText(entry?.assignedAdminEmail);
+    const assignedAdminUsername = normalizeText(entry?.assignedAdminUsername);
+    const assignedAdminName = normalizeText(entry?.assignedAdminName);
+    out[suffix] = {
+      mode,
+      ...(inviteEmail ? { inviteEmail } : {}),
+      ...(entry?.externalLinkAcknowledged === true ? { externalLinkAcknowledged: true } : {}),
+      ...(assignedAdminEmail ? { assignedAdminEmail } : {}),
+      ...(assignedAdminUsername ? { assignedAdminUsername } : {}),
+      ...(assignedAdminName ? { assignedAdminName } : {}),
+    };
+  }
+  return out;
+}
+
+function getAgencySigningMode(stream, agencySuffix) {
+  const suffix = normalizeAgencySuffix(agencySuffix);
+  const assignments = getAssignments(stream);
+  const entry = assignments.agencySigning?.[suffix];
+  return normalizeAgencySigningMode(entry?.mode);
+}
+
+function getAgencySigningInviteEmail(stream, agencySuffix) {
+  const suffix = normalizeAgencySuffix(agencySuffix);
+  const assignments = getAssignments(stream);
+  return normalizeText(assignments.agencySigning?.[suffix]?.inviteEmail);
+}
+
+function getAgencySigningAssignedAdminEmail(stream, agencySuffix) {
+  const suffix = normalizeAgencySuffix(agencySuffix);
+  const assignments = getAssignments(stream);
+  return normalizeText(assignments.agencySigning?.[suffix]?.assignedAdminEmail);
+}
+
+function getAgencySigningAssignedAdminUsername(stream, agencySuffix) {
+  const suffix = normalizeAgencySuffix(agencySuffix);
+  const assignments = getAssignments(stream);
+  return normalizeText(assignments.agencySigning?.[suffix]?.assignedAdminUsername);
+}
+
+function userMatchesAssignedSigningAdmin(authUser, stream, agencySuffix) {
+  if (!authUser || !stream) return false;
+  const suffix = normalizeAgencySuffix(agencySuffix);
+  const assignedEmail = getAgencySigningAssignedAdminEmail(stream, suffix);
+  const assignedUsername = getAgencySigningAssignedAdminUsername(stream, suffix);
+  const userEmail = String(authUser.email || "").trim().toLowerCase();
+  const userUsername = String(authUser.username || "").trim().toLowerCase();
+  if (assignedUsername && userUsername === assignedUsername.toLowerCase()) {
+    return true;
+  }
+  if (assignedEmail && userEmail && userEmail === assignedEmail.toLowerCase()) {
+    return true;
+  }
+  return false;
+}
+
+function canUserSignAgencyForStream(authUser, stream, agencySuffix) {
+  if (!authUser || !stream) return false;
+  const suffix = normalizeAgencySuffix(agencySuffix);
+  if (!suffix) return false;
+  if (!getStreamAgencySuffixes(stream).includes(suffix)) return false;
+
+  const mode = getAgencySigningMode(stream, suffix);
+  if (mode === AGENCY_SIGNING_MODE_EXTERNAL_LINK) {
+    return false;
+  }
+  if (mode === AGENCY_SIGNING_MODE_SPECIFIC_ADMIN) {
+    return userMatchesAssignedSigningAdmin(authUser, stream, suffix);
+  }
+
+  const managed = accessSvc
+    .getUserManagedAgencySuffixes(authUser)
+    .map(normalizeAgencySuffix)
+    .filter(Boolean);
+  if (managed.length) {
+    return managed.includes(suffix);
+  }
+  if (authUser.isAgencyAdmin) {
+    return accessSvc.isSuffixAllowed(authUser, suffix);
+  }
+  return normalizeAgencySuffix(resolveUserAgencySuffix(authUser)) === suffix;
+}
+
+function buildDocumentViewHref(stream, versionRecord) {
+  if (!stream?.mouId || !versionRecord?.version) return null;
+  if (normalizeContentType(versionRecord.contentType) === "pdf") {
+    return `/mou/file/${encodeURIComponent(stream.mouId)}/${encodeURIComponent(
+      versionRecord.version
+    )}`;
+  }
+  return `/mou/view/${encodeURIComponent(stream.mouId)}/${encodeURIComponent(
+    versionRecord.version
+  )}`;
+}
+
+function resolvePrimaryAgencySuffixForUser(authUser, stream) {
+  const targetSuffixes = getStreamAgencySuffixes(stream);
+  if (!targetSuffixes.length) return "";
+
+  const signable = targetSuffixes.filter((suffix) =>
+    canUserSignAgencyForStream(authUser, stream, suffix)
+  );
+  if (signable.length) return normalizeAgencySuffix(signable[0]);
+
+  const managed = accessSvc
+    .getUserManagedAgencySuffixes(authUser)
+    .map(normalizeAgencySuffix)
+    .filter(Boolean);
+  if (managed.length) {
+    const managedSet = new Set(managed);
+    const match = targetSuffixes.find((suffix) =>
+      managedSet.has(normalizeAgencySuffix(suffix))
+    );
+    if (match) return normalizeAgencySuffix(match);
+  }
+  if (authUser?.isAgencyAdmin) {
+    const match = targetSuffixes.find((suffix) =>
+      accessSvc.isSuffixAllowed(authUser, suffix)
+    );
+    if (match) return normalizeAgencySuffix(match);
+  }
+
+  const home = normalizeAgencySuffix(resolveUserAgencySuffix(authUser));
+  if (home && targetSuffixes.includes(home)) return home;
+  return normalizeAgencySuffix(targetSuffixes[0]);
+}
+
+function buildExternalSignPath(token) {
+  return `/request-access/mou/${encodeURIComponent(String(token || "").trim())}`;
+}
+
+function revokeActiveSignInvitesForAgency({ mouId, agencyId, reason }) {
+  const data = getSignInvitesStore();
+  const now = nowIso();
+  let changed = false;
+  for (const item of data.items) {
+    if (
+      normalizeText(item?.mouId) === normalizeText(mouId) &&
+      normalizeAgencySuffix(item?.agencyId) === normalizeAgencySuffix(agencyId) &&
+      !item?.usedAt &&
+      !item?.revokedAt
+    ) {
+      item.revokedAt = now;
+      item.revokeReason = normalizeText(reason) || "revoked";
+      changed = true;
+    }
+  }
+  if (changed) saveSignInvitesStore(data);
+}
+
+function revokeSignInvitesForStream(mouId, reason) {
+  const data = getSignInvitesStore();
+  const now = nowIso();
+  let changed = false;
+  for (const item of data.items) {
+    if (normalizeText(item?.mouId) === normalizeText(mouId) && !item?.usedAt && !item?.revokedAt) {
+      item.revokedAt = now;
+      item.revokeReason = normalizeText(reason) || "revoked";
+      changed = true;
+    }
+  }
+  if (changed) saveSignInvitesStore(data);
+}
+
+function purgeSignInvitesForStream(mouId) {
+  const data = getSignInvitesStore();
+  const before = data.items.length;
+  data.items = data.items.filter(
+    (item) => normalizeText(item?.mouId) !== normalizeText(mouId)
+  );
+  if (data.items.length !== before) saveSignInvitesStore(data);
+}
+
+function getSignInviteByToken(token) {
+  const safeToken = normalizeText(token);
+  if (!safeToken) return null;
+  return (
+    getSignInvitesStore().items.find(
+      (item) => normalizeText(item?.token) === safeToken
+    ) || null
+  );
+}
+
+function getActiveSignInviteForAgency({ mouId, agencyId }) {
+  const safeMouId = normalizeText(mouId);
+  const safeAgencyId = normalizeAgencySuffix(agencyId);
+  const nowMs = Date.now();
+  return (
+    getSignInvitesStore().items.find((item) => {
+      if (normalizeText(item?.mouId) !== safeMouId) return false;
+      if (normalizeAgencySuffix(item?.agencyId) !== safeAgencyId) return false;
+      if (item?.usedAt || item?.revokedAt) return false;
+      if (item?.expiresAt && new Date(item.expiresAt).getTime() < nowMs) return false;
+      return true;
+    }) || null
+  );
+}
+
+function createSignInvite({ mouId, agencyId, version, recipientEmail, actor }) {
+  revokeActiveSignInvitesForAgency({ mouId, agencyId, reason: "replaced" });
+  const token = genSignInviteToken();
+  const createdAt = nowIso();
+  const expiresAt = new Date(
+    Date.now() + SIGN_INVITE_EXPIRY_DAYS * 24 * 60 * 60 * 1000
+  ).toISOString();
+  const invite = {
+    inviteId: makeId(),
+    token,
+    mouId: normalizeText(mouId),
+    agencyId: normalizeAgencySuffix(agencyId),
+    version: normalizeVersion(version),
+    recipientEmail: normalizeText(recipientEmail) || null,
+    createdAt,
+    expiresAt,
+    usedAt: null,
+    revokedAt: null,
+    createdBy: actor?.uid || actor?.username || null,
+  };
+  const data = getSignInvitesStore();
+  data.items.push(invite);
+  saveSignInvitesStore(data);
+  return invite;
+}
+
+function markSignInviteUsed(token) {
+  const safeToken = normalizeText(token);
+  if (!safeToken) return null;
+  const data = getSignInvitesStore();
+  const item = data.items.find((entry) => normalizeText(entry?.token) === safeToken);
+  if (!item || item.usedAt) return item?.completionToken || null;
+  item.usedAt = nowIso();
+  item.completionToken = genSignInviteToken();
+  item.completionViewedAt = null;
+  saveSignInvitesStore(data);
+  return item.completionToken;
+}
+
+function getSignInviteByCompletionToken(completionToken) {
+  const safeToken = normalizeText(completionToken);
+  if (!safeToken) return null;
+  return (
+    getSignInvitesStore().items.find(
+      (item) => normalizeText(item?.completionToken) === safeToken
+    ) || null
+  );
+}
+
+function resolveSignInviteCompletion(completionToken) {
+  const invite = getSignInviteByCompletionToken(completionToken);
+  if (!invite || !invite.usedAt) {
+    throw new Error("This confirmation link is invalid.");
+  }
+  if (invite.completionViewedAt) {
+    throw new Error("This confirmation link has expired.");
+  }
+
+  const stream = getStreamById(invite.mouId);
+  const currentVersion = getCurrentVersion(stream);
+  if (!currentVersion) {
+    throw new Error("This document is no longer available.");
+  }
+  if (normalizeVersion(currentVersion.version) !== normalizeVersion(invite.version)) {
+    throw new Error("This confirmation link is no longer valid.");
+  }
+
+  const signature = getCurrentAgencySignatureForStream(stream, invite.agencyId);
+  if (!signature) {
+    throw new Error("Signed document evidence was not found.");
+  }
+
+  const evidence = getAgencyEvidence({
+    mouId: stream.mouId,
+    agencyId: invite.agencyId,
+    version: currentVersion.version,
+  });
+
+  return { stream, currentVersion, invite, signature, evidence };
+}
+
+function resolveSignInviteCompletionPdf(completionToken) {
+  const invite = getSignInviteByCompletionToken(completionToken);
+  if (!invite || !invite.usedAt) {
+    throw new Error("This download link is invalid.");
+  }
+  const stream = getStreamById(invite.mouId);
+  const currentVersion = getCurrentVersion(stream);
+  if (!currentVersion) {
+    throw new Error("This document is no longer available.");
+  }
+  const signature = getCurrentAgencySignatureForStream(stream, invite.agencyId);
+  if (!signature) {
+    throw new Error("Signed document evidence was not found.");
+  }
+  return {
+    stream,
+    currentVersion,
+    invite,
+    signature,
+  };
+}
+
+function markSignInviteCompletionViewed(completionToken) {
+  const safeToken = normalizeText(completionToken);
+  if (!safeToken) return;
+  const data = getSignInvitesStore();
+  const item = data.items.find(
+    (entry) => normalizeText(entry?.completionToken) === safeToken
+  );
+  if (!item || item.completionViewedAt) return;
+  item.completionViewedAt = nowIso();
+  saveSignInvitesStore(data);
+}
+
+function markSignInviteUsedForAgencySignature({ mouId, agencySuffix, version }) {
+  const invite = getActiveSignInviteForAgency({
+    mouId,
+    agencyId: agencySuffix,
+  });
+  if (
+    invite &&
+    normalizeVersion(invite.version) === normalizeVersion(version)
+  ) {
+    markSignInviteUsed(invite.token);
+  }
+}
+
+function resolveValidSignInvite(token) {
+  const invite = getSignInviteByToken(token);
+  if (!invite) {
+    throw new Error("Sign link not found.");
+  }
+  if (invite.revokedAt) {
+    throw new Error("This sign link is no longer valid.");
+  }
+  if (invite.usedAt) {
+    throw new Error("This sign link has already been used.");
+  }
+  if (invite.expiresAt && new Date(invite.expiresAt).getTime() < Date.now()) {
+    throw new Error("This sign link has expired.");
+  }
+
+  const stream = getStreamById(invite.mouId);
+  const currentVersion = getCurrentVersion(stream);
+  if (!currentVersion) {
+    throw new Error("This document is not available for signing.");
+  }
+  if (
+    normalizeVersion(currentVersion.version) !== normalizeVersion(invite.version)
+  ) {
+    throw new Error(
+      "This sign link is for an older document version. Request a new link from your administrator."
+    );
+  }
+  if (getAgencySigningMode(stream, invite.agencyId) !== AGENCY_SIGNING_MODE_EXTERNAL_LINK) {
+    throw new Error("This agency no longer accepts external sign links.");
+  }
+  const targetSuffixes = getStreamAgencySuffixes(stream);
+  if (!targetSuffixes.includes(normalizeAgencySuffix(invite.agencyId))) {
+    throw new Error("This document is no longer assigned to this agency.");
+  }
+
+  return { stream, currentVersion, invite };
+}
+
+function syncExternalSignInvitesForStream({ stream, actor, agencySuffixes }) {
+  const currentVersion = getCurrentVersion(stream);
+  if (!currentVersion) return [];
+  const suffixes = Array.isArray(agencySuffixes)
+    ? agencySuffixes.map(normalizeAgencySuffix).filter(Boolean)
+    : getTargetAgenciesForStream(stream)
+        .map((agency) => normalizeAgencySuffix(agency?.suffix))
+        .filter(Boolean);
+  const created = [];
+  for (const agencySuffix of suffixes) {
+    if (getAgencySigningMode(stream, agencySuffix) !== AGENCY_SIGNING_MODE_EXTERNAL_LINK) {
+      continue;
+    }
+    if (getCurrentAgencySignatureForStream(stream, agencySuffix)) {
+      continue;
+    }
+    const inviteEmail = getAgencySigningInviteEmail(stream, agencySuffix);
+    const existing = getActiveSignInviteForAgency({
+      mouId: stream.mouId,
+      agencyId: agencySuffix,
+    });
+    if (
+      existing &&
+      normalizeVersion(existing.version) === normalizeVersion(currentVersion.version)
+    ) {
+      created.push(existing);
+      continue;
+    }
+    created.push(
+      createSignInvite({
+        mouId: stream.mouId,
+        agencyId: agencySuffix,
+        version: currentVersion.version,
+        recipientEmail: inviteEmail,
+        actor,
+      })
+    );
+  }
+  return created;
+}
+
+function refreshExternalSignInvitesAfterVersionChange({ stream, actor }) {
+  revokeSignInvitesForStream(stream.mouId, "version_changed");
+  return syncExternalSignInvitesForStream({ stream, actor });
+}
+
+function streamHasAnySignatures(stream) {
+  for (const versionRecord of stream?.versions || []) {
+    if (Array.isArray(versionRecord.signatures) && versionRecord.signatures.length) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function getStreamSignatureSummary(stream) {
+  let signatureCount = 0;
+  const agencies = new Set();
+  for (const versionRecord of stream?.versions || []) {
+    for (const signature of versionRecord.signatures || []) {
+      signatureCount += 1;
+      agencies.add(normalizeAgencySuffix(signature?.agencyId));
+    }
+  }
+  return {
+    signatureCount,
+    agencyCount: agencies.size,
+    hasSignatures: signatureCount > 0,
+  };
+}
+
+function getStreamActiveAssignmentSignatureSummary(stream) {
+  const activeSuffixes = new Set(getStreamAgencySuffixes(stream));
+  const agenciesWithSignatures = new Set();
+  for (const versionRecord of stream?.versions || []) {
+    for (const signature of versionRecord.signatures || []) {
+      const agencyId = normalizeAgencySuffix(signature?.agencyId);
+      if (activeSuffixes.has(agencyId)) {
+        agenciesWithSignatures.add(agencyId);
+      }
+    }
+  }
+  const signatureCount = agenciesWithSignatures.size;
+  return {
+    signatureCount,
+    agencyCount: signatureCount,
+    hasSignatures: signatureCount > 0,
+  };
+}
+
+function getArchivedAgencySuffixesForStream(mouId) {
+  const safeMouId = normalizeText(mouId);
+  if (!safeMouId) return new Set();
+  return new Set(
+    getArchivedDocumentsStore()
+      .items.filter((item) => normalizeText(item?.mouId) === safeMouId)
+      .map((item) => normalizeAgencySuffix(item?.agencyId))
+      .filter(Boolean)
+  );
+}
+
+function copyDataFile(sourceRelativePath, destRelativePath) {
+  const sourceAbs = getAbsoluteDataPath(sourceRelativePath);
+  const destAbs = getAbsoluteDataPath(destRelativePath);
+  if (!sourceAbs || !destAbs || !fs.existsSync(sourceAbs)) return false;
+  fs.mkdirSync(path.dirname(destAbs), { recursive: true });
+  fs.copyFileSync(sourceAbs, destAbs);
+  return true;
+}
+
+function deleteArchiveSnapshotFiles(snapshot) {
+  if (!snapshot || typeof snapshot !== "object") return;
+  deleteSignatureArtifacts(snapshot);
+}
+
+function createArchiveSnapshot(archiveId, signatureEntry, versionRecord) {
+  if (!signatureEntry) return null;
+  const safeArchiveId = normalizeText(archiveId);
+  if (!safeArchiveId) return null;
+  const snapshot = {
+    signedVersion: normalizeVersion(versionRecord?.version),
+    contentType: normalizeContentType(versionRecord?.contentType),
+    signature: {
+      agencyId: signatureEntry.agencyId,
+      agencyNameAtSign: signatureEntry.agencyNameAtSign,
+      attestationText: signatureEntry.attestationText,
+      signerDisplayName: signatureEntry.signerDisplayName,
+      signerStatusAtSign: signatureEntry.signerStatusAtSign,
+      signedAt: signatureEntry.signedAt,
+      customFieldValues: Array.isArray(signatureEntry.customFieldValues)
+        ? signatureEntry.customFieldValues
+        : [],
+      uploadedSignedCopyContentType: signatureEntry.uploadedSignedCopyContentType || "",
+    },
+    signedHtmlPath: "",
+    signaturePngPath: "",
+    uploadedSignedCopyPath: "",
+  };
+  const base = `mou-archives/${safeArchiveId}`;
+  if (signatureEntry.signedHtmlPath) {
+    const dest = `${base}/signed.html`;
+    if (copyDataFile(signatureEntry.signedHtmlPath, dest)) {
+      snapshot.signedHtmlPath = dest;
+    }
+  }
+  if (signatureEntry.signaturePngPath) {
+    const dest = `${base}/signature.png`;
+    if (copyDataFile(signatureEntry.signaturePngPath, dest)) {
+      snapshot.signaturePngPath = dest;
+    }
+  }
+  if (signatureEntry.uploadedSignedCopyPath) {
+    const ext = path.extname(String(signatureEntry.uploadedSignedCopyPath || "")) || ".pdf";
+    const dest = `${base}/uploaded${ext}`;
+    if (copyDataFile(signatureEntry.uploadedSignedCopyPath, dest)) {
+      snapshot.uploadedSignedCopyPath = dest;
+    }
+  }
+  return snapshot;
+}
+
+function getArchivedDocumentById(archiveId) {
+  const safeArchiveId = normalizeText(archiveId);
+  if (!safeArchiveId) return null;
+  const record = getArchivedDocumentsStore().items.find(
+    (item) => normalizeText(item?.archiveId) === safeArchiveId
+  );
+  return record ? normalizeArchivedDocumentRecord(record) : null;
+}
+
+function getArchivedDocumentView(archiveId) {
+  const archivedRecord = getArchivedDocumentById(archiveId);
+  if (!archivedRecord) {
+    throw new Error("Archived document not found.");
+  }
+
+  const stream = (() => {
+    try {
+      return getStreamById(archivedRecord.mouId);
+    } catch {
+      return null;
+    }
+  })();
+
+  if (stream && archivedRecord.signedVersion) {
+    const evidence = getAgencyEvidence({
+      mouId: archivedRecord.mouId,
+      agencyId: archivedRecord.agencyId,
+      version: archivedRecord.signedVersion,
+    });
+    return {
+      archivedRecord,
+      stream,
+      html: evidence.html || "",
+      source: "live",
+    };
+  }
+
+  const snapshotHtmlPath = getAbsoluteDataPath(archivedRecord.snapshot?.signedHtmlPath);
+  if (snapshotHtmlPath && fs.existsSync(snapshotHtmlPath)) {
+    return {
+      archivedRecord,
+      stream: null,
+      html: store.readHtml(snapshotHtmlPath),
+      source: "snapshot",
+    };
+  }
+
+  throw new Error("Signed document evidence was not found for this archive.");
+}
+
+async function getArchivedSignedPdfExport(archiveId) {
+  const archivedRecord = getArchivedDocumentById(archiveId);
+  if (!archivedRecord) {
+    throw new Error("Archived document not found.");
+  }
+  if (!archivedRecord.signedVersion) {
+    throw new Error("This archived document does not include a signed copy.");
+  }
+
+  const stream = (() => {
+    try {
+      return getStreamById(archivedRecord.mouId);
+    } catch {
+      return null;
+    }
+  })();
+
+  if (stream) {
+    return getSignedPdfExport({
+      mouId: archivedRecord.mouId,
+      agencyId: archivedRecord.agencyId,
+      version: archivedRecord.signedVersion,
+    });
+  }
+
+  const snapshot = archivedRecord.snapshot;
+  const signatureRecord = snapshot?.signature
+    ? {
+        ...snapshot.signature,
+        uploadedSignedCopyPath: snapshot.uploadedSignedCopyPath || "",
+        uploadedSignedCopyContentType:
+          snapshot.signature.uploadedSignedCopyContentType || "",
+        signaturePngPath: snapshot.signaturePngPath || "",
+      }
+    : null;
+  if (signatureRecord?.uploadedSignedCopyPath) {
+    const pdfBuffer = await buildUploadedSignedCopyPdfBuffer(signatureRecord);
+    return {
+      fileName: `${sanitizeFileSegment(archivedRecord.mouTitle, "mou")}-${archivedRecord.agencyId}-v${archivedRecord.signedVersion}-signed.pdf`,
+      contentType: "application/pdf",
+      buffer: pdfBuffer,
+    };
+  }
+
+  throw new Error("Signed PDF is unavailable for this archived document.");
+}
+
+function getArchivedDocumentContentExport(archiveId) {
+  const archivedRecord = getArchivedDocumentById(archiveId);
+  if (!archivedRecord) {
+    throw new Error("Archived document not found.");
+  }
+  if (!archivedRecord.currentVersion) {
+    throw new Error("Archived document version was not recorded.");
+  }
+
+  try {
+    const content = getVersionContent(archivedRecord.mouId, archivedRecord.currentVersion);
+    return {
+      archivedRecord,
+      stream: content.stream,
+      version: content.version,
+      contentType: content.contentType,
+      fileName: content.fileName,
+      contentBuffer: content.contentBuffer,
+      html: content.html,
+    };
+  } catch (err) {
+    throw new Error(
+      err?.message ||
+        "The source document file is no longer available. Only signed archived copies can be downloaded."
+    );
+  }
 }
 
 function normalizeScopeType(value) {
@@ -432,27 +1126,50 @@ function getAllAgencies() {
 }
 
 function normalizeAssignments(assignments, legacyStream) {
+  let base;
   if (assignments && typeof assignments === "object") {
     const serverwide = normalizedMandatory(assignments.serverwide);
-    return {
+    base = {
       serverwide,
       agencySuffixes: serverwide
         ? []
         : normalizeAgencySuffixList(assignments.agencySuffixes),
     };
+  } else {
+    const legacyScopeType = normalizeScopeType(legacyStream?.scopeType);
+    if (legacyScopeType === "global") {
+      base = {
+        serverwide: true,
+        agencySuffixes: [],
+      };
+    } else {
+      base = {
+        serverwide: false,
+        agencySuffixes: normalizeAgencySuffixList(legacyStream?.agencySuffix),
+      };
+    }
   }
 
-  const legacyScopeType = normalizeScopeType(legacyStream?.scopeType);
-  if (legacyScopeType === "global") {
-    return {
-      serverwide: true,
-      agencySuffixes: [],
+  const rawSigning =
+    (assignments && assignments.agencySigning) ||
+    legacyStream?.assignments?.agencySigning;
+  const normalizedSigning = normalizeAgencySigningConfig(rawSigning);
+  const targetSuffixes = base.serverwide
+    ? getAllAgencies()
+        .map((agency) => normalizeAgencySuffix(agency?.suffix))
+        .filter(Boolean)
+    : base.agencySuffixes.slice();
+
+  const agencySigning = {};
+  for (const suffix of targetSuffixes) {
+    agencySigning[suffix] = normalizedSigning[suffix] || {
+      mode: AGENCY_SIGNING_MODE_AGENCY_ADMINS,
     };
   }
 
   return {
-    serverwide: false,
-    agencySuffixes: normalizeAgencySuffixList(legacyStream?.agencySuffix),
+    ...base,
+    agencySigning,
   };
 }
 
@@ -509,7 +1226,7 @@ function getStreamAgencySuffixes(stream) {
   return assignments.agencySuffixes.slice();
 }
 
-function buildAssignmentsFromAgencySuffixes(agencySuffixes) {
+function buildAssignmentsFromAgencySuffixes(agencySuffixes, previousAssignments) {
   const normalized = normalizeAgencySuffixList(agencySuffixes);
   const allAgencySuffixes = normalizeAgencySuffixList(
     getAllAgencies().map((agency) => agency?.suffix)
@@ -518,9 +1235,92 @@ function buildAssignmentsFromAgencySuffixes(agencySuffixes) {
     normalized.length > 0 &&
     normalized.length === allAgencySuffixes.length &&
     allAgencySuffixes.every((suffix) => normalized.includes(suffix));
-  return allAssigned
+  const base = allAssigned
     ? { serverwide: true, agencySuffixes: [] }
     : { serverwide: false, agencySuffixes: normalized };
+  const prevSigning = normalizeAgencySigningConfig(previousAssignments?.agencySigning);
+  const targetSuffixes = base.serverwide ? allAgencySuffixes : base.agencySuffixes;
+  const agencySigning = {};
+  for (const suffix of targetSuffixes) {
+    agencySigning[suffix] = prevSigning[suffix] || {
+      mode: AGENCY_SIGNING_MODE_AGENCY_ADMINS,
+    };
+  }
+  return {
+    ...base,
+    agencySigning,
+  };
+}
+
+function validateAgencySigningForAssignments(assignments) {
+  const suffixes = getStreamAgencySuffixes({ assignments });
+  for (const suffix of suffixes) {
+    const entry = assignments?.agencySigning?.[suffix];
+    const mode = normalizeAgencySigningMode(entry?.mode);
+    const agencyLabel = String(suffix || "").trim().toUpperCase() || "agency";
+    if (mode === AGENCY_SIGNING_MODE_SPECIFIC_ADMIN) {
+      if (
+        !normalizeText(entry?.assignedAdminEmail) &&
+        !normalizeText(entry?.assignedAdminUsername)
+      ) {
+        throw new Error(
+          `Agency Admin selection is required for Specific Agency Admin signing (${agencyLabel}).`
+        );
+      }
+    }
+  }
+}
+
+function buildAssignmentsWithSigning({
+  mouId,
+  serverwide,
+  agencySuffixes,
+  agencySigning,
+  previousAssignments,
+}) {
+  const base = normalizeAssignments({
+    serverwide,
+    agencySuffixes,
+    agencySigning,
+  });
+  const previous = getAssignments({ assignments: previousAssignments || {} });
+  const prevSuffixes = getStreamAgencySuffixes({ assignments: previous });
+  const nextSuffixes = getStreamAgencySuffixes({ assignments: base });
+  const inputSigning = normalizeAgencySigningConfig(agencySigning);
+
+  for (const suffix of prevSuffixes) {
+    if (!nextSuffixes.includes(suffix)) {
+      revokeActiveSignInvitesForAgency({
+        mouId,
+        agencyId: suffix,
+        reason: "unassigned",
+      });
+    }
+  }
+
+  const mergedSigning = { ...base.agencySigning };
+  for (const suffix of nextSuffixes) {
+    if (inputSigning[suffix]) {
+      mergedSigning[suffix] = inputSigning[suffix];
+    }
+    const prevMode = normalizeAgencySigningMode(previous.agencySigning?.[suffix]?.mode);
+    const nextMode = normalizeAgencySigningMode(mergedSigning[suffix]?.mode);
+    if (
+      prevMode === AGENCY_SIGNING_MODE_EXTERNAL_LINK &&
+      nextMode !== AGENCY_SIGNING_MODE_EXTERNAL_LINK
+    ) {
+      revokeActiveSignInvitesForAgency({
+        mouId,
+        agencyId: suffix,
+        reason: "mode_changed",
+      });
+    }
+  }
+
+  return {
+    ...base,
+    agencySigning: mergedSigning,
+  };
 }
 
 function getLatestSignatureForAgency(stream, agencyId) {
@@ -585,6 +1385,7 @@ function normalizeArchivedDocumentRecord(record) {
     status: normalizedStatus === "Current" ? "Signed" : (normalizedStatus || "Archived"),
     archivedAt: record?.archivedAt || null,
     archivedBy: normalizeText(record?.archivedBy),
+    snapshot: record?.snapshot && typeof record.snapshot === "object" ? record.snapshot : null,
   };
 }
 
@@ -613,9 +1414,21 @@ function resolveUserAgencySuffix(authUser) {
 function streamAppliesToUser(stream, authUser) {
   if (!authUser) return false;
   if (!hasActiveAssignments(stream)) return false;
-  if (getAssignments(stream).serverwide) return true;
+  const managedSuffixes = accessSvc.getUserManagedAgencySuffixes(authUser);
+  const managedSet = new Set(managedSuffixes.map(normalizeAgencySuffix));
+  if (getAssignments(stream).serverwide) {
+    if (authUser.isGlobalAdmin && !managedSuffixes.length) {
+      return false;
+    }
+    return true;
+  }
   const targetAgencySuffixes = getStreamAgencySuffixes(stream);
   if (!targetAgencySuffixes.length) return false;
+  if (managedSuffixes.length) {
+    return targetAgencySuffixes.some((suffix) =>
+      managedSet.has(normalizeAgencySuffix(suffix))
+    );
+  }
   if (authUser.isAgencyAdmin) {
     return targetAgencySuffixes.some((suffix) =>
       accessSvc.isSuffixAllowed(authUser, suffix)
@@ -1048,6 +1861,7 @@ function createNextVersion({ mouId, actor }) {
   stream.updatedAt = nowIso();
   stream.updatedBy = actor?.uid || actor?.username || null;
   saveIndex(index);
+  refreshExternalSignInvitesAfterVersionChange({ stream, actor });
   return clone(stream);
 }
 
@@ -1146,13 +1960,25 @@ function deleteStream({ mouId }) {
     throw new Error("MOU stream not found.");
   }
 
+  const signatureSummary = getStreamActiveAssignmentSignatureSummary(stream);
+  if (signatureSummary.hasSignatures) {
+    throw new Error(
+      `Cannot delete while ${signatureSummary.signatureCount} signed cop${signatureSummary.signatureCount === 1 ? "y" : "ies"} exist on active agency assignments. Archive agencies, then Delete Permanently from Archived Documents.`
+    );
+  }
+
+  const archivedAgencies = getArchivedAgencySuffixesForStream(mouId);
+
   for (const versionRecord of stream.versions || []) {
     const contentPath = getAbsoluteContentPath(versionRecord);
     if (contentPath) {
       store.deleteFile(contentPath);
     }
     for (const signature of versionRecord.signatures || []) {
-      deleteSignatureArtifacts(signature);
+      const agencyId = normalizeAgencySuffix(signature?.agencyId);
+      if (!archivedAgencies.has(agencyId)) {
+        deleteSignatureArtifacts(signature);
+      }
     }
   }
 
@@ -1175,15 +2001,25 @@ function deleteStream({ mouId }) {
   }
   saveRemindersStore(reminders);
 
-  const archivedDocuments = getArchivedDocumentsStore();
-  archivedDocuments.items = archivedDocuments.items.filter(
-    (item) => normalizeText(item?.mouId) !== normalizeText(mouId)
-  );
-  saveArchivedDocumentsStore(archivedDocuments);
+  purgeSignInvitesForStream(mouId);
   return true;
 }
 
-function updateStreamAssignments({ mouId, serverwide, agencySuffixes, actor }) {
+function getSignedAgencySuffixesForCurrentVersion(stream) {
+  const currentVersion = getCurrentVersion(stream);
+  if (!currentVersion) return [];
+  return (Array.isArray(currentVersion.signatures) ? currentVersion.signatures : [])
+    .map((entry) => normalizeAgencySuffix(entry?.agencyId))
+    .filter(Boolean);
+}
+
+function updateStreamAssignments({
+  mouId,
+  serverwide,
+  agencySuffixes,
+  agencySigning,
+  actor,
+}) {
   requireEnabled();
   const index = getIndex();
   const stream = findStream(index, mouId);
@@ -1194,12 +2030,80 @@ function updateStreamAssignments({ mouId, serverwide, agencySuffixes, actor }) {
     throw new Error("Create a document version before assigning it.");
   }
 
-  const assignments = normalizeAssignments({
-    serverwide,
-    agencySuffixes,
+  const signedSuffixes = getSignedAgencySuffixesForCurrentVersion(stream);
+  const previousAssignments = getAssignments(stream);
+  let normalizedSuffixes = normalizeAgencySuffixList(agencySuffixes);
+  const isServerwide = !!serverwide;
+  if (!isServerwide && signedSuffixes.length) {
+    const suffixSet = new Set(normalizedSuffixes);
+    for (const suffix of signedSuffixes) {
+      suffixSet.add(suffix);
+    }
+    normalizedSuffixes = Array.from(suffixSet);
+  }
+
+  let signingPayload = agencySigning;
+  if (signedSuffixes.length && previousAssignments?.agencySigning) {
+    signingPayload = { ...(agencySigning || {}) };
+    for (const suffix of signedSuffixes) {
+      if (previousAssignments.agencySigning[suffix]) {
+        signingPayload[suffix] = previousAssignments.agencySigning[suffix];
+      }
+    }
+  }
+
+  const assignments = buildAssignmentsWithSigning({
+    mouId,
+    serverwide: isServerwide,
+    agencySuffixes: normalizedSuffixes,
+    agencySigning: signingPayload,
+    previousAssignments: stream.assignments || {},
   });
+  validateAgencySigningForAssignments(assignments);
 
   stream.assignments = assignments;
+  stream.updatedAt = nowIso();
+  stream.updatedBy = actor?.uid || actor?.username || null;
+  saveIndex(index);
+  return clone(stream);
+}
+
+function updateAgencySigningConfig({ mouId, agencySuffix, signingPatch, actor, skipValidation = false }) {
+  requireEnabled();
+  const index = getIndex();
+  const stream = findStream(index, mouId);
+  if (!stream) {
+    throw new Error("MOU stream not found.");
+  }
+  if (!getCurrentVersion(stream)) {
+    throw new Error("Create a document version before updating signing settings.");
+  }
+
+  const suffix = normalizeAgencySuffix(agencySuffix);
+  const targetedSuffixes = getStreamAgencySuffixes(stream);
+  if (!targetedSuffixes.includes(suffix)) {
+    throw new Error("This agency is not assigned to the document.");
+  }
+
+  const previous = getAssignments(stream);
+  const patch = normalizeAgencySigningConfig({ [suffix]: signingPatch || {} })[suffix] || {
+    mode: AGENCY_SIGNING_MODE_AGENCY_ADMINS,
+  };
+  const mergedSigning = {
+    ...(previous.agencySigning || {}),
+    [suffix]: patch,
+  };
+
+  stream.assignments = buildAssignmentsWithSigning({
+    mouId,
+    serverwide: previous.serverwide,
+    agencySuffixes: previous.agencySuffixes,
+    agencySigning: mergedSigning,
+    previousAssignments: previous,
+  });
+  if (!skipValidation) {
+    validateAgencySigningForAssignments(stream.assignments);
+  }
   stream.updatedAt = nowIso();
   stream.updatedBy = actor?.uid || actor?.username || null;
   saveIndex(index);
@@ -1278,9 +2182,13 @@ function archiveDocumentForAgency({ mouId, agencyId, actor }) {
         normalizeAgencySuffix(item?.agencyId) === safeAgencyId
       )
   );
+  const archiveId = makeId();
+  const snapshot = latestSignature
+    ? createArchiveSnapshot(archiveId, latestSignature.entry, latestSignature.versionRecord)
+    : null;
   archivedDocuments.items.push(
     normalizeArchivedDocumentRecord({
-      archiveId: makeId(),
+      archiveId,
       mouId: stream.mouId,
       mouTitle: stream.title,
       scopeType: getAssignments(stream).serverwide ? "global" : "agency",
@@ -1301,13 +2209,17 @@ function archiveDocumentForAgency({ mouId, agencyId, actor }) {
       status: needsSignature ? "Needs Signature" : "Signed",
       archivedAt: nowIso(),
       archivedBy: actor?.uid || actor?.username || null,
+      snapshot,
     })
   );
 
   const remainingAgencySuffixes = getStreamAgencySuffixes(stream).filter(
     (suffix) => normalizeAgencySuffix(suffix) !== safeAgencyId
   );
-  stream.assignments = buildAssignmentsFromAgencySuffixes(remainingAgencySuffixes);
+  stream.assignments = buildAssignmentsFromAgencySuffixes(
+    remainingAgencySuffixes,
+    stream.assignments
+  );
   stream.updatedAt = nowIso();
   stream.updatedBy = actor?.uid || actor?.username || null;
   saveIndex(index);
@@ -1339,7 +2251,10 @@ function restoreArchivedDocument({ archiveId, actor }) {
     ...getStreamAgencySuffixes(stream),
     archivedRecord.agencyId,
   ]);
-  stream.assignments = buildAssignmentsFromAgencySuffixes(nextAgencySuffixes);
+  stream.assignments = buildAssignmentsFromAgencySuffixes(
+    nextAgencySuffixes,
+    stream.assignments
+  );
   stream.updatedAt = nowIso();
   stream.updatedBy = actor?.uid || actor?.username || null;
   archivedDocuments.items = archivedDocuments.items.filter(
@@ -1404,6 +2319,7 @@ function deleteArchivedDocument({ archiveId, actor }) {
   archivedDocuments.items = archivedDocuments.items.filter(
     (item) => normalizeText(item?.archiveId) !== safeArchiveId
   );
+  deleteArchiveSnapshotFiles(archivedRecord.snapshot);
   saveArchivedDocumentsStore(archivedDocuments);
   return true;
 }
@@ -1976,6 +2892,11 @@ function signVersion({
 
   versionRecord.signatures.push(signatureRecord);
   saveIndex(index);
+  markSignInviteUsedForAgencySignature({
+    mouId,
+    agencySuffix: safeAgencySuffix,
+    version: versionRecord.version,
+  });
   return {
     stream: clone(stream),
     version: clone(versionRecord),
@@ -2068,6 +2989,17 @@ function getAgencySignatureStatusRows() {
         currentVersion: currentVersion.version,
         agencyId,
         agencyName: agency.name || agency.groupPrefix || agency.suffix,
+        signingMode: getAgencySigningMode(stream, agencyId),
+        inviteEmail: getAgencySigningInviteEmail(stream, agencyId),
+        assignedAdminEmail: getAgencySigningAssignedAdminEmail(stream, agencyId),
+        assignedAdminUsername: getAgencySigningAssignedAdminUsername(stream, agencyId),
+        assignedAdminName: normalizeText(
+          getAssignments(stream).agencySigning?.[agencyId]?.assignedAdminName
+        ),
+        externalSignPath: (() => {
+          const invite = getActiveSignInviteForAgency({ mouId: stream.mouId, agencyId });
+          return invite ? buildExternalSignPath(invite.token) : "";
+        })(),
         signedVersion: latestSignature ? latestSignature.versionRecord.version : null,
         signerDisplayName: latestSignature
           ? (latestSignature.entry.attestationText || latestSignature.entry.signerDisplayName)
@@ -2131,14 +3063,24 @@ function buildContentUrls(stream, versionRecord) {
 }
 
 function getSidebarListForUser(authUser) {
+  const managedSuffixes = accessSvc.getUserManagedAgencySuffixes(authUser);
+  const managedSet = new Set(managedSuffixes.map(normalizeAgencySuffix));
   return listCurrentStreamsForUser(authUser).map((stream) => {
     const currentVersion = getCurrentVersion(stream);
     const contentUrls = currentVersion ? buildContentUrls(stream, currentVersion) : null;
-    const availableAgencySuffixes = authUser?.isAgencyAdmin
+    const availableAgencySuffixes = managedSuffixes.length
       ? getStreamAgencySuffixes(stream).filter((suffix) =>
-          accessSvc.isSuffixAllowed(authUser, suffix)
+          managedSet.has(normalizeAgencySuffix(suffix))
         )
-      : [];
+      : authUser?.isAgencyAdmin
+        ? getStreamAgencySuffixes(stream).filter((suffix) =>
+            accessSvc.isSuffixAllowed(authUser, suffix)
+          )
+        : [];
+    const signableAgencySuffixes = availableAgencySuffixes.filter((suffix) =>
+      canUserSignAgencyForStream(authUser, stream, suffix)
+    );
+    const viewHref = currentVersion ? buildDocumentViewHref(stream, currentVersion) : null;
     return {
       mouId: stream.mouId,
       title: stream.title,
@@ -2146,20 +3088,11 @@ function getSidebarListForUser(authUser) {
       scopeType: getAssignments(stream).serverwide ? "global" : "agency",
       scopeLabel: getScopeLabel(stream),
       contentType: normalizeContentType(currentVersion?.contentType),
-      viewHref:
-        currentVersion
-          ? normalizeContentType(currentVersion?.contentType) === "pdf"
-            ? `/mou/file/${encodeURIComponent(stream.mouId)}/${encodeURIComponent(
-                currentVersion.version
-              )}`
-            : `/mou/view/${encodeURIComponent(stream.mouId)}/${encodeURIComponent(
-                currentVersion.version
-              )}`
-          : null,
+      viewHref,
       fileUrl: contentUrls?.fileUrl || null,
       downloadUrl: contentUrls?.downloadUrl || null,
       signHref:
-        currentVersion && availableAgencySuffixes.length
+        currentVersion && signableAgencySuffixes.length
           ? `/mou/sign/${encodeURIComponent(stream.mouId)}/${encodeURIComponent(
               currentVersion.version
             )}`
@@ -2182,6 +3115,7 @@ module.exports = {
   updateVersion,
   deleteStream,
   updateStreamAssignments,
+  updateAgencySigningConfig,
   clearAgencySignatureForCurrentVersion,
   recordMouView,
   getCurrentUserAgreement,
@@ -2192,6 +3126,9 @@ module.exports = {
   signVersion,
   getAgencyEvidence,
   getSignedPdfExport,
+  getArchivedDocumentView,
+  getArchivedSignedPdfExport,
+  getArchivedDocumentContentExport,
   listSignatureRows,
   getAgencySignatureStatusRows,
   listArchivedDocumentRows,
@@ -2211,4 +3148,30 @@ module.exports = {
   readHtmlContent,
   renderContentPreview,
   buildContentUrls,
+  getAgencySigningMode,
+  getAgencySigningInviteEmail,
+  AGENCY_SIGNING_MODE_AGENCY_ADMINS,
+  AGENCY_SIGNING_MODE_SPECIFIC_ADMIN,
+  AGENCY_SIGNING_MODE_EXTERNAL_LINK,
+  buildExternalSignPath,
+  createSignInvite,
+  getActiveSignInviteForAgency,
+  getSignInviteByToken,
+  getSignInviteByCompletionToken,
+  resolveValidSignInvite,
+  resolveSignInviteCompletion,
+  resolveSignInviteCompletionPdf,
+  markSignInviteCompletionViewed,
+  getAgencySigningAssignedAdminEmail,
+  getAgencySigningAssignedAdminUsername,
+  userMatchesAssignedSigningAdmin,
+  canUserSignAgencyForStream,
+  buildDocumentViewHref,
+  resolvePrimaryAgencySuffixForUser,
+  syncExternalSignInvitesForStream,
+  refreshExternalSignInvitesAfterVersionChange,
+  revokeActiveSignInvitesForAgency,
+  streamHasAnySignatures,
+  getStreamSignatureSummary,
+  getStreamActiveAssignmentSignatureSummary,
 };

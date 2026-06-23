@@ -47,8 +47,8 @@ function newJobId() {
 router.get("/", async (req, res) => {
   try {
     const forceRefresh = req.query.forceRefresh === "true";
-    const all = await groups.getAllGroups({ forceRefresh });
     const authUser = req.authentikUser || null;
+    const all = await groups.getGroupsForAuthUser(authUser, { forceRefresh });
 
     const access = accessSvc.getAgencyAccess(authUser);
     const includeMutualAid =
@@ -63,11 +63,14 @@ router.get("/", async (req, res) => {
   }
 });
 
-async function resolveAgencyAbbreviationForExport(authUser, access) {
-  if (!authUser || access.isGlobalAdmin) return null;
+async function resolveAgencyAbbreviationsForScopedExport(authUser, access) {
+  if (!authUser || access.isGlobalAdmin) return [];
+
+  const fromAgencies = groups.resolveAgencyAbbreviationsForAuthUser(authUser);
+  if (fromAgencies.length) return fromAgencies;
 
   const allowed = access.allowedAgencySuffixes || [];
-  if (allowed.length !== 1 || !authUser.uid) return null;
+  if (allowed.length !== 1 || !authUser.uid) return [];
 
   try {
     const attrs = authUser?.attributes || {};
@@ -78,9 +81,9 @@ async function resolveAgencyAbbreviationForExport(authUser, access) {
     const attrsResolved =
       fallbackMe && fallbackMe.attributes ? fallbackMe.attributes : attrs;
     const abbr = String(attrsResolved?.agency_abbreviation || attrs.agency_abbreviation || "").trim();
-    return abbr || null;
+    return abbr ? [abbr] : [];
   } catch (_) {
-    return null;
+    return [];
   }
 }
 
@@ -162,7 +165,7 @@ router.get("/export-csv", async (req, res) => {
       return res.status(403).json({ error: "Forbidden" });
     }
 
-    const all = await groups.getAllGroups({ forceRefresh: false });
+    const all = await groups.getGroupsForAuthUser(authUser, { forceRefresh: false });
     let visible = filterGroupsVisibleToUser(authUser, all);
 
     visible.sort((a, b) => {
@@ -171,10 +174,10 @@ router.get("/export-csv", async (req, res) => {
       return an.localeCompare(bn, undefined, { numeric: true, sensitivity: "base" });
     });
 
-    const agencyAbbreviation = await resolveAgencyAbbreviationForExport(authUser, access);
+    const agencyAbbreviations = await resolveAgencyAbbreviationsForScopedExport(authUser, access);
     const exportRows = await groups.collectGroupsExportRows(visible, {
       authUser,
-      agencyAbbreviation,
+      agencyAbbreviations,
     });
     const csv = groups.buildGroupsExportCsv(exportRows);
 
@@ -224,6 +227,8 @@ router.post("/", async (req, res) => {
       return res.status(403).json({ error: "You do not have permission to set group privacy." });
     }
 
+    const allAgencies = agencies.load();
+
     if (!access.isGlobalAdmin) {
       const allowedSuffixes = access.allowedAgencySuffixes || [];
       if (!allowedSuffixes.length) {
@@ -232,7 +237,6 @@ router.post("/", async (req, res) => {
           .json({ error: "You do not have permission to create groups." });
       }
 
-      const allAgencies = agencies.load();
       const allowedPrefixes = allAgencies
         .filter((a) =>
           allowedSuffixes.includes(
@@ -263,11 +267,21 @@ router.post("/", async (req, res) => {
       }
     }
 
+    const matchedAgency = agencies.findAgencyForGroupName(nameWithoutTak, allAgencies);
+    if (matchedAgency && !agencies.isAgencyActive(matchedAgency)) {
+      return res.status(403).json({
+        error: `Agency "${matchedAgency.name || matchedAgency.suffix}" is disabled. Enable the agency before creating groups for it.`,
+      });
+    }
+
     const description = String(req.body?.description || "").trim() || null;
 
     const rawGroupType = String(req.body?.groupType || "").trim();
     const groupType =
-      rawGroupType === "Agency" || rawGroupType === "County" || rawGroupType === "Global"
+      rawGroupType === "Agency" ||
+      rawGroupType === "County" ||
+      rawGroupType === "State" ||
+      rawGroupType === "Global"
         ? rawGroupType
         : "Global";
 
@@ -926,34 +940,38 @@ router.get("/:groupId/members", async (req, res) => {
     const authUser = req.authentikUser || null;
     const access = accessSvc.getAgencyAccess(authUser);
 
-    // For agency admins, try to use their agency_abbreviation attribute
-    // to allow Authentik to filter members server-side.
+    // For agency admins, use agency_abbreviation attribute filtering
+    // (single agency) or parallel per-agency filters (multi-agency).
     let agencyAbbreviation = null;
-    if (!access.isGlobalAdmin && authUser?.uid) {
-      try {
-        // Only use attribute-based filtering when the user appears to be a
-        // single-agency admin; otherwise fall back to legacy suffix gate.
-        const allowed = access.allowedAgencySuffixes || [];
-        if (allowed.length === 1) {
+    let agencyAbbreviations = null;
+    if (!access.isGlobalAdmin) {
+      agencyAbbreviations = groups.resolveAgencyAbbreviationsForAuthUser(authUser);
+      if (agencyAbbreviations.length === 1) {
+        agencyAbbreviation = agencyAbbreviations[0];
+        agencyAbbreviations = null;
+      } else if (!agencyAbbreviations.length && authUser?.uid) {
+        try {
           const attrs = authUser?.attributes || {};
-          const fallbackMe = (!attrs || !Object.keys(attrs).length)
-            ? await usersService.getUserById(authUser.uid).catch(() => null)
-            : null;
-          const attrsResolved = (fallbackMe && fallbackMe.attributes) ? fallbackMe.attributes : attrs;
-          const abbr = String(attrs.agency_abbreviation || "").trim();
-          const resolvedAbbr = String(attrsResolved?.agency_abbreviation || "").trim();
-          if (resolvedAbbr || abbr) {
-            agencyAbbreviation = resolvedAbbr || abbr;
-          }
+          const fallbackMe =
+            !attrs || !Object.keys(attrs).length
+              ? await usersService.getUserById(authUser.uid).catch(() => null)
+              : null;
+          const attrsResolved =
+            fallbackMe && fallbackMe.attributes ? fallbackMe.attributes : attrs;
+          const abbr = String(
+            attrsResolved?.agency_abbreviation || attrs.agency_abbreviation || ""
+          ).trim();
+          if (abbr) agencyAbbreviation = abbr;
+        } catch (_) {
+          agencyAbbreviation = null;
         }
-      } catch (e) {
-        agencyAbbreviation = null;
       }
     }
 
     const members = await groups.getGroupMembersPaged(groupId, {
       authUser,
       agencyAbbreviation,
+      agencyAbbreviations,
       page,
       pageSize,
     });

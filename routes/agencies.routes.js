@@ -9,6 +9,10 @@ const api = require("../services/authentik");
 const auditSvc = require("../services/auditLog.service");
 const agencyAbbrevRenameSvc = require("../services/agencyAbbrevRename.service");
 const agencyNameRenameSvc = require("../services/agencyNameRename.service");
+const countyNameRenameSvc = require("../services/countyNameRename.service");
+const stateCodeRenameSvc = require("../services/stateCodeRename.service");
+const agencyActiveSvc = require("../services/agencyActive.service");
+const agencyDeleteSvc = require("../services/agencyDelete.service");
 const upload = multer({ storage: multer.memoryStorage() });
 
 function getAgencyAdminGroupName(agency) {
@@ -94,6 +98,14 @@ function normalizeAgency(a) {
   } else {
     normalized.allowedAdminGroupIds = [];
   }
+  if (a?.isActive === false) {
+    normalized.isActive = false;
+  }
+  if (Array.isArray(a?.agencyDisabledUserIds)) {
+    normalized.agencyDisabledUserIds = a.agencyDisabledUserIds
+      .map((id) => String(id).trim())
+      .filter(Boolean);
+  }
   return normalized;
 }
 
@@ -161,6 +173,86 @@ router.get("/with-counts", async (req, res) => {
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.response?.data || err.message });
+  }
+});
+
+function csvEscapeCell(value) {
+  const s = String(value ?? "");
+  if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function buildAgenciesExportCsv(agencies) {
+  const header = [
+    "Agency Full Name",
+    "Agency Abbreviation",
+    "Username Suffix",
+    "State",
+    "County",
+    "County Abbreviation",
+    "Agency Type",
+    "Agency Color",
+  ];
+  const lines = [header.map(csvEscapeCell).join(",")];
+  const sorted = (Array.isArray(agencies) ? agencies : [])
+    .slice()
+    .sort((a, b) =>
+      String(a?.name || "").localeCompare(String(b?.name || ""), undefined, {
+        sensitivity: "base",
+      })
+    );
+
+  for (const a of sorted) {
+    lines.push(
+      [
+        a?.name || "",
+        a?.groupPrefix || "",
+        a?.suffix || "",
+        a?.state || "",
+        a?.county || "",
+        a?.countyAbbrev || "",
+        a?.type || "",
+        a?.color || "",
+      ]
+        .map(csvEscapeCell)
+        .join(",")
+    );
+  }
+
+  return `${lines.join("\r\n")}\r\n`;
+}
+
+router.get("/export-csv", (req, res) => {
+  try {
+    const authUser = req.authentikUser || null;
+    if (!authUser) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const all = store.load();
+    const visible = accessSvc.filterAgenciesForUser(authUser, all);
+    const csv = buildAgenciesExportCsv(visible);
+
+    auditSvc.logEvent({
+      actor: authUser,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "EXPORT_AGENCIES_CSV",
+      targetType: "agency",
+      targetId: "bulk",
+      details: {
+        agencyCount: visible.length,
+      },
+    });
+
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="tak-portal-agencies-${stamp}.csv"`
+    );
+    return res.send(csv);
+  } catch (err) {
+    return res.status(500).json({ error: err?.message || "Export failed" });
   }
 });
 
@@ -694,6 +786,12 @@ router.put("/:index", async (req, res) => {
   const body = req.body || {};
   if (!("lookupEnabled" in body)) a.lookupEnabled = existing.lookupEnabled;
   if (!("lookupDomain" in body)) a.lookupDomain = existing.lookupDomain;
+  if (!("isActive" in body)) a.isActive = existing.isActive;
+  if (!("agencyDisabledUserIds" in body)) {
+    a.agencyDisabledUserIds = Array.isArray(existing.agencyDisabledUserIds)
+      ? existing.agencyDisabledUserIds
+      : [];
+  }
   const err = validateAgency(a);
   if (err) return res.status(400).json({ error: err });
 
@@ -762,17 +860,36 @@ router.put("/:index/county-abbrev", async (req, res) => {
     const targetCounty = String(agency.county || "").trim().toLowerCase();
     const targetState = String(agency.state || "").trim().toUpperCase();
 
-    let anyRenamed = false;
-    const updatedIndexes = [];
-    const failedEnsures = [];
-
-    // For each agency with the same county+state, update countyAbbrev and rename/ensure its admin group.
+    const matchingIndexes = [];
     for (let i = 0; i < agencies.length; i++) {
       const ag = agencies[i];
       if (!ag) continue;
       const c = String(ag.county || "").trim().toLowerCase();
       const s = String(ag.state || "").trim().toUpperCase();
-      if (c !== targetCounty || s !== targetState) continue;
+      if (c === targetCounty && s === targetState) matchingIndexes.push(i);
+    }
+
+    const allAlreadySet = matchingIndexes.every((i) => {
+      const prev = String(agencies[i]?.countyAbbrev || "").trim().toUpperCase();
+      return prev === newCountyAbbrev;
+    });
+    if (allAlreadySet) {
+      return res.json({
+        success: true,
+        skipped: true,
+        countyAbbrev: newCountyAbbrev,
+        updatedIndexes: matchingIndexes,
+      });
+    }
+
+    let anyRenamed = false;
+    const updatedIndexes = [];
+    const failedEnsures = [];
+
+    // For each agency with the same county+state, update countyAbbrev and rename/ensure its admin group.
+    for (const i of matchingIndexes) {
+      const ag = agencies[i];
+      if (!ag) continue;
 
       const gp = String(ag.groupPrefix || "").trim().toUpperCase();
       if (!gp) continue;
@@ -780,24 +897,48 @@ router.put("/:index/county-abbrev", async (req, res) => {
       const prevCountyAbbrev = String(ag.countyAbbrev || "").trim().toUpperCase();
       const desiredName = `authentik-${newCountyAbbrev}-${gp}-AgencyAdmin`;
 
-      const candidates = [];
-      if (prevCountyAbbrev) {
-        candidates.push(`authentik-${prevCountyAbbrev}-${gp}-AgencyAdmin`);
-      }
-      // Legacy pattern with no county abbreviation in name
-      candidates.push(`authentik-${gp}-AgencyAdmin`);
+      if (prevCountyAbbrev !== newCountyAbbrev) {
+        const candidates = [];
+        if (prevCountyAbbrev) {
+          candidates.push(`authentik-${prevCountyAbbrev}-${gp}-AgencyAdmin`);
+        }
+        // Legacy pattern with no county abbreviation in name
+        candidates.push(`authentik-${gp}-AgencyAdmin`);
 
-      let renamedThis = false;
-      for (const oldName of candidates) {
-        const g = await getGroupByNameUnfiltered(oldName);
-        if (g && g.pk != null) {
+        let renamedThis = false;
+        for (const oldName of candidates) {
+          if (oldName === desiredName) continue;
+          const g = await getGroupByNameUnfiltered(oldName);
+          if (g && g.pk != null) {
+            try {
+              const detail = String(ag?.name || "").trim();
+              await groupsService.patchGroupNameAndCn(g.pk, desiredName, {
+                skipActionLock: true,
+                attributes: {
+                  created_type: "Agency",
+                  created_type_detail: detail || null,
+                  description: `Agency admin group for ${detail || gp}`,
+                },
+              });
+              renamedThis = true;
+              anyRenamed = true;
+              break;
+            } catch (e) {
+              // If rename fails, fall through to create/ensure below.
+            }
+          }
+        }
+
+        if (!renamedThis) {
+          // Ensure the admin group exists for this agency (idempotent, best-effort).
           try {
-            await api.patch(`/core/groups/${encodeURIComponent(g.pk)}/`, { name: desiredName });
-            renamedThis = true;
-            anyRenamed = true;
-            break;
-          } catch (e) {
-            // If rename fails, fall through to create/ensure below.
+            await ensureAgencyAdminGroupExists({ ...ag, countyAbbrev: newCountyAbbrev });
+          } catch (err) {
+            failedEnsures.push({
+              index: i,
+              suffix: String(ag.suffix || ""),
+              error: err?.response?.data || err?.message || "Failed to ensure agency admin group",
+            });
           }
         }
       }
@@ -806,20 +947,10 @@ router.put("/:index/county-abbrev", async (req, res) => {
       ag.countyAbbrev = newCountyAbbrev;
       agencies[i] = ag;
       updatedIndexes.push(i);
-
-      // Ensure the admin group exists for this agency (idempotent, best-effort).
-      try {
-        await ensureAgencyAdminGroupExists(ag);
-      } catch (err) {
-        failedEnsures.push({
-          index: i,
-          suffix: String(ag.suffix || ""),
-          error: err?.response?.data || err?.message || "Failed to ensure agency admin group",
-        });
-      }
     }
 
     store.save(agencies);
+    groupsService.invalidateGroupsCache();
 
     auditSvc.logEvent({
       actor: req.authentikUser || null,
@@ -849,45 +980,206 @@ router.put("/:index/county-abbrev", async (req, res) => {
   }
 });
 
+// Update county full name for all agencies in the same state and rename county TAK groups.
+router.put("/:index/county-name", async (req, res) => {
+  try {
+    const idx = Number(req.params.index);
+    const agencies = store.load();
+    if (!Number.isInteger(idx) || !agencies[idx]) {
+      return res.status(404).json({ error: "Not found" });
+    }
+
+    const result = await countyNameRenameSvc.renameCountyName(idx, req.body?.county);
+
+    auditSvc.logEvent({
+      actor: req.authentikUser || null,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "UPDATE_AGENCY_COUNTY_NAME",
+      targetType: "agency",
+      targetId: String(agencies[idx]?.suffix || ""),
+      details: {
+        before: { county: result.oldCounty || null, state: result.state || null },
+        after: { county: result.newCounty || null, state: result.state || null },
+        groupsRenamed: result.groupsRenamed ?? 0,
+        updatedIndexes: result.updatedIndexes || [],
+        skipped: !!result.skipped,
+      },
+    });
+
+    return res.json({
+      success: true,
+      skipped: !!result.skipped,
+      county: result.newCounty,
+      state: result.state,
+      groupsRenamed: result.groupsRenamed ?? 0,
+      updatedIndexes: result.updatedIndexes || [],
+    });
+  } catch (err) {
+    return res.status(400).json({
+      error: err?.response?.data || err?.message || "Failed to update county name",
+    });
+  }
+});
+
+router.get("/:index/active-preview", async (req, res) => {
+  try {
+    const idx = Number(req.params.index);
+    const agencies = store.load();
+    if (!Number.isInteger(idx) || !agencies[idx]) {
+      return res.status(404).json({ error: "Not found" });
+    }
+
+    const preview = await agencyActiveSvc.getAgencyActiveChangePreview(idx);
+    return res.json(preview);
+  } catch (err) {
+    return res.status(400).json({
+      error: err?.response?.data || err?.message || "Failed to preview agency status change",
+    });
+  }
+});
+
+router.put("/:index/active", async (req, res) => {
+  try {
+    const idx = Number(req.params.index);
+    const agencies = store.load();
+    if (!Number.isInteger(idx) || !agencies[idx]) {
+      return res.status(404).json({ error: "Not found" });
+    }
+
+    const isActive = !!req.body?.is_active;
+    const before = agencies[idx];
+    const result = await agencyActiveSvc.setAgencyActive(idx, isActive);
+
+    auditSvc.logEvent({
+      actor: req.authentikUser || null,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: isActive ? "ENABLE_AGENCY" : "DISABLE_AGENCY",
+      targetType: "agency",
+      targetId: String(before?.suffix || ""),
+      details: {
+        agencyName: String(before?.name || "").trim(),
+        beforeActive: store.isAgencyActive(before),
+        afterActive: !!result.isActive,
+        usersUpdated: result.usersUpdated ?? 0,
+        skipped: !!result.skipped,
+      },
+    });
+
+    return res.json({
+      success: true,
+      skipped: !!result.skipped,
+      is_active: !!result.isActive,
+      usersUpdated: result.usersUpdated ?? 0,
+    });
+  } catch (err) {
+    return res.status(400).json({
+      error: err?.response?.data || err?.message || "Failed to update agency status",
+    });
+  }
+});
+
+// Update state code for agencies matching the same state, county, and county abbreviation.
+router.put("/:index/state", async (req, res) => {
+  try {
+    const idx = Number(req.params.index);
+    const agencies = store.load();
+    if (!Number.isInteger(idx) || !agencies[idx]) {
+      return res.status(404).json({ error: "Not found" });
+    }
+
+    const result = await stateCodeRenameSvc.renameStateCode(idx, req.body?.state);
+
+    auditSvc.logEvent({
+      actor: req.authentikUser || null,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "UPDATE_AGENCY_STATE",
+      targetType: "agency",
+      targetId: String(agencies[idx]?.suffix || ""),
+      details: {
+        before: {
+          state: result.oldState || null,
+          county: result.county || null,
+          countyAbbrev: result.countyAbbrev || null,
+        },
+        after: { state: result.newState || null },
+        groupsRenamed: result.groupsRenamed ?? 0,
+        stateGroupsRenamed: !!result.stateGroupsRenamed,
+        updatedIndexes: result.updatedIndexes || [],
+        skipped: !!result.skipped,
+      },
+    });
+
+    return res.json({
+      success: true,
+      skipped: !!result.skipped,
+      state: result.newState,
+      county: result.county,
+      countyAbbrev: result.countyAbbrev,
+      groupsRenamed: result.groupsRenamed ?? 0,
+      stateGroupsRenamed: !!result.stateGroupsRenamed,
+      updatedIndexes: result.updatedIndexes || [],
+    });
+  } catch (err) {
+    return res.status(400).json({
+      error: err?.response?.data || err?.message || "Failed to update state",
+    });
+  }
+});
+
+router.get("/:index/delete-preview", async (req, res) => {
+  try {
+    const idx = Number(req.params.index);
+    const agencies = store.load();
+    if (!Number.isInteger(idx) || !agencies[idx]) {
+      return res.status(404).json({ error: "Not found" });
+    }
+
+    const preview = await agencyDeleteSvc.getAgencyDeletePreview(idx);
+    return res.json(preview);
+  } catch (err) {
+    return res.status(400).json({
+      error: err?.response?.data || err?.message || "Failed to preview agency deletion",
+    });
+  }
+});
+
 router.delete("/:index", async (req, res) => {
   try {
     const idx = Number(req.params.index);
     const agencies = store.load();
-    if (!Number.isInteger(idx) || !agencies[idx]) return res.status(404).json({ error: "Not found" });
-
-    // Delete the computed Agency Admin group in Authentik (best-effort).
-    // We bypass the portal's hidden-group filtering, because these groups
-    // typically start with "authentik-".
-    const a = agencies[idx];
-    const groupName = getAgencyAdminGroupName(a);
-    if (groupName) {
-      const g = await getGroupByNameUnfiltered(groupName);
-      if (g?.pk) {
-        try {
-          await groupsService.deleteGroup(g.pk);
-        } catch (e) {
-          // If the group is already gone or cannot be deleted, we still allow
-          // agency deletion to proceed.
-          // (Returning a hard failure here would strand the agency record.)
-        }
-      }
+    if (!Number.isInteger(idx) || !agencies[idx]) {
+      return res.status(404).json({ error: "Not found" });
     }
 
-    agencies.splice(idx, 1);
-    store.save(agencies);
+    const before = agencies[idx];
+    const result = await agencyDeleteSvc.deleteAgency(idx);
 
     auditSvc.logEvent({
       actor: req.authentikUser || null,
       request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
       action: "DELETE_AGENCY",
       targetType: "agency",
-      targetId: String(a?.suffix || ""),
-      details: a,
+      targetId: String(before?.suffix || ""),
+      details: {
+        agencyName: result.agencyName,
+        usersDeleted: result.usersDeleted,
+        integrationsDeleted: result.integrationsDeleted,
+        agencyGroupsDeleted: result.agencyGroupsDeleted,
+        countyGroupsDeleted: result.countyGroupsDeleted,
+        stateGroupsDeleted: result.stateGroupsDeleted,
+        templatesRemoved: result.templatesRemoved,
+        pendingRequestsRemoved: result.pendingRequestsRemoved,
+        deletedCountyGroups: result.deletedCountyGroups,
+        deletedStateGroups: result.deletedStateGroups,
+        before,
+      },
     });
 
-    return res.json({ success: true });
+    return res.json({ success: true, ...result });
   } catch (err) {
-    return res.status(500).json({ error: err?.response?.data || err?.message || "Failed to delete agency" });
+    return res.status(500).json({
+      error: err?.response?.data || err?.message || "Failed to delete agency",
+    });
   }
 });
 
@@ -960,6 +1252,12 @@ router.post("/:index/lookup/enable", (req, res) => {
   }
 
   const agency = agencies[idx];
+  if (!store.isAgencyPublicEnrollmentEligible(agency)) {
+    return res.status(400).json({
+      error: "Enable the agency before enabling account lookup.",
+    });
+  }
+
   agencies[idx].lookupEnabled = true;
   agencies[idx].lookupDomain = normalized;
 

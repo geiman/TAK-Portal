@@ -18,8 +18,8 @@ const PERMISSIONS = {
     },
     groups: {
       id: "page.groups",
-      label: "Groups",
-      description: "Manage Authentik groups.",
+      label: "Groups / Channels",
+      description: "Manage Authentik groups and TAK channels.",
       section: "usersGroups",
     },
     templates: {
@@ -180,6 +180,12 @@ function getRequiredPermissionsForRequest(path, method) {
   if (/^\/request-access\/[a-f0-9]{32,64}(\/(data|meta|approve|reject))?\/?$/i.test(p)) {
     return [];
   }
+  if (/^\/request-access\/mou\/[a-f0-9]{32,64}(\/(sign|file))?\/?$/i.test(p)) {
+    return [];
+  }
+  if (/^\/request-access\/mou\/complete\/[a-f0-9]{32,64}(\/pdf)?\/?$/i.test(p)) {
+    return [];
+  }
   if (p.startsWith("/api/email")) return ["page.email"];
   if (p === "/api/mou/user-agreement/accept" || p === "/api/mou/user-agreement/decline") {
     return [];
@@ -211,6 +217,9 @@ function getRequiredPermissionsForRequest(path, method) {
   if (p === "/plugin-manager" || p.startsWith("/plugin-manager/")) return ["page.plugin_manager"];
   if (p === "/sample-users.csv" || p === "/sample-agencies.csv" || p === "/csv-instructions-readme.txt")
     return ["page.users"];
+
+  if (p === "/map" || p.startsWith("/map/")) return [];
+  if (p.startsWith("/api/map")) return [];
 
   // Unknown: deny at middleware (safe)
   return null;

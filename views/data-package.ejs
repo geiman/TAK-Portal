@@ -3,7 +3,11 @@
 
 <main class="main data-packages-page">
   <div class="data-packages-hero">
-    <h1>Data Package Manager</h1>
+    <%- include("partials/scoped-admin-page-title", {
+      globalTitle: "Data Package Manager",
+      scopedSuffix: "Data Package Manager",
+      singleFallbackTitle: "Agency Data Package Manager"
+    }) %>
   </div>
 
   <div id="statusBanner" class="card data-packages-status" style="display:none;" role="status"></div>
@@ -171,6 +175,7 @@
   var API = "/api/data-packages";
   var ACTIVE_KEYWORD = "missionpackage";
   var ARCHIVED_KEYWORD = "ARCHIVED_MISSION";
+  var DATA_SYNC_KIND = "data_sync";
 
   var statusBanner = document.getElementById("statusBanner");
   var uploadFile = document.getElementById("uploadFile");
@@ -273,6 +278,14 @@
       if (String(list[i]).toLowerCase() === target) return true;
     }
     return false;
+  }
+
+  function isDataPackageRow(pkg) {
+    if (!pkg) return false;
+    if (pkg.portalKindIsDataSync || String(pkg.portalKind || "").toLowerCase() === DATA_SYNC_KIND) {
+      return false;
+    }
+    return true;
   }
 
   async function loadStatus() {
@@ -386,10 +399,10 @@
       ).toLowerCase();
       if (filt && hay.indexOf(filt) === -1) continue;
 
-      if (hasKeyword(p, ACTIVE_KEYWORD)) {
+      if (hasKeyword(p, ACTIVE_KEYWORD) && isDataPackageRow(p)) {
         activeCount += 1;
         renderOneRow(p, packagesTbody, false);
-      } else if (hasKeyword(p, ARCHIVED_KEYWORD)) {
+      } else if (hasKeyword(p, ARCHIVED_KEYWORD) && isDataPackageRow(p)) {
         archivedCountValue += 1;
         renderOneRow(p, archivedPackagesTbody, true);
       }
@@ -468,7 +481,7 @@
     if (!window.confirm(warning)) return;
     setMsg(isArchived ? archivedPackagesMsg : packagesMsg, "Deleting package…", undefined);
     try {
-      var res = await fetch(API + "/packages/" + encodeURIComponent(hash), { method: "DELETE" });
+      var res = await fetch(API + "/packages/" + encodeURIComponent(hash) + "?fileName=" + encodeURIComponent(filename || ""), { method: "DELETE" });
       var text = await res.text();
       var j = {};
       try { j = JSON.parse(text); } catch (_) {}
@@ -523,7 +536,7 @@
   async function downloadPackage(hash, filename) {
     setMsg(packagesMsg, "Downloading package…", undefined);
     try {
-      var res = await fetch(API + "/packages/download?hash=" + encodeURIComponent(hash));
+      var res = await fetch(API + "/packages/download?hash=" + encodeURIComponent(hash) + "&fileName=" + encodeURIComponent(filename || ""));
       if (!res.ok) throw new Error("Download failed (HTTP " + res.status + ")");
       var blob = await res.blob();
       var a = document.createElement("a");
@@ -560,7 +573,10 @@
         var m = selectedPackages[selectedKeys[i]];
         if (!m || !m.hash) continue;
         try {
-          var res = await fetch(API + "/packages/download?hash=" + encodeURIComponent(m.hash));
+          var res = await fetch(
+            API + "/packages/download?hash=" + encodeURIComponent(m.hash) +
+              "&fileName=" + encodeURIComponent(m.filename || "")
+          );
           if (!res.ok) throw new Error("HTTP " + res.status);
           var blob = await res.blob();
           var a = document.createElement("a");
@@ -610,14 +626,21 @@
     }
 
     if (action === "delete") {
-      if (!window.confirm("Permanently delete " + selectedKeys.length + " selected package(s)? This cannot be undone.")) return;
+      if (!window.confirm(
+        "Permanently delete " + selectedKeys.length + " selected package(s)?\n\n" +
+        "This is PERMANENT and cannot be undone."
+      )) return;
       setMsg(packagesMsg, "Deleting selected packages...", undefined);
       var deletedOk = 0;
       for (var k = 0; k < selectedKeys.length; k++) {
         var d = selectedPackages[selectedKeys[k]];
         if (!d || !d.hash) continue;
         try {
-          var delRes = await fetch(API + "/packages/" + encodeURIComponent(d.hash), { method: "DELETE" });
+          var delRes = await fetch(
+            API + "/packages/" + encodeURIComponent(d.hash) +
+              "?fileName=" + encodeURIComponent(d.filename || ""),
+            { method: "DELETE" }
+          );
           if (delRes.ok) deletedOk += 1;
         } catch (_) {}
       }

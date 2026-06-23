@@ -258,21 +258,97 @@ function canSeeStream(authUser, stream) {
 }
 
 function resolveSignableAgencyChoices(authUser, stream) {
-  const targetSuffixes = mouService.getTargetAgenciesForStream(stream).map((agency) =>
-    String(agency?.suffix || "").trim().toLowerCase()
-  );
-  const access = accessSvc.getAgencyAccess(authUser);
-  const managed = Array.isArray(access.allowedAgencySuffixes)
-    ? access.allowedAgencySuffixes.map((suffix) => String(suffix || "").trim().toLowerCase())
-    : [];
-  return managed
-    .filter((suffix) => targetSuffixes.includes(suffix))
-    .map((suffix) => mouService.getAgencyBySuffix(suffix))
-    .filter(Boolean)
+  return mouService
+    .getTargetAgenciesForStream(stream)
+    .filter((agency) =>
+      mouService.canUserSignAgencyForStream(
+        authUser,
+        stream,
+        String(agency?.suffix || "").trim().toLowerCase()
+      )
+    )
     .map((agency) => ({
       suffix: String(agency.suffix || "").trim().toLowerCase(),
       name: agency.name || agency.groupPrefix || agency.suffix,
     }));
+}
+
+function parseAgencySigningPayload(body, agencySuffixes) {
+  const agencySigning = {};
+  const suffixes = Array.isArray(agencySuffixes) ? agencySuffixes : [];
+  for (const suffix of suffixes) {
+    const safeSuffix = String(suffix || "").trim().toLowerCase();
+    if (!safeSuffix) continue;
+    const modeRaw = String(body?.[`signingMode_${safeSuffix}`] || "")
+      .trim()
+      .toLowerCase();
+    let mode = mouService.AGENCY_SIGNING_MODE_AGENCY_ADMINS;
+    if (modeRaw === mouService.AGENCY_SIGNING_MODE_EXTERNAL_LINK) {
+      mode = mouService.AGENCY_SIGNING_MODE_EXTERNAL_LINK;
+    } else if (modeRaw === mouService.AGENCY_SIGNING_MODE_SPECIFIC_ADMIN) {
+      mode = mouService.AGENCY_SIGNING_MODE_SPECIFIC_ADMIN;
+    }
+    const inviteEmail = normalizeAssignmentEmail(body?.[`signingEmail_${safeSuffix}`]);
+    const adminSelection = parseSigningAdminSelection(
+      body?.[`signingAdminEmail_${safeSuffix}`],
+      body?.[`signingAdminUsername_${safeSuffix}`],
+      body?.[`signingAdminName_${safeSuffix}`]
+    );
+    const externalLinkAcknowledged =
+      String(body?.[`signingLinkCopied_${safeSuffix}`] || "").trim() === "1";
+    agencySigning[safeSuffix] = { mode };
+    if (mode === mouService.AGENCY_SIGNING_MODE_EXTERNAL_LINK) {
+      if (inviteEmail) agencySigning[safeSuffix].inviteEmail = inviteEmail;
+      if (externalLinkAcknowledged) {
+        agencySigning[safeSuffix].externalLinkAcknowledged = true;
+      }
+    }
+    if (mode === mouService.AGENCY_SIGNING_MODE_SPECIFIC_ADMIN) {
+      if (adminSelection.assignedAdminEmail) {
+        agencySigning[safeSuffix].assignedAdminEmail = adminSelection.assignedAdminEmail;
+      }
+      if (adminSelection.assignedAdminUsername) {
+        agencySigning[safeSuffix].assignedAdminUsername = adminSelection.assignedAdminUsername;
+      }
+      if (adminSelection.assignedAdminName) {
+        agencySigning[safeSuffix].assignedAdminName = adminSelection.assignedAdminName;
+      }
+    }
+  }
+  return agencySigning;
+}
+
+function normalizeAssignmentEmail(value) {
+  return String(value || "").trim();
+}
+
+function parseSigningAdminSelection(rawValue, hiddenUsername, hiddenName) {
+  const selection = String(rawValue || "").trim();
+  let assignedAdminEmail = "";
+  let assignedAdminUsername = String(hiddenUsername || "").trim();
+  let assignedAdminName = String(hiddenName || "").trim();
+  if (selection.startsWith("user:")) {
+    assignedAdminUsername = selection.slice(5).trim() || assignedAdminUsername;
+  } else if (selection) {
+    assignedAdminEmail = normalizeAssignmentEmail(selection);
+  }
+  return { assignedAdminEmail, assignedAdminUsername, assignedAdminName };
+}
+
+function buildExternalInviteResponseRows(stream, invites) {
+  const { getString } = require("../services/env");
+  const baseUrl = String(getString("TAK_PORTAL_PUBLIC_URL", "") || "")
+    .trim()
+    .replace(/\/+$/, "");
+  return (Array.isArray(invites) ? invites : []).map((invite) => {
+    const path = mouService.buildExternalSignPath(invite.token);
+    return {
+      agencySuffix: invite.agencyId,
+      signUrl: baseUrl ? `${baseUrl}${path}` : path,
+      signPath: path,
+      emailed: !!invite.recipientEmail,
+    };
+  });
 }
 
 async function resolveSignerStatus(authUser) {
@@ -296,13 +372,30 @@ async function resolveSignerStatus(authUser) {
 
 function buildStreamCard(authUser, stream) {
   const currentVersion = mouService.getCurrentVersion(stream);
-  const agencyChoices = authUser?.isAgencyAdmin
-    ? resolveSignableAgencyChoices(authUser, stream)
-    : [];
+  const agencyChoices = resolveSignableAgencyChoices(authUser, stream);
   const signatures = agencyChoices.map((agency) => ({
     agency,
     signature: mouService.getCurrentAgencySignatureForStream(stream, agency.suffix),
   }));
+  const canSign =
+    !!agencyChoices.length && signatures.some((entry) => !entry.signature);
+  const documentViewHref = currentVersion
+    ? mouService.buildDocumentViewHref(stream, currentVersion)
+    : null;
+  const primaryAgencySuffix = mouService.resolvePrimaryAgencySuffixForUser(
+    authUser,
+    stream
+  );
+  const primarySignature = primaryAgencySuffix
+    ? mouService.getCurrentAgencySignatureForStream(stream, primaryAgencySuffix)
+    : null;
+  const signedViewHref =
+    primarySignature && currentVersion && primaryAgencySuffix
+      ? `/mou/agency/${encodeURIComponent(stream.mouId)}/${encodeURIComponent(
+          primaryAgencySuffix
+        )}?version=${encodeURIComponent(currentVersion.version)}`
+      : null;
+  const viewDocumentHref = signedViewHref || documentViewHref;
 
   return {
     stream,
@@ -314,6 +407,10 @@ function buildStreamCard(authUser, stream) {
     })),
     signableAgencyChoices: agencyChoices,
     signatures,
+    canSign,
+    documentViewHref,
+    signedViewHref,
+    viewDocumentHref,
     allSigned:
       !agencyChoices.length ||
       signatures.every((entry) => !!entry.signature),
@@ -344,6 +441,22 @@ function buildAdminStreamRow(stream) {
     targetAgencies,
     signedCount: signatures.filter((entry) => !!entry.signature).length,
     pendingSignatureCount: signatures.filter((entry) => !entry.signature).length,
+    signedAgencySuffixes: signatures
+      .filter((entry) => !!entry.signature)
+      .map((entry) => entry.agency.suffix),
+    signatureSummary: mouService.getStreamActiveAssignmentSignatureSummary(stream),
+    externalSignPaths: Object.fromEntries(
+      targetAgencies.map((agency) => {
+        const invite = mouService.getActiveSignInviteForAgency({
+          mouId: stream.mouId,
+          agencyId: agency.suffix,
+        });
+        return [
+          agency.suffix,
+          invite ? mouService.buildExternalSignPath(invite.token) : "",
+        ];
+      })
+    ),
     editor:
       currentVersion && editorContent
         ? {
@@ -372,7 +485,32 @@ router.get("/mou", requireMouEnabled, requireMouPermission, async (req, res) => 
     ? mouService.listStreams().map((stream) => buildAdminStreamRow(stream))
     : [];
   const signatureRows = isGlobalAdmin
-    ? mouService.getAgencySignatureStatusRows()
+    ? mouService.getAgencySignatureStatusRows().map((row) => {
+        let userCanSign = false;
+        try {
+          const stream = mouService.getStreamById(row.mouId);
+          userCanSign = mouService.canUserSignAgencyForStream(
+            req.authentikUser,
+            stream,
+            row.agencyId
+          );
+        } catch {
+          userCanSign = false;
+        }
+        return {
+          ...row,
+          userCanSign,
+          documentViewHref: (() => {
+            try {
+              const stream = mouService.getStreamById(row.mouId);
+              const version = mouService.getCurrentVersion(stream);
+              return version ? mouService.buildDocumentViewHref(stream, version) : null;
+            } catch {
+              return null;
+            }
+          })(),
+        };
+      })
     : [];
   const archivedRows = isGlobalAdmin
     ? mouService.listArchivedDocumentRows()
@@ -441,6 +579,7 @@ router.get("/mou", requireMouEnabled, requireMouPermission, async (req, res) => 
   res.render("mou_list", {
     cards,
     adminStreams,
+    managedAgencySuffixes: accessSvc.getUserManagedAgencySuffixes(req.authentikUser),
     adminAgreement: isGlobalAdmin ? mouService.getCurrentUserAgreement() : null,
     defaultUserAgreement: isGlobalAdmin ? mouService.getDefaultUserAgreementTemplate() : null,
     signatureRows,
@@ -825,6 +964,25 @@ router.post("/admin/mou/:mouId/signatures/upload/:agencyId", requireMouEnabled, 
   }
 });
 
+router.get(
+  "/admin/mou/agency-admins/:agencySuffix",
+  requireMouEnabled,
+  requireMouPermission,
+  requireGlobalAdmin,
+  async (req, res) => {
+    try {
+      const agency = mouService.getAgencyBySuffix(req.params.agencySuffix);
+      if (!agency) {
+        return res.status(404).json({ error: "Agency not found." });
+      }
+      const users = await mouScheduler.listAgencyAdminUsersForAssign(agency);
+      return res.json({ users });
+    } catch (err) {
+      return res.status(500).json({ error: err?.message || "Failed to load agency admins." });
+    }
+  }
+);
+
 router.post("/admin/mou/:mouId/signatures/resend/:agencyId", requireMouEnabled, requireMouPermission, requireGlobalAdmin, async (req, res) => {
   try {
     const stream = mouService.getStreamById(req.params.mouId);
@@ -841,18 +999,42 @@ router.post("/admin/mou/:mouId/signatures/resend/:agencyId", requireMouEnabled, 
       throw new Error("This document is not assigned to the selected agency.");
     }
 
-    const result = await mouScheduler.sendAssignmentNotificationForAgency({
-      stream,
-      version: currentVersion,
-      agency: targetAgency,
-      actor: req.authentikUser,
-    });
+    const signingMode = mouService.getAgencySigningMode(stream, agencySuffix);
+    let result;
+    if (signingMode === mouService.AGENCY_SIGNING_MODE_EXTERNAL_LINK) {
+      const invites = mouService.syncExternalSignInvitesForStream({
+        stream,
+        actor: req.authentikUser,
+        agencySuffixes: [agencySuffix],
+      });
+      const invite = invites[0];
+      if (!invite) {
+        throw new Error("Unable to create an external sign link for this agency.");
+      }
+      result = await mouScheduler.sendExternalSignInviteEmail({
+        stream,
+        version: currentVersion,
+        agency: targetAgency,
+        invite,
+        actor: req.authentikUser,
+      });
+    } else {
+      result = await mouScheduler.sendAssignmentNotificationForAgency({
+        stream,
+        version: currentVersion,
+        agency: targetAgency,
+        actor: req.authentikUser,
+      });
+    }
     if (!result.sent) {
-      throw new Error(result.reason || result.error || "No agency admin recipients found for this email.");
+      throw new Error(result.reason || result.error || "No recipients found for this notification.");
     }
 
     auditRequest(req, {
-      action: "MOU_ASSIGNMENT_NOTIFICATION_RESENT",
+      action:
+        signingMode === mouService.AGENCY_SIGNING_MODE_EXTERNAL_LINK
+          ? "MOU_EXTERNAL_SIGN_INVITE_SENT"
+          : "MOU_ASSIGNMENT_NOTIFICATION_RESENT",
       targetType: "mou",
       targetId: String(req.params.mouId),
       agencySuffix,
@@ -863,11 +1045,116 @@ router.post("/admin/mou/:mouId/signatures/resend/:agencyId", requireMouEnabled, 
       },
     });
 
-    return res.redirect(`/mou?success=${encodeURIComponent("Email resent to agency administrators.")}`);
+    return res.redirect(
+      `/mou?success=${encodeURIComponent(
+        signingMode === mouService.AGENCY_SIGNING_MODE_EXTERNAL_LINK
+          ? "External sign link email sent."
+          : signingMode === mouService.AGENCY_SIGNING_MODE_SPECIFIC_ADMIN
+            ? "Email resent to the assigned agency administrator."
+            : "Email resent to agency administrators."
+      )}`
+    );
   } catch (err) {
     return toErrorRedirect(res, "/mou", err);
   }
 });
+
+router.post(
+  "/admin/mou/:mouId/sign-invites/:agencyId/regenerate",
+  requireMouEnabled,
+  requireMouPermission,
+  requireGlobalAdmin,
+  async (req, res) => {
+    try {
+      const stream = mouService.getStreamById(req.params.mouId);
+      const currentVersion = mouService.getCurrentVersion(stream);
+      if (!currentVersion) {
+        throw new Error("MOU version not found.");
+      }
+
+      const agencySuffix = String(req.params.agencyId || "").trim().toLowerCase();
+      const targetAgency = mouService
+        .getTargetAgenciesForStream(stream)
+        .find((agency) => String(agency?.suffix || "").trim().toLowerCase() === agencySuffix);
+      if (!targetAgency) {
+        throw new Error("This document is not assigned to the selected agency.");
+      }
+      if (mouService.getAgencySigningMode(stream, agencySuffix) !== mouService.AGENCY_SIGNING_MODE_EXTERNAL_LINK) {
+        throw new Error("This agency is not configured for external sign links.");
+      }
+
+      const inviteEmail =
+        normalizeAssignmentEmail(req.body?.inviteEmail) ||
+        mouService.getAgencySigningInviteEmail(stream, agencySuffix);
+      if (inviteEmail) {
+        const currentAssignments = stream.assignments || {};
+        const agencySigning = {
+          ...(currentAssignments.agencySigning || {}),
+          [agencySuffix]: {
+            mode: mouService.AGENCY_SIGNING_MODE_EXTERNAL_LINK,
+            inviteEmail,
+          },
+        };
+        mouService.updateStreamAssignments({
+          mouId: req.params.mouId,
+          serverwide: currentAssignments.serverwide,
+          agencySuffixes: currentAssignments.agencySuffixes,
+          agencySigning,
+          actor: req.authentikUser,
+        });
+      }
+
+      const refreshedStream = mouService.getStreamById(req.params.mouId);
+      const invites = mouService.syncExternalSignInvitesForStream({
+        stream: refreshedStream,
+        actor: req.authentikUser,
+        agencySuffixes: [agencySuffix],
+      });
+      const invite = invites[0];
+      if (!invite) {
+        throw new Error("Unable to regenerate the external sign link.");
+      }
+
+      let emailed = false;
+      if (inviteEmail) {
+        const emailResult = await mouScheduler.sendExternalSignInviteEmail({
+          stream: refreshedStream,
+          version: currentVersion,
+          agency: targetAgency,
+          invite,
+          actor: req.authentikUser,
+        });
+        emailed = !!emailResult.sent;
+      }
+
+      const wantsJson =
+        String(req.headers.accept || "").includes("application/json") ||
+        req.query.format === "json";
+      const responseRow = buildExternalInviteResponseRows(refreshedStream, [invite])[0] || null;
+      if (wantsJson) {
+        return res.json({
+          success: true,
+          externalInvite: responseRow,
+          emailed,
+        });
+      }
+
+      return res.redirect(
+        `/mou?success=${encodeURIComponent(
+          emailed ? "New external sign link generated and emailed." : "New external sign link generated."
+        )}`
+      );
+    } catch (err) {
+      if (
+        String(req.headers.accept || "").includes("application/json") ||
+        req.query.format === "json"
+      ) {
+        return res.status(400).json({ error: err?.message || "Failed to regenerate sign link." });
+      }
+      return toErrorRedirect(res, "/mou", err);
+    }
+  }
+);
 
 router.post("/admin/mou/:mouId/signatures/resign/:agencyId", requireMouEnabled, requireMouPermission, requireGlobalAdmin, async (req, res) => {
   try {
@@ -1153,6 +1440,7 @@ router.post("/admin/mou/:mouId/assignments/save", requireMouEnabled, requireMouP
       mouId: req.params.mouId,
       serverwide: req.body?.serverwide,
       agencySuffixes,
+      agencySigning: parseAgencySigningPayload(req.body, agencySuffixes),
       actor: req.authentikUser,
     });
 
@@ -1177,20 +1465,35 @@ router.post("/admin/mou/:mouId/assignments/save", requireMouEnabled, requireMouP
       targetAgencySuffixes: targetAgencies.map((agency) => agency?.suffix).filter(Boolean),
     });
     if (wantsJson) {
-      res.json({ success: true, redirectUrl: successUrl });
+      const externalInvites = mouService.syncExternalSignInvitesForStream({
+        stream,
+        actor: req.authentikUser,
+      });
+      res.json({
+        success: true,
+        redirectUrl: successUrl,
+        externalInvites: buildExternalInviteResponseRows(stream, externalInvites),
+      });
     } else {
       res.redirect(successUrl);
     }
 
     void Promise.resolve().then(async () => {
-      if (currentVersion && previousAssignmentKey !== currentAssignmentKey && targetAgencies.length) {
-        try {
-          await mouScheduler.sendAssignmentNotificationsForVersion({
-            stream,
-            version: currentVersion,
-            actor: req.authentikUser,
-          });
-        } catch (notifyErr) {
+      if (
+        req.query.skipNotifications === "1" ||
+        !currentVersion ||
+        previousAssignmentKey === currentAssignmentKey ||
+        !targetAgencies.length
+      ) {
+        return;
+      }
+      try {
+        await mouScheduler.sendAssignmentNotificationsForVersion({
+          stream,
+          version: currentVersion,
+          actor: req.authentikUser,
+        });
+      } catch (notifyErr) {
           console.error("[MOU_ASSIGN] Notification failure", {
             ...debugContext,
             currentVersion: currentVersion.version,
@@ -1207,7 +1510,6 @@ router.post("/admin/mou/:mouId/assignments/save", requireMouEnabled, requireMouP
               error: notifyErr?.message || String(notifyErr || "Failed to send assignment notifications."),
             },
           });
-        }
       }
       try {
         auditRequest(req, {
@@ -1357,6 +1659,249 @@ router.post("/admin/mou/archive/:archiveId/delete", requireMouEnabled, requireMo
     return toErrorRedirect(res, "/mou", err);
   }
 });
+
+router.get("/admin/mou/archive/:archiveId/view", requireMouEnabled, requireMouPermission, requireGlobalAdmin, (req, res) => {
+  try {
+    const out = mouService.getArchivedDocumentView(req.params.archiveId);
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    return res.send(out.html || "<p>Signed document not found.</p>");
+  } catch (err) {
+    return res.status(404).send(err?.message || "Archived document not found.");
+  }
+});
+
+router.get("/admin/mou/archive/:archiveId/pdf", requireMouEnabled, requireMouPermission, requireGlobalAdmin, async (req, res) => {
+  try {
+    const pdf = await mouService.getArchivedSignedPdfExport(req.params.archiveId);
+    res.setHeader("Content-Type", pdf.contentType || "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      buildContentDisposition(
+        req.query.download === "1" ? "attachment" : "inline",
+        pdf.fileName
+      )
+    );
+    return res.send(pdf.buffer);
+  } catch (err) {
+    return res.status(404).send(err?.message || "Archived signed PDF not found.");
+  }
+});
+
+router.get("/admin/mou/archive/:archiveId/document", requireMouEnabled, requireMouPermission, requireGlobalAdmin, (req, res) => {
+  try {
+    const out = mouService.getArchivedDocumentContentExport(req.params.archiveId);
+    const fileName = String(out.fileName || "mou").replace(/"/g, "");
+    const download = req.query.download === "1";
+
+    if (out.contentType === "pdf") {
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        buildContentDisposition(download ? "attachment" : "inline", fileName)
+      );
+      return res.send(out.contentBuffer);
+    }
+
+    if (out.contentType === "markdown") {
+      res.setHeader("Content-Type", "text/markdown; charset=utf-8");
+      if (download) {
+        res.setHeader("Content-Disposition", buildContentDisposition("attachment", fileName));
+      }
+      return res.send(out.contentBuffer.toString("utf8"));
+    }
+
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    if (download) {
+      res.setHeader("Content-Disposition", buildContentDisposition("attachment", fileName));
+    }
+    return res.send(out.html);
+  } catch (err) {
+    return res.status(404).send(err?.message || "Archived document not found.");
+  }
+});
+
+router.post(
+  "/admin/mou/:mouId/signing/:agencyId/ensure-link",
+  requireMouEnabled,
+  requireMouPermission,
+  requireGlobalAdmin,
+  async (req, res) => {
+    try {
+      const agencySuffix = String(req.params.agencyId || "").trim().toLowerCase();
+      let stream = mouService.getStreamById(req.params.mouId);
+      const targetedSuffixes = mouService
+        .getTargetAgenciesForStream(stream)
+        .map((agency) => String(agency?.suffix || "").trim().toLowerCase());
+      if (!targetedSuffixes.includes(agencySuffix)) {
+        throw new Error("Assign this agency before copying a sign link.");
+      }
+
+      const signingMode = mouService.getAgencySigningMode(stream, agencySuffix);
+      const inviteEmail = normalizeAssignmentEmail(req.body?.signingEmail);
+      const requestedMode = String(req.body?.signingMode || "").trim().toLowerCase();
+      if (requestedMode === mouService.AGENCY_SIGNING_MODE_EXTERNAL_LINK) {
+        stream = mouService.updateAgencySigningConfig({
+          mouId: req.params.mouId,
+          agencySuffix,
+          signingPatch: {
+            mode: mouService.AGENCY_SIGNING_MODE_EXTERNAL_LINK,
+            ...(inviteEmail ? { inviteEmail } : {}),
+            externalLinkAcknowledged:
+              String(req.body?.signingLinkCopied || "").trim() === "1",
+          },
+          actor: req.authentikUser,
+          skipValidation: true,
+        });
+      } else if (signingMode !== mouService.AGENCY_SIGNING_MODE_EXTERNAL_LINK) {
+        throw new Error("Set signing method to External One-Time Link before copying a sign link.");
+      } else if (inviteEmail) {
+        stream = mouService.updateAgencySigningConfig({
+          mouId: req.params.mouId,
+          agencySuffix,
+          signingPatch: {
+            mode: mouService.AGENCY_SIGNING_MODE_EXTERNAL_LINK,
+            inviteEmail,
+          },
+          actor: req.authentikUser,
+          skipValidation: true,
+        });
+      }
+
+      const invites = mouService.syncExternalSignInvitesForStream({
+        stream,
+        actor: req.authentikUser,
+        agencySuffixes: [agencySuffix],
+      });
+      const invite = invites[0];
+      if (!invite?.token) {
+        throw new Error("Unable to create an external sign link for this agency.");
+      }
+
+      const externalSignPath = mouService.buildExternalSignPath(invite.token);
+      const { getString } = require("../services/env");
+      const baseUrl = String(getString("TAK_PORTAL_PUBLIC_URL", "") || "")
+        .trim()
+        .replace(/\/+$/, "");
+      return res.json({
+        success: true,
+        externalSignPath,
+        signUrl: baseUrl ? `${baseUrl}${externalSignPath}` : externalSignPath,
+      });
+    } catch (err) {
+      return res.status(400).json({ error: err?.message || "Unable to create sign link." });
+    }
+  }
+);
+
+router.post(
+  "/admin/mou/:mouId/signing/:agencyId/update",
+  requireMouEnabled,
+  requireMouPermission,
+  requireGlobalAdmin,
+  async (req, res) => {
+    try {
+      const agencySuffix = String(req.params.agencyId || "").trim().toLowerCase();
+      const adminSelection = parseSigningAdminSelection(
+        req.body?.signingAdminEmail,
+        req.body?.signingAdminUsername,
+        req.body?.signingAdminName
+      );
+      const stream = mouService.updateAgencySigningConfig({
+        mouId: req.params.mouId,
+        agencySuffix,
+        signingPatch: {
+          mode: req.body?.signingMode,
+          inviteEmail: req.body?.signingEmail,
+          externalLinkAcknowledged:
+            String(req.body?.signingLinkCopied || req.body?.externalLinkCopied || "").trim() ===
+            "1",
+          assignedAdminEmail: adminSelection.assignedAdminEmail,
+          assignedAdminUsername: adminSelection.assignedAdminUsername,
+          assignedAdminName: adminSelection.assignedAdminName,
+        },
+        actor: req.authentikUser,
+      });
+      const signingMode = mouService.getAgencySigningMode(stream, agencySuffix);
+      let externalSignPath = "";
+      if (signingMode === mouService.AGENCY_SIGNING_MODE_EXTERNAL_LINK) {
+        const invites = mouService.syncExternalSignInvitesForStream({
+          stream,
+          actor: req.authentikUser,
+          agencySuffixes: [agencySuffix],
+        });
+        const invite = invites[0];
+        if (invite?.token) {
+          externalSignPath = mouService.buildExternalSignPath(invite.token);
+        }
+      }
+
+      const shouldResend =
+        String(req.body?.action || "").trim().toLowerCase() === "save_resend" ||
+        String(req.body?.resend || "").trim().toLowerCase() === "true";
+      if (shouldResend) {
+        const currentVersion = mouService.getCurrentVersion(stream);
+        const targetAgency = mouService
+          .getTargetAgenciesForStream(stream)
+          .find((agency) => String(agency?.suffix || "").trim().toLowerCase() === agencySuffix);
+        if (!currentVersion || !targetAgency) {
+          throw new Error("Unable to send signing notification.");
+        }
+        let result;
+        if (signingMode === mouService.AGENCY_SIGNING_MODE_EXTERNAL_LINK) {
+          const invite = mouService.getActiveSignInviteForAgency({
+            mouId: stream.mouId,
+            agencyId: agencySuffix,
+          });
+          if (!invite) {
+            throw new Error("Unable to create an external sign link for this agency.");
+          }
+          result = await mouScheduler.sendExternalSignInviteEmail({
+            stream,
+            version: currentVersion,
+            agency: targetAgency,
+            invite,
+            actor: req.authentikUser,
+          });
+        } else {
+          result = await mouScheduler.sendAssignmentNotificationForAgency({
+            stream,
+            version: currentVersion,
+            agency: targetAgency,
+            actor: req.authentikUser,
+          });
+        }
+        if (!result.sent && !result.skipped) {
+          throw new Error(result.reason || result.error || "No recipients found for this notification.");
+        }
+      }
+
+      const wantsJson =
+        String(req.headers.accept || "").includes("application/json") ||
+        req.query.format === "json";
+      const successUrl = `/mou?success=${encodeURIComponent(
+        shouldResend
+          ? "Signing method updated and notification sent."
+          : "Signing method updated."
+      )}`;
+      if (wantsJson) {
+        return res.json({
+          success: true,
+          redirectUrl: successUrl,
+          externalSignPath,
+        });
+      }
+      return res.redirect(successUrl);
+    } catch (err) {
+      const wantsJson =
+        String(req.headers.accept || "").includes("application/json") ||
+        req.query.format === "json";
+      if (wantsJson) {
+        return res.status(400).json({ error: err?.message || "Failed to update signing method." });
+      }
+      return toErrorRedirect(res, "/mou", err);
+    }
+  }
+);
 
 router.post("/admin/mou/:mouId/:version/save", requireMouEnabled, requireMouPermission, requireGlobalAdmin, upload.single("contentFile"), (req, res) => {
   try {
@@ -1626,5 +2171,254 @@ router.get("/admin/mou/compliance", requireMouEnabled, requireMouPermission, (re
   }
   return res.redirect("/mou");
 });
+
+function renderExternalSignError(res, err, token) {
+  const message = err?.message || String(err || "Unable to open sign link.");
+  const linkUnavailable =
+    /already been used|confirmation link|sign link not found|no longer valid|no longer accepts|not available|expired|invalid/i.test(
+      message
+    );
+  return res.status(linkUnavailable ? 410 : 400).render("mou_external_sign", {
+    error: linkUnavailable ? "" : message,
+    success: "",
+    token: token || "",
+    stream: null,
+    version: null,
+    html: "",
+    contentType: "",
+    fileUrl: "",
+    downloadUrl: "",
+    fileName: "",
+    agencyName: "",
+    customSignerFields: [],
+    alreadySigned: false,
+    signedComplete: false,
+    signedEvidenceHtml: "",
+    signedPdfUrl: "",
+    defaultSignerEmail: "",
+  });
+}
+
+router.get("/request-access/mou/:token", requireMouEnabled, (req, res) => {
+  try {
+    const { stream, currentVersion, invite } = mouService.resolveValidSignInvite(req.params.token);
+    const agency = mouService.getAgencyBySuffix(invite.agencyId);
+    const agencyName = agency?.name || agency?.groupPrefix || invite.agencyId;
+    const existingSignature = mouService.getCurrentAgencySignatureForStream(
+      stream,
+      invite.agencyId
+    );
+    const out = mouService.getCurrentVersionOrLatest(stream.mouId, currentVersion.version);
+    const fileUrl = `/request-access/mou/${encodeURIComponent(invite.token)}/file`;
+    const downloadUrl = `${fileUrl}?download=1`;
+    let signedEvidenceHtml = "";
+    if (existingSignature) {
+      const evidence = mouService.getAgencyEvidence({
+        mouId: stream.mouId,
+        agencyId: invite.agencyId,
+        version: currentVersion.version,
+      });
+      signedEvidenceHtml = evidence.html || "";
+    }
+    return res.render("mou_external_sign", {
+      error: req.query.error || "",
+      success: req.query.success || "",
+      token: invite.token,
+      stream,
+      version: out.targetVersion,
+      html: out.html,
+      contentType: out.contentType,
+      fileUrl,
+      downloadUrl,
+      fileName: out.fileName,
+      agencyName,
+      customSignerFields: Array.isArray(out.targetVersion?.customSignerFields)
+        ? out.targetVersion.customSignerFields
+        : [],
+      alreadySigned: !!existingSignature,
+      signedComplete: false,
+      signedEvidenceHtml,
+      signedPdfUrl: "",
+      defaultSignerEmail: invite.recipientEmail || "",
+    });
+  } catch (err) {
+    return renderExternalSignError(res, err, req.params.token);
+  }
+});
+
+router.get("/request-access/mou/:token/file", requireMouEnabled, (req, res) => {
+  try {
+    const { stream, currentVersion, invite } = mouService.resolveValidSignInvite(req.params.token);
+    const content = mouService.getVersionContent(stream.mouId, currentVersion.version);
+    const fileName = String(content.fileName || "mou").replace(/"/g, "");
+
+    if (content.contentType === "pdf") {
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        buildContentDisposition(req.query.download === "1" ? "attachment" : "inline", fileName)
+      );
+      return res.send(content.contentBuffer);
+    }
+
+    if (content.contentType === "markdown") {
+      res.setHeader("Content-Type", "text/markdown; charset=utf-8");
+      if (req.query.download === "1") {
+        res.setHeader("Content-Disposition", buildContentDisposition("attachment", fileName));
+      }
+      return res.send(content.contentBuffer.toString("utf8"));
+    }
+
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    if (req.query.download === "1") {
+      res.setHeader("Content-Disposition", buildContentDisposition("attachment", fileName));
+    }
+    return res.send(content.html);
+  } catch (err) {
+    return res.status(404).send(err?.message || "Not found");
+  }
+});
+
+router.post(
+  "/request-access/mou/:token/sign",
+  requireMouEnabled,
+  upload.single("signedCopyFile"),
+  async (req, res) => {
+    const token = String(req.params.token || "").trim();
+    try {
+      const { stream, currentVersion, invite } = mouService.resolveValidSignInvite(token);
+      const signMethod = String(req.body?.signMethod || "esign").trim().toLowerCase();
+      if (signMethod === "upload" && !req.file) {
+        throw new Error("Attach a PDF or image of the signed document.");
+      }
+      const agency = mouService.getAgencyBySuffix(invite.agencyId);
+      const result = mouService.signVersion({
+        mouId: stream.mouId,
+        version: currentVersion.version,
+        agencySuffix: invite.agencyId,
+        agencyNameAtSign: agency?.name || agency?.groupPrefix || invite.agencyId,
+        signerUserId: null,
+        signerDisplayName: req.body?.attestationText,
+        signerStatusAtSign: req.body?.signerRole,
+        attestationText: req.body?.attestationText,
+        customFieldValues: req.body?.customFieldValues,
+        signatureDataUrl: req.body?.signatureDataUrl,
+        uploadedSignedCopyFile: signMethod === "upload" ? req.file || null : null,
+        ...requestMeta(req),
+      });
+
+      auditRequest(req, {
+        action: "MOU_AGENCY_SIGNED",
+        targetType: "mou",
+        targetId: String(result.stream.mouId),
+        agencySuffix: invite.agencyId,
+        details: {
+          mouId: result.stream.mouId,
+          version: result.version.version,
+          agencyId: invite.agencyId,
+          signerDisplayName: result.signature.signerDisplayName,
+          signMethod: signMethod === "upload" ? "external_link_upload" : "external_link",
+        },
+      });
+
+      triggerSignedGlobalAdminNotification(
+        req,
+        result,
+        signMethod === "upload" ? "external_link_upload" : "external_link"
+      );
+
+      const signerEmail =
+        normalizeAssignmentEmail(req.body?.signerEmail) ||
+        normalizeAssignmentEmail(invite.recipientEmail);
+      if (signerEmail) {
+        void mouScheduler
+          .sendExternalSignedPdfEmail({
+            stream: result.stream,
+            version: result.version,
+            agency,
+            signerEmail,
+            signature: result.signature,
+          })
+          .catch((emailErr) => {
+            console.warn("[MOU_EXTERNAL_SIGN] Signed PDF email failed:", emailErr?.message || emailErr);
+          });
+      }
+
+      const inviteAfter = mouService.getSignInviteByToken(token);
+      const completionToken = inviteAfter?.completionToken;
+      if (!completionToken) {
+        throw new Error("Unable to open the signed confirmation page.");
+      }
+
+      return res.redirect(
+        `/request-access/mou/complete/${encodeURIComponent(completionToken)}`
+      );
+    } catch (err) {
+      return res.redirect(
+        `/request-access/mou/${encodeURIComponent(token)}?error=${encodeURIComponent(
+          err?.message || "Failed to sign document."
+        )}`
+      );
+    }
+  }
+);
+
+router.get("/request-access/mou/complete/:completionToken", requireMouEnabled, async (req, res) => {
+  try {
+    const out = mouService.resolveSignInviteCompletion(req.params.completionToken);
+    const agency = mouService.getAgencyBySuffix(out.invite.agencyId);
+    const agencyName = agency?.name || agency?.groupPrefix || out.invite.agencyId;
+    const pdfUrl = `/request-access/mou/complete/${encodeURIComponent(
+      out.invite.completionToken
+    )}/pdf`;
+    mouService.markSignInviteCompletionViewed(req.params.completionToken);
+    return res.render("mou_external_sign", {
+      error: "",
+      success: "",
+      token: "",
+      stream: out.stream,
+      version: out.currentVersion,
+      html: "",
+      contentType: "",
+      fileUrl: "",
+      downloadUrl: pdfUrl,
+      signedPdfUrl: pdfUrl,
+      fileName: out.stream.title,
+      agencyName,
+      customSignerFields: [],
+      alreadySigned: true,
+      signedComplete: true,
+      signedEvidenceHtml: out.evidence?.html || "",
+    });
+  } catch (err) {
+    return renderExternalSignError(res, err, "");
+  }
+});
+
+router.get(
+  "/request-access/mou/complete/:completionToken/pdf",
+  requireMouEnabled,
+  async (req, res) => {
+    try {
+      const out = mouService.resolveSignInviteCompletionPdf(req.params.completionToken);
+      const pdf = await mouService.getSignedPdfExport({
+        mouId: out.stream.mouId,
+        agencyId: out.invite.agencyId,
+        version: out.currentVersion.version,
+      });
+      res.setHeader("Content-Type", pdf.contentType || "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        buildContentDisposition(
+          req.query.download === "1" ? "attachment" : "inline",
+          pdf.fileName
+        )
+      );
+      return res.send(pdf.buffer);
+    } catch (err) {
+      return res.status(404).send(err?.message || "Not found");
+    }
+  }
+);
 
 module.exports = router;

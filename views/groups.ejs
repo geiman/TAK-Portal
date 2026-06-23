@@ -2,16 +2,14 @@
 <%- include("partials/sidebar") %>
 
 <main class="main">
-  <h1><%
-    const agencyOnlyGroupsPage = !isGlobalAdmin && isAgencyAdmin;
-    const groupsPageAbbrev = typeof agencyPageTitleAbbrev !== "undefined" ? agencyPageTitleAbbrev : null;
-    if (agencyOnlyGroupsPage && groupsPageAbbrev) { %><%= groupsPageAbbrev %> Groups<% }
-    else if (agencyOnlyGroupsPage) { %>Agency Groups<% }
-    else { %>Groups<% }
-  %></h1>
+  <%- include("partials/scoped-admin-page-title", {
+    globalTitle: "Groups / Channels",
+    scopedSuffix: "Groups / Channels",
+    singleFallbackTitle: "Agency Groups / Channels"
+  }) %>
 
   <div class="card">
-  <h2>Create Group</h2>
+  <h2>Create Group / Channel</h2>
 
   <div class="row">
     <% if (isGlobalAdmin) { %>
@@ -93,11 +91,11 @@
 
   <div class="card">
     <div class="row" style="justify-content: space-between; align-items:center;">
-      <h2 style="margin:0;">Existing Groups</h2>
+      <h2 style="margin:0;">Existing Groups / Channels</h2>
     </div>
 
     <div class="row" style="align-items:center; gap:12px; flex-wrap:wrap;">
-      <% if (isGlobalAdmin) { %>
+      <% if (isGlobalAdmin || isAgencyAdmin) { %>
         <label style="min-width: 220px;">
           <select id="groupScopeSelect" aria-label="Group scope filter">
             <option value="all" selected>All Groups</option>
@@ -542,6 +540,30 @@ const editPrivateWrap = document.getElementById("editPrivateWrap");
 
 // Global admin flag for JS logic
 const IS_GLOBAL_ADMIN = <%= isGlobalAdmin ? 'true' : 'false' %>;
+const IS_AGENCY_ADMIN = <%= isAgencyAdmin ? 'true' : 'false' %>;
+const ALLOWED_AGENCY_SUFFIXES = <%- JSON.stringify(allowedAgencySuffixes || []) %>;
+const IS_MULTI_AGENCY_ADMIN =
+  IS_AGENCY_ADMIN &&
+  !IS_GLOBAL_ADMIN &&
+  Array.isArray(ALLOWED_AGENCY_SUFFIXES) &&
+  ALLOWED_AGENCY_SUFFIXES.length > 1;
+
+function allowedAgencySuffixSet() {
+  return new Set(
+    (ALLOWED_AGENCY_SUFFIXES || []).map((s) => String(s || "").trim().toLowerCase())
+  );
+}
+
+/** Agencies visible in group scope sub-filters (all for global admin). */
+function agenciesForScopeFilter() {
+  const list = Array.isArray(agenciesCache) ? agenciesCache : [];
+  if (IS_GLOBAL_ADMIN) return list;
+  const allowed = allowedAgencySuffixSet();
+  if (!allowed.size) return [];
+  return list.filter((a) =>
+    allowed.has(String(a?.suffix || "").trim().toLowerCase())
+  );
+}
 
 let groupsCache = [];
 let agenciesCache = [];
@@ -620,8 +642,14 @@ async function loadAgencies(){
   agenciesCache = Array.isArray(out) ? out : [];
 
   // --- Agency prefix dropdown (groupPrefix) ---
+  const allowedSuffixes = !IS_GLOBAL_ADMIN ? allowedAgencySuffixSet() : null;
   const prefixList = agenciesCache
     .filter(a => String(a.groupPrefix || "").trim())
+    .filter(a => {
+      if (!allowedSuffixes) return true;
+      const sfx = String(a.suffix || "").trim().toLowerCase();
+      return allowedSuffixes.has(sfx);
+    })
     .slice()
     .sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
 
@@ -633,7 +661,7 @@ async function loadAgencies(){
       return `<option value="${esc(prefix)}">${esc(label)}</option>`;
     }).join("");
 
-  // 🔹 If NOT global admin, auto-select and lock to their only agency
+  // If NOT global admin, auto-select and lock when only one managed agency.
   if (!IS_GLOBAL_ADMIN) {
     const options = Array.from(agencyPrefixSelect.querySelectorAll("option"))
       .filter(o => o.value);
@@ -641,6 +669,8 @@ async function loadAgencies(){
     if (options.length === 1) {
       agencyPrefixSelect.value = options[0].value;
       agencyPrefixSelect.disabled = true;
+    } else if (IS_MULTI_AGENCY_ADMIN) {
+      agencyPrefixSelect.disabled = false;
     }
   }
 // --- State dropdown (unique states from agencies) ---
@@ -684,6 +714,7 @@ if (editStateSelect && stateSelect) {
   }
 
   renderAgencyList();
+  updateGroupScopeDetailOptions();
 }
 
 function agencyItems(){
@@ -833,6 +864,58 @@ function parseGroupName(fullName) {
   return { type, agencyPrefix, county, state, baseName, behavior };
 }
 
+function normalizeCreatedType(raw) {
+  return String(raw || "").trim().toLowerCase();
+}
+
+/** Scope bucket for Existing Groups filters (agency / county / state / global). */
+function getPortalGroupScope(g) {
+  const parsed = parseGroupName(g?.name || "");
+  const createdType = normalizeCreatedType(g?.attributes?.created_type);
+
+  // Name patterns win for scoped types (fixes legacy groups mis-tagged as Global).
+  if (parsed.type === "agency" || parsed.type === "county" || parsed.type === "state") {
+    return parsed.type;
+  }
+
+  if (createdType === "agency" || createdType === "county" || createdType === "state") {
+    return createdType;
+  }
+  if (createdType === "global") return "global";
+
+  return "global";
+}
+
+function getPortalGroupStateDetail(g) {
+  const parsed = parseGroupName(g?.name || "");
+  if (parsed.type === "state" && parsed.state) {
+    return String(parsed.state).trim().toUpperCase();
+  }
+  if (normalizeCreatedType(g?.attributes?.created_type) === "state") {
+    return String(g?.attributes?.created_type_detail || "").trim().toUpperCase();
+  }
+  return "";
+}
+
+function getPortalGroupCountyDetail(g) {
+  const parsed = parseGroupName(g?.name || "");
+  if (parsed.type === "county" && parsed.county) {
+    return String(parsed.county).trim();
+  }
+  if (normalizeCreatedType(g?.attributes?.created_type) === "county") {
+    return String(g?.attributes?.created_type_detail || "").trim();
+  }
+  return "";
+}
+
+function getPortalGroupAgencyPrefixDetail(g) {
+  const parsed = parseGroupName(g?.name || "");
+  if (parsed.type === "agency" && parsed.agencyPrefix) {
+    return String(parsed.agencyPrefix).trim().toUpperCase();
+  }
+  return "";
+}
+
 // Build a full group name from broken-out fields
 function buildGroupNameFromParts({ type, baseName, behavior, prefix, county, state }) {
   let name = String(baseName || "").trim();
@@ -905,7 +988,11 @@ function renderAgencyList(){
 // Show/hide agency / county selects based on type
 createType.onchange = () => {
   if (!IS_GLOBAL_ADMIN) {
-    if (agencyPrefixWrap) agencyPrefixWrap.style.display = "none";
+    if (IS_MULTI_AGENCY_ADMIN) {
+      if (agencyPrefixWrap) agencyPrefixWrap.style.display = "flex";
+    } else if (agencyPrefixWrap) {
+      agencyPrefixWrap.style.display = "none";
+    }
     if (countyWrap) countyWrap.style.display = "none";
     if (stateWrap) stateWrap.style.display = "none";
     if (privateWrap) privateWrap.style.display = "none";
@@ -926,7 +1013,11 @@ createType.onchange = () => {
 if (editType) {
   editType.onchange = () => {
     if (!IS_GLOBAL_ADMIN) {
-      if (editAgencyPrefixWrap) editAgencyPrefixWrap.style.display = "none";
+      if (IS_MULTI_AGENCY_ADMIN) {
+        if (editAgencyPrefixWrap) editAgencyPrefixWrap.style.display = "flex";
+      } else if (editAgencyPrefixWrap) {
+        editAgencyPrefixWrap.style.display = "none";
+      }
       if (editCountyWrap) editCountyWrap.style.display = "none";
       if (editStateWrap) editStateWrap.style.display = "none";
       if (editPrivateWrap) editPrivateWrap.style.display = "none";
@@ -957,47 +1048,34 @@ function renderGroups(){
       })
     : groupsCache;
 
-  // Global-admin-only type filtering
-  if (IS_GLOBAL_ADMIN && groupScopeSelect && groupScopeDetailSelect) {
+  // Scope + sub-filter (global admin and agency / multi-agency admin)
+  if ((IS_GLOBAL_ADMIN || IS_AGENCY_ADMIN) && groupScopeSelect && groupScopeDetailSelect) {
     const scope = String(groupScopeSelect.value || "all").trim().toLowerCase();
     const detail = String(groupScopeDetailSelect.value || "").trim();
 
     if (scope !== "all") {
-      const getPortalGroupScope = (g) => {
-        const createdType = String(g?.attributes?.created_type || "").trim().toLowerCase();
-        if (createdType === "global") return "global";
-        if (createdType === "state") return "state";
-        if (createdType === "county") return "county";
-        if (createdType === "agency") return "agency";
-
-        // Fallback: infer from group name patterns.
-        const parsed = parseGroupName(g?.name || "");
-        if (parsed.type === "generic") return "global";
-        if (parsed.type === "state") return "state";
-        if (parsed.type === "county") return "county";
-        if (parsed.type === "agency") return "agency";
-        return "global";
-      };
-
       if (scope === "global") {
         filteredRaw = filteredRaw.filter(g => getPortalGroupScope(g) === "global");
       } else if (scope === "state") {
         filteredRaw = filteredRaw.filter(g => {
-          if (!detail) return getPortalGroupScope(g) === "state";
-          const parsed = parseGroupName(g?.name || "");
-          return parsed.type === "state" && parsed.state === detail;
+          if (getPortalGroupScope(g) !== "state") return false;
+          if (!detail) return true;
+          return getPortalGroupStateDetail(g) === String(detail).trim().toUpperCase();
         });
       } else if (scope === "county") {
         filteredRaw = filteredRaw.filter(g => {
-          if (!detail) return getPortalGroupScope(g) === "county";
-          const parsed = parseGroupName(g?.name || "");
-          return parsed.type === "county" && parsed.county === detail;
+          if (getPortalGroupScope(g) !== "county") return false;
+          if (!detail) return true;
+          return (
+            getPortalGroupCountyDetail(g).toUpperCase() ===
+            String(detail).trim().toUpperCase()
+          );
         });
       } else if (scope === "agency") {
         filteredRaw = filteredRaw.filter(g => {
-          if (!detail) return getPortalGroupScope(g) === "agency";
-          const parsed = parseGroupName(g?.name || "");
-          return parsed.type === "agency" && parsed.agencyPrefix === detail;
+          if (getPortalGroupScope(g) !== "agency") return false;
+          if (!detail) return true;
+          return getPortalGroupAgencyPrefixDetail(g) === String(detail).trim().toUpperCase();
         });
       }
     }
@@ -1052,16 +1130,17 @@ function updateGroupScopeDetailOptions() {
   if (!groupScopeSelect || !groupScopeDetailWrap || !groupScopeDetailSelect) return;
 
   const scope = String(groupScopeSelect.value || "all").trim().toLowerCase();
+  const scopedAgencies = agenciesForScopeFilter();
 
   // Default: hide detail selector
   groupScopeDetailWrap.style.display = "none";
   groupScopeDetailSelect.innerHTML = "";
 
-  if (!Array.isArray(agenciesCache) || !agenciesCache.length) return;
+  if (!scopedAgencies.length) return;
 
   if (scope === "state") {
     const stateSet = new Set(
-      agenciesCache
+      scopedAgencies
         .map(a => String(a.state || "").trim())
         .filter(Boolean)
         .map(s => s.toUpperCase())
@@ -1077,7 +1156,7 @@ function updateGroupScopeDetailOptions() {
     groupScopeDetailSelect.value = "";
   } else if (scope === "county") {
     const countySet = new Set(
-      agenciesCache
+      scopedAgencies
         .map(a => String(a.county || "").trim())
         .filter(Boolean)
     );
@@ -1094,7 +1173,7 @@ function updateGroupScopeDetailOptions() {
     groupScopeDetailSelect.value = "";
   } else if (scope === "agency") {
     const prefixSet = new Set(
-      agenciesCache
+      scopedAgencies
         .map(a => String(a.groupPrefix || "").trim().toUpperCase())
         .filter(Boolean)
     );
@@ -1102,7 +1181,7 @@ function updateGroupScopeDetailOptions() {
     const prefixList = Array.from(prefixSet).sort((a, b) => a.localeCompare(b));
 
     const options = prefixList.map(prefix => {
-      const agency = agenciesCache.find(
+      const agency = scopedAgencies.find(
         a => String(a.groupPrefix || "").trim().toUpperCase() === prefix
       );
       const name = agency?.name ? String(agency.name).trim() : "";
@@ -1115,6 +1194,11 @@ function updateGroupScopeDetailOptions() {
 
     groupScopeDetailWrap.style.display = "flex";
     groupScopeDetailSelect.value = "";
+
+    // Single-agency admin: default sub-filter to their only managed agency.
+    if (!IS_GLOBAL_ADMIN && prefixList.length === 1) {
+      groupScopeDetailSelect.value = prefixList[0];
+    }
   }
 }
 

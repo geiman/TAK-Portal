@@ -10,7 +10,11 @@
 
 <main class="main">
 
-  <h1>Audit Log</h1>
+  <%- include("partials/scoped-admin-page-title", {
+    globalTitle: "Audit Log",
+    scopedSuffix: "Audit Log",
+    singleFallbackTitle: "Agency Audit Log"
+  }) %>
 
   <div class="card">
 
@@ -174,6 +178,15 @@
                 if (groupName) display = groupName;
                 else if (targetId && gMap[targetId]) display = gMap[targetId] || targetId;
                 else if (targetId) display = targetId;
+              }
+
+              if (type === 'data_package' || type === 'data_sync_mission' || type === 'data_sync_file') {
+                display =
+                  details.fileName ||
+                  details.missionName ||
+                  details.name ||
+                  targetId ||
+                  '—';
               }
 
               if (!display && targetId) display = targetId;
@@ -510,8 +523,13 @@
   }
 
   function buildFormattedHtml(details) {
-    const keys = Object.keys(details).filter(function(k) { return details[k] !== undefined; }).sort();
+    const keys = Object.keys(details).filter(function(k) { return details[k] !== undefined; });
     if (keys.length === 0) return '<p class="muted">No additional details recorded.</p>';
+    keys.sort(function(a, b) {
+      if (a === 'summary') return -1;
+      if (b === 'summary') return 1;
+      return a.localeCompare(b);
+    });
     var html = '';
     keys.forEach(function(key) {
       var v = formatValue(details[key], key);

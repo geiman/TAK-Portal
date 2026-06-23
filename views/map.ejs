@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <%
+      const _serverName = String(
+        (typeof settings !== "undefined" && settings && settings.SERVER_NAME) ||
+          (typeof serverAbbrev !== "undefined" && serverAbbrev) ||
+          ""
+      )
+        .trim()
+        .toUpperCase();
+      const _mapHeading = _serverName ? _serverName + " LIVE MAP" : "LIVE MAP";
+    %>
+    <title><%= _mapHeading %></title>
+    <% if (typeof brandLogoUrl !== "undefined" && brandLogoUrl) { %>
+      <link rel="icon" href="<%= brandLogoUrl %>" type="image/png" />
+      <link rel="shortcut icon" href="<%= brandLogoUrl %>" type="image/png" />
+    <% } %>
+    <link
+      href="https://unpkg.com/maplibre-gl@5.13.0/dist/maplibre-gl.css"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="<%= mapCssUrl %>" />
+  </head>
+  <body data-map-user="<%= typeof mapStorageUserKey !== 'undefined' ? mapStorageUserKey : 'anonymous' %>">
+    <div class="map-shell">
+      <div id="map" aria-label="TAK live map"></div>
+
+      <div class="map-offline-banner" id="mapOfflineBanner" hidden>
+        Stream disconnected — reload the page to retry.
+      </div>
+
+      <header class="map-hud">
+        <div
+          class="map-hud-title map-hud-fit-trigger"
+          id="mapHudFit"
+          role="button"
+          tabindex="0"
+          title="Fit visible markers"
+        >
+          <% if (typeof brandLogoUrl !== "undefined" && brandLogoUrl) { %>
+            <img src="<%= brandLogoUrl %>" alt="" class="map-hud-logo" />
+          <% } %>
+          <h1><%= _mapHeading %></h1>
+        </div>
+        <div class="map-hud-center">
+          <span class="map-zulu" id="mapZulu">— Z</span>
+          <span class="map-counts" id="mapVisibleCounts">0 / 0 visible</span>
+        </div>
+        <div class="map-hud-actions">
+          <div class="map-status" id="mapConnStatus" title="Stream status">
+            <span class="map-status-dot" id="mapConnDot"></span>
+            <span id="mapConnLabel">Connecting</span>
+          </div>
+          <div class="map-basemap-picker" title="Basemap">
+            <svg
+              class="map-basemap-icon"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3-6-3V6z" />
+              <path d="M9 3v15" />
+              <path d="M15 6v15" />
+            </svg>
+            <select class="map-select" id="mapBasemapSelect" title="Basemap" aria-label="Basemap"></select>
+          </div>
+          <a class="map-btn" href="/dashboard">Dashboard</a>
+        </div>
+      </header>
+
+      <button
+        type="button"
+        class="map-panel-expand map-panel-expand-left"
+        id="mapExpandLeft"
+        title="Show channels"
+        hidden
+      >
+        Channels ›
+      </button>
+      <button
+        type="button"
+        class="map-panel-expand map-panel-expand-right"
+        id="mapExpandRight"
+        title="Show marker details"
+        hidden
+      >
+        ‹ Details
+      </button>
+
+      <aside class="map-panel map-panel-left" id="mapPanelLeft" aria-label="Channels">
+        <div class="map-panel-tabs">
+          <span class="map-panel-title">Channels</span>
+          <button type="button" class="map-panel-collapse" id="mapCollapseLeft" title="Collapse panel">‹</button>
+        </div>
+
+        <div class="map-panel-body">
+          <div class="map-search map-search-compact">
+            <input id="mapLayerSearch" type="search" placeholder="Filter channels…" autocomplete="off" />
+          </div>
+          <div class="map-layer-actions">
+            <button type="button" class="map-link-btn" id="mapGroupsAll">All</button>
+            <button type="button" class="map-link-btn" id="mapGroupsNone">None</button>
+          </div>
+          <div class="map-layer-list" id="mapLayerList"></div>
+        </div>
+      </aside>
+
+      <div class="map-detail-stack collapsed" id="mapDetailStack" aria-label="Marker details">
+        <div
+          class="map-panel-resize-handle"
+          id="mapDetailResize"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize details panels"
+          tabindex="-1"
+        ></div>
+      </div>
+
+      <div class="map-zoom-controls" aria-label="Zoom controls">
+        <button type="button" class="map-zoom-btn" id="mapZoomIn" title="Zoom in" aria-label="Zoom in">+</button>
+        <button type="button" class="map-zoom-btn" id="mapZoomOut" title="Zoom out" aria-label="Zoom out">−</button>
+      </div>
+
+      <footer class="map-coords-bar">
+        <button
+          type="button"
+          class="map-cursor-coords"
+          id="mapCursorBtn"
+          title="Click to change coordinate format · right-click map to copy"
+        >
+          <span id="mapCursor">Decimal Degrees: —</span>
+        </button>
+      </footer>
+
+      <div class="map-goto-overlay" id="mapGoToOverlay" hidden>
+        <div class="map-goto-backdrop" id="mapGoToBackdrop"></div>
+        <div class="map-goto-panel" role="dialog" aria-modal="true" aria-label="Go to location">
+          <input
+            id="mapGoToInput"
+            class="map-goto-input"
+            type="text"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="Callsign, address, or coordinates…"
+            aria-controls="mapGoToResults"
+            aria-autocomplete="list"
+          />
+          <div class="map-goto-results-wrap" id="mapGoToResultsWrap" hidden>
+            <ul class="map-goto-results" id="mapGoToResults" role="listbox"></ul>
+          </div>
+          <p class="map-goto-hint" id="mapGoToHint" aria-live="polite"></p>
+        </div>
+      </div>
+    </div>
+
+    <script src="https://unpkg.com/maplibre-gl@5.13.0/dist/maplibre-gl.js"></script>
+    <script src="<%= mapJsUrl %>" defer></script>
+  </body>
+</html>

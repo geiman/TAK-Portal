@@ -193,6 +193,12 @@
       </table>
     </div>
   </div>
+
+  <div class="card agenciesExportCard">
+    <div class="agenciesExportCardActions">
+      <button type="button" class="btn" id="exportAgenciesCsvBtn">Export Agencies CSV</button>
+    </div>
+  </div>
 </main>
 
 <!-- Agency Admins Modal (same behavior as Groups -> View Members) -->
@@ -321,6 +327,14 @@
   </div>
 
 <script>
+/** Same list as Add Agency state dropdown and PUT /api/agencies/:index/state */
+const AGENCY_STATE_OPTIONS = [
+  "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID",
+  "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS",
+  "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK",
+  "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV",
+  "WI", "WY", "FED", "OTHER",
+];
 /** Same list as Add Agency type dropdown (core + settings extras + Other); PATCH /api/agencies/:index/type */
 const AGENCY_TYPE_OPTIONS = <%- JSON.stringify(Array.isArray(agencyTypeOptions) ? agencyTypeOptions : []) %>;
 const msg = document.getElementById("msg");
@@ -344,16 +358,23 @@ const adminsList = document.getElementById("adminsList");
 const adminsHint = document.getElementById("adminsHint");
 
 let agencies = [];
-/** When true, Name, Type, Color, and Abbreviation columns are editable. */
+/** When true, Name, Type, Color, Abbreviation, State, County, and County Abbrev columns are editable. */
 let agencyAttributesEditMode = false;
 /** Snapshots per agency id when entering edit mode (Save Changes applies diffs). */
 let nameSnapshotById = {};
 let abbrevSnapshotById = {};
+let stateSnapshotById = {};
+let countySnapshotById = {};
+let countyAbbrevSnapshotById = {};
 let sortState = { key: "name", dir: 1 }; // default: Agency asc
 
 function setMsg(text, ok=true){
   msg.textContent = text || "";
-  msg.className = "msg " + (ok ? "ok" : "bad");
+  if (ok === "progress") {
+    msg.className = "msg progress";
+  } else {
+    msg.className = "msg " + (ok ? "ok" : "bad");
+  }
 }
 
 function setAgencyAttributesEditControlsVisible(editing) {
@@ -451,6 +472,10 @@ function esc(s){
     .replaceAll(">","&gt;");
 }
 
+function isAgencyActive(a) {
+  return a?.isActive !== false;
+}
+
 /** Same list as create-agency form and PATCH /api/agencies/:index/color */
 const AGENCY_COLOR_OPTIONS = [
   "Blue", "Dark Blue", "Brown", "Cyan", "Green", "Dark Green", "Magenta", "Maroon",
@@ -478,6 +503,142 @@ function buildAgencyAbbrCellHtml(a) {
 function updateAgencyAbbrLocal(agencyIndex, raw) {
   const row = agencies.find((x) => String(x._id ?? x.id) === String(agencyIndex));
   if (row) row.groupPrefix = String(raw || "").trim().toUpperCase();
+}
+
+function countyMatchKey(state, county) {
+  return `${String(state || "").trim().toUpperCase()}|${String(county || "").trim().toLowerCase()}`;
+}
+
+function countyEditGroupKeyForAgency(a) {
+  const id = String(a._id ?? a.id ?? "");
+  const snapCounty = id in countySnapshotById ? countySnapshotById[id] : a.county;
+  const snapState = id in stateSnapshotById ? stateSnapshotById[id] : a.state;
+  return countyMatchKey(snapState, snapCounty);
+}
+
+function stateScopeMatchKey(state, county, countyAbbrev) {
+  return `${countyMatchKey(state, county)}|${String(countyAbbrev || "").trim().toUpperCase()}`;
+}
+
+function stateEditGroupKeyForAgency(a) {
+  const id = String(a._id ?? a.id ?? "");
+  const snapState = id in stateSnapshotById ? stateSnapshotById[id] : a.state;
+  const snapCounty = id in countySnapshotById ? countySnapshotById[id] : a.county;
+  const snapCountyAbbrev =
+    id in countyAbbrevSnapshotById ? countyAbbrevSnapshotById[id] : a.countyAbbrev;
+  return stateScopeMatchKey(snapState, snapCounty, snapCountyAbbrev);
+}
+
+function buildAgencyStateCellHtml(a) {
+  const idx = a._id ?? a.id;
+  const current = String(a.state || "").trim().toUpperCase();
+  const editKey = stateEditGroupKeyForAgency(a);
+  const aria = esc(a.name || "Agency");
+  const opts = AGENCY_STATE_OPTIONS.map((st) => {
+    const sel = st === current ? " selected" : "";
+    return `<option value="${esc(st)}"${sel}>${esc(st)}</option>`;
+  }).join("");
+  const legacyExtra =
+    current && !AGENCY_STATE_OPTIONS.includes(current)
+      ? `<option value="${esc(current)}" selected>${esc(current)} (current)</option>`
+      : "";
+  return `<select class="agency-state-select" data-edit-key="${esc(editKey)}" aria-label="State for ${aria}" title="Updates agencies matching this state, county, and county abbreviation; renames state groups only if no agencies remain on the old state" onchange="updateAgencyStateLocal(${Number(idx)}, this.value)">${legacyExtra}${opts}</select>`;
+}
+
+function syncStateInputsForEditKey(editKey, value) {
+  if (!tbody || !agencyAttributesEditMode) return;
+  tbody.querySelectorAll(".agency-state-select").forEach((sel) => {
+    if (sel.dataset.editKey === editKey && sel !== document.activeElement) {
+      sel.value = value;
+    }
+  });
+}
+
+function updateAgencyStateLocal(agencyIndex, raw) {
+  const row = agencies.find((x) => String(x._id ?? x.id) === String(agencyIndex));
+  if (!row) return;
+  const value = String(raw || "").trim().toUpperCase();
+  const editKey = stateEditGroupKeyForAgency(row);
+
+  for (const a of agencies) {
+    if (stateEditGroupKeyForAgency(a) === editKey) {
+      a.state = value;
+    }
+  }
+
+  syncStateInputsForEditKey(editKey, value);
+}
+
+function buildAgencyCountyCellHtml(a) {
+  const idx = a._id ?? a.id;
+  const val = String(a.county || "").trim();
+  const editKey = countyEditGroupKeyForAgency(a);
+  const aria = esc(a.name || "Agency");
+  return `<input type="text" class="agency-county-input" data-edit-key="${esc(editKey)}" aria-label="County for ${aria}" value="${esc(val)}" maxlength="100" title="Updates all agencies in this state and county; renames county groups" oninput="updateAgencyCountyNameLocal(${Number(idx)}, this.value)" />`;
+}
+
+function syncCountyNameInputsForEditKey(editKey, value) {
+  if (!tbody || !agencyAttributesEditMode) return;
+  tbody.querySelectorAll(".agency-county-input").forEach((inp) => {
+    if (inp.dataset.editKey === editKey && inp !== document.activeElement) {
+      inp.value = value;
+    }
+  });
+}
+
+function updateAgencyCountyNameLocal(agencyIndex, raw) {
+  const row = agencies.find((x) => String(x._id ?? x.id) === String(agencyIndex));
+  if (!row) return;
+  const value = normalizeCountyName(raw);
+  const editKey = countyEditGroupKeyForAgency(row);
+
+  for (const a of agencies) {
+    if (countyEditGroupKeyForAgency(a) === editKey) {
+      a.county = value;
+    }
+  }
+
+  syncCountyNameInputsForEditKey(editKey, value);
+
+  const newCountyKey = String(value || "").trim().toLowerCase();
+  tbody.querySelectorAll(".agency-county-abbrev-input").forEach((inp) => {
+    if (inp.dataset.editKey === editKey) {
+      inp.dataset.county = newCountyKey;
+    }
+  });
+}
+
+function buildAgencyCountyAbbrevCellHtml(a) {
+  const idx = a._id ?? a.id;
+  const val = String(a.countyAbbrev || "").trim().toUpperCase();
+  const editKey = countyEditGroupKeyForAgency(a);
+  const county = String(a.county || "").trim().toLowerCase();
+  const aria = esc(`${a.county || "County"}, ${a.state || ""}`);
+  return `<input type="text" class="agency-county-abbrev-input" data-edit-key="${esc(editKey)}" data-county="${esc(county)}" aria-label="County abbreviation for ${aria}" value="${esc(val)}" maxlength="8" placeholder="(ex. HM)" title="At least 2 letters; updates all agencies in this county" oninput="this.value = this.value.toUpperCase().replace(/[^A-Z]/g, ''); updateAgencyCountyAbbrevLocal(${Number(idx)}, this.value)" />`;
+}
+
+function syncCountyAbbrevInputsForCounty(editKey, value) {
+  if (!tbody || !agencyAttributesEditMode) return;
+  tbody.querySelectorAll(".agency-county-abbrev-input").forEach((inp) => {
+    if (inp.dataset.editKey === editKey && inp !== document.activeElement) {
+      inp.value = value;
+    }
+  });
+}
+
+function updateAgencyCountyAbbrevLocal(agencyIndex, raw) {
+  const row = agencies.find((x) => String(x._id ?? x.id) === String(agencyIndex));
+  if (!row) return;
+  const value = String(raw || "").trim().toUpperCase().replace(/[^A-Z]/g, "");
+  const editKey = countyEditGroupKeyForAgency(row);
+
+  for (const a of agencies) {
+    if (countyEditGroupKeyForAgency(a) === editKey) {
+      a.countyAbbrev = value;
+    }
+  }
+
+  syncCountyAbbrevInputsForCounty(editKey, value);
 }
 
 function buildAgencyColorCellHtml(a) {
@@ -678,26 +839,39 @@ function renderAgencies(){
     }
   });
 
-  tbody.innerHTML = rows.map((a)=>`
-    <tr>
+  tbody.innerHTML = rows.map((a)=>{
+    const agencyId = esc(a._id ?? a.id ?? "");
+    const active = isAgencyActive(a);
+    const toggleBtnClass = active ? "btn caution" : "btn";
+    const toggleLabel = active ? "Disable" : "Enable";
+    return `
+    <tr class="${active ? "" : "row-disabled"}">
       <td class="agencyNameCell cardTitleCell" data-label="Agency">
         ${
           agencyAttributesEditMode
             ? buildAgencyNameCellHtml(a)
-            : `<div class="agencyNameText cardTitleText">${esc(a.name)}</div>`
+            : `<div class="agencyNameText cardTitleText">${esc(a.name)}</div>${
+                !active ? `<span class="agencyStatusBadge cardMetaBadge">Disabled</span>` : ""
+              }`
         }
       </td>
       <td class="agencyAbbrCell" data-label="Abbreviation">${
         agencyAttributesEditMode ? buildAgencyAbbrCellHtml(a) : esc(a.groupPrefix)
       }</td>
       <td class="agencySuffixCell" data-label="Username Suffix">${esc(a.suffix)}</td>
-      <td class="agencyCountyCell" data-label="County">${esc(a.county)}</td>
-      <td class="agencyCountyAbbrevCell" data-label="County Abbrev">${
-        a.countyAbbrev
-          ? esc(a.countyAbbrev)
-          : `<button class="btn" type="button" onclick="openCountyAbbrevModal('${esc(a._id ?? a.id ?? "")}')">Update</button>`
+      <td class="agencyCountyCell" data-label="County">${
+        agencyAttributesEditMode ? buildAgencyCountyCellHtml(a) : esc(a.county)
       }</td>
-      <td class="agencyStateCell" data-label="State">${esc(a.state || "")}</td>
+      <td class="agencyCountyAbbrevCell" data-label="County Abbrev">${
+        agencyAttributesEditMode
+          ? buildAgencyCountyAbbrevCellHtml(a)
+          : a.countyAbbrev
+            ? esc(a.countyAbbrev)
+            : `<button class="btn" type="button" onclick="openCountyAbbrevModal('${esc(a._id ?? a.id ?? "")}')">Update</button>`
+      }</td>
+      <td class="agencyStateCell" data-label="State">${
+        agencyAttributesEditMode ? buildAgencyStateCellHtml(a) : esc(a.state || "")
+      }</td>
       <td class="agencyTypeCell${agencyAttributesEditMode ? " agency-type-td" : ""}" data-label="Type">${
         agencyAttributesEditMode ? buildAgencyTypeCellHtml(a) : esc(a.type || "")
       }</td>
@@ -707,27 +881,30 @@ function renderAgencies(){
       <td class="agencyActionsCell cardActionsCell">
         <div class="agencyActionsRow cardActionsRow">
           <button class="btn" type="button"
-            onclick="openAgencyAdmins('${esc(a._id ?? a.id ?? "")}')">
-            View Admins
+            onclick="openAgencyAdmins('${agencyId}')">
+            Agency Admins
           </button>
           <% if (typeof isGlobalAdmin !== "undefined" && isGlobalAdmin) { %>
           <button class="btn btn-access" type="button"
-            onclick="openAccessGroupsModal('${esc(a._id ?? a.id ?? "")}')">
-            Manage Access
+            onclick="openAccessGroupsModal('${agencyId}')">
+            Manage Groups
           </button>
           <% } %>
           <button class="btn" type="button"
-            onclick="openDomainModal('${esc(a._id ?? a.id ?? "")}')">
-            Configure Domain
+            onclick="openDomainModal('${agencyId}')">
+            Domain
           </button>
-          <button class="btn danger" type="button"
-            onclick="delAgency('${esc(a._id ?? a.id ?? "")}')">
+          <button class="${toggleBtnClass} agency-active-toggle-btn" type="button"
+            onclick="toggleAgencyActive('${agencyId}', ${active ? "false" : "true"})">${toggleLabel}</button>
+          <button class="btn danger agency-delete-btn" type="button"
+            onclick="delAgency('${agencyId}')">
             Delete
           </button>
         </div>
       </td>
     </tr>
-  `).join("");
+  `;
+  }).join("");
 }
 
 // Open admins modal for the agency's computed admin group.
@@ -841,24 +1018,204 @@ async function loadAgenciesWithCounts(){
 
 // Prefer deleting by real id.
 // If your API currently deletes by index, update the backend route to delete by id.
-window.delAgency = async (id) => {
-  if(!confirm("Delete this agency?")) return;
+window.toggleAgencyActive = async (agencyId, isActive) => {
+  const a = (agencies || []).find((x) => String(x._id ?? x.id) === String(agencyId));
+  if (!a) {
+    setMsg("Could not find agency.", false);
+    return;
+  }
 
+  const label = String(a.name || a.suffix || "Agency");
+  const enabling = !!isActive;
+
+  let userCount = 0;
+  try {
+    const previewRes = await fetch(`/api/agencies/${encodeURIComponent(agencyId)}/active-preview`);
+    const preview = await previewRes.json().catch(() => ({}));
+    if (!previewRes.ok) {
+      setMsg(preview.error || "Could not load user count for this agency.", false);
+      return;
+    }
+    userCount = Number(preview.userCount) || 0;
+  } catch (e) {
+    setMsg(e?.message || "Could not load user count for this agency.", false);
+    return;
+  }
+
+  const userCountLine =
+    userCount === 0
+      ? enabling
+        ? "No users are queued to be re-enabled."
+        : "No active users will be disabled."
+      : userCount === 1
+        ? enabling
+          ? "1 user will be re-enabled."
+          : "1 active user will be disabled."
+        : enabling
+          ? `${userCount} users will be re-enabled.`
+          : `${userCount} active users will be disabled.`;
+
+  const ok = confirm(
+    enabling
+      ? `Enable agency "${label}"?\n\n${userCountLine}`
+      : `Disable agency "${label}"?\n\n${userCountLine}`
+  );
+  if (!ok) return;
+
+  const toggleButtons = document.querySelectorAll(".agency-active-toggle-btn");
+  toggleButtons.forEach((btn) => {
+    btn.disabled = true;
+  });
+
+  const progressUserPart =
+    userCount === 1
+      ? "1 user"
+      : userCount > 1
+        ? `${userCount} users`
+        : "";
+  setMsg(
+    enabling
+      ? progressUserPart
+        ? `Enabling agency "${label}"… Updating ${progressUserPart}.`
+        : `Enabling agency "${label}"…`
+      : progressUserPart
+        ? `Disabling agency "${label}"… Updating ${progressUserPart}.`
+        : `Disabling agency "${label}"…`,
+    "progress"
+  );
+
+  try {
+    const res = await fetch(`/api/agencies/${encodeURIComponent(agencyId)}/active`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_active: enabling }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setMsg(out.error || "Failed to update agency status.", false);
+      return;
+    }
+    const count = Number(out.usersUpdated || 0);
+    const userPart = count
+      ? ` ${count} user${count === 1 ? "" : "s"} updated.`
+      : "";
+    setMsg(
+      enabling
+        ? `Agency "${label}" enabled.${userPart}`
+        : `Agency "${label}" disabled.${userPart}`,
+      true
+    );
+    await loadAgenciesWithCounts();
+  } catch (e) {
+    setMsg(e?.message || "Failed to update agency status.", false);
+  } finally {
+    toggleButtons.forEach((btn) => {
+      btn.disabled = false;
+    });
+  }
+};
+
+window.delAgency = async (id) => {
   if(!id){
     setMsg("Missing agency id (API should return _id/id).", false);
     return;
   }
 
-  const res = await fetch("/api/agencies/" + encodeURIComponent(id), { method:"DELETE" });
-  const out = await res.json();
-
-  if(!res.ok){
-    setMsg(out.error || "Delete failed", false);
+  const a = (agencies || []).find((x) => String(x._id ?? x.id) === String(id));
+  if (!a) {
+    setMsg("Could not find agency.", false);
     return;
   }
 
-  setMsg("Agency deleted", true);
-  loadAgenciesWithCounts();
+  const label = String(a.name || a.suffix || "Agency");
+  let preview = null;
+
+  try {
+    const previewRes = await fetch(`/api/agencies/${encodeURIComponent(id)}/delete-preview`);
+    preview = await previewRes.json().catch(() => ({}));
+    if (!previewRes.ok) {
+      setMsg(preview.error || "Could not load delete preview for this agency.", false);
+      return;
+    }
+  } catch (e) {
+    setMsg(e?.message || "Could not load delete preview for this agency.", false);
+    return;
+  }
+
+  const countLine = (count, singular, plural) => {
+    const n = Number(count) || 0;
+    const word = n === 1 ? singular : plural;
+    return `- ${n} ${word}`;
+  };
+
+  const lines = [
+    "WARNING!!! DELETING THIS AGENCY IS IRREVERSIBLE. PLEASE SEE THE FOLLOWING ITEMS TO BE DELETED...",
+    "",
+    countLine(preview.userCount, "User", "Users"),
+    countLine(preview.agencyGroupCount, "Agency Specific Group", "Agency Specific Groups"),
+  ];
+
+  if (preview.willDeleteCountyGroups) {
+    lines.push(countLine(preview.countyGroupCount, "County Specific Group", "County Specific Groups"));
+  } else {
+    lines.push("- 0 County Specific Groups (other agencies remain in this county)");
+  }
+
+  if (preview.willDeleteStateGroups) {
+    lines.push(countLine(preview.stateGroupCount, "State Specific Group", "State Specific Groups"));
+  } else {
+    lines.push("- 0 State Specific Groups (other agencies remain in this state)");
+  }
+
+  lines.push(countLine(preview.templateCount, "Template", "Templates"));
+  lines.push(
+    countLine(preview.integrationCount, "Agency Integration", "Agency Integrations")
+  );
+
+  if ((Number(preview.pendingRequestCount) || 0) > 0) {
+    lines.push(countLine(preview.pendingRequestCount, "Pending Access Request", "Pending Access Requests"));
+  }
+
+  lines.push("");
+  lines.push(`Agency: ${label}`);
+
+  const ok = confirm(lines.join("\n"));
+  if (!ok) return;
+
+  const finalOk = confirm(
+    `FINAL CONFIRMATION\n\nPermanently delete agency "${label}" and ALL items listed previously?\n\nThis action CANNOT be undone.`
+  );
+  if (!finalOk) return;
+
+  const deleteButtons = document.querySelectorAll(".agency-delete-btn");
+  deleteButtons.forEach((btn) => {
+    btn.disabled = true;
+  });
+
+  const userPart =
+    (Number(preview.userCount) || 0) > 0
+      ? ` Removing ${preview.userCount} user${preview.userCount === 1 ? "" : "s"}…`
+      : "";
+  setMsg(`Deleting agency "${label}"…${userPart}`, "progress");
+
+  try {
+    const res = await fetch("/api/agencies/" + encodeURIComponent(id), { method: "DELETE" });
+    const out = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      setMsg(out.error || "Delete failed", false);
+      return;
+    }
+
+    setMsg(`Agency "${label}" deleted.`, true);
+    await loadAgenciesWithCounts();
+  } catch (e) {
+    setMsg(e?.message || "Delete failed", false);
+  } finally {
+    deleteButtons.forEach((btn) => {
+      btn.disabled = false;
+    });
+  }
 };
 
 // === County normalization helpers ===
@@ -1268,33 +1625,141 @@ function agencyAbbrevChanged(a) {
   return oldAbbr && newAbbr && oldAbbr !== newAbbr;
 }
 
+function agencyCountyAbbrevChanged(a) {
+  const id = String(a._id ?? a.id ?? "");
+  if (!id || !(id in countyAbbrevSnapshotById)) return false;
+  const oldVal = String(countyAbbrevSnapshotById[id] || "").trim().toUpperCase();
+  const newVal = String(a.countyAbbrev || "").trim().toUpperCase();
+  return oldVal !== newVal;
+}
+
+function agencyCountyNameChanged(a) {
+  const id = String(a._id ?? a.id ?? "");
+  if (!id || !(id in countySnapshotById)) return false;
+  const oldVal = normalizeCountyName(countySnapshotById[id]);
+  const newVal = normalizeCountyName(a.county);
+  return oldVal !== newVal;
+}
+
+function agencyStateChanged(a) {
+  const id = String(a._id ?? a.id ?? "");
+  if (!id || !(id in stateSnapshotById)) return false;
+  const oldVal = String(stateSnapshotById[id] || "").trim().toUpperCase();
+  const newVal = String(a.state || "").trim().toUpperCase();
+  return oldVal !== newVal;
+}
+
+function getStateChangesToApply() {
+  const seen = new Set();
+  const changes = [];
+  for (const a of agencies) {
+    if (!agencyStateChanged(a)) continue;
+    const key = stateEditGroupKeyForAgency(a);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const id = String(a._id ?? a.id ?? "");
+    changes.push({
+      agency: a,
+      key,
+      oldState: String(stateSnapshotById[id] || "").trim().toUpperCase(),
+      oldCounty: normalizeCountyName(countySnapshotById[id]),
+      oldCountyAbbrev: String(countyAbbrevSnapshotById[id] || "").trim().toUpperCase(),
+      newVal: String(a.state || "").trim().toUpperCase(),
+    });
+  }
+  return changes;
+}
+
+function getCountyNameChangesToApply() {
+  const seen = new Set();
+  const changes = [];
+  for (const a of agencies) {
+    if (!agencyCountyNameChanged(a)) continue;
+    const id = String(a._id ?? a.id ?? "");
+    const oldCounty = normalizeCountyName(countySnapshotById[id]);
+    const state = String(stateSnapshotById[id] || a.state || "").trim().toUpperCase();
+    const key = countyMatchKey(state, oldCounty);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    changes.push({
+      agency: a,
+      key,
+      state,
+      oldCounty,
+      newVal: normalizeCountyName(a.county),
+    });
+  }
+  return changes;
+}
+
+function getCountyAbbrevChangesToApply() {
+  const seen = new Set();
+  const changes = [];
+  for (const a of agencies) {
+    if (!agencyCountyAbbrevChanged(a)) continue;
+    const key = countyEditGroupKeyForAgency(a);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const id = String(a._id ?? a.id ?? "");
+    changes.push({
+      agency: a,
+      key,
+      newVal: String(a.countyAbbrev || "").trim().toUpperCase(),
+      oldVal: String(countyAbbrevSnapshotById[id] || "").trim().toUpperCase(),
+    });
+  }
+  return changes;
+}
+
 function getAgenciesWithAttributeChanges() {
   return agencies.filter((a) => agencyNameChanged(a) || agencyAbbrevChanged(a));
 }
 
 async function finishAgencyAttributesEditing() {
   const agenciesToUpdate = getAgenciesWithAttributeChanges();
-  const hasWork = agenciesToUpdate.length > 0;
+  const stateChanges = getStateChangesToApply();
+  const countyNameChanges = getCountyNameChangesToApply();
+  const countyChanges = getCountyAbbrevChangesToApply();
+  const hasWork =
+    agenciesToUpdate.length > 0 ||
+    stateChanges.length > 0 ||
+    countyNameChanges.length > 0 ||
+    countyChanges.length > 0;
 
   if (hasWork) {
-    const lines = agenciesToUpdate
-      .map((a) => {
-        const id = String(a._id ?? a.id ?? "");
-        const parts = [];
-        if (agencyNameChanged(a)) {
-          parts.push(`name: ${nameSnapshotById[id]} → ${String(a.name || "").trim()}`);
-        }
-        if (agencyAbbrevChanged(a)) {
-          parts.push(
-            `abbrev: ${abbrevSnapshotById[id]} → ${String(a.groupPrefix || "").trim().toUpperCase()}`
-          );
-        }
-        const label = String(nameSnapshotById[id] || a.name || "Agency");
-        return `${label}: ${parts.join("; ")}`;
-      })
-      .join("\n");
+    const lines = [];
+    for (const ch of stateChanges) {
+      lines.push(
+        `${ch.oldState || "State"}, ${ch.oldCounty || "County"}, ${ch.oldCountyAbbrev || "abbrev"}: state ${ch.oldState || "(none)"} → ${ch.newVal} (matching agencies; state groups renamed only if no agencies remain on ${ch.oldState})`
+      );
+    }
+    for (const ch of countyNameChanges) {
+      lines.push(
+        `${ch.state}, ${ch.oldCounty || "County"}: county name ${ch.oldCounty || "(none)"} → ${ch.newVal} (all agencies in this county; county groups renamed)`
+      );
+    }
+    for (const ch of countyChanges) {
+      const countyLabel = `${ch.agency.county || "County"}, ${ch.agency.state || ""}`;
+      lines.push(
+        `${countyLabel}: county abbrev ${ch.oldVal || "(none)"} → ${ch.newVal} (all agencies in this county)`
+      );
+    }
+    for (const a of agenciesToUpdate) {
+      const id = String(a._id ?? a.id ?? "");
+      const parts = [];
+      if (agencyNameChanged(a)) {
+        parts.push(`name: ${nameSnapshotById[id]} → ${String(a.name || "").trim()}`);
+      }
+      if (agencyAbbrevChanged(a)) {
+        parts.push(
+          `abbrev: ${abbrevSnapshotById[id]} → ${String(a.groupPrefix || "").trim().toUpperCase()}`
+        );
+      }
+      const label = String(nameSnapshotById[id] || a.name || "Agency");
+      lines.push(`${label}: ${parts.join("; ")}`);
+    }
     const ok = confirm(
-      `Apply agency changes for ${agenciesToUpdate.length} agenc${agenciesToUpdate.length === 1 ? "y" : "ies"}?\n\n${lines}`
+      `Apply agency changes?\n\n${lines.join("\n")}`
     );
     if (!ok) return;
   }
@@ -1309,6 +1774,111 @@ async function finishAgencyAttributesEditing() {
 
   const errors = [];
   const summaries = [];
+
+  for (const ch of stateChanges) {
+    const label = `${ch.oldState || "State"}, ${ch.oldCounty || "County"}, ${ch.oldCountyAbbrev || "abbrev"}`;
+    const value = ch.newVal;
+    if (!value) {
+      errors.push(`${label}: state is required`);
+      continue;
+    }
+    if (!AGENCY_STATE_OPTIONS.includes(value)) {
+      errors.push(`${label}: invalid state code`);
+      continue;
+    }
+    const idx = ch.agency._id ?? ch.agency.id;
+    try {
+      const res = await fetch(`/api/agencies/${encodeURIComponent(idx)}/state`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ state: value }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data.error === "string"
+            ? data.error
+            : data.error?.detail || data.error || "State update failed"
+        );
+      }
+      if (!data.skipped) {
+        const updatedCount = Array.isArray(data.updatedIndexes) ? data.updatedIndexes.length : 0;
+        let summary = `${label} (state): ${updatedCount || 1} agenc${updatedCount === 1 ? "y" : "ies"} updated`;
+        if (data.stateGroupsRenamed) {
+          summary += `, ${data.groupsRenamed ?? 0} state group(s) renamed`;
+        }
+        summaries.push(summary);
+      }
+    } catch (e) {
+      errors.push(`${label} (state): ${e.message || String(e)}`);
+    }
+  }
+
+  for (const ch of countyNameChanges) {
+    const label = `${ch.state}, ${ch.oldCounty || "County"}`;
+    const value = ch.newVal;
+    if (!value) {
+      errors.push(`${label}: county name is required`);
+      continue;
+    }
+    const idx = ch.agency._id ?? ch.agency.id;
+    try {
+      const res = await fetch(`/api/agencies/${encodeURIComponent(idx)}/county-name`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ county: value }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data.error === "string"
+            ? data.error
+            : data.error?.detail || data.error || "County name update failed"
+        );
+      }
+      if (!data.skipped) {
+        const updatedCount = Array.isArray(data.updatedIndexes) ? data.updatedIndexes.length : 0;
+        summaries.push(
+          `${label} (county name): ${updatedCount || 1} agenc${updatedCount === 1 ? "y" : "ies"}, ${data.groupsRenamed ?? 0} county group(s) renamed`
+        );
+      }
+    } catch (e) {
+      errors.push(`${label} (county name): ${e.message || String(e)}`);
+    }
+  }
+
+  for (const ch of countyChanges) {
+    const countyLabel = `${ch.agency.county || "County"}, ${ch.agency.state || ""}`;
+    const value = ch.newVal;
+    if (!value || value.length < 2 || !/^[A-Z]+$/.test(value)) {
+      errors.push(`${countyLabel}: county abbreviation must be at least 2 letters`);
+      continue;
+    }
+    const idx = ch.agency._id ?? ch.agency.id;
+    try {
+      const res = await fetch(`/api/agencies/${encodeURIComponent(idx)}/county-abbrev`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ countyAbbrev: value }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data.error === "string"
+            ? data.error
+            : data.error?.detail || data.error || "County abbreviation update failed"
+        );
+      }
+      if (!data.skipped) {
+        const updatedCount = Array.isArray(data.updatedIndexes) ? data.updatedIndexes.length : 0;
+        summaries.push(
+          `${countyLabel} (county abbrev): ${updatedCount || 1} agenc${updatedCount === 1 ? "y" : "ies"}, admin groups ${data.groupRenamed ? "renamed" : "ensured"}`
+        );
+      }
+    } catch (e) {
+      errors.push(`${countyLabel} (county abbrev): ${e.message || String(e)}`);
+    }
+  }
 
   for (const a of agenciesToUpdate) {
     const idx = a._id ?? a.id;
@@ -1392,6 +1962,9 @@ async function finishAgencyAttributesEditing() {
   agencyAttributesEditMode = false;
   nameSnapshotById = {};
   abbrevSnapshotById = {};
+  stateSnapshotById = {};
+  countySnapshotById = {};
+  countyAbbrevSnapshotById = {};
   if (agencyAttributesEditBtn) agencyAttributesEditBtn.setAttribute("aria-pressed", "false");
   setAgencyAttributesEditControlsVisible(false);
 
@@ -1412,10 +1985,22 @@ function cancelAgencyAttributesEditing() {
     if (id in abbrevSnapshotById) {
       a.groupPrefix = abbrevSnapshotById[id];
     }
+    if (id in stateSnapshotById) {
+      a.state = stateSnapshotById[id];
+    }
+    if (id in countySnapshotById) {
+      a.county = countySnapshotById[id];
+    }
+    if (id in countyAbbrevSnapshotById) {
+      a.countyAbbrev = countyAbbrevSnapshotById[id];
+    }
   }
   agencyAttributesEditMode = false;
   nameSnapshotById = {};
   abbrevSnapshotById = {};
+  stateSnapshotById = {};
+  countySnapshotById = {};
+  countyAbbrevSnapshotById = {};
   if (agencyAttributesEditBtn) agencyAttributesEditBtn.setAttribute("aria-pressed", "false");
   setAgencyAttributesEditControlsVisible(false);
   renderAgencies();
@@ -1425,11 +2010,17 @@ if (agencyAttributesEditBtn) {
   agencyAttributesEditBtn.addEventListener("click", function () {
     nameSnapshotById = {};
     abbrevSnapshotById = {};
+    stateSnapshotById = {};
+    countySnapshotById = {};
+    countyAbbrevSnapshotById = {};
     for (const a of agencies) {
       const id = String(a._id ?? a.id ?? "");
       if (!id) continue;
       nameSnapshotById[id] = String(a.name || "").trim();
       abbrevSnapshotById[id] = String(a.groupPrefix || "").trim().toUpperCase();
+      stateSnapshotById[id] = String(a.state || "").trim().toUpperCase();
+      countySnapshotById[id] = String(a.county || "").trim();
+      countyAbbrevSnapshotById[id] = String(a.countyAbbrev || "").trim().toUpperCase();
     }
     agencyAttributesEditMode = true;
     agencyAttributesEditBtn.setAttribute("aria-pressed", "true");
@@ -1589,6 +2180,47 @@ if (accessGroupsSaveBtn) accessGroupsSaveBtn.onclick = async () => {
   }
 };
 
+const exportAgenciesCsvBtn = document.getElementById("exportAgenciesCsvBtn");
+if (exportAgenciesCsvBtn) {
+  exportAgenciesCsvBtn.addEventListener("click", async () => {
+    const prevLabel = exportAgenciesCsvBtn.textContent;
+    exportAgenciesCsvBtn.disabled = true;
+    exportAgenciesCsvBtn.textContent = "Exporting…";
+    try {
+      const res = await fetch("/api/agencies/export-csv");
+      if (!res.ok) {
+        let errText = "Export failed";
+        try {
+          const body = await res.json();
+          errText = body?.error || errText;
+        } catch (_) {
+          // ignore
+        }
+        setMsg(errText, false);
+        return;
+      }
+      const blob = await res.blob();
+      const cd = res.headers.get("Content-Disposition") || "";
+      const match = /filename="([^"]+)"/i.exec(cd);
+      const filename = match ? match[1] : "tak-portal-agencies.csv";
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setMsg(`Exported ${filename}.`, true);
+    } catch (err) {
+      setMsg(err?.message || "Export failed", false);
+    } finally {
+      exportAgenciesCsvBtn.disabled = false;
+      exportAgenciesCsvBtn.textContent = prevLabel;
+    }
+  });
+}
+
 // click-to-sort + keyboard support (Enter/Space)
 agencyTable.querySelectorAll("thead th[data-sort]").forEach(th => {
   th.addEventListener("click", () => {
@@ -1629,6 +2261,10 @@ if (addForm) {
 </script>
 
 <style>
+.msg.progress {
+  color: var(--warning, #ff6600);
+}
+
 /* Existing agencies list */
 .listCardTableWrap {
   width: 100%;
@@ -1665,6 +2301,19 @@ if (addForm) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.agenciesTable .agencyStatusBadge {
+  display: none;
+}
+
+.agenciesTable tr.row-disabled {
+  background: rgba(0, 0, 0, 0.35);
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.agenciesTable tr.row-disabled td {
+  border-color: rgba(255, 255, 255, 0.08);
 }
 
 .agenciesTable .agencyActionsRow {
@@ -1827,7 +2476,12 @@ if (addForm) {
     overflow: hidden;
   }
 
-  .agenciesTable .cardTitleCell { order: 1; }
+  .agenciesTable .agencyNameCell { order: 1; }
+  .agenciesTable .agencyStatusBadge,
+  .agenciesTable .cardMetaBadge.agencyStatusBadge {
+    display: inline-block;
+    margin-top: 4px;
+  }
   .agenciesTable .agencyAbbrCell { order: 2; }
   .agenciesTable .agencySuffixCell { order: 3; }
   .agenciesTable .agencyCountyCell { order: 4; }
@@ -1968,6 +2622,15 @@ input.readonly {
 }
 @media (max-width: 480px) {
   #accessGroupsInner.groupsInner { column-count: 1; }
+}
+
+.agenciesExportCard {
+  padding: 14px 16px;
+}
+
+.agenciesExportCardActions {
+  display: flex;
+  justify-content: flex-end;
 }
 </style>
 

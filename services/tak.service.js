@@ -104,23 +104,12 @@ function getStringAllowEmpty(name) {
   if (!Object.prototype.hasOwnProperty.call(process.env, name)) return undefined;
   return String(process.env[name] ?? "");
 }
-
 /**
- * @param {{
- *   allowInsecureServer?: boolean;
- *   baseURL?: string;
- *   timeout?: number;
- * }} [options] - allowInsecureServer: skip server cert verify (locate relay). baseURL/timeout: optional overrides (locate relay uses locate API origin, not Marti).
+ * Load mutual-TLS client materials for TAK (PEM cert/key, optional CA).
  */
-function buildTakAxios(options = {}) {
-  const TAK_DEBUG = getBool("TAK_DEBUG", false);
-
+function loadTakClientTlsMaterials() {
   const p12Path = resolvePathMaybe(getString("TAK_API_P12_PATH", ""));
 
-  // ✅ Robust passphrase selection:
-  // - Prefer TAK_API_P12_PASSPHRASE if explicitly present (even if empty string).
-  // - Otherwise fall back to TAK_API_KEY_PASSPHRASE (legacy).
-  // - If neither present, leave undefined and we'll use "" when calling getPemFromP12.
   let p12Pass;
   if (hasSettingOrEnvKey("TAK_API_P12_PASSPHRASE")) {
     p12Pass = getStringAllowEmpty("TAK_API_P12_PASSPHRASE");
@@ -128,14 +117,6 @@ function buildTakAxios(options = {}) {
     p12Pass = String(getString("TAK_API_KEY_PASSPHRASE", ""));
   } else {
     p12Pass = undefined;
-  }
-
-  if (TAK_DEBUG) {
-    const present = hasSettingOrEnvKey("TAK_API_P12_PASSPHRASE");
-    const len = typeof p12Pass === "string" ? p12Pass.length : -1;
-    console.log(
-      `[TAK TLS] p12Path=${p12Path ? "set" : "unset"} p12PassphrasePresent=${present} p12PassphraseLen=${len}`
-    );
   }
 
   const certPath = resolvePathMaybe(getString("TAK_API_CERT_PATH", ""));
@@ -148,21 +129,15 @@ function buildTakAxios(options = {}) {
     );
   }
 
-  const allowInsecureServer = options.allowInsecureServer === true;
-
-  const agentOptions = {
-    ca: caPath ? fs.readFileSync(caPath) : undefined,
-    rejectUnauthorized: !allowInsecureServer,
-
-    // Keep your previous behavior (skip hostname verification)
-    checkServerIdentity: () => undefined,
-  };
+  const ca = caPath ? fs.readFileSync(caPath) : undefined;
+  let cert;
+  let key;
+  let passphrase;
 
   if (p12Path) {
-    // Parse legacy PKCS#12 (incl RC2-40-CBC) -> PEM using node-tak’s approach via p12-pem
     const { getPemFromP12 } = require("p12-pem");
 
-    const pass = p12Pass ?? ""; // allow intentionally-empty passphrases
+    const pass = p12Pass ?? "";
     const certs = getPemFromP12(p12Path, pass);
 
     if (!certs?.pemCertificate) {
@@ -172,17 +147,14 @@ function buildTakAxios(options = {}) {
       throw new Error("Unable to extract private key from P12");
     }
 
-    // Normalize formatting (ensure newlines around PEM markers)
-    const cert = String(certs.pemCertificate)
+    cert = String(certs.pemCertificate)
       .split("-----BEGIN CERTIFICATE-----")
       .join("-----BEGIN CERTIFICATE-----\n")
       .split("-----END CERTIFICATE-----")
       .join("\n-----END CERTIFICATE-----");
 
-    // p12-pem often returns RSA PRIVATE KEY; keep formatting robust either way
-    let key = String(certs.pemKey);
+    key = String(certs.pemKey);
 
-    // If RSA marker exists, normalize around it
     if (key.includes("-----BEGIN RSA PRIVATE KEY-----")) {
       key = key
         .split("-----BEGIN RSA PRIVATE KEY-----")
@@ -191,7 +163,6 @@ function buildTakAxios(options = {}) {
         .join("\n-----END RSA PRIVATE KEY-----");
     }
 
-    // If PKCS8 marker exists, normalize around it too
     if (key.includes("-----BEGIN PRIVATE KEY-----")) {
       key = key
         .split("-----BEGIN PRIVATE KEY-----")
@@ -199,16 +170,64 @@ function buildTakAxios(options = {}) {
         .split("-----END PRIVATE KEY-----")
         .join("\n-----END PRIVATE KEY-----");
     }
-
-    agentOptions.cert = cert;
-    agentOptions.key = key;
-
-    // Note: no agentOptions.passphrase here — we extracted an unencrypted PEM key for Node TLS
   } else {
-    agentOptions.cert = fs.readFileSync(certPath);
-    agentOptions.key = fs.readFileSync(keyPath);
-    agentOptions.passphrase =
-      getString("TAK_API_KEY_PASSPHRASE", "") || undefined;
+    cert = fs.readFileSync(certPath);
+    key = fs.readFileSync(keyPath);
+    passphrase = getString("TAK_API_KEY_PASSPHRASE", "") || undefined;
+  }
+
+  return { cert, key, ca, passphrase };
+}
+
+/**
+ * @param {{ allowInsecureServer?: boolean }} [options]
+ */
+function getTakTlsAuth(options = {}) {
+  const allowInsecureServer = options.allowInsecureServer === true;
+  const { cert, key, ca, passphrase } = loadTakClientTlsMaterials();
+  return {
+    cert,
+    key,
+    ca,
+    passphrase,
+    rejectUnauthorized: !allowInsecureServer,
+  };
+}
+
+
+/**
+ * @param {{
+ *   allowInsecureServer?: boolean;
+ *   baseURL?: string;
+ *   timeout?: number;
+ * }} [options] - allowInsecureServer: skip server cert verify (locate relay). baseURL/timeout: optional overrides (locate relay uses locate API origin, not Marti).
+ */
+function buildTakAxios(options = {}) {
+  const TAK_DEBUG = getBool("TAK_DEBUG", false);
+
+  if (TAK_DEBUG) {
+    const p12Path = resolvePathMaybe(getString("TAK_API_P12_PATH", ""));
+    const present = hasSettingOrEnvKey("TAK_API_P12_PASSPHRASE");
+    let p12PassLen = -1;
+    if (hasSettingOrEnvKey("TAK_API_P12_PASSPHRASE")) {
+      p12PassLen = getStringAllowEmpty("TAK_API_P12_PASSPHRASE").length;
+    }
+    console.log(
+      `[TAK TLS] p12Path=${p12Path ? "set" : "unset"} p12PassphrasePresent=${present} p12PassphraseLen=${p12PassLen}`
+    );
+  }
+
+  const tlsAuth = getTakTlsAuth(options);
+
+  const agentOptions = {
+    ca: tlsAuth.ca,
+    rejectUnauthorized: tlsAuth.rejectUnauthorized !== false,
+    checkServerIdentity: () => undefined,
+    cert: tlsAuth.cert,
+    key: tlsAuth.key,
+  };
+  if (tlsAuth.passphrase) {
+    agentOptions.passphrase = tlsAuth.passphrase;
   }
 
   const httpsAgent = new https.Agent(agentOptions);
@@ -346,6 +365,167 @@ async function verifyRevoked(client, ids, TAK_DEBUG) {
   }
 }
 
+function certIdsForUsername(allCerts, username) {
+  const u = toLowerTrim(username);
+  if (!u) return [];
+
+  const matches = allCerts.filter((c) => {
+    if (toLowerTrim(c?.creatorDn) !== u) return false;
+    return !isRevokedGeneric(c);
+  });
+
+  return Array.from(
+    new Set(matches.map((c) => String(c?.id ?? "").trim()).filter(Boolean))
+  );
+}
+
+function buildCertIdsByUsername(allCerts, usernames) {
+  const byUsername = new Map();
+  for (const username of usernames || []) {
+    const ids = certIdsForUsername(allCerts, username);
+    if (ids.length) byUsername.set(toLowerTrim(username), ids);
+  }
+  return byUsername;
+}
+
+async function revokeCertIds(client, ids, TAK_DEBUG) {
+  const unique = Array.from(
+    new Set((Array.isArray(ids) ? ids : []).map((id) => String(id).trim()).filter(Boolean))
+  );
+  if (!unique.length) return { attempted: 0, ids: [] };
+
+  const idsPath = encodeURIComponent(unique.join(","));
+  await client.delete(`/api/certadmin/cert/revoke/${idsPath}`);
+
+  if (TAK_DEBUG) {
+    console.log("[TAK CERT REVOKE] IDs:", unique);
+  }
+
+  return { attempted: unique.length, ids: unique };
+}
+
+const TAK_REVOKE_ID_CHUNK_SIZE = 100;
+
+async function revokeCertIdsInChunks(client, ids, TAK_DEBUG) {
+  const unique = Array.from(
+    new Set((Array.isArray(ids) ? ids : []).map((id) => String(id).trim()).filter(Boolean))
+  );
+  if (!unique.length) return { attempted: 0, ids: [] };
+
+  for (let i = 0; i < unique.length; i += TAK_REVOKE_ID_CHUNK_SIZE) {
+    const chunk = unique.slice(i, i + TAK_REVOKE_ID_CHUNK_SIZE);
+    await revokeCertIds(client, chunk, TAK_DEBUG);
+  }
+
+  return { attempted: unique.length, ids: unique };
+}
+
+/**
+ * Revoke certificates for many users with a single cert-catalog fetch and one final verify pass.
+ * Used by agency disable to avoid O(users) full cert list downloads.
+ */
+async function revokeCertsForUsersBulk(usernames, options = {}) {
+  const requireVerified = options.requireVerified !== false;
+  const TAK_DEBUG = getBool("TAK_DEBUG", false);
+  const list = Array.isArray(usernames)
+    ? usernames.map((u) => String(u || "").trim()).filter(Boolean)
+    : [];
+
+  if (!list.length) {
+    return {
+      revoked: 0,
+      attempted: 0,
+      skipped: true,
+      verified: true,
+      byUsername: new Map(),
+    };
+  }
+
+  if (isTakBypassed()) {
+    if (TAK_DEBUG) {
+      console.log(
+        "[TAK] BYPASS enabled (TAK_BYPASS_ENABLED=true) — skipping certificate operations."
+      );
+    }
+    return {
+      revoked: 0,
+      attempted: 0,
+      skipped: true,
+      bypassed: true,
+      verified: true,
+      byUsername: new Map(),
+    };
+  }
+
+  if (!isTakConfigured()) {
+    return {
+      revoked: 0,
+      attempted: 0,
+      skipped: true,
+      verified: true,
+      byUsername: new Map(),
+    };
+  }
+
+  const client = buildTakAxios();
+  const allCerts = await getAllCerts(client, TAK_DEBUG);
+  if (!allCerts.length) {
+    if (requireVerified) {
+      throw new Error(
+        "TAK: Unable to list certificates from /api/certadmin/cert; refusing to proceed."
+      );
+    }
+    return {
+      revoked: 0,
+      attempted: 0,
+      skipped: false,
+      verified: false,
+      byUsername: new Map(),
+    };
+  }
+
+  const byUsername = buildCertIdsByUsername(allCerts, list);
+  const allIds = Array.from(
+    new Set(Array.from(byUsername.values()).flatMap((ids) => ids))
+  );
+
+  if (TAK_DEBUG) {
+    console.log("\n[TAK CERT BULK DISCOVERY] usernames:", list.length);
+    console.log("[TAK CERT BULK DISCOVERY] total certs considered:", allCerts.length);
+    console.log("[TAK CERT BULK DISCOVERY] matched cert IDs:", allIds.length);
+  }
+
+  if (!allIds.length) {
+    return {
+      revoked: 0,
+      attempted: 0,
+      skipped: false,
+      verified: true,
+      byUsername,
+    };
+  }
+
+  await revokeCertIdsInChunks(client, allIds, TAK_DEBUG);
+  const vr = await verifyRevoked(client, allIds, TAK_DEBUG);
+
+  if (!vr.ok && requireVerified) {
+    throw new Error(
+      `TAK: Revoke attempted but could not verify revoked state for cert ID(s): ${vr.pending.join(
+        ", "
+      )}`
+    );
+  }
+
+  return {
+    revoked: allIds.length,
+    attempted: allIds.length,
+    skipped: false,
+    verified: vr.ok,
+    pending: vr.pending || [],
+    byUsername,
+  };
+}
+
 async function revokeCertsForUser(username, options = {}) {
   const requireVerified = options.requireVerified !== false; // default true for safety
   const TAK_DEBUG = getBool("TAK_DEBUG", false);
@@ -383,15 +563,12 @@ async function revokeCertsForUser(username, options = {}) {
     return { revoked: 0, attempted: 0, skipped: false, verified: false };
   }
 
-  const matches = allCerts.filter((c) => toLowerTrim(c?.creatorDn) === u);
-  const ids = Array.from(
-    new Set(matches.map((c) => String(c?.id ?? "").trim()).filter(Boolean))
-  );
+  const ids = certIdsForUsername(allCerts, u);
 
   if (TAK_DEBUG) {
     console.log("\n[TAK CERT DISCOVERY] username:", u);
     console.log("[TAK CERT DISCOVERY] total certs considered:", allCerts.length);
-    console.log("[TAK CERT DISCOVERY] matched cert count:", matches.length);
+    console.log("[TAK CERT DISCOVERY] matched cert count:", ids.length);
     console.log("[TAK CERT DISCOVERY] IDs to revoke:", ids);
   }
 
@@ -399,9 +576,7 @@ async function revokeCertsForUser(username, options = {}) {
     return { revoked: 0, attempted: 0, skipped: false, verified: true };
   }
 
-  const idsPath = encodeURIComponent(ids.join(","));
-  await client.delete(`/api/certadmin/cert/revoke/${idsPath}`);
-
+  await revokeCertIds(client, ids, TAK_DEBUG);
   const vr = await verifyRevoked(client, ids, TAK_DEBUG);
 
   if (!vr.ok && requireVerified) {
@@ -423,7 +598,10 @@ async function revokeCertsForUser(username, options = {}) {
 
 module.exports = {
   isTakConfigured,
+  isTakBypassed,
   revokeCertsForUser,
+  revokeCertsForUsersBulk,
   buildTakAxios,
+  getTakTlsAuth,
   getTakBaseUrl,
 };

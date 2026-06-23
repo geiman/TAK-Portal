@@ -1,9 +1,12 @@
-const router = require("express").Router();
+const express = require("express");
+const router = express.Router();
 const multer = require("multer");
 const upload = multer({ storage: multer.memoryStorage() });
 const users = require("../services/users.service");
 const groupsSvc = require("../services/groups.service");
 const accessSvc = require("../services/access.service");
+const authzRoles = require("../services/authzRoles.service");
+const agenciesSvc = require("../services/agencies.service");
 const userRequestsSvc = require("../services/userRequests.service");
 const qrSvc = require("../services/qr.service");
 const tokensSvc = require("../services/authentikTokens.service");
@@ -114,6 +117,299 @@ async function getGlobalAdminGroupPks() {
 
   _globalAdminGroupPkCache = { key, loadedAt: now, pks };
   return pks.slice();
+}
+
+function resolveAgencyRecordBySuffix(suffix, agencies) {
+  const normalized = String(suffix || "").trim().toLowerCase();
+  if (!normalized) return null;
+  return (
+    (Array.isArray(agencies) ? agencies : []).find(
+      (a) => String(a?.suffix || "").trim().toLowerCase() === normalized
+    ) || null
+  );
+}
+
+function buildAgencySearchConfig(suffix, agency) {
+  if (!agency) return null;
+  const agencyName = String(agency.name || "").trim();
+  if (!agencyName) return null;
+  return {
+    suffix: String(suffix || "").trim().toLowerCase(),
+    name: agencyName,
+    abbreviation: String(agency.groupPrefix || "").trim(),
+  };
+}
+
+function normalizeQForAgencyDelegatedSearch(qVal, cfg) {
+  const qLower = String(qVal || "").trim().toLowerCase();
+  const tokens = [
+    String(cfg?.suffix || "").trim().toLowerCase(),
+    String(cfg?.abbreviation || "").trim().toLowerCase(),
+    String(cfg?.name || "").trim().toLowerCase(),
+  ].filter(Boolean);
+  return qLower && tokens.includes(qLower) ? "" : qVal;
+}
+
+function userIsGlobalAdminUser(user, globalAdminSet) {
+  const groups = Array.isArray(user?.groups) ? user.groups.map(String) : [];
+  return groups.some((gid) => globalAdminSet.has(gid));
+}
+
+async function loadGroupNameByPkForRoleSort(sortKey) {
+  if (sortKey !== "role") return new Map();
+  const allGroups = await groupsSvc.getAllGroups({ includeHidden: true });
+  return new Map(
+    (Array.isArray(allGroups) ? allGroups : []).map((g) => [
+      String(g.pk),
+      String(g.name || "").toLowerCase(),
+    ])
+  );
+}
+
+function createUserSortHelpers(sortKey, sortDir, groupNameByPk, globalAdminSet) {
+  function getAgencyAbbr(user) {
+    const attrs = user?.attributes || {};
+    const raw =
+      attrs.agency_abbreviation ||
+      attrs.agencyAbbreviation ||
+      attrs.agencyAbbr ||
+      attrs.agencyabbr ||
+      "";
+    return String(raw || "").trim().toLowerCase();
+  }
+
+  function computeRole(user) {
+    const groups = Array.isArray(user?.groups) ? user.groups.map(String) : [];
+    if (groups.some((g) => globalAdminSet.has(g))) return "0-global";
+    for (const gid of groups) {
+      const name = groupNameByPk.get(gid);
+      if (name && name.endsWith("-agencyadmin")) return "1-agency";
+    }
+    return "2-user";
+  }
+
+  function getSortValue(user) {
+    if (!user) return "";
+    if (sortKey === "username") return String(user.username || "").toLowerCase();
+    if (sortKey === "agency") return getAgencyAbbr(user);
+    if (sortKey === "name") return String(user.name || "").toLowerCase();
+    if (sortKey === "email") return String(user.email || "").toLowerCase();
+    if (sortKey === "status") return user.is_active ? "enabled" : "disabled";
+    if (sortKey === "role") {
+      return computeRole(user) + "-" + String(user.name || "").toLowerCase();
+    }
+    return String(user.name || "").toLowerCase();
+  }
+
+  function compareUsers(a, b) {
+    const av = getSortValue(a);
+    const bv = getSortValue(b);
+    let cmp = String(av).localeCompare(String(bv), undefined, {
+      numeric: true,
+      sensitivity: "base",
+    });
+    if (cmp === 0 && sortKey === "agency") {
+      cmp = String(a?.name || "")
+        .toLowerCase()
+        .localeCompare(String(b?.name || "").toLowerCase(), undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+    }
+    return sortDir === "desc" ? -cmp : cmp;
+  }
+
+  return { compareUsers };
+}
+
+/**
+ * Multi-agency admin fast path: merge Authentik attribute-filtered pages per
+ * managed agency (same as single-agency delegated search, combined).
+ */
+async function delegatedMultiAgencyUsersSearch({
+  allowedSuffixes,
+  qVal,
+  requestedPage,
+  pageSize,
+  sortKey,
+  sortDir,
+  requestedCurrentTemplate,
+  requestedTemplateAgencySuffix,
+  globalAdminGroupPks,
+  globalAdminSet,
+}) {
+  const agencies = agenciesSvc.load();
+  let configs = (Array.isArray(allowedSuffixes) ? allowedSuffixes : [])
+    .map((sfx) =>
+      buildAgencySearchConfig(sfx, resolveAgencyRecordBySuffix(sfx, agencies))
+    )
+    .filter(Boolean);
+
+  if (requestedTemplateAgencySuffix) {
+    const wanted = String(requestedTemplateAgencySuffix).trim().toLowerCase();
+    configs = configs.filter((c) => c.suffix === wanted);
+  }
+
+  if (!configs.length) {
+    throw new Error("No managed agencies available for delegated search");
+  }
+
+  const searchBase = {
+    sortKey,
+    sortDir,
+    includeRoles: false,
+    currentTemplate: requestedCurrentTemplate,
+  };
+
+  const totalEntries = await Promise.all(
+    configs.map(async (cfg) => {
+      const qForAuthentik = normalizeQForAgencyDelegatedSearch(qVal, cfg);
+      const totalAgencyRes = await users.searchUsersByAgencyNamePaged({
+        agencyName: cfg.name,
+        q: qForAuthentik,
+        page: 1,
+        pageSize: 1,
+        includeGroups: false,
+        ...searchBase,
+      });
+      let total = Number(totalAgencyRes?.total || 0);
+      if (globalAdminGroupPks.length && total > 0) {
+        const globalRes = await users.searchUsersByAgencyNamePaged({
+          agencyName: cfg.name,
+          q: qForAuthentik,
+          page: 1,
+          pageSize: 1,
+          groupsByPk: globalAdminGroupPks,
+          includeGroups: false,
+          ...searchBase,
+        });
+        total = Math.max(0, total - Number(globalRes?.total || 0));
+      }
+      return total;
+    })
+  );
+
+  const totalVisible = totalEntries.reduce((sum, n) => sum + n, 0);
+  if (totalVisible === 0) {
+    throw new Error("Delegated multi-agency filter returned no results");
+  }
+
+  const groupNameByPk = await loadGroupNameByPkForRoleSort(sortKey);
+  const { compareUsers } = createUserSortHelpers(
+    sortKey,
+    sortDir,
+    groupNameByPk,
+    globalAdminSet
+  );
+
+  const currentPageRequested = requestedPage < 1 ? 1 : requestedPage;
+  const totalPages = Math.max(1, Math.ceil(totalVisible / pageSize));
+  const page = Math.min(currentPageRequested, totalPages);
+  const startFiltered = (page - 1) * pageSize;
+  const endFilteredExclusive = startFiltered + pageSize;
+
+  const cursors = configs.map((cfg) => ({
+    cfg,
+    qForAuthentik: normalizeQForAgencyDelegatedSearch(qVal, cfg),
+    page: 1,
+    rows: [],
+    idx: 0,
+    done: false,
+    loading: null,
+  }));
+
+  async function loadNextBatch(cursor) {
+    if (cursor.done) return;
+    if (cursor.loading) {
+      await cursor.loading;
+      return;
+    }
+    cursor.loading = (async () => {
+      while (!cursor.done) {
+        const res = await users.searchUsersByAgencyNamePaged({
+          agencyName: cursor.cfg.name,
+          q: cursor.qForAuthentik,
+          page: cursor.page,
+          pageSize: Math.max(pageSize, 50),
+          includeGroups: true,
+          ...searchBase,
+        });
+        cursor.page += 1;
+        const batch = (Array.isArray(res?.users) ? res.users : []).filter(
+          (u) => !userIsGlobalAdminUser(u, globalAdminSet)
+        );
+        if (batch.length) {
+          cursor.rows = batch;
+          cursor.idx = 0;
+          return;
+        }
+        if (!res?.hasNext) {
+          cursor.done = true;
+          return;
+        }
+      }
+    })();
+    try {
+      await cursor.loading;
+    } finally {
+      cursor.loading = null;
+    }
+  }
+
+  async function peekCursor(cursor) {
+    if (cursor.idx >= cursor.rows.length && !cursor.done) {
+      await loadNextBatch(cursor);
+    }
+    if (cursor.idx >= cursor.rows.length) return null;
+    return cursor.rows[cursor.idx];
+  }
+
+  async function takeCursor(cursor) {
+    const user = await peekCursor(cursor);
+    if (!user) return null;
+    cursor.idx += 1;
+    return user;
+  }
+
+  let filteredIndex = 0;
+  const returned = [];
+  const seenPk = new Set();
+
+  while (filteredIndex < endFilteredExclusive) {
+    let bestCursor = null;
+    let bestUser = null;
+
+    for (const cursor of cursors) {
+      const candidate = await peekCursor(cursor);
+      if (!candidate) continue;
+      if (!bestUser || compareUsers(candidate, bestUser) < 0) {
+        bestUser = candidate;
+        bestCursor = cursor;
+      }
+    }
+
+    if (!bestCursor || !bestUser) break;
+
+    const picked = await takeCursor(bestCursor);
+    if (!picked) break;
+    const pk = String(picked?.pk ?? picked?.id ?? picked?.username ?? "");
+    if (pk && seenPk.has(pk)) continue;
+    if (pk) seenPk.add(pk);
+
+    if (filteredIndex >= startFiltered && filteredIndex < endFilteredExclusive) {
+      returned.push(picked);
+    }
+    filteredIndex += 1;
+  }
+
+  return {
+    users: returned,
+    total: totalVisible,
+    page,
+    pageSize,
+    hasNext: page < totalPages,
+    hasPrev: page > 1,
+  };
 }
 
 // -------------------- CSV import progress (in-memory) --------------------
@@ -401,14 +697,52 @@ router.post("/", async (req, res) => {
     if (Array.isArray(permRaw)) permRaw = permRaw[0];
     permRaw = String(permRaw ?? "user").trim().toLowerCase();
     if (!permRaw) permRaw = "user";
+    const requestedMultiAgencyAdmin = permRaw === "multi_agency_admin";
+    if (requestedMultiAgencyAdmin) permRaw = "agency_admin";
     const allowedPerm = ["user", "agency_admin", "global_admin"];
     if (!allowedPerm.includes(permRaw)) {
       return res.status(400).json({ error: "Invalid permissions value." });
+    }
+    if (requestedMultiAgencyAdmin && !authUser?.isGlobalAdmin) {
+      return res.status(403).json({ error: "You do not have permission to create Multi-Agency Admins." });
     }
     if (permRaw === "global_admin" && !authUser?.isGlobalAdmin) {
       return res.status(403).json({ error: "You do not have permission to create Global Admins." });
     }
     payload.permissions = permRaw;
+
+    if (permRaw === "agency_admin" && Array.isArray(payload.managedAgencySuffixes)) {
+      const access = accessSvc.getAgencyAccess(authUser);
+      const scope = access.isGlobalAdmin ? null : access.allowedAgencySuffixes || [];
+      payload.managedAgencySuffixes = accessSvc.normalizeManagedAgencySuffixes(
+        payload.managedAgencySuffixes,
+        { allowedForActor: scope && scope.length ? scope : null }
+      );
+      const homeSuffix = accessSvc.normalizeSuffix(payload.agencySuffix || "");
+      if (homeSuffix) {
+        payload.managedAgencySuffixes = accessSvc.mergeManagedAgencySuffixesWithHome(
+          payload.managedAgencySuffixes,
+          homeSuffix
+        );
+      }
+      if (!payload.managedAgencySuffixes.length) {
+        return res.status(400).json({ error: "Select at least one valid managed agency." });
+      }
+      if (requestedMultiAgencyAdmin) {
+        const additional = homeSuffix
+          ? accessSvc.additionalManagedAgencySuffixes(
+              payload.managedAgencySuffixes,
+              homeSuffix
+            )
+          : payload.managedAgencySuffixes;
+        if (!homeSuffix || additional.length < 1) {
+          return res.status(400).json({
+            error:
+              "Multi-Agency Admin requires the user's home agency plus at least one additional agency.",
+          });
+        }
+      }
+    }
 
     const createdBy = authUser
       ? {
@@ -420,6 +754,11 @@ router.post("/", async (req, res) => {
     const result = await users.createUser(payload, {
       createdBy,
       creationMethod: "manual",
+      allowedAgencySuffixesForAssign: (() => {
+        const access = accessSvc.getAgencyAccess(authUser);
+        if (access.isGlobalAdmin) return null;
+        return access.allowedAgencySuffixes || [];
+      })(),
     });
 
     auditSvc.logEvent({
@@ -667,13 +1006,11 @@ router.get("/import-csv/status/:jobId", (req, res) => {
  * FIXED: /search
  *
  * - Global admins: unchanged (still use users.searchUsersPaged -> Authentik pagination).
- * - Non-global (agency) admins: deterministic in-memory paging over the
- *   fully filtered set using users.findUsers + accessSvc.isUserInAllowedAgencies.
- *
- * This ensures:
- *   - total is exact for what the agency admin can see
- *   - there are no blank pages beyond the last page with data
- *   - hasNext / hasPrev are accurate
+ * - Non-global agency admins with one managed agency: Authentik attribute
+ *   filter via `searchUsersByAgencyNamePaged` (attributes.agency_name).
+ * - Multi-agency admins: same attribute-filtered delegated path per managed
+ *   agency, merged server-side (no full `findUsers` scan unless fallback).
+ * - Legacy fallback: in-memory paging over findUsers + isUserInAllowedAgencies.
  */
 router.get("/search", async (req, res) => {
   try {
@@ -879,7 +1216,9 @@ router.get("/search", async (req, res) => {
           // In that case, fall back to the legacy in-memory paging for correctness.
           // Only run the extra check when the attribute-filtered total is
           // suspiciously small for the requested page size.
-          if (!qVal && totalAgencyAll <= pageSize) {
+          // Skip when a specific agency is selected — totalApprox across all
+          // managed agencies would always exceed a single-agency slice.
+          if (!qVal && totalAgencyAll <= pageSize && !requestedAgencySuffix) {
             // Validate against full user visibility (Authentik attributes, then username tail).
             const allMatching = await users.findUsers({ q: "", forceRefresh: false });
             const visibleApprox = (Array.isArray(allMatching) ? allMatching : []).filter(
@@ -998,6 +1337,42 @@ router.get("/search", async (req, res) => {
             hasNext: page < totalPages,
             hasPrev: page > 1,
           });
+        } catch (e) {
+          // Fall back to the legacy in-memory implementation below.
+        }
+      } else if (allowedSuffixes.length > 1) {
+        try {
+          if (
+            requestedTemplateAgencySuffix &&
+            !allowedSuffixes.includes(requestedTemplateAgencySuffix)
+          ) {
+            return res.json({
+              users: [],
+              total: 0,
+              page: 1,
+              pageSize,
+              hasNext: false,
+              hasPrev: false,
+            });
+          }
+
+          const globalAdminGroupPks = await getGlobalAdminGroupPks();
+          const globalAdminSet = new Set(globalAdminGroupPks.map(String));
+
+          const merged = await delegatedMultiAgencyUsersSearch({
+            allowedSuffixes,
+            qVal,
+            requestedPage,
+            pageSize,
+            sortKey,
+            sortDir,
+            requestedCurrentTemplate,
+            requestedTemplateAgencySuffix,
+            globalAdminGroupPks,
+            globalAdminSet,
+          });
+
+          return res.json(merged);
         } catch (e) {
           // Fall back to the legacy in-memory implementation below.
         }
@@ -1168,6 +1543,22 @@ router.get("/search", async (req, res) => {
     let visible = allMatching.filter((u) =>
       accessSvc.isUserInAllowedAgencies(authUser, u)
     );
+
+    if (requestedGlobalAgencySuffix) {
+      const agencies = require("../services/agencies.service").load();
+      const agencyForSuffix = (Array.isArray(agencies) ? agencies : []).find(
+        (a) =>
+          String(a?.suffix || "")
+            .trim()
+            .toLowerCase() === String(requestedGlobalAgencySuffix).trim().toLowerCase()
+      );
+      const agencyAbbreviationToMatch = agencyForSuffix
+        ? String(agencyForSuffix.groupPrefix || "").trim().toLowerCase()
+        : "";
+      visible = agencyAbbreviationToMatch
+        ? visible.filter((u) => getAgencyAbbr(u) === agencyAbbreviationToMatch)
+        : [];
+    }
 
     if (requestedTemplateAgencySuffix) {
       visible = visible.filter(
@@ -1354,6 +1745,125 @@ router.get("/:userId", async (req, res) => {
     res.json(user);
   } catch (err) {
     res.status(500).json({ error: toErrorPayload(err) });
+  }
+});
+
+function resolveDefaultManagedSuffixesForUser(user) {
+  const attrs = user?.attributes || {};
+  const abbr = String(attrs.agency_abbreviation || "").trim().toUpperCase();
+  const agency = (agenciesSvc.load() || []).find(
+    (a) => String(a?.groupPrefix || "").trim().toUpperCase() === abbr
+  );
+  const sfx = agency ? String(agency.suffix || "").trim().toLowerCase() : "";
+  return sfx ? [sfx] : [];
+}
+
+async function loadGroupNamesForUserId(userId) {
+  const user = await users.getUserById(userId);
+  const ids = Array.isArray(user?.groups) ? user.groups : [];
+  const names = [];
+  for (const gid of ids) {
+    try {
+      const g = await groupsSvc.getGroupById(gid);
+      if (g && g.name) names.push(g.name);
+    } catch (_) {
+      // ignore
+    }
+  }
+  return { user, groupNames: names };
+}
+
+router.post("/:userId/portal-role", express.json({ limit: "1mb" }), async (req, res) => {
+  try {
+    const actor = req.authentikUser || null;
+    if (!actor || (!actor.isGlobalAdmin && !actor.isAgencyAdmin)) {
+      return res.status(403).json({ error: "Forbidden." });
+    }
+
+    const desiredRole = String(req.body?.role || "").trim().toLowerCase();
+    if (!["user", "agency_admin", "global_admin"].includes(desiredRole)) {
+      return res.status(400).json({ error: "Invalid role." });
+    }
+    if (desiredRole === "global_admin" && !actor.isGlobalAdmin) {
+      return res.status(403).json({ error: "You do not have permission to grant Global Admin." });
+    }
+
+    const userId = String(req.params.userId || "").trim();
+    if (!userId) return res.status(400).json({ error: "Missing user id." });
+
+    const target = await users.getUserById(userId);
+    if (!target) return res.status(404).json({ error: "User not found." });
+
+    if (!actor.isGlobalAdmin && !accessSvc.isUserInAllowedAgencies(actor, target)) {
+      return res.status(403).json({ error: "You do not have access to that user." });
+    }
+
+    let managedAgencySuffixes = [];
+    if (desiredRole === "agency_admin") {
+      const access = accessSvc.getAgencyAccess(actor);
+      const scope = access.isGlobalAdmin ? null : access.allowedAgencySuffixes || [];
+      const raw = req.body?.managedAgencySuffixes;
+      if (Array.isArray(raw) && raw.length) {
+        managedAgencySuffixes = accessSvc.normalizeManagedAgencySuffixes(raw, {
+          allowedForActor: scope && scope.length ? scope : null,
+        });
+        managedAgencySuffixes = accessSvc.mergeManagedAgencySuffixesWithHome(
+          managedAgencySuffixes,
+          target
+        );
+      } else {
+        managedAgencySuffixes = resolveDefaultManagedSuffixesForUser(target);
+      }
+      if (!managedAgencySuffixes.length) {
+        return res.status(400).json({
+          error:
+            "Select at least one managed agency, or ensure the user has a home agency abbreviation.",
+        });
+      }
+    }
+
+    const allGroups = await groupsSvc.getAllGroups({ includeHidden: true });
+    const delta = await accessSvc.syncPortalRoleGroups(userId, {
+      role: desiredRole,
+      managedAgencySuffixes,
+      allGroups,
+    });
+
+    const { user: updatedUser, groupNames } = await loadGroupNamesForUserId(userId);
+    const roles = authzRoles.computePortalRolesFromGroupNames(groupNames);
+    const resultingRole = roles.isGlobalAdmin
+      ? "global_admin"
+      : roles.isAgencyAdmin
+      ? "agency_admin"
+      : "user";
+    const managed = accessSvc.getManagedAgencySuffixesFromGroupNames(groupNames);
+
+    auditSvc.logEvent({
+      actor,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: desiredRole === "agency_admin" ? "MULTI_AGENCY_ADMIN_SYNC" : "USER_PORTAL_ROLE_CHANGE",
+      targetType: "user",
+      targetId: String(updatedUser?.username || userId).trim().toLowerCase(),
+      details: {
+        username: String(updatedUser?.username || "").trim().toLowerCase(),
+        requestedRole: desiredRole,
+        resultingRole,
+        userId,
+        managedAgencySuffixes: managed,
+        groupsAdded: delta.toAdd,
+        groupsRemoved: delta.toRemove,
+        summary: `Updated portal role for ${String(updatedUser?.username || "user").trim()} to ${resultingRole}.`,
+      },
+    });
+
+    return res.json({
+      ok: true,
+      role: resultingRole,
+      managedAgencySuffixes: managed,
+      groups: Array.isArray(updatedUser?.groups) ? updatedUser.groups : [],
+    });
+  } catch (err) {
+    return res.status(500).json({ error: toErrorPayload(err) });
   }
 });
 
