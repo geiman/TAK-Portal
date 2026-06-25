@@ -907,6 +907,12 @@ app.get("/audit-log", requirePermission("page.audit_log"), async (req, res) => {
 app.get("/setup-my-device", async (req, res) => {
   // Used by the Setup My Device page to display the correct TAK server hostname.
   const takHost = qrSvc.getTakHost();
+  const settings = (res.locals && res.locals.settings)
+    ? res.locals.settings
+    : (settingsSvc.getSettings() || {});
+  const takClientConnectionPort =
+    String(settings.TAK_CLIENT_CONNECTION_PORT || "8089").trim() || "8089";
+
   let enrollQrBootstrap = null;
   const user = req.authentikUser;
   const u = user && String(user.username || "").trim();
@@ -947,6 +953,7 @@ app.get("/setup-my-device", async (req, res) => {
   }
   return res.render("setup-my-device", {
     takHost,
+    takClientConnectionPort,
     enrollQrBootstrap,
     agreementSummary: mouSvc.getAgreementSummaryForUser(req.authentikUser, {
       acceptedForSession: hasAcceptedAgreementForSession(
