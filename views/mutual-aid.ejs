@@ -1045,6 +1045,42 @@ function getSetting(key) {
   return String(v ?? "").trim();
 }
 
+const DEFAULT_CALLSIGN_FORMAT_EXPRESSION = "{{agencyAbbreviation}}-{{lastNameUpper}}-{{badgeNumber}}";
+const CALLSIGN_FORMAT_LABELS = {
+  stateAbbreviation: "STATE",
+  county: "COUNTY",
+  countyAbbreviation: "COUNTY ABBREV",
+  agencyAbbreviation: "AGENCY ABBREV",
+  agencyTypeCode: "AGENCY TYPE",
+  firstName: "FIRST NAME",
+  firstInitial: "FIRST INITIAL",
+  lastNameUpper: "LAST NAME",
+  lastName: "LAST NAME",
+  lastInitial: "LAST INITIAL",
+  badgeNumber: "RADIO CALLSIGN / USERNAME",
+  radioCallsignOrBlank: "RADIO CALLSIGN",
+  agencyColor: "TEAM COLOR",
+};
+
+function readableCallsignTokenLabel(key) {
+  if (Object.prototype.hasOwnProperty.call(CALLSIGN_FORMAT_LABELS, key)) {
+    return CALLSIGN_FORMAT_LABELS[key];
+  }
+  return `{{${key}}}`;
+}
+
+function getReadableCallsignFormat() {
+  const expr = getSetting("CALLSIGN_FORMAT_EXPRESSION") || DEFAULT_CALLSIGN_FORMAT_EXPRESSION;
+  const readable = expr
+    .replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, function (_, key) {
+      return readableCallsignTokenLabel(key);
+    })
+    .replace(/\s*-\s*/g, " - ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return readable || "AGENCY ABBREV - LAST NAME - RADIO CALLSIGN / USERNAME";
+}
+
 // If a color/role definition is blank, don't include it.
 const TEAM_COLORS = [
   { name: "Blue", key: "DP_COLOR_BLUE", hex: "#1e88e5" },
@@ -1257,10 +1293,10 @@ async function buildDeploymentPacketPdf() {
     doc.setTextColor(80);
     doc.text("Callsign Format:", pageW / 2, margin, { align: "center" });
 
-    // Callsign text (properly spaced)
-    const callsignText = "AGENCY-LASTNAME-CALLSIGN";
+    // Callsign text from Server Settings -> Callsign Format.
+    const callsignText = getReadableCallsignFormat();
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(36);
+    fitOneLine(doc, callsignText, pageW - margin * 2, 36);
     doc.setTextColor(0);
     doc.text(callsignText, pageW / 2, margin + 42, { align: "center" });
 
