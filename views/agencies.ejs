@@ -7,7 +7,7 @@
   <div class="card">
     <h2>Create Agency</h2>
     <form id="addForm" class="grid2">
-      <div class="agencyCreateRow agencyCreateRow3">
+      <div class="agencyCreateRow agencyCreateRow4">
       <label>Agency Full Name
         <input name="name" placeholder="Agency Name" required />
       </label>
@@ -17,8 +17,16 @@
                oninput="this.value = this.value.toUpperCase()" />
       </label>
 
-      <label>Username Suffix
-        <input name="suffix" placeholder="(ex. hs, hcoem, etc...)" required
+      <label>Username Agency Identifier
+        <select name="usernameTokenPlacement" id="usernameTokenPlacementSelect">
+          <option value="suffix" selected>Suffix - End Of Username (e.g. 1234abcd)</option>
+          <option value="prefix">Prefix - Beginning Of Username (e.g. abcd1234)</option>
+        </select>
+      </label>
+
+      <label>
+        <span id="usernameIdentifierLabelText">Username Suffix</span>
+        <input name="suffix" placeholder="(ex. abcd, hcoem, etc...)" required
                oninput="this.value = this.value.toLowerCase()" />
       </label>
       </div>
@@ -180,7 +188,7 @@
           <tr>
             <th data-sort="name" role="button" tabindex="0" title="Sort by Agency">Agency</th>
             <th data-sort="groupPrefix" role="button" tabindex="0" title="Sort by Abbreviation">Abbreviation</th>
-            <th data-sort="suffix" role="button" tabindex="0" title="Sort by Username Suffix">Username Suffix</th>
+            <th data-sort="suffix" role="button" tabindex="0" title="Sort by username identifier">Username Identifier</th>
             <th data-sort="county" role="button" tabindex="0" title="Sort by County">County</th>
             <th data-sort="countyAbbrev" role="button" tabindex="0" title="Sort by County Abbreviation">County Abbrev</th>
             <th data-sort="state" role="button" tabindex="0">State</th>
@@ -470,6 +478,14 @@ function esc(s){
     .replaceAll("&","&amp;")
     .replaceAll("<","&lt;")
     .replaceAll(">","&gt;");
+}
+
+function formatAgencyIdentifierDisplay(a) {
+  const sfx = String(a?.suffix || "").trim();
+  if (!sfx) return "";
+  const isPrefix =
+    String(a?.usernameTokenPlacement || "suffix").toLowerCase() === "prefix";
+  return `${sfx} (${isPrefix ? "Prefix" : "Suffix"})`;
 }
 
 function isAgencyActive(a) {
@@ -858,7 +874,7 @@ function renderAgencies(){
       <td class="agencyAbbrCell" data-label="Abbreviation">${
         agencyAttributesEditMode ? buildAgencyAbbrCellHtml(a) : esc(a.groupPrefix)
       }</td>
-      <td class="agencySuffixCell" data-label="Username Suffix">${esc(a.suffix)}</td>
+      <td class="agencySuffixCell" data-label="Username Identifier">${esc(formatAgencyIdentifierDisplay(a))}</td>
       <td class="agencyCountyCell" data-label="County">${
         agencyAttributesEditMode ? buildAgencyCountyCellHtml(a) : esc(a.county)
       }</td>
@@ -1600,6 +1616,10 @@ addForm.onsubmit = async (e) => {
 
   addForm.reset();
 
+  const placementSelect = addForm.elements.usernameTokenPlacement;
+  if (placementSelect) placementSelect.value = "suffix";
+  syncUsernameIdentifierFormLabels();
+
   // Restore last-used county
   loadLastCounty();
 
@@ -2248,9 +2268,23 @@ loadLastCounty();
 loadAgenciesWithCounts();
 
 // Wire up auto-fill for county abbreviation based on existing agencies
+function syncUsernameIdentifierFormLabels() {
+  if (!addForm) return;
+  const select = addForm.elements.usernameTokenPlacement;
+  const labelEl = document.getElementById("usernameIdentifierLabelText");
+  if (!select || !labelEl) return;
+  const isPrefix = String(select.value || "suffix").toLowerCase() === "prefix";
+  labelEl.textContent = isPrefix ? "Username Prefix" : "Username Suffix";
+}
+
 if (addForm) {
   const stateInput = addForm.elements.state;
   const countyInput = addForm.elements.county;
+  const placementSelect = addForm.elements.usernameTokenPlacement;
+  if (placementSelect) {
+    placementSelect.addEventListener("change", syncUsernameIdentifierFormLabels);
+    syncUsernameIdentifierFormLabels();
+  }
   if (stateInput) {
     stateInput.addEventListener("change", syncCountyAbbrevFromExisting);
   }
@@ -2405,6 +2439,10 @@ if (addForm) {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.agencyCreateRow4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .agencyCreateRow2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -2420,6 +2458,7 @@ if (addForm) {
 }
 
 @media (max-width: 900px) {
+  .agencyCreateRow4,
   .agencyCreateRow3,
   .agencyCreateRow2 {
     grid-template-columns: 1fr;

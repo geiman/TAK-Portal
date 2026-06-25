@@ -5,6 +5,7 @@ const crypto = require("crypto");
 const { getInt } = require("./env");
 const mapMeta = require("./mapMeta.service");
 const mapIconRender = require("./mapIconRender.service");
+const shapeDecor = require("../public/shapeDecorFilter.js");
 
 const GEOJSON_CACHE_MS = getInt("MAP_GEOJSON_CACHE_MS", 0);
 
@@ -144,18 +145,25 @@ function isAirCotType(type) {
   return parts.length >= 3 && parts[2].toUpperCase() === "A";
 }
 
-/** PNG map icons: feeds and explicit usericon/path; EUD tracks always use team dots. */
+function isFeedLikeOrigin(origin) {
+  const o = String(origin || "").toLowerCase();
+  return o === "feed" || o === "mission";
+}
+
+/** PNG / 2525D map icons: feeds, explicit usericon/path, air type2525b; EUD uses team dots. */
 function markerUsesMapIcon(marker) {
   if (!marker?.iconId) return false;
   if (String(marker.origin || "").toLowerCase() === "eud") return false;
   const src = String(marker.iconSource || "").toLowerCase();
-  if (src === "usericon" || src === "path" || src === "alias") {
+  if (src === "usericon" || src === "path" || src === "alias" || src === "milsym") {
     return true;
   }
+  const apiId = String(marker.iconId || "");
+  if (apiId.startsWith("2525D:")) return true;
   if (isAirCotType(marker.type) && src === "default") return true;
   if (src === "type2525b") {
     if (isAirCotType(marker.type)) return true;
-    return String(marker.origin || "").toLowerCase() === "feed";
+    return isFeedLikeOrigin(marker.origin);
   }
   return false;
 }
@@ -269,7 +277,8 @@ function buildCacheKey(markers, options, revision) {
 function toSlimMarker(marker) {
   if (!marker) return null;
   const color = markerDisplayColor(marker);
-  const apiIconId = markerUsesMapIcon(marker) ? String(marker.iconId || "") : "";
+  const usesIcon = markerUsesMapIcon(marker);
+  const apiIconId = usesIcon ? String(marker.iconId || "") : "";
   const mapImageId = apiIconId
     ? mapIconRender.computeMapImageId(marker, apiIconId, color)
     : "";
@@ -303,6 +312,7 @@ function toSlimMarker(marker) {
     iconId: marker.iconId || null,
     iconSource: marker.iconSource || null,
     mapImageId: mapImageId || "",
+    usesMapIcon: usesIcon ? 1 : 0,
     channelKeys: markerChannelKeys(marker).join(","),
     showCircle: mapImageId ? 0 : 1,
     remarks: marker.remarks || null,
@@ -311,7 +321,8 @@ function toSlimMarker(marker) {
 
 function toRenderedFeature(marker, options = {}) {
   const color = markerDisplayColor(marker);
-  const apiIconId = markerUsesMapIcon(marker) ? String(marker.iconId) : "";
+  const usesIcon = markerUsesMapIcon(marker);
+  const apiIconId = usesIcon ? String(marker.iconId) : "";
   const mapImageId = apiIconId
     ? mapIconRender.computeMapImageId(marker, apiIconId, color)
     : "";
@@ -333,10 +344,12 @@ function toRenderedFeature(marker, options = {}) {
       type: marker.type,
       affiliation: marker.affiliation || "other",
       color,
+      teamColor: marker.teamColor != null ? marker.teamColor : null,
       iconId: mapImageId,
       apiIconId: apiIconId || "",
       iconSource: marker.iconSource || "",
       origin: marker.origin || "",
+      usesMapIcon: usesIcon ? 1 : 0,
       showCircle: mapImageId ? 0 : 1,
       drawTier: markerDrawTier(marker),
       selected: marker.uid === options.selectedUid,
@@ -384,6 +397,7 @@ function buildGeoJson(markers, options = {}) {
   const features = [];
 
   for (const marker of visible) {
+    if (shapeDecor.shouldSkipLiveStreamMarker(marker)) continue;
     const color = markerDisplayColor(marker);
     const apiIconId = markerUsesMapIcon(marker) ? String(marker.iconId) : "";
     const mapImageId = apiIconId
@@ -397,6 +411,7 @@ function buildGeoJson(markers, options = {}) {
           mapImageId,
           apiIconId,
           color,
+          teamColor: marker.teamColor != null ? marker.teamColor : null,
           iconSource: marker.iconSource || "",
           origin: marker.origin || "",
           type: marker.type || "",

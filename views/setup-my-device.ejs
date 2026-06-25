@@ -204,8 +204,8 @@
             <h3 class="iosStepHeading">Step 3: Enroll Your Device</h3>
             <div class="grid2">
               <button type="button" class="btn tile" id="scanQrBtnItak">
-                <span class="title">Scan QR Code</span>
-                <span class="desc">Scan the enrollment QR code from inside the iTAK app.</span>
+                <span class="title">Scan QR Code (Recommended)</span>
+                <span class="desc">Scan an enrollment QR code to automatically connect iTAK.</span>
               </button>
               <button type="button" class="btn tile" id="manualLoginBtnItak">
                 <span class="title">Manual Enrollment</span>
@@ -322,16 +322,16 @@
 
 <!-- QR Modal -->
 <div class="modalOverlay" id="setupQrOverlay" style="display:none;">
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="setupQrTitle">
+  <div class="modal setupQrModal" role="dialog" aria-modal="true" aria-labelledby="setupQrTitle">
     <div class="modalHeader">
       <h2 id="setupQrTitle" style="margin:0;">Enrollment QR Code</h2>
       <button class="btn" id="setupQrCloseBtn" type="button">Close</button>
     </div>
     <div class="modalBody">
-      <div class="row" style="gap: 24px; align-items: flex-start; flex-wrap: wrap;">
-        <div style="text-align:center; min-width: 260px;">
-          <img id="setupQrImg" alt="Enrollment QR Code" style="max-width: 280px; width: 100%; height: auto; border-radius: 14px;" />
-          <div class="row" style="gap: 10px; margin-top: 14px; justify-content: center;">
+      <div class="setupQrModalLayout">
+        <div class="setupQrModalQrCol">
+          <img id="setupQrImg" class="setupQrModalImg" alt="Enrollment QR Code" />
+          <div class="setupQrModalActions">
             <span id="setupQrEnrollUrlHolder" data-enroll-url="" style="display:none;" aria-hidden="true"></span>
             <button class="btn success" type="button" id="setupQrOpenBtn" disabled>Open URL</button>
             <button class="btn" type="button" id="setupQrCopyBtn" disabled>Copy URL</button>
@@ -341,12 +341,12 @@
             Open URL support for iTAK disabled.
           </div>
         </div>
-        <div style="min-width: 320px;">
-          <h3 style="margin-top:0;" id="setupQrInstructionsTitle">How to Scan</h3>
-          <ol id="setupQrInstructions" style="margin-top: 6px;"></ol>
-          <h3 style="margin-top:0;">Details</h3>
+        <div class="setupQrModalInfoCol">
+          <h3 id="setupQrInstructionsTitle">How to Scan</h3>
+          <ol id="setupQrInstructions"></ol>
+          <h3>Details</h3>
           <div class="chips" id="setupQrDetails"></div>
-          <div id="setupQrCountdown" class="msg" style="margin-top: 10px;"></div>
+          <div id="setupQrCountdown" class="msg setupQrModalCountdown"></div>
           <div id="setupQrMsg" class="msg"></div>
         </div>
       </div>
@@ -578,7 +578,6 @@
 
   // Which app the user is scanning with (controls modal instructions)
   let scanMode = "takaware"; // "takaware" | "taktracker" | "itak" | "atak" | "ott"
-  let currentQrApp = "atak";
 
   function setScanInstructions(mode, prefData) {
     scanMode = mode;
@@ -596,6 +595,18 @@
         : isOtt
           ? "Open TAK Tracker: How to Scan"
           : "ATAK (Android): How to Scan";
+
+    if (isItak) {
+      const steps = [
+        "Open iTAK on your iOS device.",
+        "When prompted, allow Location access and set it to 'Always Allow'.",
+        "Select the settings (gear) icon in the top right corner",
+        "Select Network and then Servers",
+        "In the bottom right corner, tap the plus button and select \"Scan QR\""
+      ];
+      instructionsList.innerHTML = steps.map(s => `<li>${s}</li>`).join("");
+      return;
+    }
 
     if (isTakAware && prefData && prefData.ok) {
       const steps = [
@@ -943,49 +954,63 @@
     document.body.classList.remove("noScroll");
   }
 
-  function updateOpenUrlButtonState(app, hasUrl) {
-    const enabled = !!hasUrl && app !== "itak";
-    openUrlBtn.disabled = !enabled;
-    openUrlBtn.style.opacity = enabled ? "1" : "0.55";
-    openUrlBtn.style.cursor = enabled ? "pointer" : "not-allowed";
-    copyBtn.disabled = !enabled;
-    copyBtn.style.opacity = enabled ? "1" : "0.55";
-    copyBtn.style.cursor = enabled ? "pointer" : "not-allowed";
+  function renderQrDetailsChips(obj) {
+    const chips = [];
+    if (obj && obj.username) {
+      chips.push(`<span class="chip">User: ${escapeHtml(obj.username)}</span>`);
+    }
+    details.innerHTML = chips.join(" ");
+  }
+
+  function syncQrActionButtons(mode, obj) {
+    const isItak = mode === "itak";
+    const isOtt = mode === "ott";
+    let url = (obj.enrollUrl && String(obj.enrollUrl).trim()) || "";
+    if (isItak && obj.itakPayload) {
+      url = String(obj.itakPayload).trim();
+    }
+    if (enrollUrlHolder) enrollUrlHolder.dataset.enrollUrl = url;
+
+    if (openUrlBtn) {
+      openUrlBtn.disabled = isItak || !url;
+      openUrlBtn.style.opacity = isItak || !url ? "0.55" : "1";
+      openUrlBtn.style.cursor = isItak || !url ? "not-allowed" : "pointer";
+    }
+    copyBtn.disabled = !url;
+    copyBtn.style.opacity = url ? "1" : "0.55";
+    copyBtn.style.cursor = url ? "pointer" : "not-allowed";
+    saveBtn.disabled = isOtt ? !obj.qrCode : !(obj.username && obj.token);
     if (openUrlBtnNote) {
-      openUrlBtnNote.style.display = app === "itak" ? "block" : "none";
+      openUrlBtnNote.style.display = isItak ? "block" : "none";
     }
   }
 
   function renderFromCache(obj) {
     cached = obj;
-    currentQrApp = obj.app || "atak";
     qrImg.src = obj.qrCode || "";
-    var url = (obj.enrollUrl && String(obj.enrollUrl).trim()) || "";
-    if (enrollUrlHolder) enrollUrlHolder.dataset.enrollUrl = url;
-
-    const chips = [];
-    if (obj.username) chips.push(`<span class="chip">User: ${obj.username}</span>`);
-    details.innerHTML = chips.join(" ");
-
-    updateOpenUrlButtonState(currentQrApp, !!url);
-    saveBtn.disabled = !(obj.username && obj.token);
+    renderQrDetailsChips(obj);
+    syncQrActionButtons(scanMode, obj);
     setMsg(msg, "QR ready.", true);
 
     startCountdown(obj.expiresAt);
     openModal();
   }
 
+  function resolveEnrollApp(app) {
+    if (app === "ott") return "ott";
+    if (app === "itak") return "itak";
+    return "atak";
+  }
+
   async function fetchAndShowQr(app) {
-    app = app || "atak";
+    app = resolveEnrollApp(app);
     const isOtt = app === "ott";
     const isItak = app === "itak";
-    currentQrApp = app;
     // UI reset
     qrImg.src = "";
     details.innerHTML = "";
     if (enrollUrlHolder) enrollUrlHolder.dataset.enrollUrl = "";
-    updateOpenUrlButtonState(app, false);
-    saveBtn.disabled = true;
+    syncQrActionButtons(app, {});
     countdownEl.textContent = "";
     setMsg(msg, "Generating enrollment QR...", true);
 
@@ -993,7 +1018,7 @@
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify((isOtt || isItak) ? { app } : {})
+      body: JSON.stringify(isOtt || isItak ? { app } : {})
     });
 
     const rawText = await res.text();
@@ -1010,6 +1035,7 @@
       expiresAt: data.expiresAt,
       app: data.app || app,
       enrollUrl: data.enrollUrl,
+      itakPayload: data.itakPayload,
       qrCode: data.qrCode
     };
 
@@ -1021,13 +1047,8 @@
     if (!isOtt && !isItak) saveCache(obj);
     cached = obj;
     qrImg.src = obj.qrCode || "";
-    var url = (obj.enrollUrl && String(obj.enrollUrl).trim()) || "";
-    if (enrollUrlHolder) enrollUrlHolder.dataset.enrollUrl = url;
-    const chips = [];
-    if (obj.username) chips.push(`<span class="chip">User: ${obj.username}</span>`);
-    details.innerHTML = chips.join(" ");
-    updateOpenUrlButtonState(app, !!url);
-    saveBtn.disabled = isOtt || !(obj.username && obj.token);
+    renderQrDetailsChips(obj);
+    syncQrActionButtons(scanMode, obj);
     setMsg(msg, "QR ready.", true);
     startCountdown(obj.expiresAt);
     openModal();
@@ -1039,12 +1060,13 @@
 
     const isOtt = mode === "ott";
     const isItak = mode === "itak";
+    const enrollApp = resolveEnrollApp(isOtt ? "ott" : isItak ? "itak" : "atak");
 
     // If we can't determine current username, don't reuse cache
     if (!CURRENT_USERNAME) {
       try {
-        await fetchAndShowQr(isOtt ? "ott" : isItak ? "itak" : "atak");
-        if (!isOtt && !isItak && (mode === "takaware" || mode === "taktracker")) {
+        await fetchAndShowQr(enrollApp);
+        if (mode === "takaware" || mode === "taktracker" || mode === "itak") {
           await applyIosQrEnrollmentPreferences(mode);
         }
       } catch (err) {
@@ -1054,7 +1076,7 @@
       return;
     }
 
-    // OTT never uses cache (different URL format); ATAK may use cache
+    // OTT / iTAK never use cache (different QR content); ATAK may use cache
     if (!isOtt && !isItak) {
       const existing = loadCache();
       if (existing && existing.qrCode && existing.enrollUrl && existing.token) {
@@ -1067,8 +1089,8 @@
     }
 
     try {
-      await fetchAndShowQr(isOtt ? "ott" : isItak ? "itak" : "atak");
-      if (!isOtt && !isItak && (mode === "takaware" || mode === "taktracker")) {
+      await fetchAndShowQr(enrollApp);
+      if (mode === "takaware" || mode === "taktracker" || mode === "itak") {
         await applyIosQrEnrollmentPreferences(mode);
       }
     } catch (err) {
@@ -1453,30 +1475,33 @@
   });
 
   saveBtn.addEventListener("click", () => {
+    if (scanMode === "ott") {
+      const src = qrImg.src;
+      if (!src || !src.startsWith("data:")) {
+        setMsg(msg, "Generate a QR first.", false);
+        return;
+      }
+      const a = document.createElement("a");
+      a.href = src;
+      a.download = "ott-enrollment-qr.png";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setMsg(msg, "Downloading...", true);
+      return;
+    }
+
     if (!cached || !cached.username || !cached.token) {
       setMsg(msg, "Generate a QR first.", false);
       return;
     }
 
-    if (currentQrApp === "itak") {
-      if (!qrImg.src || !qrImg.src.startsWith("data:")) {
-        setMsg(msg, "QR image is not ready yet.", false);
-        return;
-      }
-
-      const a = document.createElement("a");
-      a.href = qrImg.src;
-      a.download = "itak-enrollment-qr.png";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setMsg(msg, "Downloading QR image...", true);
-      return;
-    }
-
-    const url =
+    let url =
       `/api/qr/download?username=${encodeURIComponent(cached.username)}` +
       `&token=${encodeURIComponent(cached.token)}`;
+    if (scanMode === "itak") {
+      url += "&format=itak";
+    }
 
     const a = document.createElement("a");
     a.href = url;

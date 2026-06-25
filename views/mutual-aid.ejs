@@ -377,7 +377,7 @@
           </div>
         </div>
         <div id="agencyList" class="groupsBox" style="margin-top:10px;"></div>
-        <small>Select one or more agencies; users are matched by username suffix.</small>
+        <small>Select one or more agencies; users are matched by agency attribute (supports token before or after badge).</small>
       </div>
 
       <div id="massGroupPane" style="display:none; margin-top:14px;">
@@ -980,7 +980,6 @@ async function emailDeploymentPacket() {
     // Reuse the existing builder and just output bytes.
     const doc = await buildDeploymentPacketPdf();
     const ab = doc.output("arraybuffer");
-    const b64 = arrayBufferToBase64(ab);
 
     const filenameSafe = ((qrActiveItem?.username || "deployment-packet")
       .trim()
@@ -993,13 +992,33 @@ async function emailDeploymentPacket() {
     emailPacketSendBtn.disabled = true;
     setMsg(emailPacketMsg, "Sending...", true);
 
+    const form = new FormData();
+    form.append("to", rawTo);
+    form.append("filename", filename);
+    form.append("pdf", new Blob([ab], { type: "application/pdf" }), filename);
+
     const res = await fetch(`/api/mutual-aid/${encodeURIComponent(qrActiveId)}/packet/email`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ to: rawTo, pdfBase64: b64, filename })
+      body: form
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || "Send failed");
+    const rawBody = await res.text();
+    let data = {};
+    try {
+      data = rawBody ? JSON.parse(rawBody) : {};
+    } catch (_) {
+      data = {};
+    }
+    if (!res.ok) {
+      const msg =
+        (typeof data.error === "string" && data.error.trim()) ||
+        (typeof data.message === "string" && data.message.trim()) ||
+        (res.status === 413
+          ? "Deployment packet is too large to email (max 25 MB). Try downloading it instead."
+          : rawBody && !/^<!doctype html/i.test(rawBody.trim())
+          ? rawBody.trim().slice(0, 300)
+          : "Send failed");
+      throw new Error(msg);
+    }
 
     setMsg(emailPacketMsg, "Sent!", true);
     closeEmailPacketModal();
@@ -1012,17 +1031,6 @@ async function emailDeploymentPacket() {
 }
 
 if (emailPacketSendBtn) emailPacketSendBtn.onclick = emailDeploymentPacket;
-
-function arrayBufferToBase64(buffer) {
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
-  }
-  return btoa(binary);
-}
-
 
 // ----- Download Packet (PDF) -----
 // Pull guide definitions from settings.json (server-rendered into the page).

@@ -1,6 +1,7 @@
 const QRCode = require("qrcode");
 const path = require("path");
 const fs = require("fs");
+const crypto = require("crypto");
 const Jimp = require("jimp"); // Jimp 0.22.x
 const settingsSvc = require("./settings.service");
 const { addLogoToQrPng } = require("./qrLogoOverlay.service");
@@ -126,6 +127,35 @@ function buildOttEnrollUrl({ host, username, token, callsign, teamLabel, roleLab
 }
 
 /**
+ * Build iTAK registration QR payload (plain-text JSON scanned by iTAK).
+ * @see iTAK registration QR format: connectionString host:8089:ssl, user app-password token.
+ */
+function buildItakEnrollPayload({ host, username, token, registrationId }) {
+  const h = String(host || "").trim();
+  const u = String(username || "").trim();
+  const t = String(token || "").trim();
+  if (!h || !u || !t) return null;
+
+  const regId =
+    String(registrationId || "").trim() || crypto.randomUUID();
+
+  const payload = {
+    passphrase: "false",
+    type: "registration",
+    serverCredentials: {
+      connectionString: `${h}:8089:ssl`,
+    },
+    userCredentials: {
+      username: u,
+      password: t,
+      registrationId: regId,
+    },
+  };
+
+  return JSON.stringify(payload);
+}
+
+/**
  * Build ATAK device preference URL for callsign, team (color), and role.
  * Format: tak://com.atakmap.app/preference?key1=locationCallsign&type1=string&value1=...&key2=locationTeam&type2=string&value2=...&key3=atakRoleType&type3=string&value3=...
  */
@@ -243,6 +273,7 @@ module.exports = {
   buildEnrollUrl,
   buildItakEnrollPayload,
   buildOttEnrollUrl,
+  buildItakEnrollPayload,
   buildPreferenceUrl,
   generateDisplayQrDataUrl,
   generateDownloadPng,

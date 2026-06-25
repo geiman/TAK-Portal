@@ -38,6 +38,7 @@ async function runTests() {
       mapImageId,
       apiIconId: marker.iconId,
       color,
+      teamColor: marker.teamColor,
       iconSource: marker.iconSource,
       origin: marker.origin,
       type: marker.type,
@@ -47,6 +48,7 @@ async function runTests() {
       mapImageId,
       apiIconId: marker.iconId,
       color,
+      teamColor: marker.teamColor,
       iconSource: marker.iconSource,
       origin: marker.origin,
       type: marker.type,
@@ -73,6 +75,54 @@ async function runTests() {
   assert.strictEqual(missingBatch.rendered, 0);
   assert.ok(missingBatch.missing.includes("mimg-deadbeef00000001"));
 
+  const camp = mapIcon.resolveIcon({
+    type: "a-u-G-E-S-R",
+    affiliation: "unknown",
+    usericon: {
+      iconsetpath: "6d781afb-89a6-4c07-b2b9-a89748b6a38f/Misc/Camp.png",
+    },
+  });
+  assert.ok(camp && camp.iconId, "Camp usericon should resolve");
+  assert.strictEqual(camp.source, "path", "Camp should resolve via direct usericon path");
+  assert.ok(/Misc\/Camp\.png/i.test(camp.relPath || camp.iconId), "Camp icon path");
+  const campMarker = {
+    uid: "camp-1",
+    type: "a-u-G-E-S-R",
+    lat: 35.14,
+    lon: -85.31,
+    affiliation: "unknown",
+    origin: "feed",
+    iconId: camp.iconId,
+    iconSource: camp.source,
+    teamColor: null,
+  };
+  const campDisplayColor = mapRender.markerDisplayColor(campMarker);
+  assert.strictEqual(campDisplayColor, "#f97316", "unknown affiliation display color");
+  assert.strictEqual(
+    mapIconRender.iconSkipsRecolor(campMarker, camp.iconId),
+    true,
+    "path icons without explicit team color should skip recolor"
+  );
+  const campMapImageId = mapIconRender.computeMapImageId(
+    campMarker,
+    camp.iconId,
+    campDisplayColor
+  );
+  const campBatch = await mapIconRender.renderIconBatch([
+    {
+      mapImageId: campMapImageId,
+      apiIconId: camp.iconId,
+      color: campDisplayColor,
+      teamColor: null,
+      iconSource: camp.source,
+      origin: campMarker.origin,
+      type: campMarker.type,
+      affiliation: campMarker.affiliation,
+    },
+  ]);
+  assert.strictEqual(campBatch.rendered, 1, "Camp batch should render raw icon");
+  assert.strictEqual(campBatch.missing.length, 0);
+
   const stats = mapIconRender.getStats();
   assert.ok(stats.batchCount >= 2);
   assert.ok(stats.batchMax >= 120);
@@ -85,6 +135,28 @@ async function runTests() {
     mapIconRender.normalizeMapImageId("mimg-3bac1b2482d4d6d1"),
     "mimg-3bac1b2482d4d6d1"
   );
+
+  const mapMilSym = require("../services/mapMilSym.service");
+  const milId = await mapMilSym.cotTypeTo2525DIconId("a-f-G-E-V");
+  if (milId) {
+    const milMarker = {
+      uid: "milsym-1",
+      type: "a-f-G-E-V",
+      lat: 35.05,
+      lon: -85.21,
+      affiliation: "friend",
+      origin: "feed",
+      iconId: milId,
+      iconSource: "milsym",
+    };
+    const milRendered = await mapIconRender.renderIconForMarker(milMarker);
+    assert.ok(milRendered.buffer, "2525D milsym should render PNG bytes");
+    assert.strictEqual(milRendered.mapImageId, mapIconRender.computeMapImageId(
+      milMarker,
+      milId,
+      mapRender.markerDisplayColor(milMarker)
+    ));
+  }
 
   console.log("mapIconRender.test.js: all assertions passed");
 }

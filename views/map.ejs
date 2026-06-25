@@ -96,13 +96,14 @@
         ‹ Details
       </button>
 
-      <aside class="map-panel map-panel-left" id="mapPanelLeft" aria-label="Channels">
+      <aside class="map-panel map-panel-left" id="mapPanelLeft" aria-label="Map layers">
         <div class="map-panel-tabs">
-          <span class="map-panel-title">Channels</span>
+          <button type="button" class="map-tab active" id="mapTabChannels">Channels</button>
+          <button type="button" class="map-tab" id="mapTabMissions">Missions</button>
           <button type="button" class="map-panel-collapse" id="mapCollapseLeft" title="Collapse panel">‹</button>
         </div>
 
-        <div class="map-panel-body">
+        <div class="map-panel-body is-active" id="mapPanelChannels">
           <div class="map-search map-search-compact">
             <input id="mapLayerSearch" type="search" placeholder="Filter channels…" autocomplete="off" />
           </div>
@@ -111,6 +112,17 @@
             <button type="button" class="map-link-btn" id="mapGroupsNone">None</button>
           </div>
           <div class="map-layer-list" id="mapLayerList"></div>
+        </div>
+
+        <div class="map-panel-body" id="mapPanelMissions">
+          <div class="map-search map-search-compact">
+            <input id="mapMissionSearch" type="search" placeholder="Filter missions…" autocomplete="off" />
+          </div>
+          <div class="map-layer-actions">
+            <button type="button" class="map-link-btn" id="mapMissionsAll">All</button>
+            <button type="button" class="map-link-btn" id="mapMissionsNone">None</button>
+          </div>
+          <div class="map-mission-list" id="mapMissionList"></div>
         </div>
       </aside>
 
@@ -163,6 +175,8 @@
     </div>
 
     <script src="https://unpkg.com/maplibre-gl@5.13.0/dist/maplibre-gl.js"></script>
+    <script src="<%= shapeDecorFilterJsUrl %>"></script>
     <script src="<%= mapJsUrl %>" defer></script>
+    <script src="<%= mapMissionsJsUrl %>" defer></script>
   </body>
 </html>

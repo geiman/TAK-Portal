@@ -790,6 +790,76 @@ label.btn {
     padding: 14px;
 }
 
+#setupQrOverlay .setupQrModalLayout {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 24px;
+    align-items: flex-start;
+}
+
+#setupQrOverlay .setupQrModalQrCol {
+    flex: 0 0 280px;
+    width: 280px;
+    max-width: 100%;
+    text-align: center;
+}
+
+#setupQrOverlay .setupQrModalInfoCol {
+    flex: 1 1 0;
+    min-width: 320px;
+}
+
+#setupQrOverlay .setupQrModalInfoCol h3 {
+    margin-top: 0;
+}
+
+#setupQrOverlay .setupQrModalInfoCol ol {
+    margin: 6px 0 0;
+    padding-left: 1.25rem;
+}
+
+#setupQrOverlay .setupQrModalImg {
+    display: block;
+    max-width: 280px;
+    width: 100%;
+    height: auto;
+    border-radius: 14px;
+    margin: 0 auto;
+}
+
+#setupQrOverlay .setupQrModalActions {
+    display: flex;
+    gap: 10px;
+    margin-top: 14px;
+    justify-content: center;
+    flex-wrap: nowrap;
+}
+
+#setupQrOverlay .setupQrModalActions .btn {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    white-space: nowrap;
+    padding-left: 10px;
+    padding-right: 10px;
+}
+
+#setupQrOverlay .setupQrModalCountdown {
+    margin-top: 10px;
+}
+
+@media (max-width: 720px) {
+    #setupQrOverlay .setupQrModalLayout {
+        flex-wrap: wrap;
+    }
+
+    #setupQrOverlay .setupQrModalQrCol {
+        flex: 1 1 100%;
+        width: 100%;
+    }
+}
+
 .userAgreementModal {
     width: min(760px, 96vw);
 }
