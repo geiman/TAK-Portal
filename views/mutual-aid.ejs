@@ -1061,24 +1061,55 @@ const CALLSIGN_FORMAT_LABELS = {
   radioCallsignOrBlank: "RADIO CALLSIGN",
   agencyColor: "TEAM COLOR",
 };
+const CALLSIGN_FORMAT_EXAMPLE_VALUES = {
+  stateAbbreviation: "PA",
+  county: "STATE",
+  countyAbbreviation: "ST",
+  agencyAbbreviation: "PSP",
+  agencyTypeCode: "LE",
+  firstName: "JOHN",
+  firstInitial: "J",
+  lastNameUpper: "SMITH",
+  lastName: "SMITH",
+  lastInitial: "S",
+  badgeNumber: "T05",
+  radioCallsignOrBlank: "T05",
+  agencyColor: "BLUE",
+};
 
 function readableCallsignTokenLabel(key) {
   if (Object.prototype.hasOwnProperty.call(CALLSIGN_FORMAT_LABELS, key)) {
-    return CALLSIGN_FORMAT_LABELS[key];
+    return `<${CALLSIGN_FORMAT_LABELS[key]}>`;
   }
   return `{{${key}}}`;
 }
 
-function getReadableCallsignFormat() {
+function renderCallsignExpressionWith(resolver, fallback) {
   const expr = getSetting("CALLSIGN_FORMAT_EXPRESSION") || DEFAULT_CALLSIGN_FORMAT_EXPRESSION;
-  const readable = expr
+  const rendered = expr
     .replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, function (_, key) {
-      return readableCallsignTokenLabel(key);
+      return resolver(key);
     })
     .replace(/\s*-\s*/g, " - ")
     .replace(/\s+/g, " ")
     .trim();
-  return readable || "AGENCY ABBREV - LAST NAME - RADIO CALLSIGN / USERNAME";
+  return rendered || fallback;
+}
+
+function getReadableCallsignFormat() {
+  return renderCallsignExpressionWith(
+    readableCallsignTokenLabel,
+    "<AGENCY ABBREV> - <LAST NAME> - <RADIO CALLSIGN / USERNAME>"
+  );
+}
+
+function getReadableCallsignExample() {
+  return renderCallsignExpressionWith(function (key) {
+    if (Object.prototype.hasOwnProperty.call(CALLSIGN_FORMAT_EXAMPLE_VALUES, key)) {
+      return CALLSIGN_FORMAT_EXAMPLE_VALUES[key];
+    }
+    return `{{${key}}}`;
+  }, "PSP - SMITH - T05");
 }
 
 // If a color/role definition is blank, don't include it.
@@ -1296,13 +1327,21 @@ async function buildDeploymentPacketPdf() {
     // Callsign text from Server Settings -> Callsign Format.
     const callsignText = getReadableCallsignFormat();
     doc.setFont("helvetica", "bold");
-    fitOneLine(doc, callsignText, pageW - margin * 2, 36);
+    fitOneLine(doc, callsignText, pageW - margin * 2, 30);
     doc.setTextColor(0);
     doc.text(callsignText, pageW / 2, margin + 42, { align: "center" });
 
+    const callsignExample = getReadableCallsignExample();
+    if (callsignExample) {
+      doc.setFont("helvetica", "normal");
+      fitOneLine(doc, `Ex: ${callsignExample}`, pageW - margin * 2, 18);
+      doc.setTextColor(80);
+      doc.text(`Ex: ${callsignExample}`, pageW / 2, margin + 70, { align: "center" });
+    }
+
     // Main enrollment QR (high-res download — preserve aspect ratio; includes username strip)
-    const maxQrBox = Math.min(pageW - margin * 2, pageH - (margin * 2 + 120));
-    const qrY2 = margin + 70;
+    const maxQrBox = Math.min(pageW - margin * 2, pageH - (margin * 2 + 190));
+    const qrY2 = margin + 95;
     const hiResEnrollmentQr = await loadHiResEnrollmentQrDataUrl(qrActiveId);
     const qrProps = doc.getImageProperties(hiResEnrollmentQr);
     const qrScale = Math.min(maxQrBox / qrProps.width, maxQrBox / qrProps.height);
@@ -1318,13 +1357,21 @@ async function buildDeploymentPacketPdf() {
       drawQrH
     );
 
-    // Username label
+    // Credential labels
     const userLabel = String(qrActiveItem?.username || "").trim();
-    if (userLabel) {
-      const userY = Math.min(pageH - margin, qrY2 + drawQrH + 32);
+    const passwordLabel = String(qrActiveItem?.password || "").trim();
+    const credentialLines = [];
+    if (userLabel) credentialLines.push(`Username: ${userLabel}`);
+    if (passwordLabel) credentialLines.push(`Password: ${passwordLabel}`);
+    if (credentialLines.length) {
+      let userY = Math.min(pageH - margin - (credentialLines.length - 1) * 24, qrY2 + drawQrH + 30);
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(24);
-      doc.text(userLabel, pageW / 2, userY, { align: "center" });
+      credentialLines.forEach((line) => {
+        fitOneLine(doc, line, pageW - margin * 2, 20);
+        doc.setTextColor(0);
+        doc.text(line, pageW / 2, userY, { align: "center" });
+        userY += 24;
+      });
     }
 
     // --- Page 3: Team Color Guide ---
