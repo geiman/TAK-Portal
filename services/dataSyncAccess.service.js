@@ -112,6 +112,50 @@ function mergeMutualAidGroupNames(byKey, takByKey) {
   }
 }
 
+/**
+ * Mutual aid channel groups the user belongs to (from mutual-aid.json groupName / groupId).
+ * @returns {Array<{ authentikName, takDisplayName, canonicalKey, agencySuffix, groupPrefix, mutualAid }>}
+ */
+function resolveMutualAidAllowedGroups(userGroupNames, maRecords) {
+  const byKey = new Map();
+  const byId = new Map();
+  for (const item of Array.isArray(maRecords) ? maRecords : []) {
+    const name = String(item?.groupName || "").trim();
+    if (!name) continue;
+    const canonicalKey = canonicalGroupKey(name);
+    if (!canonicalKey) continue;
+    const entry = {
+      authentikName: name,
+      takDisplayName: takDisplayName(name),
+      canonicalKey,
+      agencySuffix: null,
+      groupPrefix: null,
+      mutualAid: true,
+    };
+    byKey.set(canonicalKey, entry);
+    const gid = String(item?.groupId || "").trim();
+    if (gid) byId.set(gid, entry);
+  }
+  if (!byKey.size) return [];
+
+  const out = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(userGroupNames) ? userGroupNames : []) {
+    const token = String(raw || "").trim();
+    if (!token) continue;
+    let entry = byKey.get(canonicalGroupKey(token));
+    if (!entry && byId.has(token)) entry = byId.get(token);
+    if (!entry || seen.has(entry.canonicalKey)) continue;
+    seen.add(entry.canonicalKey);
+    out.push(entry);
+  }
+  return out;
+}
+
+function getMutualAidAllowedGroupsForUser(authUser) {
+  return resolveMutualAidAllowedGroups(authUser?.groups, mutualAidStore.load());
+}
+
 function entryToGroupName(entry) {
   if (entry == null) return "";
   if (typeof entry === "string") return String(entry).trim();
@@ -152,6 +196,46 @@ function missionSingleGroupName(mission) {
   const names = extractMissionGroupNames(mission);
   if (names.length !== 1) return null;
   return names[0];
+}
+
+function resolveAssignmentMetaForGroup(rawGroupName) {
+  const raw = String(rawGroupName || "").trim();
+  if (!raw) {
+    return { assignedGroup: null, assignedAgencyName: null };
+  }
+  const groupDisplay = takDisplayName(raw) || raw;
+  const agency = agenciesSvc.findAgencyForGroupName(groupDisplay, agenciesSvc.load());
+  const agencyName = agency ? String(agency.name || "").trim() || null : null;
+  return {
+    assignedGroup: groupDisplay,
+    assignedAgencyName: agencyName,
+  };
+}
+
+function enrichMissionAssignmentMeta(mission) {
+  if (!mission || typeof mission !== "object") return mission;
+  const groupName = missionSingleGroupName(mission);
+  if (!groupName) return mission;
+  return { ...mission, ...resolveAssignmentMetaForGroup(groupName) };
+}
+
+function enrichMissionListAssignmentMeta(list) {
+  return (Array.isArray(list) ? list : []).map(enrichMissionAssignmentMeta);
+}
+
+function enrichMissionsPayloadAssignmentMeta(payload) {
+  if (Array.isArray(payload)) {
+    return payload.map(enrichMissionAssignmentMeta);
+  }
+  if (payload && typeof payload === "object") {
+    if (Array.isArray(payload.data)) {
+      return { ...payload, data: payload.data.map(enrichMissionAssignmentMeta) };
+    }
+    if (Array.isArray(payload.missions)) {
+      return { ...payload, missions: payload.missions.map(enrichMissionAssignmentMeta) };
+    }
+  }
+  return payload;
 }
 
 function unwrapMission(payload) {
@@ -212,10 +296,19 @@ async function buildAgencyAllowedGroups(authUser) {
   return out;
 }
 
-async function getAllowedCanonicalKeySet(authUser) {
+/** Map overlay: agency groups plus mutual aid channels the user belongs to. */
+const MAP_MISSION_ACCESS = { includeMutualAid: true };
+
+async function getAllowedCanonicalKeySet(authUser, options = {}) {
   const allowed = await buildAgencyAllowedGroups(authUser);
   if (allowed === null) return null;
-  return new Set(allowed.map((g) => g.canonicalKey));
+  const keys = new Set(allowed.map((g) => g.canonicalKey));
+  if (options.includeMutualAid) {
+    for (const ma of getMutualAidAllowedGroupsForUser(authUser)) {
+      keys.add(ma.canonicalKey);
+    }
+  }
+  return keys;
 }
 
 /** @deprecated name retained for callers — returns canonical key Set */
@@ -369,8 +462,8 @@ function assertGroupAllowed(body, allowedKeySet) {
   }
 }
 
-async function assertMissionReadable(authUser, missionName) {
-  const allowedKeySet = await getAllowedCanonicalKeySet(authUser);
+async function assertMissionReadable(authUser, missionName, options = {}) {
+  const allowedKeySet = await getAllowedCanonicalKeySet(authUser, options);
   const raw = await dataSyncSvc.getMission(missionName);
   const mission = unwrapMission(raw);
   const g = missionSingleGroupName(mission);
@@ -660,11 +753,14 @@ async function buildAccessDebug(authUser) {
 
   const allowed = await buildAgencyAllowedGroups(authUser);
   const allowedKeySet = allowed === null ? null : new Set(allowed.map((g) => g.canonicalKey));
+  const mapMissionKeySet = await getAllowedCanonicalKeySet(authUser, MAP_MISSION_ACCESS);
+  const mutualAidAllowed = getMutualAidAllowedGroupsForUser(authUser);
   const resolved = await resolveGroupsForUser(authUser, takGroupsRaw);
 
   const missionFilterPreview = missionsRaw.map((m) => ({
     ...m,
     allowed: takGroupNameAllowed(m.singleGroup || "", allowedKeySet),
+    allowedOnMap: takGroupNameAllowed(m.singleGroup || "", mapMissionKeySet),
   }));
 
   return {
@@ -680,6 +776,7 @@ async function buildAccessDebug(authUser) {
       error: takError,
     },
     authentikAllowedGroups: allowed,
+    mutualAidAllowedGroups: mutualAidAllowed,
     resolvedUiGroups: resolved.groups,
     resolvedDebug: resolved.debug,
     missions: {
@@ -697,7 +794,14 @@ module.exports = {
   extractTakGroupNameList,
   extractMissionGroupNames,
   missionSingleGroupName,
+  resolveAssignmentMetaForGroup,
+  enrichMissionAssignmentMeta,
+  enrichMissionListAssignmentMeta,
+  enrichMissionsPayloadAssignmentMeta,
   buildAgencyAllowedGroups,
+  MAP_MISSION_ACCESS,
+  getMutualAidAllowedGroupsForUser,
+  resolveMutualAidAllowedGroups,
   getAllowedTakGroupNameSet,
   getAllowedCanonicalKeySet,
   resolveGroupsForUser,

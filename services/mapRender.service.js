@@ -308,6 +308,8 @@ function toSlimMarker(marker) {
     origin: marker.origin || null,
     team: marker.team,
     role: marker.role || null,
+    platform: marker.platform || null,
+    battery: marker.battery != null && marker.battery !== "" ? marker.battery : null,
     updatedAt: marker.updatedAt,
     iconId: marker.iconId || null,
     iconSource: marker.iconSource || null,
@@ -316,6 +318,7 @@ function toSlimMarker(marker) {
     channelKeys: markerChannelKeys(marker).join(","),
     showCircle: mapImageId ? 0 : 1,
     remarks: marker.remarks || null,
+    links: Array.isArray(marker.links) && marker.links.length ? marker.links : null,
   };
 }
 

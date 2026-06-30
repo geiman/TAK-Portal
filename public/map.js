@@ -4417,6 +4417,41 @@
     syncDetailStackDom();
   }
 
+  function formatDetailBatteryLabel(value) {
+    if (value == null || value === "") return "";
+    const n = Number(value);
+    if (Number.isFinite(n)) return Math.round(n) + "%";
+    const s = String(value).trim();
+    if (!s) return "";
+    return /%$/.test(s) ? s : s + "%";
+  }
+
+  function markerDetailMetaLine(m) {
+    const parts = [];
+    const platform = m && m.platform ? String(m.platform).trim() : "";
+    if (platform) parts.push(platform);
+    const battery = m ? formatDetailBatteryLabel(m.battery) : "";
+    if (battery) parts.push(battery);
+    return parts.join(" · ");
+  }
+
+  function syncDetailPaneTitle(pane, m) {
+    const titleEl = pane.querySelector(".map-detail-title");
+    const platformEl = pane.querySelector(".map-detail-platform");
+    if (!titleEl) return;
+    if (!m) {
+      titleEl.textContent = "Details";
+      if (platformEl) platformEl.hidden = true;
+      return;
+    }
+    titleEl.textContent = m.callsign || "Details";
+    if (platformEl) {
+      const metaLine = markerDetailMetaLine(m);
+      platformEl.textContent = metaLine;
+      platformEl.hidden = !metaLine;
+    }
+  }
+
   function buildDetailPaneElement(slotIndex, slot) {
     const pane = document.createElement("aside");
     pane.className = "map-detail-pane";
@@ -4435,7 +4470,10 @@
       '">' +
       PIN_ICON +
       "</button>" +
+      '<div class="map-detail-title-wrap">' +
       '<h2 class="map-detail-title">Details</h2>' +
+      '<div class="map-detail-platform" hidden></div>' +
+      "</div>" +
       '<button type="button" class="map-detail-close-btn" title="Close details" aria-label="Close details">' +
       CLOSE_ICON +
       "</button>" +
@@ -4490,13 +4528,57 @@
     return pane;
   }
 
+  function markerDetailLinks(m) {
+    return Array.isArray(m?.links)
+      ? m.links.filter(function (link) {
+          return link && isHttpDetailLinkUrl(link.url);
+        })
+      : [];
+  }
+
+  function isHttpDetailLinkUrl(value) {
+    return /^https?:\/\//i.test(String(value || "").trim());
+  }
+
+  function buildDetailLinkAnchorsHtml(links) {
+    const list = Array.isArray(links) ? links : [];
+    return list
+      .map(function (link) {
+        const url = String(link.url || "").trim();
+        if (!isHttpDetailLinkUrl(url)) return "";
+        const label = String(link.label || url).trim() || url;
+        return (
+          '<a class="map-detail-link" href="' +
+          escapeHtml(url) +
+          '" target="_blank" rel="noopener noreferrer">' +
+          escapeHtml(label) +
+          "</a>"
+        );
+      })
+      .filter(Boolean)
+      .join("");
+  }
+
+  function buildDetailLinksHtml(links) {
+    const anchors = buildDetailLinkAnchorsHtml(links);
+    if (!anchors) return "";
+    return (
+      '<section class="map-detail-links-section">' +
+      '<div class="map-detail-links" data-detail-key="links">' +
+      anchors +
+      "</div></section>"
+    );
+  }
+
   function detailBodyStructureKey(m) {
     const groups = markerGroups(m);
+    const linkCount = markerDetailLinks(m).length;
     return [
       groups.length === 1 ? "1g" : "ng",
       m.team && String(m.team).trim() ? "t" : "",
       m.role && String(m.role).trim() ? "r" : "",
       isUnknownHae(m.hae) ? "" : "h",
+      linkCount ? "l" + linkCount : "",
     ].join("|");
   }
 
@@ -4578,7 +4660,9 @@
       (remarksText ? "" : " empty") +
       '" data-detail-key="remarks">' +
       escapeHtml(remarksText || "No remarks.") +
-      "</div></section></div>"
+      "</div></section>" +
+      buildDetailLinksHtml(markerDetailLinks(m)) +
+      "</div>"
     );
   }
 
@@ -4643,6 +4727,21 @@
       remarksEl.classList.toggle("empty", !remarksText);
     }
 
+    const linksEl = bodyEl.querySelector('[data-detail-key="links"]');
+    const linksSection = bodyEl.querySelector(".map-detail-links-section");
+    const links = markerDetailLinks(m);
+    if (links.length) {
+      const anchors = buildDetailLinkAnchorsHtml(links);
+      if (linksEl) {
+        linksEl.innerHTML = anchors;
+      } else if (anchors) {
+        const wrap = bodyEl.querySelector(".map-detail-wrap");
+        if (wrap) wrap.insertAdjacentHTML("beforeend", buildDetailLinksHtml(links));
+      }
+    } else if (linksSection) {
+      linksSection.remove();
+    }
+
     const updatedEl = bodyEl.querySelector(".map-detail-updated");
     if (updatedEl) updatedEl.textContent = updatedAgeLabel(m.updatedAt);
 
@@ -4671,14 +4770,13 @@
     );
     if (!pane) return;
     const m = getMarkerRecord(slot.uid);
-    const titleEl = pane.querySelector(".map-detail-title");
     const bodyEl = pane.querySelector(".map-detail-body");
     const actionsEl = pane.querySelector(".map-detail-actions");
     const pinBtn = pane.querySelector(".map-detail-pin-btn");
     const lockBtn = pane.querySelector(".map-detail-lock-btn");
 
     if (!m) {
-      if (titleEl) titleEl.textContent = "Details";
+      syncDetailPaneTitle(pane, null);
       if (bodyEl) {
         bodyEl.innerHTML =
           '<div class="map-detail-empty">Marker no longer available.</div>';
@@ -4688,7 +4786,7 @@
       return;
     }
 
-    if (titleEl) titleEl.textContent = m.callsign || "Details";
+    syncDetailPaneTitle(pane, m);
     if (actionsEl) actionsEl.hidden = false;
     if (pinBtn) {
       pinBtn.classList.toggle("active", !!slot.pinned);

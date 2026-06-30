@@ -90,4 +90,49 @@ assert.strictEqual(rendered.properties.iconId, slimFeed.mapImageId);
 assert.strictEqual(rendered.properties.apiIconId, sampleMarkers[1].iconId);
 assert.strictEqual(rendered.properties.usesMapIcon, 1);
 
+const mapMeta = require("../services/mapMeta.service");
+const sampleDetail = {
+  link: {
+    _attributes: {
+      url: "https://maps.google.com/?q=35.11686,-85.21141",
+      remarks: "Vehicle Location",
+    },
+  },
+};
+const parsedLinks = mapMeta.parseDetailLinks(sampleDetail);
+assert.strictEqual(parsedLinks.length, 1);
+assert.strictEqual(parsedLinks[0].url, "https://maps.google.com/?q=35.11686,-85.21141");
+assert.strictEqual(parsedLinks[0].label, "Vehicle Location");
+
+assert.strictEqual(
+  mapMeta.parseTakPlatform({
+    takv: { _attributes: { platform: "ATAK-CIV", device: "SAMSUNG SM-S938U" } },
+  }),
+  "ATAK-CIV"
+);
+assert.strictEqual(
+  mapMeta.parseTakPlatform({
+    takv: { _attributes: { platform: "TAKAware-CIV", os: "iOS" } },
+  }),
+  "TAKAware-CIV"
+);
+assert.strictEqual(
+  mapMeta.parseBatteryPercent({
+    status: { _attributes: { battery: "60" } },
+  }),
+  60
+);
+assert.strictEqual(
+  mapMeta.parseBatteryPercent({
+    status: { _attributes: { battery: "95" } },
+  }),
+  95
+);
+
+const slimWithLink = mapRender.toSlimMarker({
+  ...sampleMarkers[0],
+  links: parsedLinks,
+});
+assert.deepStrictEqual(slimWithLink.links, parsedLinks);
+
 console.log("mapRender.test.js: all assertions passed");

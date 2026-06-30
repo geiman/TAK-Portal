@@ -8,9 +8,24 @@ Planned features can be accessed [here](docs/roadmap.md)
 <!-- ✨ `Enhancement` - -->
 <!-- ✏️ `Documentation` - -->
 <!-- 🐛 `Bug Fix` - Fixes issue with -->
-<!-- ⬆️ `Dependency` - -->
+<!-- ⬆️ `Dependency Update` - -->
 
 ## Version History
+
+### v1.3.44 - 6/29/26
+⬆️ `Dependency Update` - Updated axios, dotenv, marked, multer, nodemailer, sanitize-html, undici, node-cot, node-tak
+
+### v1.3.43 - 6/29/26
+🎉 `New Feature` - Dashboard - Connected Users pane allows admins to send a message for ATAK Clients to subscribe to a data sync mission<br>
+✨ `Enhancement` - Updating user groups should not fail if multiple are selected in rapid sucession
+
+### v1.3.42 - 6/28/26
+🎉 `New Feature` - Dashboard - Connected Users pane now allows admins to select a connected user (ATAK Clients only for now) and send a Data Package over the TAK Network to set their callsign, team, and role.
+
+### v1.3.41 - 6/28/26
+✨ `Enhancement` - Groups, Templates, Mutual Aid - Updated assign/unassign logic, greatly reducing load times for changes to apply<br>
+✨ `Enhancement` - Audit Log - Improved audit logging for group and template edits<br>
+🐛 `Bug Fix` - Dashboard - Fixes issue with duplicate entries appearing in the connected users section for agencies using a prefix (abcd1234)
 
 ### v1.3.40 - 6/24/26
 ✨ `Enhancement` - Agencies / System Wide - Agencies can now be configured to use a prefix rather than a forced suffix to identify their users.  This feature is still in testing.  Please notify me if you discover any bugs.
