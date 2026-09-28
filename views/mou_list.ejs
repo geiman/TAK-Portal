@@ -119,12 +119,11 @@
   <% } %>
 
   <% if (!isGlobalAdmin || (cards && cards.length)) { %>
-    <section class="card" style="margin-top:14px;">
-      <div class="mouSectionHeader">
-        <div>
-          <h2><%= isGlobalAdmin ? "Your Agency Documents" : "Active Documents" %></h2>
-        </div>
-      </div>
+    <details class="card" style="margin-top:14px;" open>
+      <summary style="cursor:pointer; font-weight:600; user-select:none;">
+        <%= isGlobalAdmin ? "Your Agency Documents" : "Active Documents" %> (<%= Array.isArray(cards) ? cards.length : 0 %>)
+      </summary>
+      <div style="margin-top:12px;">
       <% if (!cards || !cards.length) { %>
         <div class="mouEmptyState">
           <h3>No documents available</h3>
@@ -178,9 +177,18 @@
                   <td class="cardActionsCell" data-label="Actions">
                     <div class="mouActionRow cardActionsRow">
                       <% if (card.currentVersion) { %>
-                        <% if (isAgencyAdmin && card.canSign) { %>
-                          <a class="btn secondary" href="/mou/sign/<%= encodeURIComponent(card.stream.mouId) %>/<%= encodeURIComponent(card.currentVersion.version) %>">View / Sign</a>
-                        <% } else if (isAgencyAdmin && card.viewDocumentHref) { %>
+                        <% if ((isAgencyAdmin || isGlobalAdmin) && card.canSign) { %>
+                          <% const cardSignAgency = (function () {
+                            var pending = (card.signatures || []).find(function (entry) {
+                              return entry && entry.agency && !entry.signature;
+                            });
+                            if (pending && pending.agency) return pending.agency;
+                            return (card.signableAgencyChoices && card.signableAgencyChoices[0]) || null;
+                          })(); %>
+                          <% if (cardSignAgency) { %>
+                          <a class="btn secondary" href="/mou/sign/<%= encodeURIComponent(card.stream.mouId) %>/<%= encodeURIComponent(card.currentVersion.version) %>?agencyId=<%= encodeURIComponent(cardSignAgency.suffix) %>">View / Sign</a>
+                          <% } %>
+                        <% } else if ((isAgencyAdmin || isGlobalAdmin) && card.viewDocumentHref) { %>
                           <a class="btn secondary" href="<%= card.viewDocumentHref %>">View Document</a>
                         <% } %>
                       <% } %>
@@ -192,16 +200,16 @@
           </table>
         </div>
       <% } %>
-    </section>
+      </div>
+    </details>
   <% } %>
 
   <% if (isGlobalAdmin) { %>
-    <section class="card" style="margin-top:14px;">
-      <div class="mouSectionHeader">
-        <div>
-          <h2>Document Templates</h2>
-        </div>
-      </div>
+    <details class="card" style="margin-top:14px;" open>
+      <summary style="cursor:pointer; font-weight:600; user-select:none;">
+        Document Templates (<%= Array.isArray(adminStreams) ? adminStreams.length : 0 %>)
+      </summary>
+      <div style="margin-top:12px;">
       <% if (!adminStreams || !adminStreams.length) { %>
         <div class="mouEmptyState">
           <h3>No documents yet</h3>
@@ -308,18 +316,18 @@
           </table>
         </div>
       <% } %>
-    </section>
+      </div>
+    </details>
 
-    <section class="card" style="margin-top:14px;">
-      <div class="mouSectionHeader">
-        <div>
-          <h2>Agency Documents</h2>
-        </div>
-        <div class="mouActionRow">
+    <details class="card" style="margin-top:14px;" open>
+      <summary style="cursor:pointer; font-weight:600; user-select:none;">
+        Agency Documents (<%= Array.isArray(signatureRows) ? signatureRows.length : 0 %>)
+      </summary>
+      <div style="margin-top:12px;">
+        <div class="mouActionRow" style="margin-bottom:12px;">
           <a class="btn secondary" href="/mou?export=signatures">Export CSV</a>
           <a class="btn secondary" href="/mou?export=signatures-zip">Export ZIP</a>
         </div>
-      </div>
       <% if (!signatureRows || !signatureRows.length) { %>
         <div class="mouEmptyState">
           <h3>No signature data yet</h3>
@@ -353,6 +361,7 @@
               <option value="all" selected>All Statuses</option>
               <option value="needs-signature">Needs Signature</option>
               <option value="signed">Signed</option>
+              <option value="countersigned">Countersigned</option>
             </select>
           </label>
           <input
@@ -398,7 +407,9 @@
               <% signatureRows.forEach(function (row) { %>
                 <% const signatureRowClass = row.needsSignature ? "mouRow--pending" : (row.signedVersion ? "mouRow--signed" : ""); %>
                 <% const scopeDisplay = row.scopeType === "agency" ? String(row.agencyId || "").toUpperCase() : row.scopeLabel; %>
-                <% const statusLabel = row.needsSignature ? "Needs Signature" : "Signed"; %>
+                <% const statusLabel = row.needsSignature
+                  ? "Needs Signature"
+                  : (row.hasCountersignature ? "Countersigned" : "Signed"); %>
                 <% const signingMethodLabel = row.signingMode === "external_link"
                   ? "External Link"
                   : (row.signingMode === "specific_agency_admin" ? "Specific Agency Admin" : "All Agency Admins"); %>
@@ -416,7 +427,7 @@
                   data-currentversion="<%= row.currentVersion %>"
                   data-signedversion="<%= row.signedVersion ? row.signedVersion : 0 %>"
                   data-signer="<%= row.signerDisplayName || '' %>"
-                  data-status="<%= row.needsSignature ? 'needs-signature' : 'signed' %>"
+                  data-status="<%= row.needsSignature ? 'needs-signature' : (row.hasCountersignature ? 'countersigned' : 'signed') %>"
                   data-statuslabel="<%= statusLabel %>"
                   data-signingmethod="<%= signingMethodLabel %>"
                 >
@@ -444,6 +455,9 @@
                       <% } %>
                       <% if (row.signedVersion) { %>
                         <a class="btn secondary" href="/mou/agency/<%= encodeURIComponent(row.mouId) %>/<%= encodeURIComponent(row.agencyId) %>?version=<%= encodeURIComponent(row.signedVersion) %>">View Document</a>
+                        <% if (!row.needsSignature && Number(row.signedVersion || 0) === Number(row.currentVersion || 0) && !row.hasCountersignature) { %>
+                          <a class="btn success" href="/admin/mou/<%= encodeURIComponent(row.mouId) %>/countersign/<%= encodeURIComponent(row.agencyId) %>">Countersign</a>
+                        <% } %>
                         <% if (!row.needsSignature && Number(row.signedVersion || 0) === Number(row.currentVersion || 0)) { %>
                           <form method="post" action="/admin/mou/<%= encodeURIComponent(row.mouId) %>/signatures/resign/<%= encodeURIComponent(row.agencyId) %>" style="display:inline;" onsubmit="return confirm('Clear the current signed document and require this agency to sign again?');">
                             <button class="btn warning" type="submit">Re-Sign</button>
@@ -459,7 +473,7 @@
                         <% const uploadOverlayId = "mouUploadSignedOverlay-" + row.mouId + "-" + row.agencyId; %>
                         <button class="btn secondary" type="button" data-overlay-target="<%= uploadOverlayId %>">Upload</button>
                         <% if (row.userCanSign) { %>
-                          <a class="btn secondary" href="/mou/sign/<%= encodeURIComponent(row.mouId) %>/<%= encodeURIComponent(row.currentVersion) %>">View / Sign</a>
+                          <a class="btn secondary" href="/mou/sign/<%= encodeURIComponent(row.mouId) %>/<%= encodeURIComponent(row.currentVersion) %>?agencyId=<%= encodeURIComponent(row.agencyId) %>">View / Sign</a>
                         <% } else if (row.documentViewHref) { %>
                           <a class="btn secondary" href="<%= row.documentViewHref %>">View Document</a>
                         <% } %>
@@ -480,7 +494,8 @@
           </table>
         </div>
       <% } %>
-    </section>
+      </div>
+    </details>
 
     <details class="card" style="margin-top:14px;">
       <summary style="cursor:pointer; font-weight:600; user-select:none;">
@@ -1800,7 +1815,13 @@
       if (statusFilter) {
         var selectedStatus = String(statusFilter.value || "all").trim().toLowerCase();
         var rowStatus = String(row.getAttribute("data-status") || "").trim().toLowerCase();
-        if (selectedStatus !== "all" && rowStatus !== selectedStatus) return false;
+        if (selectedStatus !== "all") {
+          if (selectedStatus === "signed") {
+            if (rowStatus !== "signed" && rowStatus !== "countersigned") return false;
+          } else if (rowStatus !== selectedStatus) {
+            return false;
+          }
+        }
       }
 
       return true;

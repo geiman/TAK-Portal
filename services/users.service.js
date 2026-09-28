@@ -1,16 +1,29 @@
 const { getString, getInt, getBool } = require("./env");
-const api = require("./authentik");
 const agenciesStore = require("./agencies.service");
 const templatesStore = require("./templates.service");
 const tak = require("./tak.service");
 const settingsSvc = require("./settings.service");
 const accessSvc = require("./access.service");
+const authzRoles = require("./authzRoles.service");
+const { sanitizeCallsign } = require("./callsignSanitize");
+const directoryRepo = require("./directoryRepo.service");
+const authentikOutbox = require("./authentikOutbox.service");
+const db = require("./db");
+const userLoginStatus = require("./userLoginStatus.service");
 
 function getHiddenUserPrefixes() {
   return String(getString("USERS_HIDDEN_PREFIXES", ""))
     .split(",")
     .map(p => String(p || "").trim().toLowerCase())
     .filter(Boolean);
+}
+
+function usernameMatchesHiddenPrefix(username) {
+  const u = String(username || "").trim().toLowerCase();
+  if (!u) return false;
+  const prefixes = getHiddenUserPrefixes();
+  if (!prefixes.length) return false;
+  return prefixes.some((p) => u.startsWith(p));
 }
 
 // ---------------- Action-lock helpers ----------------
@@ -81,12 +94,183 @@ function normalizeBadge(badge) {
     .replace(/\p{White_Space}+/gu, "");
 }
 
-function validateBadgeNumber(badge) {
+const DEFAULT_USERNAME_PREFIX_LABEL = "Badge Number / Username";
+
+function getUsernamePrefixLabel() {
+  const settings = settingsSvc.getSettings ? settingsSvc.getSettings() || {} : {};
+  return String(settings.USERNAME_PREFIX_LABEL || "").trim() || DEFAULT_USERNAME_PREFIX_LABEL;
+}
+
+function normalizeCsvHeaderName(h) {
+  return String(h || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function csvHeaderKey(h) {
+  return normalizeCsvHeaderName(h).replace(/[^a-z0-9]+/g, "");
+}
+
+/** Minimal CSV line parser (supports quotes / escaped quotes). Used for import headers. */
+function parseCsvHeaderLine(line) {
+  const raw = String(line ?? "");
+  const out = [];
+  let cur = "";
+  let inQuotes = false;
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (raw[i + 1] === '"') {
+          cur += '"';
+          i += 1;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        cur += ch;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inQuotes = true;
+      continue;
+    }
+    if (ch === ",") {
+      out.push(cur);
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+
+function findCsvBadgeColumnIndex(header) {
+  const label = getUsernamePrefixLabel();
+  const aliases = new Set(["badge", csvHeaderKey(label), normalizeCsvHeaderName(label)]);
+  for (let i = 0; i < header.length; i++) {
+    const n = normalizeCsvHeaderName(header[i]);
+    const k = csvHeaderKey(header[i]);
+    if (aliases.has(n) || aliases.has(k)) return i;
+  }
+  return -1;
+}
+
+function csvEscapeIfNeeded(value) {
+  const s = String(value == null ? "" : value);
+  if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function buildUsersImportTemplateCsv() {
+  const header = [
+    getUsernamePrefixLabel(),
+    "agency",
+    "firstName",
+    "lastName",
+    "email",
+    "password",
+    "radioCallsign",
+    "template",
+    "role",
+  ];
+  const rows = [
+    ["1001", "TEST", "John", "Doe", "john.doe@example.org", "Password!23456", "T05", "Patrol", ""],
+    ["1002", "test", "Jane", "Smith", "jane.smith@example.org", "", "", "Patrol", "Team Lead"],
+  ];
+  return (
+    [header.map(csvEscapeIfNeeded).join(",")]
+      .concat(rows.map((r) => r.map(csvEscapeIfNeeded).join(",")))
+      .join("\n") + "\n"
+  );
+}
+
+function buildUsersImportCsvInstructions() {
+  const label = getUsernamePrefixLabel();
+  return `CSV User Creation Instructions
+====================================
+
+Use this with: users-import-template.csv
+
+CSV format (DO NOT change the header line except to optionally omit optional columns):
+${label},agency,firstName,lastName,email,password,radioCallsign,template,role
+
+What each column means:
+1) ${label}
+   - Username base (do not include the agency suffix).
+   - Letters and numbers only (no spaces or special characters).
+   - Older templates may still use the column name "badge".
+
+2) agency
+   - Can be either:
+     a) Agency abbreviation/prefix (example: TEST), OR
+     b) Agency suffix (preferred).
+   - Suffix is preferred as it will lead to less abbreviation conflicts.
+
+3) firstName
+   - User first name.
+
+4) lastName
+   - User last name.
+
+5) email
+   - Optional (can be blank).
+   - Must be a valid email address.
+   - No spaces (example: john.doe@agency.gov is valid, john.doe @agency.gov is NOT).
+
+6) password
+   - Optional (can be blank).
+   - If you enter a password, it MUST include ALL of these:
+     - at least 12 characters
+     - at least 1 lowercase letter
+     - at least 1 uppercase letter
+     - at least 1 number
+     - at least 1 symbol
+
+7) radioCallsign  (optional)
+   - Optional (can be blank or column omitted entirely).
+   - If set, stored on the Authentik user as attribute radio_callsign.
+   - Place before template when included in the header row.
+
+8) template
+   - This is the user group template name to apply to the new user.
+   - Example from sample file: Patrol
+   - The template must already exist for that agency, or that row will fail.
+
+9) role  (optional – last column)
+   - If this column is missing, left blank, or the value is empty, the new user's
+     role is taken from the selected template (same as creating a user in the UI
+     without overriding role).
+   - If you set a value, it must be one of:
+     Team Member, Team Lead, HQ, Sniper, Medic, Forward Observer, RTO, K9
+   - Matching is not case-sensitive (e.g. "team lead" and "Team Lead" are both ok).
+
+Quick rules:
+- Keep the first row (header) as shown; you may omit optional columns
+  (email, radioCallsign, and/or role) for older spreadsheets.
+- The first column header matches Username Descriptor Text in Settings.
+- One user per line.
+- Do not add other extra columns.
+- Save as .csv.
+
+Examples:
+- Good row (role from template, with radio callsign):
+  1001,TEST,John,Doe,john.doe@example.org,Password!23456,HCSO-1001,Patrol,
+- Good row with blank password and explicit role (no radio callsign):
+  1002,test,Jane,Smith,jane.smith@example.org,,,Patrol,Team Lead
+`;
+}
+
+function validateBadgeNumber(badge, descriptorLabel) {
   const b = String(badge || "").trim();
-  if (!b) return "Badge / Username is required.";
+  const name = String(descriptorLabel || "").trim() || "Badge / Username";
+  if (!b) return `${name} is required.`;
   // Allow letters, numbers, periods, dashes, and underscores only.
   if (!/^[A-Za-z0-9._-]+$/.test(b)) {
-    return "Badge / Username can only contain letters, numbers, periods, dashes, and underscores.";
+    return `${name} can only contain letters, numbers, periods, dashes, and underscores.`;
   }
   return null;
 }
@@ -136,6 +320,8 @@ function shouldSkipRoleBackfillForUser(user) {
   if (type === "service_account" || type === "internal_service_account") return true;
   // Mutual aid deployment users are managed separately.
   if (isMutualAidUser(user)) return true;
+  // Never migrate users hidden by USERS_HIDDEN_PREFIXES.
+  if (usernameMatchesHiddenPrefix(user?.username)) return true;
   return false;
 }
 
@@ -149,10 +335,8 @@ async function resolveGroupNames(groupIds) {
     : [];
   if (!ids.length) return [];
 
-  // Include hidden/internal groups when resolving names so notifications and
-  // admin UIs never fall back to raw UUIDs.
-  const all = await getAllGroups({ includeHidden: true });
-  const byPk = new Map(all.map(g => [String(g.pk), String(g.name || "").trim()]));
+  const groups = await directoryRepo.getGroupsByPks(ids);
+  const byPk = new Map(groups.map(g => [String(g.pk), String(g.name || "").trim()]));
   return ids
     .map(id => byPk.get(String(id)) || String(id))
     .filter(Boolean)
@@ -241,19 +425,26 @@ function resolveCallsignRadioOrBlank({ radioCallsign } = {}) {
   return String(radioCallsign ?? "").trim();
 }
 
-/** Strip orphan dashes left when optional callsign segments are empty. */
+/** Strip empty segments and orphan dashes (e.g. XXX--ZZZ or XXX- → XXX-ZZZ / XXX). */
 function cleanupCallsignOutput(str) {
-  let s = String(str || "").trim();
-  while (s.startsWith("-")) s = s.slice(1).trim();
-  while (s.endsWith("-")) s = s.slice(0, -1).trim();
+  let s = sanitizeCallsign(str);
+  s = s.replace(/\s*-\s*/g, "-");
   s = s.replace(/-{2,}/g, "-");
-  return s;
+  while (s.startsWith("-")) s = s.slice(1);
+  while (s.endsWith("-")) s = s.slice(0, -1);
+  return s.trim();
 }
 
 /**
  * Build a callsign string from settings + user context.
  * Falls back to "{{agencyAbbreviation}}-{{lastNameUpper}}-{{badgeNumber}}" when unset/invalid.
  */
+function resolveCallsignCurrentTemplate(currentTemplate) {
+  const name = String(currentTemplate || "").trim();
+  if (!name || name === "Manual Group Selection") return "";
+  return name;
+}
+
 function buildCallsign({
   firstName,
   lastName,
@@ -268,6 +459,7 @@ function buildCallsign({
   county,
   countyAbbreviation,
   agencyTypeCode,
+  currentTemplate,
 } = {}) {
   let settings = {};
   try {
@@ -302,20 +494,21 @@ function buildCallsign({
     county: county || "",
     countyAbbreviation: countyAbbreviation || "",
     agencyTypeCode: agencyTypeCode || "",
+    currentTemplate: resolveCallsignCurrentTemplate(currentTemplate),
   };
 
   const rendered = expr.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (match, key) => {
     if (Object.prototype.hasOwnProperty.call(ctx, key)) {
       const v = ctx[key];
-      return v != null ? String(v) : "";
+      return v != null ? String(v).trim() : "";
     }
     // Unknown tokens are left as-is so misconfigurations are visible.
     return match;
   });
 
-  return expr.includes("radioCallsignOrBlank")
-    ? cleanupCallsignOutput(rendered)
-    : rendered;
+  // Always drop empty fields and clean orphan leading/trailing/double dashes
+  // (e.g. XXX-YYY-ZZZ with YYY empty → XXX-ZZZ).
+  return cleanupCallsignOutput(rendered);
 }
 
 /**
@@ -385,6 +578,7 @@ function getPreferenceDataForUser(user) {
     county,
     countyAbbreviation,
     agencyTypeCode,
+    currentTemplate: attrs.current_template,
   });
 
   const roleLabel = normalizeTakRole(attrs.role, DEFAULT_ATAK_ROLE);
@@ -393,6 +587,33 @@ function getPreferenceDataForUser(user) {
     callsign: String(callsign || "").trim(),
     teamLabel: String(agencyColorEffective || "").trim(),
     roleLabel,
+  };
+}
+
+/**
+ * Same preference QR payload used by the Users page and Setup My Device.
+ * Reads the local Postgres user row only; does not call Authentik live.
+ */
+async function buildPreferenceQrForUser(targetUser) {
+  if (!targetUser || targetUser.pk == null) return null;
+  const pref = getPreferenceDataForUser(targetUser);
+  const qrSvc = require("./qr.service");
+  const preferenceUrl = qrSvc.buildPreferenceUrl({
+    callsign: pref.callsign,
+    teamLabel: pref.teamLabel,
+    roleLabel: pref.roleLabel,
+  });
+  let qrCode = null;
+  if (preferenceUrl) {
+    qrCode = await qrSvc.generateDisplayQrDataUrl(preferenceUrl);
+  }
+  return {
+    username: String(targetUser.username || "").trim(),
+    callsign: pref.callsign,
+    teamLabel: pref.teamLabel,
+    roleLabel: pref.roleLabel,
+    preferenceUrl: preferenceUrl || "",
+    qrCode,
   };
 }
 
@@ -420,6 +641,7 @@ function getTakPortalPublicUrl() {
 /**
  * Build an HTML block for "TAK Portal" content.
  * NOTE: This is used with {{{takPortalBlock}}} in templates so it must be valid HTML.
+ * CTA is a plain bold link (not a boxed button) — some mail gateways strip button-shaped CTAs.
  */
 function buildTakPortalBlock({
   takPortalPublicUrl,
@@ -432,54 +654,17 @@ function buildTakPortalBlock({
   if (url) {
     const intro = String(introHtml || "").trim();
     const btnText = String(buttonText || "Open TAK Portal").trim();
-
-    const btnPadV = 12;
-    const btnPadH = 22;
-    const btnRadius = 8;
-    const btnBg = "#2563eb";
-    const btnTextColor = "#ffffff";
+    const linkColor = "#2e6da4";
 
     return `
       ${intro ? `<p style="margin:0 0 12px; font-size:14px; line-height:21px;">${intro}</p>` : ""}
 
-      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 16px;">
-        <tr>
-          <td align="center">
-
-            <!--[if mso]>
-            <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml"
-              href="${url}"
-              style="height:${btnPadV * 2 + 16}px; v-text-anchor:middle; width:320px;"
-              arcsize="${Math.round((btnRadius / 40) * 100)}%"
-              stroke="f"
-              fillcolor="${btnBg}">
-              <w:anchorlock/>
-              <center style="color:${btnTextColor}; font-family:Segoe UI, Arial, sans-serif; font-size:14px; font-weight:700;">
-                ${btnText}
-              </center>
-            </v:roundrect>
-            <![endif]-->
-
-            <!--[if !mso]><!-- -->
-            <table role="presentation" cellspacing="0" cellpadding="0" border="0">
-              <tr>
-                <td bgcolor="${btnBg}" style="border-radius:${btnRadius}px;">
-                  <a href="${url}" target="_blank" rel="noopener noreferrer" class="btn-link"
-                     style="display:inline-block; padding:${btnPadV}px ${btnPadH}px;
-                            font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-                            font-size:14px; line-height:16px; font-weight:700;
-                            color:${btnTextColor} !important; mso-style-priority:100;
-                            text-decoration:none; border-radius:${btnRadius}px;">
-                    <span style="color:${btnTextColor} !important; text-decoration:none;">${btnText}</span>
-                  </a>
-                </td>
-              </tr>
-            </table>
-            <!--<![endif]-->
-
-          </td>
-        </tr>
-      </table>
+      <p style="margin:0 0 16px; text-align:center;">
+        <a href="${url}" target="_blank" rel="noopener noreferrer"
+           style="font-size:16px; font-weight:700; color:${linkColor};">
+          ${btnText}
+        </a>
+      </p>
     `.trim();
   }
 
@@ -588,6 +773,7 @@ async function buildUserAccountWelcomeEmailVars(user, groupsOverride) {
     county,
     countyAbbreviation,
     agencyTypeCode,
+    currentTemplate: attrs.current_template,
   });
 
   return {
@@ -757,6 +943,7 @@ async function emailPasswordChanged(user) {
     county,
     countyAbbreviation,
     agencyTypeCode,
+    currentTemplate: attrs.current_template,
   });
 
   const html = renderTemplate("password_changed.html", {
@@ -888,6 +1075,7 @@ async function emailGroupsUpdated({ user, beforeIds, afterIds }) {
     county,
     countyAbbreviation,
     agencyTypeCode,
+    currentTemplate: attrs.current_template,
   });
 
   const html = renderTemplate("groups_updated.html", {
@@ -997,37 +1185,20 @@ function getTemplatesForAgency(agencySuffix) {
 // Authentik API helpers (groups)
 async function getAllGroupsRaw(options = {}) {
   const { includeHidden = false } = options || {};
-  let groups = [];
   const pageSize = 200;
+  const all = [];
   let page = 1;
-
-  let url = `/core/groups/?page=${page}&page_size=${pageSize}`;
-
-  while (url) {
-    const res = await api.get(url);
-    const data = res?.data || {};
-    const results = Array.isArray(data.results) ? data.results : [];
-    groups = groups.concat(results);
-
-    const pagination = data.pagination || {};
-    if (pagination && pagination.next) {
-      page = pagination.next;
-      url = `/core/groups/?page=${page}&page_size=${pageSize}`;
-    } else if (data.next) {
-      url = data.next.replace(`${getString("AUTHENTIK_URL", "")}/api/v3`, "");
-    } else {
-      url = null;
-    }
-  }
-
-  if (!includeHidden) {
-    groups = groups.filter(g => {
-      const name = String(g?.name || "").trim().toLowerCase();
-      return !name.startsWith("authentik");
+  for (;;) {
+    const r = await directoryRepo.searchGroupsPaged({
+      includeHidden,
+      page,
+      pageSize,
     });
+    all.push(...(r.groups || []));
+    if (!r.hasNext) break;
+    page += 1;
   }
-
-  return groups;
+  return all;
 }
 
 /**
@@ -1049,88 +1220,19 @@ function applyHiddenPrefixFilter(users, includeHiddenPrefixes) {
 // - hide service/system users by username prefix (USERS_HIDDEN_PREFIXES), unless includeHiddenPrefixes
 // - optionally filter by AUTHENTIK_USER_PATH if set
 async function getAllUsersRaw(options = {}) {
-  const { includeHiddenPrefixes = false } = options;
-  let users = [];
-  const pageSize = getInt("AUTHENTIK_USER_PAGE_SIZE", 500) || 500; // per-page size; total is unlimited
-  let page = 1;
-  let hasNext = true;
-
-  while (hasNext) {
-    const url = `${getString("AUTHENTIK_URL", "")}/api/v3/core/users/?page=${page}&page_size=${pageSize}`;
-    const res = await api.get(url);
-    const data = res?.data || {};
-    const results = Array.isArray(data.results) ? data.results : [];
-    const pagination = data.pagination || {};
-
-    users = users.concat(results);
-
-    if (pagination && pagination.next) {
-      page = pagination.next;
-      hasNext = true;
-    } else {
-      hasNext = false;
-    }
-  }
-
-  users = applyHiddenPrefixFilter(users, includeHiddenPrefixes);
-
-  // --- path filter ---
-  const folderRaw = String(getString("AUTHENTIK_USER_PATH", "")).trim();
-  if (!folderRaw) {
-    return users;
-  }
-
-  const target = normalizePath(folderRaw);
-
-  return users.filter(u => {
-    const up = normalizePath(u.path);
-    return up === target || up.startsWith(target + "/");
-  });
+  const { includeHiddenPrefixes = false, includeGroups = true } = options;
+  return directoryRepo.listAllLocalUsers({ includeHiddenPrefixes, includeGroups });
 }
 
-// Lightweight variant for dashboard/statistics use-cases.
-// Keeps the same visibility/path filtering but requests less payload.
 async function getAllUsersLightweightRaw(options = {}) {
-  const { includeHiddenPrefixes = false } = options;
-  let users = [];
-  const pageSize = getInt("AUTHENTIK_USER_PAGE_SIZE", 500) || 500;
-  let page = 1;
-  let hasNext = true;
-
-  while (hasNext) {
-    const url = `${getString("AUTHENTIK_URL", "")}/api/v3/core/users/?page=${page}&page_size=${pageSize}&include_groups=false&include_roles=false`;
-    const res = await api.get(url);
-    const data = res?.data || {};
-    const results = Array.isArray(data.results) ? data.results : [];
-    const pagination = data.pagination || {};
-
-    users = users.concat(results);
-
-    if (pagination && pagination.next) {
-      page = pagination.next;
-      hasNext = true;
-    } else {
-      hasNext = false;
-    }
-  }
-
-  users = applyHiddenPrefixFilter(users, includeHiddenPrefixes);
-
-  const folderRaw = String(getString("AUTHENTIK_USER_PATH", "")).trim();
-  if (!folderRaw) {
-    return users;
-  }
-
-  const target = normalizePath(folderRaw);
-  return users.filter((u) => {
-    const up = normalizePath(u.path);
-    return up === target || up.startsWith(target + "/");
+  return getAllUsersRaw({
+    includeHiddenPrefixes: !!options.includeHiddenPrefixes,
+    includeGroups: !!options.includeGroups,
   });
 }
 
 async function userExists(username) {
-  const res = await api.get("/core/users/", { params: { username } });
-  return res.data.results.length > 0;
+  return directoryRepo.userExists(username);
 }
 
 // Main: Create user
@@ -1208,34 +1310,66 @@ async function createUser(
   const name = `${last}, ${first}`;
 
   const perm = String(permissions || "user").trim().toLowerCase() || "user";
-  const includeHiddenForGroups =
-    perm === "agency_admin" || perm === "global_admin";
 
-  // Fetch all groups once (or reuse caller-provided cache).
-  // Agency/global admin groups use names starting with "authentik" and are only
-  // present when includeHidden is true — use one fetch for template + admin.
-  const allGroupsLocal = Array.isArray(allGroups) && allGroups.length
-    ? allGroups
-    : await getAllGroups({ includeHidden: includeHiddenForGroups });
+  const templateNameRaw = String(templateIndex || "").trim();
+  const dynTemplates = getTemplatesForAgency(agency.suffix);
 
-  // Build fast lookup maps
+  const neededNames = [];
+  const neededPks = [];
+  if (templateNameRaw === "Manual Group Selection") {
+    for (const x of Array.isArray(manualGroupIds) ? manualGroupIds : []) {
+      const v = String(x).trim();
+      if (!v) continue;
+      if (/^\d+$/.test(v) || directoryRepo.isUuid(v)) neededPks.push(v);
+      else neededNames.push(v);
+    }
+  } else {
+    const selectedTemplate = dynTemplates.find(t =>
+      String(t.name || "").trim().toLowerCase() === templateNameRaw.toLowerCase()
+    );
+    if (!selectedTemplate) {
+      throw new Error(`Template "${templateNameRaw}" not found for agency.`);
+    }
+    for (const n of selectedTemplate.groups || []) {
+      if (n) neededNames.push(String(n));
+    }
+  }
+  if (perm === "agency_admin") {
+    const suffixes = accessSvc.normalizeManagedAgencySuffixes(
+      Array.isArray(managedAgencySuffixes) && managedAgencySuffixes.length
+        ? managedAgencySuffixes
+        : [agency.suffix],
+      { allowedForActor: Array.isArray(opts.allowedAgencySuffixesForAssign) ? opts.allowedAgencySuffixesForAssign : null }
+    );
+    const agencies = agenciesStore.load();
+    for (const sfx of suffixes.concat([String(agency.suffix || "").trim().toLowerCase()])) {
+      const ag = agencies.find((a) => String(a.suffix || "").trim().toLowerCase() === String(sfx).trim().toLowerCase());
+      if (!ag) continue;
+      for (const n of accessSvc.getAllAgencyAdminGroupNames(ag) || []) neededNames.push(n);
+    }
+  }
+  if (perm === "global_admin") {
+    for (const n of String(getString("PORTAL_AUTH_REQUIRED_GROUP", "")).split(",")) {
+      if (n.trim()) neededNames.push(n.trim());
+    }
+  }
+
+  const fetched = [
+    ...(Array.isArray(allGroups) ? allGroups : []),
+    ...(await directoryRepo.getGroupsByNames(neededNames)),
+    ...(await directoryRepo.getGroupsByPks(neededPks)),
+  ];
+  const allGroupsLocal = [...new Map(fetched.map((g) => [String(g.pk), g])).values()];
+
   const byPk = new Map(allGroupsLocal.map(g => [String(g.pk), g]));
   const byNameLower = new Map(
     allGroupsLocal.map(g => [String(g.name || "").trim().toLowerCase(), g])
   );
 
-  // Determine selected groups from template/manual
   let selectedGroups = [];
-
-  const templateNameRaw = String(templateIndex || "").trim();
-  const dynTemplates = getTemplatesForAgency(agency.suffix);
-
-  // Manual Group Selection
   if (templateNameRaw === "Manual Group Selection") {
     templateNameUsed = "Manual Group Selection";
-
     const raw = Array.isArray(manualGroupIds) ? manualGroupIds : [];
-
     selectedGroups = raw
       .map(x => String(x).trim())
       .filter(Boolean)
@@ -1247,37 +1381,22 @@ async function createUser(
         return byNameLower.get(v.toLowerCase()) || null;
       })
       .filter(Boolean);
-
     if (!selectedGroups.length) {
-      throw new Error(
-        "Manual group selection did not match any Authentik groups."
-      );
+      throw new Error("Manual group selection did not match any Authentik groups.");
     }
     templateRoleUsed = DEFAULT_ATAK_ROLE;
-
   } else {
     const selectedTemplate = dynTemplates.find(t =>
-      String(t.name || "").trim().toLowerCase() ===
-      templateNameRaw.toLowerCase()
+      String(t.name || "").trim().toLowerCase() === templateNameRaw.toLowerCase()
     );
-
-    if (!selectedTemplate) {
-      throw new Error(`Template "${templateNameRaw}" not found for agency.`);
-    }
-
     templateNameUsed = String(selectedTemplate.name || "").trim();
     templateRoleUsed = normalizeTakRole(selectedTemplate.role, DEFAULT_ATAK_ROLE);
-
     selectedGroups = (selectedTemplate.groups || [])
-      .map(n =>
-        byNameLower.get(String(n).trim().toLowerCase())
-      )
+      .map(n => byNameLower.get(String(n).trim().toLowerCase()))
       .filter(Boolean);
   }
-  // Merge + dedupe by PK (selected groups only)
-  let groupsToApply = [
-    ...new Map(selectedGroups.map(g => [g.pk, g])).values(),
-  ];
+
+  let groupsToApply = [...new Map(selectedGroups.map(g => [g.pk, g])).values()];
 
   if (perm === "agency_admin" || perm === "global_admin") {
     const extra = [];
@@ -1294,39 +1413,26 @@ async function createUser(
       if (!suffixes.includes(String(agency.suffix || "").trim().toLowerCase())) {
         suffixes = [...suffixes, String(agency.suffix || "").trim().toLowerCase()];
       }
-      const adminPkSet = accessSvc.resolveAgencyAdminGroupIdsForSuffixes(
-        suffixes,
-        allGroupsLocal
-      );
+      const adminPkSet = accessSvc.resolveAgencyAdminGroupIdsForSuffixes(suffixes, allGroupsLocal);
       for (const g of allGroupsLocal) {
         if (adminPkSet.has(String(g.pk))) extra.push(g);
       }
       if (!extra.length) {
-        throw new Error(
-          "Cannot assign Agency Admin: agency admin group was not found in Authentik."
-        );
+        throw new Error("Cannot assign Agency Admin: agency admin group was not found in Authentik.");
       }
     } else {
       const raw = String(getString("PORTAL_AUTH_REQUIRED_GROUP", "")).trim();
-      const nameList = raw
-        .split(",")
-        .map(x => String(x || "").trim().toLowerCase())
-        .filter(Boolean);
+      const nameList = raw.split(",").map(x => String(x || "").trim().toLowerCase()).filter(Boolean);
       for (const nm of nameList) {
         const g = byNameLower.get(nm);
         if (g) extra.push(g);
       }
       if (!extra.length) {
-        throw new Error(
-          "Cannot assign Global Admin: global admin groups are not configured or not found in Authentik."
-        );
+        throw new Error("Cannot assign Global Admin: global admin groups are not configured or not found in Authentik.");
       }
     }
-
     const mergedByPk = new Map(groupsToApply.map(g => [String(g.pk), g]));
-    for (const g of extra) {
-      mergedByPk.set(String(g.pk), g);
-    }
+    for (const g of extra) mergedByPk.set(String(g.pk), g);
     groupsToApply = [...mergedByPk.values()];
   }
 
@@ -1380,50 +1486,127 @@ async function createUser(
   const folderRaw = String(getString("AUTHENTIK_USER_PATH", "")).trim();
   if (folderRaw) payload.path = normalizePath(folderRaw);
 
-  // Track whether a password is being set at creation time
-  const hasPassword = !!pwd;
+  const groupPks = groupsToApply.map((g) => String(g.pk));
+  const wait = opts.waitForOutbox !== false && opts.bulk !== true;
 
-  // Create user
-  const res = await api.post("/core/users/", payload);
-  let user = res.data;
-
-  // NOTE: Authentik's create-user endpoint may not reliably apply the provided
-  // password field (depending on configuration / permissions). However, the
-  // dedicated set_password endpoint is known to work (and is what the UI uses
-  // for resets). To keep behavior consistent, set the password *after* creation
-  // when one was provided.
-  if (pwd) {
-    await api.post(`/core/users/${user.pk}/set_password/`, { password: pwd });
-  }
-
-  // Apply groups (string PKs match setUserGroups / Authentik expectations)
-  if (groupsToApply.length) {
-    await api.patch(`/core/users/${user.pk}/`, {
-      groups: groupsToApply.map(g => String(g.pk)),
-    });
-  }
-
-  // Re-fetch so onboarding email (atakRole, callsign fields, etc.) matches persisted attributes.
-  // Some Authentik versions return incomplete attributes on POST /core/users/.
-  try {
-    user = await getUserById(user.pk);
-  } catch (e) {
-    console.warn(
-      "[createUser] refetch before onboarding email failed:",
-      e?.message || e
+  const outboxId = await db.withTransaction(async (c) => {
+    const local = await directoryRepo.insertLocalUser(
+      {
+        username: payload.username,
+        name: payload.name,
+        email: payload.email,
+        path: payload.path || null,
+        attributes: payload.attributes,
+        isActive: true,
+      },
+      c
     );
+    await directoryRepo.setUserMemberships(local.uuid || local.id, groupPks, c);
+    return authentikOutbox.enqueue(
+      {
+        kind: "create_user",
+        entityType: "user",
+        entityId: local.uuid || local.id,
+        username: payload.username,
+        payload: {
+          username: payload.username,
+          email: payload.email,
+          name: payload.name,
+          path: payload.path,
+          is_active: true,
+          attributes: payload.attributes,
+          groupPks,
+          password: pwd || "",
+          sendOnboardingEmail: true,
+        },
+      },
+      c
+    );
+  });
+
+  if (wait) {
+    await authentikOutbox.waitForOutbox(outboxId, 8000);
   }
 
-  // Email notification (never includes the password)
-  try {
-    await emailUserCreated({ user, groups: groupsToApply, hasPassword });
-  } catch (e) {
-    // Don't fail user creation if email fails
-    console.error("[EMAIL] user creation notice failed:", e?.message || e);
+  let user = await directoryRepo.getUserByUsername(username);
+  invalidateUsersCache();
+  return { user, groups: groupsToApply };
+}
+
+/**
+ * Insert a local directory user and enqueue create_user for the worker.
+ * Used by Mutual Aid (and similar) so the page never live-posts Authentik.
+ */
+async function createDirectoryUser(
+  {
+    username,
+    name,
+    email = "",
+    attributes = {},
+    groupPks = [],
+    password = "",
+    sendOnboardingEmail = false,
+    path: pathOverride,
+  } = {},
+  opts = {}
+) {
+  const uname = String(username || "").trim();
+  if (!uname) throw new Error("Username is required");
+  const displayName = String(name || "").trim();
+  if (!displayName) throw new Error("Name is required");
+
+  const folderRaw =
+    pathOverride != null && String(pathOverride).trim()
+      ? String(pathOverride).trim()
+      : String(getString("AUTHENTIK_USER_PATH", "")).trim();
+  const payloadPath = folderRaw ? normalizePath(folderRaw) : undefined;
+  const ids = (Array.isArray(groupPks) ? groupPks : []).map((x) => String(x).trim()).filter(Boolean);
+  const wait = opts.waitForOutbox !== false && opts.bulk !== true;
+
+  const outboxId = await db.withTransaction(async (c) => {
+    const local = await directoryRepo.insertLocalUser(
+      {
+        username: uname,
+        name: displayName,
+        email: email || null,
+        path: payloadPath || null,
+        attributes: attributes || {},
+        isActive: true,
+      },
+      c
+    );
+    if (ids.length) {
+      await directoryRepo.setUserMemberships(local.uuid || local.id, ids, c);
+    }
+    return authentikOutbox.enqueue(
+      {
+        kind: "create_user",
+        entityType: "user",
+        entityId: local.uuid || local.id,
+        username: uname,
+        payload: {
+          username: uname,
+          email: email || "",
+          name: displayName,
+          path: payloadPath,
+          is_active: true,
+          attributes: attributes || {},
+          groupPks: ids,
+          password: password || "",
+          sendOnboardingEmail: !!sendOnboardingEmail,
+        },
+      },
+      c
+    );
+  });
+
+  if (wait) {
+    await authentikOutbox.waitForOutbox(outboxId, 8000);
   }
 
   invalidateUsersCache();
-  return { user, groups: groupsToApply };
+  const user = await directoryRepo.getUserByUsername(uname);
+  return { user, outboxId };
 }
 
 const INTEGRATION_PREFIX = "nodered-";
@@ -1462,13 +1645,21 @@ function getStreamingDataFeedNameForTitle(title) {
   return slug;
 }
 
+function uniqueGroupIds(groupIds, groupId) {
+  const ids = [];
+  if (Array.isArray(groupIds)) ids.push(...groupIds);
+  else if (groupIds != null && groupIds !== "") ids.push(groupIds);
+  if (groupId != null && groupId !== "") ids.push(groupId);
+  return [...new Set(ids.map((id) => String(id).trim()).filter(Boolean))];
+}
+
 /**
- * Create an integration user (username prefix "nodered-") with a single group.
+ * Create an integration user (username prefix "nodered-") with one or more groups.
  * type: "global" | "state" | "county" | "agency". Scope values (state, county, agencySuffix) required when type matches.
  * Username is always lowercase, no spaces: e.g. nodered-state-ca-weather-api, nodered-agency-abc-myapi.
  */
 async function createIntegrationUser(
-  { type, title, groupId, state, county, agencySuffix },
+  { type, title, groupId, groupIds, state, county, agencySuffix },
   opts = {}
 ) {
   const createdBy = opts.createdBy || null;
@@ -1500,10 +1691,16 @@ async function createIntegrationUser(
     throw new Error(`Integration user "${username}" already exists.`);
   }
 
-  const allGroups = await getAllGroups({ includeHidden: true });
-  const group = allGroups.find(g => String(g.pk) === String(groupId));
-  if (!group) {
-    throw new Error("Selected group not found.");
+  const requestedIds = uniqueGroupIds(groupIds, groupId);
+  if (!requestedIds.length) {
+    throw new Error("At least one group is required.");
+  }
+
+  const selectedGroups = await directoryRepo.getGroupsByPks(requestedIds);
+  if (selectedGroups.length !== requestedIds.length) {
+    const have = new Set(selectedGroups.map((g) => String(g.pk)));
+    const missing = requestedIds.filter((id) => !have.has(String(id)));
+    if (missing.length) throw new Error("Selected group not found.");
   }
 
   const name = username;
@@ -1511,6 +1708,10 @@ async function createIntegrationUser(
     integration_type: "nodered",
     integration_scope: integrationType,
     integration_title: String(title || "").trim() || username,
+    tak_integration_group: selectedGroups
+      .map((g) => String(g.name || "").trim())
+      .filter(Boolean)
+      .join(","),
   };
   if (createdBy && createdBy.username) {
     attributes.created_by_username = String(createdBy.username);
@@ -1530,22 +1731,53 @@ async function createIntegrationUser(
   const folderRaw = String(getString("AUTHENTIK_USER_PATH", "")).trim();
   if (folderRaw) payload.path = normalizePath(folderRaw);
 
-  const res = await api.post("/core/users/", payload);
-  const user = res.data;
-
-  // Set a random secure password so the integration account is not easily loginable
   const crypto = require("crypto");
   const randomPassword = `Int3gr4t10n!${crypto.randomBytes(8).toString("hex")}`;
-  await api.post(`/core/users/${user.pk}/set_password/`, {
-    password: randomPassword,
+  const groupPks = selectedGroups.map((g) => String(g.pk));
+  const wait = opts.waitForOutbox !== false && opts.bulk !== true;
+
+  const outboxId = await db.withTransaction(async (c) => {
+    const local = await directoryRepo.insertLocalUser(
+      {
+        username: payload.username,
+        name: payload.name,
+        email: payload.email,
+        path: payload.path || null,
+        attributes: payload.attributes,
+        isActive: true,
+      },
+      c
+    );
+    await directoryRepo.setUserMemberships(local.uuid || local.id, groupPks, c);
+    return authentikOutbox.enqueue(
+      {
+        kind: "create_user",
+        entityType: "user",
+        entityId: local.uuid || local.id,
+        username: payload.username,
+        payload: {
+          username: payload.username,
+          email: payload.email,
+          name: payload.name,
+          path: payload.path,
+          is_active: true,
+          attributes: payload.attributes,
+          groupPks,
+          password: randomPassword,
+          sendOnboardingEmail: false,
+        },
+      },
+      c
+    );
   });
 
-  await api.patch(`/core/users/${user.pk}/`, {
-    groups: [group.pk],
-  });
+  if (wait) {
+    await authentikOutbox.waitForOutbox(outboxId, 8000);
+  }
 
   invalidateUsersCache();
-  return { user, groups: [group] };
+  const user = await directoryRepo.getUserByUsername(username);
+  return { user, groups: selectedGroups };
 }
 
 /**
@@ -1554,11 +1786,14 @@ async function createIntegrationUser(
  * Uses the lightweight list endpoint (same as dashboard) — not full getAllUsersRaw.
  */
 async function findIntegrationUsers() {
-  const raw = await getAllUsersLightweightRaw({ includeHiddenPrefixes: true });
-  const prefix = INTEGRATION_PREFIX.toLowerCase();
-  return raw.filter(u =>
-    String(u?.username || "").toLowerCase().startsWith(prefix)
-  );
+  const r = await directoryRepo.searchUsersPaged({
+    usernamePrefix: INTEGRATION_PREFIX,
+    includeHiddenPrefixes: true,
+    includeGroups: true,
+    page: 1,
+    pageSize: 200,
+  });
+  return r.users;
 }
 
 function agencyIntegrationUsernamePrefix(agencySuffix) {
@@ -1642,7 +1877,7 @@ async function fetchUsersForDashboardStats() {
 // Bulk CSV import
 // This CSV format is intentionally minimal and strict:
 // REQUIRED columns (case-insensitive):
-//   badge
+//   badge  (or the Username Descriptor Text from Settings)
 //   agency   (suffix or prefix)
 //   firstName
 //   lastName
@@ -1698,9 +1933,10 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
   reportProgress({ phase: "parsing", total: Math.max(0, lines.length - 1), processed: 0, created: 0, skipped: 0, force: true });
 
   // ----------- Columns -----------
-  const header = lines[0].split(",").map(h => h.trim().toLowerCase());
+  const usernamePrefixLabel = getUsernamePrefixLabel();
+  const header = parseCsvHeaderLine(lines[0]).map((h) => h.trim().toLowerCase());
+  const badgeColIdx = findCsvBadgeColumnIndex(header);
   const required = [
-    "badge",
     "agency",
     "firstname",
     "lastname",
@@ -1708,6 +1944,9 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
     "template",
   ];
 
+  if (badgeColIdx < 0) {
+    throw new Error(`Missing required column: ${usernamePrefixLabel}`);
+  }
   for (const req of required) {
     if (!header.includes(req)) {
       throw new Error(`Missing required column: ${req}`);
@@ -1717,6 +1956,10 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
   function get(parts, name) {
     const idx = header.indexOf(name);
     return idx >= 0 ? String(parts[idx] ?? "").trim() : "";
+  }
+
+  function getBadge(parts) {
+    return badgeColIdx >= 0 ? String(parts[badgeColIdx] ?? "").trim() : "";
   }
 
   function getRadioCallsign(parts) {
@@ -1747,7 +1990,7 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
     const lineNum = i + 1;
 
     // Normalize badge so spaces/NBSP/weird chars from CSV (e.g. Excel) are stripped before validation and storage
-    const badge = normalizeBadge(get(parts, "badge"));
+    const badge = normalizeBadge(getBadge(parts));
     const agencyRaw = get(parts, "agency");
     const firstName = get(parts, "firstname");
     const lastName = get(parts, "lastname");
@@ -1775,7 +2018,7 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
     if (emailErr) rowErrors.push(emailErr);
 
     // Badge/username base must match the same allowed characters as UI/backend validation.
-    const badgeErr = validateBadgeNumber(badge);
+    const badgeErr = validateBadgeNumber(badge, usernamePrefixLabel);
     if (badgeErr) rowErrors.push(badgeErr);
 
     // Password: blank allowed. If non-blank, must pass validatePassword.
@@ -1889,8 +2132,8 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
   const skipped = [];
   let processed = 0;
 
-  // Preload Authentik groups once for all rows to avoid repeated API calls
-  const allGroups = await getAllGroups();
+  // Groups resolved per row via targeted SQL in createUser
+  const allGroups = [];
 
   const defaultLimit = 5;
   const envVal = getInt("USER_IMPORT_CONCURRENCY", defaultLimit);
@@ -1956,6 +2199,8 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
             skipExistenceCheck: true,
             createdBy,
             creationMethod,
+            bulk: true,
+            waitForOutbox: false,
           }
         );
 
@@ -2016,33 +2261,14 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
 // Search users
 // - If no q provided -> returns all users (already filtered by folder)
 async function findUsers({ q, forceRefresh = false } = {}) {
-  // Legacy helper kept for backwards compatibility:
-  // fetches all users (honoring folder/prefix filters), then filters in-memory.
-  let users = await getAllUsers({ forceRefresh });
-  if (!q || !String(q).trim()) {
-    return users;
-  }
-
-  const needle = String(q).trim().toLowerCase();
-  return users.filter(u => {
-    const username = String(u.username || "").toLowerCase();
-    const email = String(u.email || "").toLowerCase();
-    const name = String(u.name || "").toLowerCase();
-    const attrs = u?.attributes || {};
-    const agencyAbbr = String(
-      attrs.agency_abbreviation ||
-      attrs.agencyAbbreviation ||
-      attrs.agencyAbbr ||
-      attrs.agencyabbr ||
-      ""
-    ).trim().toLowerCase();
-    return (
-      username.includes(needle) ||
-      email.includes(needle) ||
-      name.includes(needle) ||
-      agencyAbbr.includes(needle)
-    );
+  const r = await directoryRepo.searchUsersPaged({
+    q,
+    page: 1,
+    pageSize: 200,
+    includeGroups: true,
+    includeHiddenPrefixes: false,
   });
+  return r.users;
 }
 
 function getAuthentikOrderingForUserSort({ sortKey, sortDir } = {}) {
@@ -2067,136 +2293,28 @@ async function searchUsersPaged({
   sortKey = "username",
   sortDir = "asc",
   currentTemplate,
+  agencySuffix,
+  agencySuffixes,
+  excludeGroupPks,
+  includeGroups = false,
+  includeLoginStatus = false,
 } = {}) {
-  const params = {
+  const out = await directoryRepo.searchUsersPaged({
+    q,
     page,
-    page_size: pageSize,
-    ordering: getAuthentikOrderingForUserSort({ sortKey, sortDir }),
-  };
-
-  // IMPORTANT: Keep pagination totals accurate without extra API calls.
-  //
-  // The portal supports hiding system/service users by username prefix
-  // (USERS_HIDDEN_PREFIXES). When possible, we also apply Authentik's
-  // server-side `type` filter so the API's `pagination.count` already
-  // reflects the same visible set.
-  //
-  // Authentik exposes the following user `type` values:
-  //   - external
-  //   - internal
-  //   - internal_service_account
-  //   - service_account
-  //
-  // If the portal is configured to hide users by prefix, those hidden users
-  // are almost always service accounts. Excluding service accounts here keeps
-  // the "showing X of Y users" UI correct with a single request.
-  const hiddenPrefixes = getHiddenUserPrefixes();
-  if (hiddenPrefixes.length) {
-    // NOTE: params.type is an array; axios serializes this as repeated
-    // query params (?type=external&type=internal), which matches Authentik.
-    params.type = ["external", "internal"];
-  }
-
-  // If AUTHENTIK_USER_PATH is set, ask Authentik to filter server-side so
-  // pagination totals align with the visible user set.
-  const folderRaw = String(getString("AUTHENTIK_USER_PATH", "")).trim();
-  if (folderRaw) {
-    params.path_startswith = normalizePath(folderRaw);
-  }
-
-  if (q && String(q).trim()) {
-    // Authentik supports "search" across username/email/etc.
-    params.search = String(q).trim();
-  }
-  const templateName = String(currentTemplate || "").trim();
-  if (templateName) {
-    params.attributes = JSON.stringify({ current_template: templateName });
-  }
-
-  // Needed so the Manage Users UI can show roles and the edit modal can
-  // initialize the Permissions dropdown (matches other paged search helpers).
-  params.include_groups = "true";
-  params.include_roles = "false";
-
-  const res = await api.get("/core/users/", { params });
-  const data = res?.data || {};
-  const raw = Array.isArray(data.results) ? data.results : [];
-
-  // Apply the same prefix/path filters that getAllUsersRaw uses so that
-  // paged search stays in sync with full-list queries.
-  let users = raw.slice();
-
-  // Even when we apply the server-side `type` filter above, keep this
-  // prefix filter as a safety net in case the instance has custom naming.
-  if (hiddenPrefixes.length) {
-    users = users.filter(u => {
-      const username = String(u?.username || "").trim().toLowerCase();
-      return !hiddenPrefixes.some(p => username.startsWith(p));
-    });
-  }
-
-  // If the instance doesn't support the `path_startswith` param (or if the
-  // portal is using a strict folder match), keep the legacy in-memory path
-  // enforcement.
-  if (folderRaw) {
-    const target = normalizePath(folderRaw);
-    users = users.filter(u => {
-      const up = normalizePath(u.path);
-      return up === target || up.startsWith(target + "/");
-    });
-  }
-
-  const pagination = data.pagination || {};
-  let total = 0;
-
-  // Prefer Authentik's pagination.count if available (total items)
-  if (pagination && pagination.count != null) {
-    const t = Number(pagination.count);
-    if (!Number.isNaN(t) && t >= 0) {
-      total = t;
-    }
-  }
-
-  // Fallback to top-level count if that is how this version exposes it
-  if (!total && data && data.count != null) {
-    const c = Number(data.count);
-    if (!Number.isNaN(c) && c >= 0) {
-      total = c;
-    }
-  }
-
-  // As a last resort, fall back to the current page length
-  if (!total) {
-    total = users.length;
-  }
-
-  // If we still have any hidden-prefix users on this page (e.g., if the
-  // Authentik instance does not classify them as service accounts), adjust
-  // the total downward for this request so the UI doesn't over-report.
-  //
-  // This preserves correctness when the API `type` filter is effective
-  // (the common case), while still being strictly better than the unfiltered
-  // count when it's not.
-  if (hiddenPrefixes.length) {
-    const filteredOnPage = raw.length - users.length;
-    if (filteredOnPage > 0 && total >= filteredOnPage) {
-      total = total - filteredOnPage;
-    }
-  }
-
-  const currentPage =
-    typeof pagination.current === "number"
-      ? pagination.current
-      : Number(params.page) || 1;
-
-  return {
-    users,
-    total,
-    page: currentPage,
     pageSize,
-    hasNext: Boolean(pagination.next ?? data.next),
-    hasPrev: Boolean(pagination.previous ?? data.previous),
-  };
+    sortKey,
+    sortDir,
+    currentTemplate,
+    agencySuffix,
+    agencySuffixes,
+    excludeGroupPks,
+    includeGroups,
+  });
+  if (includeLoginStatus) {
+    out.users = userLoginStatus.annotateUsersLoginStatus(out.users);
+  }
+  return out;
 }
 
 async function searchUsersByAgencyAbbreviationPaged({
@@ -2223,131 +2341,20 @@ async function searchUsersByAgencyAbbreviationPaged({
     };
   }
 
-  const hiddenPrefixes = getHiddenUserPrefixes();
-  const folderRaw = String(getString("AUTHENTIK_USER_PATH", "")).trim();
-
-  const attrsFilter = { agency_abbreviation: abbr };
-  const templateName = String(currentTemplate || "").trim();
-  if (templateName) attrsFilter.current_template = templateName;
-
-  const params = {
+  return directoryRepo.searchUsersPaged({
+    q,
     page,
-    page_size: pageSize,
-    ordering: getAuthentikOrderingForUserSort({ sortKey, sortDir }),
-    // Authentik filters JSON attributes via `attributes=<json>`.
-    // See authentik/core/api/users.py UsersFilter.filter_attributes().
-    attributes: JSON.stringify(attrsFilter),
-    include_roles: includeRoles ? "true" : "false",
-    include_groups: includeGroups ? "true" : "false",
-  };
-
-  // Reduce payload + align pagination totals with what the UI is allowed to see.
-  if (hiddenPrefixes.length) {
-    params.type = ["external", "internal"];
-  }
-
-  if (folderRaw) {
-    params.path_startswith = normalizePath(folderRaw);
-  }
-
-  if (Array.isArray(groupsByPk) && groupsByPk.length) {
-    const cleaned = groupsByPk.map((x) => String(x).trim()).filter(Boolean);
-    // axios may serialize arrays in a way Authentik's filters don't accept.
-    // In practice, the global-admin set is usually a single group; handle
-    // that reliably as a scalar. If we have multiple, force fallback.
-    if (cleaned.length > 1) {
-      throw new Error("Delegated global-admin exclusion requires a single group PK");
-    }
-    if (cleaned.length === 1) params.groups_by_pk = cleaned[0];
-  }
-
-  if (q && String(q).trim()) {
-    // Authentik supports "search" across username/email/etc.
-    params.search = String(q).trim();
-  }
-
-  const res = await api.get("/core/users/", { params });
-  const data = res?.data || {};
-  const raw = Array.isArray(data.results) ? data.results : [];
-
-  // Apply the same hidden-prefix/path filters used elsewhere.
-  let users = raw.slice();
-
-  if (hiddenPrefixes.length) {
-    users = users.filter((u) => {
-      const username = String(u?.username || "").trim().toLowerCase();
-      return !hiddenPrefixes.some((p) => username.startsWith(p));
-    });
-  }
-
-  if (folderRaw) {
-    const target = normalizePath(folderRaw);
-    users = users.filter((u) => {
-      const up = normalizePath(u.path);
-      return up === target || up.startsWith(target + "/");
-    });
-  }
-
-  const pagination = data.pagination || {};
-  let total = 0;
-
-  if (pagination) {
-    if (typeof pagination.count === "number") total = pagination.count;
-    if (!total && typeof pagination.total === "number") total = pagination.total;
-    if (!total && typeof pagination.total_items === "number")
-      total = pagination.total_items;
-  }
-
-  if (!total && data && data.count != null) {
-    const c = Number(data.count);
-    if (!Number.isNaN(c) && c >= 0) total = c;
-  }
-
-  if (!total) total = users.length;
-
-  // Adjust downward for hidden-prefix filtering when it affected this page.
-  if (hiddenPrefixes.length) {
-    const filteredOnPage = raw.length - users.length;
-    if (filteredOnPage > 0 && total >= filteredOnPage) {
-      total = total - filteredOnPage;
-    }
-  }
-
-  const currentPage =
-    typeof pagination.current === "number"
-      ? pagination.current
-      : Number(params.page) || 1;
-
-  return {
-    users,
-    total,
-    page: currentPage,
     pageSize,
-    hasNext: Boolean(pagination.next ?? data.next),
-    hasPrev: Boolean(pagination.previous ?? data.previous),
-  };
+    sortKey,
+    sortDir,
+    currentTemplate,
+    agencyAbbreviation: abbr,
+    includeGroups,
+  });
 }
 
 async function listAllUsersByAgencySuffix(agencySuffix) {
-  const sfx = String(agencySuffix || "").trim();
-  if (!sfx) return [];
-
-  const all = [];
-  let page = 1;
-  let hasNext = true;
-  while (hasNext) {
-    const batch = await searchUsersByAgencySuffixPaged({
-      agencySuffix: sfx,
-      page,
-      pageSize: 200,
-      includeGroups: false,
-      includeRoles: false,
-    });
-    all.push(...(Array.isArray(batch.users) ? batch.users : []));
-    hasNext = !!batch.hasNext;
-    page += 1;
-  }
-  return all;
+  return directoryRepo.listUsersByAgencySuffix(agencySuffix);
 }
 
 async function searchUsersByAgencySuffixPaged({
@@ -2374,106 +2381,16 @@ async function searchUsersByAgencySuffixPaged({
     };
   }
 
-  const hiddenPrefixes = getHiddenUserPrefixes();
-  const folderRaw = String(getString("AUTHENTIK_USER_PATH", "")).trim();
-
-  const attrsFilter = { agency: sfx };
-  const templateName = String(currentTemplate || "").trim();
-  if (templateName) attrsFilter.current_template = templateName;
-
-  const params = {
+  return directoryRepo.searchUsersPaged({
+    q,
     page,
-    page_size: pageSize,
-    ordering: getAuthentikOrderingForUserSort({ sortKey, sortDir }),
-    // Authentik filters JSON attributes via `attributes=<json>`.
-    // See authentik/core/api/users.py UsersFilter.filter_attributes().
-    attributes: JSON.stringify(attrsFilter),
-    include_roles: includeRoles ? "true" : "false",
-    include_groups: includeGroups ? "true" : "false",
-  };
-
-  // Reduce payload + align pagination totals with what the UI is allowed to see.
-  if (hiddenPrefixes.length) {
-    // Match the logic used by searchUsersPaged() so totals reflect visible users.
-    params.type = ["external", "internal"];
-  }
-
-  if (folderRaw) {
-    params.path_startswith = normalizePath(folderRaw);
-  }
-
-  if (Array.isArray(groupsByPk) && groupsByPk.length) {
-    const cleaned = groupsByPk.map((x) => String(x).trim()).filter(Boolean);
-    if (cleaned.length > 1) {
-      throw new Error("Delegated global-admin exclusion requires a single group PK");
-    }
-    if (cleaned.length === 1) params.groups_by_pk = cleaned[0];
-  }
-
-  if (q && String(q).trim()) {
-    // For this fast path, we generally call with q empty (to preserve semantics).
-    params.search = String(q).trim();
-  }
-
-  const res = await api.get("/core/users/", { params });
-  const data = res?.data || {};
-  const raw = Array.isArray(data.results) ? data.results : [];
-
-  // Keep the same hidden-prefix/path enforcement as other paged helpers
-  let users = raw.slice();
-
-  // Apply prefix filter as a safety net in case the instance has custom naming.
-  if (hiddenPrefixes.length) {
-    users = users.filter((u) => {
-      const username = String(u?.username || "").trim().toLowerCase();
-      return !hiddenPrefixes.some((p) => username.startsWith(p));
-    });
-  }
-
-  if (folderRaw) {
-    const target = normalizePath(folderRaw);
-    users = users.filter((u) => {
-      const up = normalizePath(u.path);
-      return up === target || up.startsWith(target + "/");
-    });
-  }
-
-  const pagination = data.pagination || {};
-  let total = 0;
-
-  if (pagination && pagination.count != null) {
-    const t = Number(pagination.count);
-    if (!Number.isNaN(t) && t >= 0) total = t;
-  }
-
-  if (!total && data && data.count != null) {
-    const c = Number(data.count);
-    if (!Number.isNaN(c) && c >= 0) total = c;
-  }
-
-  if (!total) total = users.length;
-
-  // Adjust downward for hidden-prefix filtering when it affected this page.
-  if (hiddenPrefixes.length) {
-    const filteredOnPage = raw.length - users.length;
-    if (filteredOnPage > 0 && total >= filteredOnPage) {
-      total = total - filteredOnPage;
-    }
-  }
-
-  const currentPage =
-    typeof pagination.current === "number"
-      ? pagination.current
-      : Number(params.page) || 1;
-
-  return {
-    users,
-    total,
-    page: currentPage,
     pageSize,
-    hasNext: Boolean(pagination.next ?? data.next),
-    hasPrev: Boolean(pagination.previous ?? data.previous),
-  };
+    sortKey,
+    sortDir,
+    currentTemplate,
+    agencySuffix: sfx,
+    includeGroups,
+  });
 }
 
 async function searchUsersByAgencyNamePaged({
@@ -2501,125 +2418,21 @@ async function searchUsersByAgencyNamePaged({
     };
   }
 
-  const hiddenPrefixes = getHiddenUserPrefixes();
-  const folderRaw = String(getString("AUTHENTIK_USER_PATH", "")).trim();
-
-  const attrsFilter = { agency_name: name };
-  const templateName = String(currentTemplate || "").trim();
-  if (templateName) attrsFilter.current_template = templateName;
-
-  const params = {
+  return directoryRepo.searchUsersPaged({
+    q,
     page,
-    page_size: pageSize,
-    ordering: getAuthentikOrderingForUserSort({ sortKey, sortDir }),
-    // Authentik filters JSON attributes via `attributes=<json>`.
-    // The create-user flow stores the full agency name under `attributes.agency_name`.
-    attributes: JSON.stringify(attrsFilter),
-    include_roles: includeRoles ? "true" : "false",
-    include_groups: includeGroups ? "true" : "false",
-  };
-
-  if (activeOnly) params.is_active = true;
-
-  if (hiddenPrefixes.length) {
-    params.type = ["external", "internal"];
-  }
-
-  if (folderRaw) {
-    params.path_startswith = normalizePath(folderRaw);
-  }
-
-  if (Array.isArray(groupsByPk) && groupsByPk.length) {
-    const cleaned = groupsByPk.map((x) => String(x).trim()).filter(Boolean);
-    if (cleaned.length > 1) {
-      throw new Error("Delegated global-admin exclusion requires a single group PK");
-    }
-    if (cleaned.length === 1) params.groups_by_pk = cleaned[0];
-  }
-
-  if (q && String(q).trim()) {
-    params.search = String(q).trim();
-  }
-
-  const res = await api.get("/core/users/", { params });
-  const data = res?.data || {};
-  const raw = Array.isArray(data.results) ? data.results : [];
-
-  let users = raw.slice();
-
-  if (hiddenPrefixes.length) {
-    users = users.filter((u) => {
-      const username = String(u?.username || "").trim().toLowerCase();
-      return !hiddenPrefixes.some((p) => username.startsWith(p));
-    });
-  }
-
-  if (folderRaw) {
-    const target = normalizePath(folderRaw);
-    users = users.filter((u) => {
-      const up = normalizePath(u.path);
-      return up === target || up.startsWith(target + "/");
-    });
-  }
-
-  const pagination = data.pagination || {};
-  let total = 0;
-
-  if (pagination && pagination.count != null) {
-    const t = Number(pagination.count);
-    if (!Number.isNaN(t) && t >= 0) total = t;
-  }
-
-  if (!total && data && data.count != null) {
-    const c = Number(data.count);
-    if (!Number.isNaN(c) && c >= 0) total = c;
-  }
-
-  if (!total) total = users.length;
-
-  if (hiddenPrefixes.length) {
-    const filteredOnPage = raw.length - users.length;
-    if (filteredOnPage > 0 && total >= filteredOnPage) {
-      total = total - filteredOnPage;
-    }
-  }
-
-  const currentPage =
-    typeof pagination.current === "number"
-      ? pagination.current
-      : Number(params.page) || 1;
-
-  return {
-    users,
-    total,
-    page: currentPage,
     pageSize,
-    hasNext: Boolean(pagination.next ?? data.next),
-    hasPrev: Boolean(pagination.previous ?? data.previous),
-  };
+    sortKey,
+    sortDir,
+    currentTemplate,
+    agencyName: name,
+    includeGroups,
+    activeOnly: activeOnly || undefined,
+  });
 }
 
 async function listAllUsersByAgencyName(agencyName, { activeOnly = false } = {}) {
-  const name = String(agencyName || "").trim();
-  if (!name) return [];
-
-  const all = [];
-  let page = 1;
-  let hasNext = true;
-  while (hasNext) {
-    const batch = await searchUsersByAgencyNamePaged({
-      agencyName: name,
-      page,
-      pageSize: 200,
-      includeGroups: false,
-      includeRoles: false,
-      activeOnly,
-    });
-    all.push(...(Array.isArray(batch.users) ? batch.users : []));
-    hasNext = !!batch.hasNext;
-    page += 1;
-  }
-  return all;
+  return directoryRepo.listUsersByAgencyName(agencyName, { activeOnly });
 }
 
 function getAgencyActiveConcurrency() {
@@ -2664,8 +2477,8 @@ async function runWithConcurrencyLimit(items, limit, worker) {
 }
 
 /**
- * Disable many agency users efficiently: one TAK cert fetch/verify pass, then
- * concurrent Authentik PATCH calls (no redundant GET per user).
+ * Disable many agency users: one TAK cert fetch/verify pass, then Postgres
+ * is_active + patch_user outbox (no live Authentik PATCH).
  */
 async function bulkDisableUsersForAgency(users) {
   const active = (Array.isArray(users) ? users : []).filter((u) => {
@@ -2699,7 +2512,11 @@ async function bulkDisableUsersForAgency(users) {
   await runWithConcurrencyLimit(toDisable, concurrency, async (user) => {
     const userId = String(user.pk ?? user.id);
     try {
-      await api.patch(`/core/users/${userId}/`, { is_active: false });
+      await toggleUserActive(user.uuid || user.id || userId, false, {
+        bulk: true,
+        skipTakCertRevoke: true,
+        waitForOutbox: false,
+      });
       affectedIds.push(userId);
     } catch (err) {
       failures.push({
@@ -2710,6 +2527,11 @@ async function bulkDisableUsersForAgency(users) {
   });
 
   invalidateUsersCache();
+  try {
+    require("./activeUserGate.service").invalidateAllActiveUsers();
+  } catch (_) {
+    /* optional gate */
+  }
 
   if (failures.length) {
     const detail = failures
@@ -2727,8 +2549,7 @@ async function bulkDisableUsersForAgency(users) {
 }
 
 /**
- * Re-enable users previously disabled with an agency. Uses concurrent GET/PATCH
- * and sends re-enable emails for users that were inactive.
+ * Re-enable users previously disabled with an agency via Postgres + patch_user outbox.
  */
 async function bulkEnableUsersForAgency(userIds) {
   const ids = (Array.isArray(userIds) ? userIds : [])
@@ -2746,20 +2567,11 @@ async function bulkEnableUsersForAgency(userIds) {
       const user = await getUserById(userId);
       if (!user) return;
 
-      if (isUserActionLocked(user?.username)) {
-        throw new Error(`Actions are locked for user ${user?.username || userId}`);
-      }
-
-      if (user.is_active) return;
-
-      await api.patch(`/core/users/${userId}/`, { is_active: true });
+      await toggleUserActive(user.uuid || user.id || userId, true, {
+        bulk: true,
+        waitForOutbox: false,
+      });
       reenabledIds.push(String(userId));
-
-      try {
-        await emailUserReenabled(user);
-      } catch (e) {
-        console.error("[EMAIL] user re-enabled notice failed:", e?.message || e);
-      }
     } catch (err) {
       failures.push({
         userId: String(userId),
@@ -2768,7 +2580,14 @@ async function bulkEnableUsersForAgency(userIds) {
     }
   });
 
-  if (reenabledIds.length > 0) invalidateUsersCache();
+  if (reenabledIds.length > 0) {
+    invalidateUsersCache();
+    try {
+      require("./activeUserGate.service").invalidateAllActiveUsers();
+    } catch (_) {
+      /* optional gate */
+    }
+  }
 
   if (failures.length) {
     const detail = failures
@@ -2786,7 +2605,7 @@ async function bulkEnableUsersForAgency(userIds) {
 }
 
 /**
- * Delete many agency users: bulk TAK cert revoke, then concurrent Authentik DELETE.
+ * Delete many agency users: bulk TAK cert revoke, then pending_delete + delete_user outbox.
  */
 async function bulkDeleteUsersForAgency(users) {
   const list = (Array.isArray(users) ? users : []).filter((u) => {
@@ -2806,7 +2625,13 @@ async function bulkDeleteUsersForAgency(users) {
   await runWithConcurrencyLimit(list, concurrency, async (user) => {
     const userId = String(user.pk ?? user.id);
     try {
-      await api.delete(`/core/users/${userId}/`);
+      await deleteUser(user.uuid || user.id || userId, {
+        bulk: true,
+        skipTakCertRevoke: true,
+        ignoreLocks: true,
+        waitForOutbox: false,
+        usernameHint: user.username,
+      });
       deletedIds.push(userId);
     } catch (err) {
       failures.push({
@@ -2846,64 +2671,42 @@ function userPassesAgencySuffixSafety(user, expectedAgencySuffix) {
 }
 
 async function countUsersByAgencyName(agencyName) {
-  const name = String(agencyName || "").trim();
-  if (!name) return 0;
-  const page = await searchUsersByAgencyNamePaged({
-    agencyName: name,
-    page: 1,
-    pageSize: 1,
-    includeGroups: false,
-  });
-  return Number(page.total) || 0;
+  return directoryRepo.countUsersByAgencyName(agencyName);
 }
 
 async function buildUsersByTemplateForAgencyName(agencyName, { expectedAgencySuffix } = {}) {
   const name = String(agencyName || "").trim();
   if (!name) return {};
-
-  const counts = Object.create(null);
-  let page = 1;
-  let hasNext = true;
-
-  while (hasNext) {
-    const result = await searchUsersByAgencyNamePaged({
-      agencyName: name,
-      page,
-      pageSize: AGENCY_DASHBOARD_USER_PAGE_SIZE,
-      includeGroups: false,
-    });
-
-    for (const u of result.users || []) {
-      if (!userPassesAgencySuffixSafety(u, expectedAgencySuffix)) continue;
-      const attrs =
-        u && typeof u.attributes === "object" && u.attributes ? u.attributes : {};
-      let tmpl = String(attrs.current_template || "").trim();
-      if (!tmpl) tmpl = "Manual Group Selection";
-      counts[tmpl] = (counts[tmpl] || 0) + 1;
-    }
-
-    hasNext = result.hasNext;
-    page += 1;
-  }
-
-  return counts;
+  const suffixes = expectedAgencySuffix
+    ? [String(expectedAgencySuffix).trim().toLowerCase()].filter(Boolean)
+    : undefined;
+  return directoryRepo.countUsersByTemplate({
+    agencyName: name,
+    agencySuffixes: suffixes && suffixes.length ? suffixes : undefined,
+  });
 }
 
 async function resetPassword(userId, password) {
   await assertUserNotActionLocked(userId);
   const err = validatePassword(password);
   if (err) throw new Error(err);
-  await api.post(`/core/users/${userId}/set_password/`, {
-    password,
+  const user = await directoryRepo.getUserById(userId);
+  if (!user) throw new Error("User not found");
+  const outboxId = await authentikOutbox.enqueue({
+    kind: "set_password",
+    entityType: "user",
+    entityId: user.uuid || user.id,
+    authentikPk: user.authentik_pk,
+    username: user.username,
+    payload: { password, authentikPk: user.authentik_pk },
   });
-
-  // Notify the user (does not include the new password)
-  try {
-    const user = await getUserById(userId);
-    await emailPasswordChanged(user);
-  } catch (e) {
-    // Don't fail the password change if email fails
-    console.error("[EMAIL] password change notice failed:", e?.message || e);
+  const waited = await authentikOutbox.waitForOutbox(outboxId, 8000);
+  if (waited.done) {
+    try {
+      await emailPasswordChanged(user);
+    } catch (e) {
+      console.error("[EMAIL] password change notice failed:", e?.message || e);
+    }
   }
   return true;
 }
@@ -2920,12 +2723,7 @@ async function resendOnboardingEmail(userId) {
     ? user.groups.map(x => String(x))
     : [];
 
-  const allGroups = await getAllGroups({ includeHidden: true });
-  const byPk = new Map(allGroups.map(g => [String(g.pk), g]));
-
-  const groups = groupIds
-    .map(id => byPk.get(String(id)))
-    .filter(Boolean);
+  const groups = await directoryRepo.getGroupsByPks(groupIds);
 
   // Determine whether the user already has a password
   const hasPassword = !!user.password_set;
@@ -2942,7 +2740,23 @@ async function resendOnboardingEmail(userId) {
 async function updateEmail(userId, email) {
   await assertUserNotActionLocked(userId);
   const mail = String(email || "").trim();
-  await api.patch(`/core/users/${userId}/`, { email: mail });
+  const user = await directoryRepo.getUserById(userId);
+  if (!user) throw new Error("User not found");
+  const outboxId = await db.withTransaction(async (c) => {
+    await directoryRepo.updateLocalUser(user.uuid || user.id, { email: mail }, c);
+    return authentikOutbox.enqueue(
+      {
+        kind: "patch_user",
+        entityType: "user",
+        entityId: user.uuid || user.id,
+        authentikPk: user.authentik_pk,
+        username: user.username,
+        payload: { authentikPk: user.authentik_pk, patch: { email: mail } },
+      },
+      c
+    );
+  });
+  await authentikOutbox.waitForOutbox(outboxId, 8000);
   return true;
 }
 
@@ -2973,7 +2787,36 @@ async function setUserGroups(userId, groupIds, opts = {}) {
       current_template: currentTemplate || "Manual Group Selection",
     };
   }
-  await api.patch(`/core/users/${userId}/`, payload);
+  const wait = opts.waitForOutbox !== false && opts.bulk !== true;
+  const outboxId = await db.withTransaction(async (c) => {
+    await directoryRepo.setUserMemberships(userBefore.uuid || userBefore.id, ids, c);
+    if (payload.attributes) {
+      await directoryRepo.updateLocalUser(userBefore.uuid || userBefore.id, { attributes: payload.attributes }, c);
+    }
+    return authentikOutbox.enqueue(
+      {
+        kind: "set_groups",
+        entityType: "user",
+        entityId: userBefore.uuid || userBefore.id,
+        authentikPk: userBefore.authentik_pk,
+        username: userBefore.username,
+        payload: {
+          authentikPk: userBefore.authentik_pk,
+          groupPks: ids,
+          patch: payload.attributes ? { attributes: payload.attributes } : undefined,
+        },
+      },
+      c
+    );
+  });
+  if (wait) await authentikOutbox.waitForOutbox(outboxId, 8000);
+
+  invalidateUsersCache();
+  try {
+    await userLoginStatus.refreshStoredStatusForUserIds([userBefore.uuid || userBefore.id]);
+  } catch (_) {
+    /* worker snapshot will refresh */
+  }
 
   // Notify user via debounced email (do not fail operation if email fails)
   try {
@@ -2988,11 +2831,11 @@ async function setUserGroups(userId, groupIds, opts = {}) {
       e?.message || e
     );
   }
-  return true;
+  return ids;
 }
 
-async function toggleUserActive(userId, isActive) {
-  await assertUserNotActionLocked(userId);
+async function toggleUserActive(userId, isActive, opts = {}) {
+  await assertUserNotActionLocked(userId, opts);
 
   let userBefore;
   try {
@@ -3010,7 +2853,7 @@ async function toggleUserActive(userId, isActive) {
   }
 
   // If disabling, revoke + VERIFY TAK certs first (if enabled)
-  if (!isActive) {
+  if (!isActive && !opts.skipTakCertRevoke) {
     const shouldRevoke = getBool("TAK_REVOKE_ON_DISABLE", true);
 
     if (shouldRevoke) {
@@ -3022,11 +2865,34 @@ async function toggleUserActive(userId, isActive) {
     }
   }
 
-  await api.patch(`/core/users/${userId}/`, {
-    is_active: !!isActive,
+  const wait = opts.waitForOutbox !== false && opts.bulk !== true;
+  const outboxId = await db.withTransaction(async (c) => {
+    await directoryRepo.updateLocalUser(userBefore.uuid || userBefore.id, { is_active: !!isActive }, c);
+    return authentikOutbox.enqueue(
+      {
+        kind: "patch_user",
+        entityType: "user",
+        entityId: userBefore.uuid || userBefore.id,
+        authentikPk: userBefore.authentik_pk,
+        username: userBefore.username,
+        payload: { authentikPk: userBefore.authentik_pk, patch: { is_active: !!isActive } },
+      },
+      c
+    );
   });
+  if (wait) await authentikOutbox.waitForOutbox(outboxId, 8000);
 
   invalidateUsersCache();
+  try {
+    await userLoginStatus.refreshStoredStatusForUserIds([userBefore.uuid || userBefore.id]);
+  } catch (_) {
+    /* worker snapshot will refresh */
+  }
+  try {
+    require("./activeUserGate.service").invalidateActiveUser(userBefore?.username);
+  } catch (_) {
+    /* optional gate */
+  }
 
   if (isActive && !wasActive) {
     try {
@@ -3042,29 +2908,102 @@ async function toggleUserActive(userId, isActive) {
 
 async function deleteUser(userId, opts = {}) {
   // This will skip the lock check if opts.ignoreLocks === true
-  const user = await assertUserNotActionLocked(userId, opts);
+  let user = await assertUserNotActionLocked(userId, opts);
+  if (!user && opts.usernameHint) {
+    user = await getUserById(opts.usernameHint);
+  }
   // Revoke + VERIFY TAK certs BEFORE deleting the Authentik user
   // requireVerified defaults to true, but making it explicit is good.
-  if (!opts.skipTakCertRevoke) {
-    await tak.revokeCertsForUser(user?.username, { requireVerified: true });
+  const username = String(user?.username || opts.usernameHint || "").trim();
+  if (!opts.skipTakCertRevoke && username) {
+    await tak.revokeCertsForUser(username, { requireVerified: true });
   }
 
-  await api.delete(`/core/users/${userId}/`);
+  if (!user) return true;
+
+  const wait = opts.waitForOutbox !== false && opts.bulk !== true;
+  const outboxId = await db.withTransaction(async (c) => {
+    await directoryRepo.updateLocalUser(user.uuid || user.id, { pending_delete: true }, c);
+    return authentikOutbox.enqueue(
+      {
+        kind: "delete_user",
+        entityType: "user",
+        entityId: user.uuid || user.id,
+        authentikPk: user.authentik_pk,
+        username: user.username,
+        payload: { authentikPk: user.authentik_pk },
+      },
+      c
+    );
+  });
+  if (wait) await authentikOutbox.waitForOutbox(outboxId, 8000);
   invalidateUsersCache();
   return true;
 }
 
-async function updateName(userId, name) {
-  await assertUserNotActionLocked(userId);
+async function updateName(userId, name, opts = {}) {
+  await assertUserNotActionLocked(userId, opts);
   const n = String(name || "").trim();
   if (!n) throw new Error("Name is required");
-  await api.patch(`/core/users/${userId}/`, { name: n });
+  const user = await directoryRepo.getUserById(userId);
+  if (!user) throw new Error("User not found");
+  const wait = opts.waitForOutbox !== false && opts.bulk !== true;
+  const outboxId = await db.withTransaction(async (c) => {
+    await directoryRepo.updateLocalUser(user.uuid || user.id, { name: n }, c);
+    return authentikOutbox.enqueue(
+      {
+        kind: "patch_user",
+        entityType: "user",
+        entityId: user.uuid || user.id,
+        authentikPk: user.authentik_pk,
+        username: user.username,
+        payload: { authentikPk: user.authentik_pk, patch: { name: n } },
+      },
+      c
+    );
+  });
+  if (wait) await authentikOutbox.waitForOutbox(outboxId, 8000);
 }
 
 // Fetch single user (if you don't already have it)
 async function getUserById(userId) {
-  const res = await api.get(`/core/users/${userId}/`);
-  return res.data;
+  const user = await directoryRepo.getUserById(userId);
+  if (!user) return null;
+  const pks = Array.isArray(user.groups) ? user.groups : [];
+  if (!pks.length) {
+    user.groupDetails = [];
+    return user;
+  }
+  const named = await directoryRepo.getGroupsByPks(pks);
+  user.groupDetails = (Array.isArray(named) ? named : []).map((g) => ({
+    pk: g.pk,
+    name: g.name,
+  }));
+  return user;
+}
+
+/**
+ * Resolve a logged-in Authentik session against the local Postgres directory only.
+ * Authentik's uid header is often a UUID that is neither local users.id nor
+ * authentik_pk (numeric), so fall back to username. Never calls Authentik live.
+ */
+async function getLocalUserForAuth(authUser) {
+  const lookup =
+    typeof module.exports.getUserById === "function"
+      ? module.exports.getUserById
+      : getUserById;
+  const username = String(authUser?.username || "").trim();
+  const uid = String(authUser?.uid || "").trim();
+  let localUser = null;
+  // Username is the same directory key the Users page uses when pk is not in session.
+  if (username) {
+    localUser = await lookup(username);
+  }
+  if (!localUser && uid && uid.toLowerCase() !== username.toLowerCase()) {
+    localUser = await lookup(uid);
+  }
+  if (!localUser || localUser.pk == null) return null;
+  return localUser;
 }
 
 // Update specific attributes on a user (merging with existing)
@@ -3072,7 +3011,21 @@ async function updateUserAttributes(userId, changes) {
   await assertUserNotActionLocked(userId, { ignoreLocks: true });
   const user = await getUserById(userId);
   const newAttrs = { ...(user.attributes || {}), ...changes };
-  await api.patch(`/core/users/${userId}/`, { attributes: newAttrs });
+  const outboxId = await db.withTransaction(async (c) => {
+    await directoryRepo.updateLocalUser(user.uuid || user.id, { attributes: newAttrs }, c);
+    return authentikOutbox.enqueue(
+      {
+        kind: "patch_user",
+        entityType: "user",
+        entityId: user.uuid || user.id,
+        authentikPk: user.authentik_pk,
+        username: user.username,
+        payload: { authentikPk: user.authentik_pk, patch: { attributes: newAttrs } },
+      },
+      c
+    );
+  });
+  await authentikOutbox.waitForOutbox(outboxId, 8000);
   invalidateUsersCache();
   return newAttrs;
 }
@@ -3087,7 +3040,21 @@ async function updateRadioCallsign(userId, radioCallsign) {
   } else {
     delete newAttrs.radio_callsign;
   }
-  await api.patch(`/core/users/${userId}/`, { attributes: newAttrs });
+  const outboxId = await db.withTransaction(async (c) => {
+    await directoryRepo.updateLocalUser(user.uuid || user.id, { attributes: newAttrs }, c);
+    return authentikOutbox.enqueue(
+      {
+        kind: "patch_user",
+        entityType: "user",
+        entityId: user.uuid || user.id,
+        authentikPk: user.authentik_pk,
+        username: user.username,
+        payload: { authentikPk: user.authentik_pk, patch: { attributes: newAttrs } },
+      },
+      c
+    );
+  });
+  await authentikOutbox.waitForOutbox(outboxId, 8000);
   invalidateUsersCache();
   return newAttrs;
 }
@@ -3108,64 +3075,27 @@ async function bulkSetCurrentTemplateForAgencyUsers({
     return { matched: 0, updated: 0 };
   }
 
-  let usersToUpdate = [];
-  let page = 1;
-  let hasNext = true;
-  const pageSize = 200;
-
-  while (hasNext) {
-    const params = {
-      page,
-      page_size: pageSize,
-      include_groups: "false",
-      include_roles: "false",
-      attributes: JSON.stringify({
-        agency: sfx,
-        current_template: from,
-      }),
-    };
-    const res = await api.get("/core/users/", { params });
-    const data = res?.data || {};
-    const rows = Array.isArray(data.results) ? data.results : [];
-    usersToUpdate = usersToUpdate.concat(rows);
-
-    const pagination = data.pagination || {};
-    if (pagination && pagination.next) {
-      page = pagination.next;
-      hasNext = true;
-    } else if (data.next) {
-      page += 1;
-      hasNext = true;
-    } else {
-      hasNext = false;
-    }
-  }
-
-  const patchItems = [];
-  for (const u of usersToUpdate) {
-    const userId = String(u?.pk ?? u?.id ?? "").trim();
-    if (!userId) continue;
-    const attrs = u?.attributes && typeof u.attributes === "object" ? u.attributes : {};
-    if (String(attrs.current_template || "").trim() !== from) continue;
-    if (String(attrs.agency || "").trim().toLowerCase() !== sfx) continue;
-
-    patchItems.push({
-      userId,
-      payload: {
-        attributes: {
-          ...attrs,
-          current_template: to,
-        },
-      },
-    });
-  }
-
-  const concurrency = getTemplateSyncConcurrency();
+  const usersToUpdate = await directoryRepo.listUsersByTemplate(sfx, from);
   let updated = 0;
-  await runWithConcurrencyLimit(patchItems, concurrency, async (item) => {
-    await api.patch(`/core/users/${item.userId}/`, item.payload);
+  for (const u of usersToUpdate) {
+    const attrs = u?.attributes && typeof u.attributes === "object" ? u.attributes : {};
+    const newAttrs = { ...attrs, current_template: to };
+    await db.withTransaction(async (c) => {
+      await directoryRepo.updateLocalUser(u.uuid || u.id, { attributes: newAttrs }, c);
+      await authentikOutbox.enqueue(
+        {
+          kind: "patch_user",
+          entityType: "user",
+          entityId: u.uuid || u.id,
+          authentikPk: u.authentik_pk,
+          username: u.username,
+          payload: { authentikPk: u.authentik_pk, patch: { attributes: newAttrs } },
+        },
+        c
+      );
+    });
     updated += 1;
-  });
+  }
 
   if (updated > 0) invalidateUsersCache();
   return {
@@ -3223,41 +3153,7 @@ async function fetchUsersByAgencyAndCurrentTemplate(agencySuffix, templateName) 
   const sfx = String(agencySuffix || "").trim().toLowerCase();
   const fromName = String(templateName || "").trim();
   if (!sfx || !fromName) return [];
-
-  let users = [];
-  let page = 1;
-  let hasNext = true;
-  const pageSize = getInt("AUTHENTIK_USER_PAGE_SIZE", 500) || 500;
-
-  while (hasNext) {
-    const params = {
-      page,
-      page_size: pageSize,
-      include_groups: "true",
-      include_roles: "false",
-      attributes: JSON.stringify({
-        agency: sfx,
-        current_template: fromName,
-      }),
-    };
-    const res = await api.get("/core/users/", { params });
-    const data = res?.data || {};
-    const rows = Array.isArray(data.results) ? data.results : [];
-    users = users.concat(rows);
-
-    const pagination = data.pagination || {};
-    if (pagination && pagination.next) {
-      page = pagination.next;
-      hasNext = true;
-    } else if (data.next) {
-      page += 1;
-      hasNext = true;
-    } else {
-      hasNext = false;
-    }
-  }
-
-  return users;
+  return directoryRepo.listUsersByTemplate(sfx, fromName);
 }
 
 function computeTemplateSyncWorkItem(
@@ -3327,6 +3223,31 @@ function computeTemplateSyncWorkItem(
   };
 }
 
+async function enqueueLocalUserAttributePatch(user, attributes) {
+  const target = user || {};
+  const entityId = target.uuid || target.id;
+  if (!entityId) {
+    throw new Error("Missing local user id for attribute patch");
+  }
+  await db.withTransaction(async (c) => {
+    await directoryRepo.updateLocalUser(entityId, { attributes }, c);
+    await authentikOutbox.enqueue(
+      {
+        kind: "patch_user",
+        entityType: "user",
+        entityId,
+        authentikPk: target.authentik_pk,
+        username: target.username,
+        payload: {
+          authentikPk: target.authentik_pk,
+          patch: { attributes },
+        },
+      },
+      c
+    );
+  });
+}
+
 async function applyTemplateSyncWorkItems(workItems, { invalidateCache = true, onProgress } = {}) {
   const items = Array.isArray(workItems) ? workItems : [];
   if (!items.length) {
@@ -3349,24 +3270,65 @@ async function applyTemplateSyncWorkItems(workItems, { invalidateCache = true, o
 
   emitProgress();
 
-  await runWithConcurrencyLimit(items, concurrency, async (item) => {
-    await api.patch(`/core/users/${item.userId}/`, item.payload);
-    stats.updated += 1;
-    if (item.attrsChanged) stats.templateAttrUpdated += 1;
+  const groupsSvc = require("./groups.service");
+  const addByGroup = new Map();
+  const removeByGroup = new Map();
+  const attrItems = [];
+
+  for (const item of items) {
     if (item.groupsChanged) {
-      stats.groupsUpdated += 1;
-      try {
-        scheduleDebouncedGroupsEmail({
-          user: item.user,
-          beforeIds: item.beforeGroups,
-          afterIds: item.afterGroups,
-        });
-      } catch (e) {
-        // Never fail template sync because an email enqueue failed.
+      const beforeSet = normalizeIdSet(item.beforeGroups);
+      const nextSet = normalizeIdSet(item.afterGroups);
+      for (const gid of nextSet) {
+        if (!beforeSet.has(gid)) {
+          if (!addByGroup.has(gid)) addByGroup.set(gid, new Set());
+          addByGroup.get(gid).add(item.userId);
+        }
+      }
+      for (const gid of beforeSet) {
+        if (!nextSet.has(gid)) {
+          if (!removeByGroup.has(gid)) removeByGroup.set(gid, new Set());
+          removeByGroup.get(gid).add(item.userId);
+        }
       }
     }
+    if (item.attrsChanged) attrItems.push(item);
+  }
+
+  const usersWithGroupChange = new Set();
+  const removeJobs = Array.from(removeByGroup.entries());
+  await runWithConcurrencyLimit(removeJobs, getTemplateSyncFetchConcurrency(), async ([groupId, pkSet]) => {
+    const out = await groupsSvc.applyBulkGroupMembership(groupId, "remove", [...pkSet]);
+    for (const pk of out?.affectedPks || []) usersWithGroupChange.add(String(pk));
+  });
+  const addJobs = Array.from(addByGroup.entries());
+  await runWithConcurrencyLimit(addJobs, getTemplateSyncFetchConcurrency(), async ([groupId, pkSet]) => {
+    const out = await groupsSvc.applyBulkGroupMembership(groupId, "add", [...pkSet]);
+    for (const pk of out?.affectedPks || []) usersWithGroupChange.add(String(pk));
+  });
+
+  await runWithConcurrencyLimit(attrItems, concurrency, async (item) => {
+    await enqueueLocalUserAttributePatch(item.user, item.payload.attributes);
+    stats.templateAttrUpdated += 1;
+    stats.updated += 1;
     emitProgress();
   });
+
+  for (const item of items) {
+    if (!item.groupsChanged) continue;
+    stats.groupsUpdated += 1;
+    stats.updated += 1;
+    try {
+      scheduleDebouncedGroupsEmail({
+        user: item.user,
+        beforeIds: item.beforeGroups,
+        afterIds: item.afterGroups,
+      });
+    } catch (e) {
+      // Never fail template sync because an email enqueue failed.
+    }
+  }
+  emitProgress();
 
   if (invalidateCache && stats.updated > 0) invalidateUsersCache();
   return stats;
@@ -3396,7 +3358,7 @@ async function syncUsersForTemplateSave({
 
   let syncCtx = preloadedSyncCtx;
   if (applyGroupOverwrite && !syncCtx) {
-    const allVisibleGroups = await getAllGroups({ includeHidden: false });
+    const allVisibleGroups = await directoryRepo.listGroupsMatching({ includeHidden: false, limit: 500 });
     syncCtx = buildTemplateGroupSyncContext(allVisibleGroups);
   }
 
@@ -3429,7 +3391,7 @@ async function syncUsersForTemplateSave({
     let templateAttrUpdated = 0;
     const updatedUsers = new Set();
     await runWithConcurrencyLimit(workItems, getTemplateSyncConcurrency(), async (item) => {
-      await api.patch(`/core/users/${item.userId}/`, { attributes: item.payload.attributes });
+      await enqueueLocalUserAttributePatch(item.user, item.payload.attributes);
       templateAttrUpdated += 1;
       updatedUsers.add(item.userId);
     });
@@ -3493,7 +3455,7 @@ async function syncUsersForTemplateSave({
   const updatedUsers = new Set(usersWithGroupChange);
   if (attrItems.length) {
     await runWithConcurrencyLimit(attrItems, getTemplateSyncConcurrency(), async (item) => {
-      await api.patch(`/core/users/${item.userId}/`, { attributes: item.payload.attributes });
+      await enqueueLocalUserAttributePatch(item.user, item.payload.attributes);
       templateAttrUpdated += 1;
       updatedUsers.add(item.userId);
     });
@@ -3558,7 +3520,7 @@ async function syncUsersForBulkTemplateGroupUpdates(templates, { onProgress } = 
   });
 
   const syncCtx = buildTemplateGroupSyncContext(
-    await getAllGroups({ includeHidden: false })
+    await directoryRepo.listGroupsMatching({ includeHidden: false, limit: 500 })
   );
   const fetchConcurrency = getTemplateSyncFetchConcurrency();
   const fetchJobs = list.map((t, i) => ({ t, i }));
@@ -3690,7 +3652,7 @@ async function syncUsersForBulkTemplateGroupDelta({
   });
 
   const syncCtx = buildTemplateGroupSyncContext(
-    await getAllGroups({ includeHidden: false })
+    await directoryRepo.listGroupsMatching({ includeHidden: false, limit: 500 })
   );
   const targetGroupId = syncCtx.byName.get(normalizedGroupName.toLowerCase()) || "";
   if (!targetGroupId) {
@@ -3887,6 +3849,11 @@ function invalidateUsersCache() {
   TEMPLATE_COUNTS_CACHE = null;
   TEMPLATE_COUNTS_CACHE_KEY = "";
   TEMPLATE_COUNTS_CACHE_TS = 0;
+  try {
+    require("./dashboardStatsCache.service").refreshAfterUsersChanged();
+  } catch (_) {
+    /* dashboard refresh is best-effort */
+  }
 }
 
 function invalidateGroupsCache() {
@@ -3947,83 +3914,18 @@ async function getAllGroups(options = {}) {
 }
 
 /**
- * Fetch users who are in a single group via Authentik's groups_by_pk filter.
- * Used so we get accurate membership without relying on user.groups from list endpoints.
- */
-async function fetchUsersByGroupId(groupId, options = {}) {
-  const gid = String(groupId || "").trim();
-  if (!gid) return [];
-  const { includeHiddenPrefixes = false, ignoreUserPathFilter = false } = options;
-  let users = [];
-  const pageSize = 200;
-  let page = 1;
-  let url =
-    `/core/users/?page=${page}&page_size=${pageSize}` +
-    `&groups_by_pk=${encodeURIComponent(gid)}` +
-    "&include_groups=false&include_roles=false";
-
-  while (url) {
-    const res = await api.get(url);
-    const data = res?.data || {};
-    const results = Array.isArray(data.results) ? data.results : [];
-    users = users.concat(results);
-
-    const pagination = data.pagination || {};
-    if (pagination && pagination.next) {
-      page = pagination.next;
-      url =
-        `/core/users/?page=${page}&page_size=${pageSize}` +
-        `&groups_by_pk=${encodeURIComponent(gid)}` +
-        "&include_groups=false&include_roles=false";
-    } else if (data.next) {
-      url = String(data.next).replace(`${getString("AUTHENTIK_URL", "")}/api/v3`, "");
-    } else {
-      url = null;
-    }
-  }
-
-  if (!includeHiddenPrefixes) {
-    const hiddenPrefixes = getHiddenUserPrefixes();
-    if (hiddenPrefixes.length) {
-      users = users.filter((u) => {
-        const username = String(u?.username || "").trim().toLowerCase();
-        return !hiddenPrefixes.some((p) => username.startsWith(p));
-      });
-    }
-  }
-
-  const folderRaw = String(getString("AUTHENTIK_USER_PATH", "")).trim();
-  if (folderRaw && !ignoreUserPathFilter) {
-    const target = normalizePath(folderRaw);
-    users = users.filter((u) => {
-      const up = normalizePath(u.path);
-      return up === target || up.startsWith(target + "/");
-    });
-  }
-
-  return users;
-}
-
-/**
- * Return users who belong to any of the given group IDs (for bulk email by groups).
- * Fetches per group via Authentik's groups_by_pk so membership is correct; merges and dedupes by user pk.
+ * Users in any of the given group IDs (Postgres group_members).
  */
 async function getUsersByGroups(groupIds, options = {}) {
   const list = Array.isArray(groupIds) ? groupIds.map((id) => String(id).trim()).filter(Boolean) : [];
   if (!list.length) return [];
-  const seenPk = new Set();
-  const merged = [];
-  for (const gid of list) {
-    const groupUsers = await fetchUsersByGroupId(gid, options);
-    for (const u of groupUsers) {
-      const pk = u?.pk != null ? String(u.pk) : u?.id != null ? String(u.id) : null;
-      if (pk && !seenPk.has(pk)) {
-        seenPk.add(pk);
-        merged.push(u);
-      }
-    }
-  }
-  return merged;
+  return directoryRepo.listUserEmailRowsByGroupPks(list, {
+    includeHiddenPrefixes: !!options.includeHiddenPrefixes,
+  });
+}
+
+async function fetchUsersByGroupId(groupId, options = {}) {
+  return getUsersByGroups([groupId], options);
 }
 
 /**
@@ -4032,9 +3934,7 @@ async function getUsersByGroups(groupIds, options = {}) {
 async function getUsersByUsernames(usernames, options = {}) {
   const list = Array.isArray(usernames) ? usernames.map((n) => String(n).trim()).filter(Boolean) : [];
   if (!list.length) return [];
-  const all = await getAllUsers(options);
-  const nameSet = new Set(list);
-  return all.filter((u) => nameSet.has(String(u?.username || "").trim()));
+  return directoryRepo.getUsersByUsernames(list);
 }
 
 async function backfillMissingUserRoles({ dryRun = true } = {}) {
@@ -4065,9 +3965,12 @@ async function backfillMissingUserRoles({ dryRun = true } = {}) {
 
     if (!dryRun) {
       try {
-        await api.patch(`/core/users/${user.pk}/`, { attributes: newAttrs });
+        if (!String(user?.uuid || user?.id || "").trim()) {
+          throw new Error("Missing local user id");
+        }
+        await enqueueLocalUserAttributePatch(user, newAttrs);
       } catch (err) {
-        // Ignore accounts Authentik will not allow us to update (common for internal service accounts).
+        // Ignore accounts we cannot update locally (common for incomplete directory rows).
         skipped += 1;
         if (skippedUsers.length < 100) {
           skippedUsers.push(String(user?.username || user?.pk || ""));
@@ -4134,6 +4037,45 @@ async function getMissingUserRoleStats() {
   };
 }
 
+async function getMissingUserRolePreviewRows() {
+  const users = await getAllUsersRaw({ includeHiddenPrefixes: true });
+  const list = Array.isArray(users) ? users : [];
+  const rows = [];
+
+  for (const user of list) {
+    const attrs = user?.attributes || {};
+    const username = String(user?.username || "").trim();
+    const displayName = String(user?.name || "").trim();
+    const userId = String(user?.pk || user?.id || "").trim();
+    const agencySuffix = String(
+      attrs.agency || accessSvc.resolveAgencySuffixFromUser(user) || ""
+    ).trim().toLowerCase();
+    const currentRole = String(attrs.role || "").trim();
+
+    if (shouldSkipRoleBackfillForUser(user)) {
+      continue;
+    }
+    if (currentRole) continue;
+
+    rows.push({
+      username,
+      displayName,
+      userId,
+      agencySuffix,
+      currentRole: "",
+      newRole: DEFAULT_ATAK_ROLE,
+      action: "will_set_role",
+    });
+  }
+
+  rows.sort((a, b) =>
+    String(a.username || "").localeCompare(String(b.username || ""), undefined, {
+      sensitivity: "base",
+    })
+  );
+  return rows;
+}
+
 function idSetFromArray(arr) {
   return new Set(
     (Array.isArray(arr) ? arr : [])
@@ -4195,106 +4137,14 @@ function computeCurrentTemplateForUser({
   return "Manual Group Selection";
 }
 
-/**
- * Recompute attributes.current_template for users in an agency after group/template renames.
- * Uses fresh group list + template definitions so template-prefill matching stays consistent.
- */
-async function reconcileCurrentTemplateForAgencySuffix(agencySuffix) {
-  const sfx = String(agencySuffix || "").trim().toLowerCase();
-  if (!sfx) return { scanned: 0, updated: 0 };
-
-  const templates = templatesStore.load();
-  const templatesByAgencySuffix = new Map();
-  for (const t of Array.isArray(templates) ? templates : []) {
-    const ts = String(t?.agencySuffix || "").trim().toLowerCase();
-    if (ts !== sfx) continue;
-    if (!templatesByAgencySuffix.has(ts)) templatesByAgencySuffix.set(ts, []);
-    templatesByAgencySuffix.get(ts).push(t);
-  }
-
-  const allGroups = await getAllGroups({ includeHidden: false });
-  const groupNameToId = new Map(
-    (Array.isArray(allGroups) ? allGroups : []).map((g) => [
-      String(g?.name || "").trim().toLowerCase(),
-      String(g?.pk || "").trim(),
-    ])
-  );
-  const visibleGroupIds = new Set(
-    (Array.isArray(allGroups) ? allGroups : [])
-      .map((g) => String(g?.pk || "").trim())
-      .filter(Boolean)
-  );
-  const mutualAidCreatedGroupIds = loadMutualAidCreatedGroupIdSet();
-
-  let scanned = 0;
-  let updated = 0;
-  let page = 1;
-  let hasNext = true;
-
-  while (hasNext) {
-    const params = {
-      page,
-      page_size: 200,
-      include_groups: "true",
-      include_roles: "false",
-      attributes: JSON.stringify({ agency: sfx }),
-    };
-
-    const res = await api.get("/core/users/", { params });
-    const data = res?.data || {};
-    const rows = Array.isArray(data.results) ? data.results : [];
-
-    for (const user of rows) {
-      const attrs = user?.attributes && typeof user.attributes === "object" ? user.attributes : {};
-      if (String(attrs.agency || "").trim().toLowerCase() !== sfx) continue;
-      if (shouldSkipCurrentTemplateBackfillForUser(user)) continue;
-
-      scanned += 1;
-      const desired = computeCurrentTemplateForUser({
-        user,
-        templatesByAgencySuffix,
-        groupNameToId,
-        visibleGroupIds,
-        ignoredGroupIds: mutualAidCreatedGroupIds,
-      });
-      if (desired == null) continue;
-
-      const current = String(attrs.current_template || "").trim();
-      if (current === desired) continue;
-
-      const uid = String(user?.pk ?? user?.id ?? "").trim();
-      if (!uid) continue;
-
-      await api.patch(`/core/users/${uid}/`, {
-        attributes: {
-          ...attrs,
-          current_template: desired,
-        },
-      });
-      updated += 1;
-    }
-
-    const pagination = data.pagination || {};
-    if (pagination && pagination.next) {
-      page = pagination.next;
-      hasNext = true;
-    } else if (data.next) {
-      page += 1;
-      hasNext = true;
-    } else {
-      hasNext = false;
-    }
-  }
-
-  if (updated > 0) invalidateUsersCache();
-  return { scanned, updated };
+function userCurrentTemplate(user) {
+  const attrs = user?.attributes && typeof user.attributes === "object" ? user.attributes : {};
+  return String(attrs.current_template || user?.current_template || "").trim();
 }
 
-async function getCurrentTemplateBackfillStats() {
-  const users = await getAllUsersRaw({ includeHiddenPrefixes: true });
-  const list = Array.isArray(users) ? users : [];
+async function loadCurrentTemplateMatchContext() {
   const templates = templatesStore.load();
-  const allGroups = await getAllGroups({ includeHidden: false });
+  const allGroups = await directoryRepo.listAllLocalGroups({ includeHidden: false });
 
   const groupNameToId = new Map(
     (Array.isArray(allGroups) ? allGroups : []).map((g) => [
@@ -4315,7 +4165,84 @@ async function getCurrentTemplateBackfillStats() {
     if (!templatesByAgencySuffix.has(sfx)) templatesByAgencySuffix.set(sfx, []);
     templatesByAgencySuffix.get(sfx).push(t);
   }
-  const mutualAidCreatedGroupIds = loadMutualAidCreatedGroupIdSet();
+
+  return {
+    templatesByAgencySuffix,
+    groupNameToId,
+    visibleGroupIds,
+    ignoredGroupIds: loadMutualAidCreatedGroupIdSet(),
+  };
+}
+
+async function persistUserCurrentTemplate(user, desired) {
+  const attrs = user?.attributes && typeof user.attributes === "object" ? user.attributes : {};
+  const nextAttrs = { ...attrs, current_template: desired };
+  await db.withTransaction(async (c) => {
+    await directoryRepo.updateLocalUser(user.uuid || user.id, { attributes: nextAttrs }, c);
+    if (user.authentik_pk) {
+      await authentikOutbox.enqueue(
+        {
+          kind: "patch_user",
+          entityType: "user",
+          entityId: user.uuid || user.id,
+          authentikPk: user.authentik_pk,
+          username: user.username,
+          payload: { authentikPk: user.authentik_pk, patch: { attributes: nextAttrs } },
+        },
+        c
+      );
+    }
+  });
+}
+
+/**
+ * Recompute attributes.current_template for users in an agency after group/template renames.
+ * Uses fresh group list + template definitions so template-prefill matching stays consistent.
+ */
+async function reconcileCurrentTemplateForAgencySuffix(agencySuffix) {
+  const sfx = String(agencySuffix || "").trim().toLowerCase();
+  if (!sfx) return { scanned: 0, updated: 0 };
+
+  const ctx = await loadCurrentTemplateMatchContext();
+  const templatesByAgencySuffix = new Map();
+  templatesByAgencySuffix.set(sfx, ctx.templatesByAgencySuffix.get(sfx) || []);
+
+  let scanned = 0;
+  let updated = 0;
+  const users = await directoryRepo.listUsersByAgencySuffix(sfx);
+
+  for (const user of users) {
+    const attrs = user?.attributes && typeof user.attributes === "object" ? user.attributes : {};
+    if (String(attrs.agency || user.agency || "").trim().toLowerCase() !== sfx) continue;
+    if (shouldSkipCurrentTemplateBackfillForUser(user)) continue;
+
+    scanned += 1;
+    const desired = computeCurrentTemplateForUser({
+      user,
+      templatesByAgencySuffix,
+      groupNameToId: ctx.groupNameToId,
+      visibleGroupIds: ctx.visibleGroupIds,
+      ignoredGroupIds: ctx.ignoredGroupIds,
+    });
+    if (desired == null) continue;
+
+    const current = userCurrentTemplate(user);
+    if (current === desired) continue;
+    if (!String(user?.uuid || user?.id || "").trim()) continue;
+
+    await persistUserCurrentTemplate(user, desired);
+    updated += 1;
+  }
+
+  if (updated > 0) invalidateUsersCache();
+  return { scanned, updated };
+}
+
+async function getCurrentTemplateBackfillStats() {
+  const [list, ctx] = await Promise.all([
+    getAllUsersRaw({ includeHiddenPrefixes: true }),
+    loadCurrentTemplateMatchContext(),
+  ]);
 
   let missing = 0;
   let mismatch = 0;
@@ -4327,18 +4254,12 @@ async function getCurrentTemplateBackfillStats() {
       skipped += 1;
       continue;
     }
-    const desired = computeCurrentTemplateForUser({
-      user,
-      templatesByAgencySuffix,
-      groupNameToId,
-      visibleGroupIds,
-      ignoredGroupIds: mutualAidCreatedGroupIds,
-    });
+    const desired = computeCurrentTemplateForUser({ user, ...ctx });
     if (desired == null) {
       skipped += 1;
       continue;
     }
-    const current = String(user?.attributes?.current_template || "").trim();
+    const current = userCurrentTemplate(user);
     if (!current) {
       missing += 1;
       if (sampleUsers.length < 25) sampleUsers.push(String(user?.username || user?.pk || ""));
@@ -4362,66 +4283,40 @@ async function getCurrentTemplateBackfillStats() {
 }
 
 async function backfillCurrentTemplateAttributes({ dryRun = true } = {}) {
-  const users = await getAllUsersRaw({ includeHiddenPrefixes: true });
-  const list = Array.isArray(users) ? users : [];
-  const templates = templatesStore.load();
-  const allGroups = await getAllGroups({ includeHidden: false });
-
-  const groupNameToId = new Map(
-    (Array.isArray(allGroups) ? allGroups : []).map((g) => [
-      String(g?.name || "").trim().toLowerCase(),
-      String(g?.pk || "").trim(),
-    ])
-  );
-  const visibleGroupIds = new Set(
-    (Array.isArray(allGroups) ? allGroups : [])
-      .map((g) => String(g?.pk || "").trim())
-      .filter(Boolean)
-  );
-
-  const templatesByAgencySuffix = new Map();
-  for (const t of Array.isArray(templates) ? templates : []) {
-    const sfx = String(t?.agencySuffix || "").trim().toLowerCase();
-    if (!sfx) continue;
-    if (!templatesByAgencySuffix.has(sfx)) templatesByAgencySuffix.set(sfx, []);
-    templatesByAgencySuffix.get(sfx).push(t);
-  }
-  const mutualAidCreatedGroupIds = loadMutualAidCreatedGroupIdSet();
+  const [list, ctx] = await Promise.all([
+    getAllUsersRaw({ includeHiddenPrefixes: true }),
+    loadCurrentTemplateMatchContext(),
+  ]);
 
   let updated = 0;
   let skipped = 0;
+  let failed = 0;
   const sampleUsers = [];
+  const failedUsers = [];
 
   for (const user of list) {
     if (shouldSkipCurrentTemplateBackfillForUser(user)) {
       skipped += 1;
       continue;
     }
-    const desired = computeCurrentTemplateForUser({
-      user,
-      templatesByAgencySuffix,
-      groupNameToId,
-      visibleGroupIds,
-      ignoredGroupIds: mutualAidCreatedGroupIds,
-    });
+    const desired = computeCurrentTemplateForUser({ user, ...ctx });
     if (desired == null) {
       skipped += 1;
       continue;
     }
-    const current = String(user?.attributes?.current_template || "").trim();
+    const current = userCurrentTemplate(user);
     if (current === desired) continue;
+    if (!String(user?.uuid || user?.id || "").trim()) {
+      skipped += 1;
+      continue;
+    }
 
     if (!dryRun) {
-      const attrs = user?.attributes && typeof user.attributes === "object" ? user.attributes : {};
       try {
-        await api.patch(`/core/users/${user.pk}/`, {
-          attributes: {
-            ...attrs,
-            current_template: desired,
-          },
-        });
+        await persistUserCurrentTemplate(user, desired);
       } catch {
-        skipped += 1;
+        failed += 1;
+        if (failedUsers.length < 100) failedUsers.push(String(user?.username || user?.pk || ""));
         continue;
       }
     }
@@ -4434,43 +4329,24 @@ async function backfillCurrentTemplateAttributes({ dryRun = true } = {}) {
     scanned: list.length,
     updated,
     skipped,
+    failed,
     dryRun: !!dryRun,
     sampleUsers,
+    failedUsers,
   };
 }
 
 async function getCurrentTemplateBackfillPreviewRows() {
-  const users = await getAllUsersRaw({ includeHiddenPrefixes: true });
-  const list = Array.isArray(users) ? users : [];
-  const templates = templatesStore.load();
-  const allGroups = await getAllGroups({ includeHidden: false });
-
-  const groupNameToId = new Map(
-    (Array.isArray(allGroups) ? allGroups : []).map((g) => [
-      String(g?.name || "").trim().toLowerCase(),
-      String(g?.pk || "").trim(),
-    ])
-  );
-  const visibleGroupIds = new Set(
-    (Array.isArray(allGroups) ? allGroups : [])
-      .map((g) => String(g?.pk || "").trim())
-      .filter(Boolean)
-  );
-
-  const templatesByAgencySuffix = new Map();
-  for (const t of Array.isArray(templates) ? templates : []) {
-    const sfx = String(t?.agencySuffix || "").trim().toLowerCase();
-    if (!sfx) continue;
-    if (!templatesByAgencySuffix.has(sfx)) templatesByAgencySuffix.set(sfx, []);
-    templatesByAgencySuffix.get(sfx).push(t);
-  }
-  const mutualAidCreatedGroupIds = loadMutualAidCreatedGroupIdSet();
+  const [list, ctx] = await Promise.all([
+    getAllUsersRaw({ includeHiddenPrefixes: true }),
+    loadCurrentTemplateMatchContext(),
+  ]);
 
   const rows = [];
   for (const user of list) {
     const attrs = user?.attributes || {};
-    const agencySuffix = String(attrs.agency || "").trim().toLowerCase();
-    const current = String(attrs.current_template || "").trim();
+    const agencySuffix = String(attrs.agency || user.agency || "").trim().toLowerCase();
+    const current = userCurrentTemplate(user);
     const username = String(user?.username || "").trim();
     const displayName = String(user?.name || "").trim();
     const userId = String(user?.pk || user?.id || "").trim();
@@ -4488,13 +4364,7 @@ async function getCurrentTemplateBackfillPreviewRows() {
       continue;
     }
 
-    const desired = computeCurrentTemplateForUser({
-      user,
-      templatesByAgencySuffix,
-      groupNameToId,
-      visibleGroupIds,
-      ignoredGroupIds: mutualAidCreatedGroupIds,
-    });
+    const desired = computeCurrentTemplateForUser({ user, ...ctx });
 
     if (desired == null) {
       rows.push({
@@ -4547,21 +4417,9 @@ async function getCurrentTemplateCountsByTemplate(options = {}) {
     }
   }
 
-  const users = await getAllUsersLightweight({});
-  const list = Array.isArray(users) ? users : [];
-  const counts = Object.create(null);
-
-  for (const u of list) {
-    const attrs = (u && typeof u.attributes === "object" && u.attributes) ? u.attributes : {};
-    const agencySuffix = String(attrs.agency || "").trim().toLowerCase();
-    const currentTemplate = String(attrs.current_template || "").trim();
-    if (!agencySuffix || !currentTemplate) continue;
-    if (allowedSet && !allowedSet.has(agencySuffix)) continue;
-    if (currentTemplate === "Manual Group Selection") continue;
-
-    const key = `${agencySuffix}::${currentTemplate.toLowerCase()}`;
-    counts[key] = Number(counts[key] || 0) + 1;
-  }
+  const counts = await directoryRepo.countCurrentTemplateByAgencySuffix({
+    agencySuffixes: allowedSet ? Array.from(allowedSet) : undefined,
+  });
 
   if (TEMPLATE_COUNTS_CACHE_TTL_MS > 0) {
     TEMPLATE_COUNTS_CACHE = counts;
@@ -4618,19 +4476,11 @@ function isGroupNameHiddenByPrefix(groupName, hiddenPrefixes) {
   );
 }
 
-function resolvePortalPermissionLabel(user, { globalAdminGroupPks, groupNameByPk }) {
-  const groups = Array.isArray(user?.groups) ? user.groups.map(String) : [];
-  const globalSet = new Set((globalAdminGroupPks || []).map(String));
-  if (groups.some((gid) => globalSet.has(gid))) return "Global Admin";
-
-  for (const gid of groups) {
-    const name = String(groupNameByPk.get(String(gid)) || "")
-      .trim()
-      .toLowerCase();
-    if (name && name.endsWith("-agencyadmin")) return "Agency Admin";
-  }
-
-  return "Standard User";
+function resolvePortalPermissionLabel(user, { groupNameByPk = new Map() } = {}) {
+  const names = (Array.isArray(user?.groups) ? user.groups : [])
+    .map((gid) => String(groupNameByPk.get(String(gid)) || "").trim())
+    .filter(Boolean);
+  return authzRoles.portalPermissionLabelFromGroupNames(names);
 }
 
 function formatUserGroupMemberships(user, groupNameByPk, hiddenGroupPrefixes) {
@@ -4704,8 +4554,18 @@ function buildUsersExportCsv(users, options = {}) {
       agency,
       String(attrs.current_template || "").trim() || "Manual Group Selection",
       normalizeTakRole(attrs.role, DEFAULT_ATAK_ROLE),
-      resolvePortalPermissionLabel(user, { globalAdminGroupPks, groupNameByPk }),
-      user?.is_active ? "Active" : "Disabled",
+      user.permissionLabel ||
+        resolvePortalPermissionLabel(user, { groupNameByPk }),
+      user.statusLabel ||
+        userLoginStatus.loginStatusLabel({
+          is_active: !!user?.is_active,
+          hasActiveTakCert: !!user?.hasActiveTakCert,
+          hasAuthentikLogin: !!user?.hasAuthentikLogin,
+          takCertsKnown: user?.takCertsKnown === true,
+          permissionLabel:
+            user.permissionLabel ||
+            resolvePortalPermissionLabel(user, { groupNameByPk }),
+        }),
       formatUserGroupMemberships(user, groupNameByPk, hiddenGroupPrefixes),
     ];
 
@@ -4719,7 +4579,7 @@ module.exports = {
   // meta/template support
   getTemplatesForAgency,
   buildTakPortalBlock,
-  validatePassword,
+  emailUserCreated,
 
   // shared data
   getAllGroups,
@@ -4729,12 +4589,14 @@ module.exports = {
   invalidateUsersCache,
   invalidateGroupsCache,
 
-  // preference data for setup-my-device (Android Step 3)
+  // preference data / QR (Users page + setup-my-device)
   getPreferenceDataForUser,
+  buildPreferenceQrForUser,
 
   // user ops
   userExists,
   createUser,
+  createDirectoryUser,
   createIntegrationUser,
   getStreamingDataFeedNameForTitle,
   STREAMING_DATA_FEED_NAME_MAX_LEN,
@@ -4742,7 +4604,10 @@ module.exports = {
   findAgencyIntegrationUsersForSuffix,
   deleteIntegrationUser,
   importUsersFromCsvBuffer,
+  buildUsersImportTemplateCsv,
+  buildUsersImportCsvInstructions,
   getUserById,
+  getLocalUserForAuth,
   findUsers,
   searchUsersPaged,
   searchUsersByAgencyAbbreviationPaged,
@@ -4756,11 +4621,13 @@ module.exports = {
   resendOnboardingEmail,
   updateEmail,
   updateName,
+  enqueueLocalUserAttributePatch,
   setUserGroups,
   updateUserAttributes,
   updateRadioCallsign,
   backfillMissingUserRoles,
   getMissingUserRoleStats,
+  getMissingUserRolePreviewRows,
   backfillCurrentTemplateAttributes,
   getCurrentTemplateBackfillStats,
   getCurrentTemplateBackfillPreviewRows,

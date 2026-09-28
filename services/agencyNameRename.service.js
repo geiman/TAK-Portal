@@ -3,7 +3,7 @@
  * Scoped by agency suffix + index; discovers users/groups by old name from agencies.json.
  */
 
-const api = require("./authentik");
+const directoryRepo = require("./directoryRepo.service");
 const { getString } = require("./env");
 const agenciesStore = require("./agencies.service");
 const userRequestsStore = require("./userRequests.store");
@@ -14,7 +14,7 @@ const usersService = require("./users.service");
 const MAX_AGENCY_NAME_LENGTH = 200;
 
 function getAgencyAdminGroupName(agency) {
-  const abbr = String(agency?.groupPrefix || "").trim().toUpperCase();
+  const abbr = agenciesStore.normalizeGroupPrefix(agency?.groupPrefix);
   const countyAbbrev = String(agency?.countyAbbrev || "").trim().toUpperCase();
   if (!abbr) return null;
   if (countyAbbrev) {
@@ -43,25 +43,7 @@ function getTakGroupPrefix(groupName) {
 async function getGroupByNameUnfiltered(groupName) {
   const name = String(groupName || "").trim();
   if (!name) return null;
-
-  try {
-    const res = await api.get(`/core/groups/?name=${encodeURIComponent(name)}`);
-    const results = Array.isArray(res?.data?.results) ? res.data.results : [];
-    const exact = results.find(
-      (g) => String(g?.name || "").trim().toLowerCase() === name.toLowerCase()
-    );
-    if (exact) return exact;
-  } catch (_) {
-    // fall through
-  }
-
-  const res2 = await api.get(`/core/groups/?search=${encodeURIComponent(name)}`);
-  const results2 = Array.isArray(res2?.data?.results) ? res2.data.results : [];
-  return (
-    results2.find(
-      (g) => String(g?.name || "").trim().toLowerCase() === name.toLowerCase()
-    ) || null
-  );
+  return directoryRepo.getGroupById(name);
 }
 
 async function ensureAgencyAdminGroupExists(agency) {
@@ -83,17 +65,26 @@ async function ensureAgencyAdminGroupExists(agency) {
     const msg = String(err?.response?.data?.detail || err?.response?.data || err?.message || "");
     const lower = msg.toLowerCase();
     if (lower.includes("already") || lower.includes("exists") || lower.includes("unique")) {
-      return { created: false, name };
+      const existing = await getGroupByNameUnfiltered(name);
+      if (existing && agenciesStore.isAgencyOwnedGroup(existing, agency)) {
+        return { created: false, name };
+      }
+      throw new Error(
+        `Authentik group "${name}" already exists and is not owned by this agency`
+      );
     }
     throw err;
   }
 }
 
-function validateNewAgencyName(raw) {
+function validateNewAgencyName(raw, agencies, excludeIndex) {
   const name = String(raw || "").trim();
   if (!name) return "Agency name is required";
   if (name.length > MAX_AGENCY_NAME_LENGTH) {
     return `Agency name must be at most ${MAX_AGENCY_NAME_LENGTH} characters`;
+  }
+  if (agencies) {
+    return agenciesStore.assertUniqueAgencyName(agencies, name, excludeIndex);
   }
   return null;
 }
@@ -104,82 +95,22 @@ async function updateUsersAgencyName(oldName, newName, agencySuffix) {
   const sfx = String(agencySuffix || "").trim().toLowerCase();
   if (!oldN || !newN || !sfx) return { matched: 0, updated: 0 };
 
-  const hiddenPrefixes = String(getString("USERS_HIDDEN_PREFIXES", "") || "")
-    .split(",")
-    .map((p) => String(p || "").trim().toLowerCase())
-    .filter(Boolean);
-
-  const folderRaw = String(getString("AUTHENTIK_USER_PATH", "") || "").trim();
-
-  let page = 1;
-  let hasNext = true;
-  let matched = 0;
-  let updated = 0;
-
-  while (hasNext) {
-    const params = {
-      page,
-      page_size: 200,
-      include_groups: "false",
-      include_roles: "false",
-      attributes: JSON.stringify({ agency_name: oldN }),
-    };
-
-    if (hiddenPrefixes.length) {
-      params.type = ["external", "internal"];
-    }
-
-    if (folderRaw) {
-      params.path_startswith = folderRaw.replace(/^\/+|\/+$/g, "");
-    }
-
-    const res = await api.get("/core/users/", { params });
-    const data = res?.data || {};
-    let rows = Array.isArray(data.results) ? data.results : [];
-
-    if (hiddenPrefixes.length) {
-      rows = rows.filter((u) => {
-        const username = String(u?.username || "").trim().toLowerCase();
-        return !hiddenPrefixes.some((p) => username.startsWith(p));
-      });
-    }
-
-    for (const u of rows) {
-      const attrs = u?.attributes && typeof u.attributes === "object" ? u.attributes : {};
-      const agencyNameAttr = String(attrs.agency_name || "").trim();
-      if (agencyNameAttr !== oldN) continue;
-
-      const userSuffix = String(attrs.agency || "").trim().toLowerCase();
-      if (userSuffix !== sfx) continue;
-
-      matched += 1;
-      if (agencyNameAttr === newN) continue;
-
-      const userId = String(u?.pk ?? u?.id ?? "").trim();
-      if (!userId) continue;
-
-      await api.patch(`/core/users/${userId}/`, {
-        attributes: {
-          ...attrs,
-          agency_name: newN,
-        },
-      });
-      updated += 1;
-    }
-
-    const pagination = data.pagination || {};
-    if (pagination && pagination.next) {
-      page = pagination.next;
-      hasNext = true;
-    } else if (data.next) {
-      page += 1;
-      hasNext = true;
-    } else {
-      hasNext = false;
-    }
+  const directoryRepo = require("./directoryRepo.service");
+  const authentikOutbox = require("./authentikOutbox.service");
+  const rows = await directoryRepo.updateUsersAgencyNameColumn(oldN, newN, sfx);
+  for (const row of rows) {
+    if (!row.authentik_pk) continue;
+    await authentikOutbox.enqueue({
+      kind: "patch_user",
+      entityType: "user",
+      entityId: row.id,
+      authentikPk: row.authentik_pk,
+      username: row.username,
+      payload: { authentikPk: row.authentik_pk, patch: { attributes: row.attributes } },
+    });
   }
-
-  return { matched, updated };
+  if (rows.length) usersService.invalidateUsersCache();
+  return { matched: rows.length, updated: rows.length };
 }
 
 async function updateAgencyAdminGroupMetadata(agency) {
@@ -195,6 +126,7 @@ async function updateAgencyAdminGroupMetadata(agency) {
     adminGroupName = String(g.name || groupName).trim();
     await groupsService.patchGroupNameAndCn(g.pk, adminGroupName, {
       skipActionLock: true,
+      bulk: true,
       attributes: {
         created_type: "Agency",
         created_type_detail: fullName || null,
@@ -216,10 +148,16 @@ async function updateAgencyAdminGroupMetadata(agency) {
 async function updateAgencyTakGroupsCreatedTypeDetail(oldName, newName, groupPrefix) {
   const oldN = String(oldName || "").trim();
   const newN = String(newName || "").trim();
-  const gp = String(groupPrefix || "").trim().toUpperCase();
+  const gp = agenciesStore.normalizeGroupPrefix(groupPrefix);
   if (!oldN || !newN) return { groupsUpdated: 0 };
 
-  const allGroups = await groupsService.getAllGroups({ includeHidden: true });
+  const r = await require("./directoryRepo.service").searchGroupsPaged({
+    createdTypeDetail: oldN,
+    includeHidden: true,
+    page: 1,
+    pageSize: 500,
+  });
+  const allGroups = r.groups;
 
   const candidates = (Array.isArray(allGroups) ? allGroups : []).filter((g) => {
     const gn = String(g?.name || "").trim();
@@ -233,7 +171,7 @@ async function updateAgencyTakGroupsCreatedTypeDetail(oldName, newName, groupPre
 
     if (gp) {
       const prefix = getTakGroupPrefix(gn);
-      if (prefix && prefix !== gp) return false;
+      if (prefix && prefix.toUpperCase() !== gp.toUpperCase()) return false;
     }
     return true;
   });
@@ -250,6 +188,7 @@ async function updateAgencyTakGroupsCreatedTypeDetail(oldName, newName, groupPre
 
     await groupsService.patchGroupNameAndCn(gid, groupName, {
       skipActionLock: true,
+      bulk: true,
       attributes: {
         created_type: attrs.created_type,
         created_type_detail: newN,
@@ -296,7 +235,7 @@ async function renameAgencyName(agencyIndex, newName) {
     throw new Error("Agency not found");
   }
 
-  const err = validateNewAgencyName(newName);
+  const err = validateNewAgencyName(newName, agencies, idx);
   if (err) throw new Error(err);
 
   const agency = agencies[idx];

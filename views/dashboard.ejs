@@ -14,47 +14,50 @@
   }) %>
 
   <% 
-    const hasMutualAid = isGlobalAdmin && mutualAid && (mutualAid.activeIncidents > 0 || mutualAid.activeEvents > 0);
+    const hasMutualAid = mutualAid && (mutualAid.activeIncidents > 0 || mutualAid.activeEvents > 0);
     const hasUserRequests = typeof pendingUserRequestsCount !== "undefined" && pendingUserRequestsCount > 0;
+    const canSeeChannelPatch = typeof perm === "function" ? perm("page.channel_patch") : (isGlobalAdmin || isAgencyAdmin);
+    const hasActiveChannelPatches =
+      canSeeChannelPatch &&
+      typeof activeChannelPatchesCount !== "undefined" &&
+      activeChannelPatchesCount > 0;
     const hasPendingMouDocs =
       !!(typeof isAgencyDashboard !== "undefined" && isAgencyDashboard) &&
       typeof pendingMouDocumentsCount !== "undefined" &&
       pendingMouDocumentsCount > 0;
   %>
 
-  <% if (hasMutualAid || hasUserRequests || hasPendingMouDocs) { %>
+  <% if (hasMutualAid || hasUserRequests || hasActiveChannelPatches || hasPendingMouDocs) { %>
     <div style="margin: 10px 0 14px 0;">
 
       <!-- Mutual Aid Incident -->
-      <% if (isGlobalAdmin && mutualAid && mutualAid.activeIncidents > 0) { %>
-        <% if (isGlobalAdmin) { %>
-          <a href="/mutual-aid" style="text-decoration:none;">
-        <% } %>
-
-        <div class="maBanner maBannerIncident">
-          <%= mutualAid.activeIncidents %> Mutual Aid Incident<%= mutualAid.activeIncidents === 1 ? "" : "s" %> 
-          <%= mutualAid.activeIncidents === 1 ? "Is" : "Are" %> Active
-        </div>
-
-        <% if (isGlobalAdmin || isAgencyAdmin) { %>
-          </a>
-        <% } %>
+      <% if (mutualAid && mutualAid.activeIncidents > 0) { %>
+        <a href="/mutual-aid" style="text-decoration:none;">
+          <div class="maBanner maBannerIncident">
+            <%= mutualAid.activeIncidents %> Mutual Aid Incident<%= mutualAid.activeIncidents === 1 ? "" : "s" %> 
+            <%= mutualAid.activeIncidents === 1 ? "Is" : "Are" %> Active
+          </div>
+        </a>
       <% } %>
 
       <!-- Mutual Aid Event -->
-      <% if (isGlobalAdmin && mutualAid && mutualAid.activeEvents > 0) { %>
-        <% if (isGlobalAdmin) { %>
-          <a href="/mutual-aid" style="text-decoration:none;">
-        <% } %>
+      <% if (mutualAid && mutualAid.activeEvents > 0) { %>
+        <a href="/mutual-aid" style="text-decoration:none;">
+          <div class="maBanner maBannerEvent">
+            <%= mutualAid.activeEvents %> Mutual Aid Event<%= mutualAid.activeEvents === 1 ? "" : "s" %> 
+            <%= mutualAid.activeEvents === 1 ? "Is" : "Are" %> Active
+          </div>
+        </a>
+      <% } %>
 
-        <div class="maBanner maBannerEvent">
-          <%= mutualAid.activeEvents %> Mutual Aid Event<%= mutualAid.activeEvents === 1 ? "" : "s" %> 
-          <%= mutualAid.activeEvents === 1 ? "Is" : "Are" %> Active
-        </div>
-
-        <% if (isGlobalAdmin || isAgencyAdmin) { %>
-          </a>
-        <% } %>
+      <!-- Active Channel Patches -->
+      <% if (hasActiveChannelPatches) { %>
+        <a href="/channel-patch" style="text-decoration:none;">
+          <div class="maBanner channelPatchBanner">
+            <%= activeChannelPatchesCount %> Channel Patch<%= activeChannelPatchesCount === 1 ? "" : "es" %>
+            <%= activeChannelPatchesCount === 1 ? "Is" : "Are" %> Active
+          </div>
+        </a>
       <% } %>
 
       <!-- Pending User Requests -->
@@ -93,8 +96,9 @@
   <!-- Top stats -->
   <% const agencyDash = typeof isAgencyDashboard !== "undefined" && isAgencyDashboard; %>
   <% const multiAgencyDash = agencyDash && typeof isMultiAgencyDashboard !== "undefined" && isMultiAgencyDashboard; %>
-  <div class="<%= multiAgencyDash ? 'grid3' : (agencyDash ? 'grid2 dashboardAgencyStats' : 'grid3') %>">
-    <a href="/users/manage" class="statCardLink">
+  <% const canOpenTemplates = typeof perm === "function" ? perm("page.templates") : (isGlobalAdmin || isAgencyAdmin); %>
+  <div class="<%= isGlobalAdmin ? 'grid4' : 'grid3' %>">
+    <a href="/users" class="statCardLink">
       <div class="card stat">
         <div class="statLabel">Total Users</div>
         <div class="statValue"><%= stats.totalUsers %></div>
@@ -102,40 +106,43 @@
       </div>
     </a>
 
-    <% if (multiAgencyDash) { %>
-    <div class="card stat">
-      <div class="statLabel">Managed Agencies</div>
-      <div class="statValue"><%= stats.totalAgencies %></div>
-      <div class="statHint"></div>
-    </div>
-    <% } else if (!agencyDash) { %>
-    <% if (isGlobalAdmin) { %>
-    <a href="/agencies" class="statCardLink">
-    <% } %>
-    <div class="card stat">
-      <div class="statLabel">Total Agencies</div>
-      <div class="statValue"><%= stats.totalAgencies %></div>
-      <div class="statHint"></div>
-    </div>
-    <% if (isGlobalAdmin) { %>
-    </a>
-    <% } %>
-    <% } %>
-
     <a href="/groups" class="statCardLink">
       <div class="card stat">
-        <div class="statLabel">Total Groups / Channels</div>
+        <div class="statLabel">Total Groups</div>
         <div class="statValue"><%= stats.totalGroups %></div>
         <div class="statHint"></div>
       </div>
     </a>
+
+    <% if (canOpenTemplates) { %>
+    <a href="/templates" class="statCardLink">
+    <% } %>
+    <div class="card stat">
+      <div class="statLabel">Total Templates</div>
+      <div class="statValue"><%= stats.totalTemplates || 0 %></div>
+      <div class="statHint"></div>
+    </div>
+    <% if (canOpenTemplates) { %>
+    </a>
+    <% } %>
+
+    <% if (isGlobalAdmin) { %>
+    <a href="/agencies" class="statCardLink">
+      <div class="card stat">
+        <div class="statLabel">Total Agencies</div>
+        <div class="statValue"><%= stats.totalAgencies %></div>
+        <div class="statHint"></div>
+      </div>
+    </a>
+    <% } %>
   </div>
 
   <!-- TAK stats row: 4-wide global; agency admin shows connected users only -->
+  <% const takView = typeof takStatView !== "undefined" && takStatView ? takStatView : { connectedClients: "--", connectedIntegrations: "--", uptime: "--", disk: "--" }; %>
   <div class="<%= agencyDash ? 'gridTakStatsAgencyOnly' : 'gridTakStats' %> gridTight" id="takStatsRow" style="margin-top:8px;" <%= (isGlobalAdmin || isAgencyAdmin) ? 'data-can-expand-clients="true"' : '' %>>
     <div class="card stat" id="connectedClientsStatCard" role="<%= (isGlobalAdmin || isAgencyAdmin) ? 'button' : '' %>" tabindex="<%= (isGlobalAdmin || isAgencyAdmin) ? '0' : '-1' %>">
       <div class="statLabel">Connected Users</div>
-      <div class="statValue" id="takClients">--</div>
+      <div class="statValue" id="takClients"><%= takView.connectedClients %></div>
       <div class="statHint"></div>
     </div>
 
@@ -143,7 +150,7 @@
     <a href="/integrations" class="statCardLink">
     <div class="card stat">
       <div class="statLabel">Connected Integrations</div>
-      <div class="statValue" id="takConnectedIntegrations">--</div>
+      <div class="statValue" id="takConnectedIntegrations"><%= takView.connectedIntegrations %></div>
       <div class="statHint"></div>
     </div>
     </a>
@@ -152,13 +159,13 @@
     <% if (!agencyDash) { %>
     <div class="card stat">
       <div class="statLabel">TAK Server Uptime</div>
-      <div class="statValue" id="takUptime">--</div>
+      <div class="statValue" id="takUptime"><%= takView.uptime %></div>
       <div class="statHint" id="takUptimeHint"></div>
     </div>
 
     <div class="card stat">
       <div class="statLabel">Disk Usage %</div>
-      <div class="statValue" id="takDisk">--</div>
+      <div class="statValue" id="takDisk"><%= takView.disk %></div>
       <div class="statHint"></div>
     </div>
     <% } %>
@@ -243,6 +250,7 @@
           "Yellow": "#fdd835"
         };
         const defaultColor = "#9ca3af";
+        const LEGEND_MAX_ITEMS = 8;
         function resolveColor(c) {
           if (!c || typeof c !== "string") return defaultColor;
           const raw = c.trim();
@@ -250,16 +258,96 @@
           if (raw.charAt(0) === "#") return raw;
           return agencyColorNameToHex[raw] || agencyColorNameToHex[raw.toLowerCase()] || raw;
         }
-        const pieOptions = {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: {
-              position: "bottom",
-              labels: { boxWidth: 14, boxHeight: 14, padding: 12, font: { size: 15 } }
-            }
+
+        // Chart.js prefers mouse offsetX/offsetY, which Chromium does not
+        // map correctly when html { zoom } is applied. Touch events skip
+        // offsetX and look correct. Always map from client coords instead.
+        function positionFromPointer(nativeEvent, chart) {
+          var source = nativeEvent;
+          var touches = nativeEvent && (nativeEvent.touches || nativeEvent.changedTouches);
+          if (touches && touches.length) source = touches[0];
+          var canvas = chart.canvas;
+          var rect = canvas.getBoundingClientRect();
+          if (!rect.width || !rect.height || !source || typeof source.clientX !== "number") {
+            return { x: 0, y: 0 };
           }
-        };
+          var dpr = chart.currentDevicePixelRatio || 1;
+          return {
+            x: (source.clientX - rect.left) / rect.width * (canvas.width / dpr),
+            y: (source.clientY - rect.top) / rect.height * (canvas.height / dpr)
+          };
+        }
+        try {
+          if (!Chart.registry.plugins.get("cssZoomHoverFix")) {
+            Chart.register({
+              id: "cssZoomHoverFix",
+              beforeEvent: function (chart, args) {
+                var event = args.event;
+                if (!event || !event.native || event.x == null || event.y == null) return;
+                var pos = positionFromPointer(event.native, chart);
+                event.x = pos.x;
+                event.y = pos.y;
+              }
+            });
+          }
+        } catch (e) {}
+        if (Chart.helpers && typeof Chart.helpers.getRelativePosition === "function") {
+          Chart.helpers.getRelativePosition = function (evt, chart) {
+            var native = evt && evt.native ? evt.native : evt;
+            return positionFromPointer(native, chart);
+          };
+        }
+
+        function pieOptionsFor(showLegend) {
+          return {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: "nearest", intersect: true },
+            layout: { padding: 16 },
+            elements: { arc: { hoverOffset: 8 } },
+            plugins: {
+              legend: {
+                display: !!showLegend,
+                position: "bottom",
+                labels: { boxWidth: 14, boxHeight: 14, padding: 12, font: { size: 15 } }
+              },
+              tooltip: {
+                callbacks: {
+                  title: function (items) {
+                    return items && items[0] ? items[0].label : "";
+                  },
+                  label: function (ctx) {
+                    var value = Number(ctx.parsed) || 0;
+                    var data = (ctx.dataset && ctx.dataset.data) || [];
+                    var total = 0;
+                    for (var i = 0; i < data.length; i++) total += Number(data[i]) || 0;
+                    var pct = total ? Math.round((value / total) * 1000) / 10 : 0;
+                    return value + " user" + (value === 1 ? "" : "s") + " (" + pct + "%)";
+                  }
+                }
+              }
+            }
+          };
+        }
+        function createPieChart(canvasId, labels, data, colors) {
+          var canvas = document.getElementById(canvasId);
+          if (!canvas) return;
+          var showLegend = labels.length > 0 && labels.length <= LEGEND_MAX_ITEMS;
+          new Chart(canvas, {
+            type: "pie",
+            data: {
+              labels: labels,
+              datasets: [{
+                data: data,
+                backgroundColor: colors,
+                borderColor: "#ffffff",
+                borderWidth: 2
+              }]
+            },
+            options: pieOptionsFor(showLegend)
+          });
+        }
+
         const templateChartPalette = [
           "#1e88e5", "#43a047", "#e53935", "#8e24aa", "#ff7b00", "#00acc1",
           "#6d4c41", "#d81b60", "#0d47a1", "#1b5e20", "#800000", "#fdd835",
@@ -296,34 +384,15 @@
             const agencyBackgroundColors = agencyLabels.map(function(label) {
               return resolveColor(agencyColors[label]);
             });
-            new Chart(document.getElementById("agencyChart"), {
-              type: "pie",
-              data: {
-                labels: agencyLabels,
-                datasets: [{
-                  data: agencyData,
-                  backgroundColor: agencyBackgroundColors,
-                  borderColor: "#ffffff",
-                  borderWidth: 2
-                }]
-              },
-              options: pieOptions
-            });
+            createPieChart("agencyChart", agencyLabels, agencyData, agencyBackgroundColors);
           }
 
-          new Chart(document.getElementById("templateChart"), {
-            type: "pie",
-            data: {
-              labels: templateLabels,
-              datasets: [{
-                data: templateData,
-                backgroundColor: chartPaletteColors(templateLabels.length, baseColor),
-                borderColor: "#ffffff",
-                borderWidth: 2
-              }]
-            },
-            options: pieOptions
-          });
+          createPieChart(
+            "templateChart",
+            templateLabels,
+            templateData,
+            chartPaletteColors(templateLabels.length, baseColor)
+          );
           return;
         }
 
@@ -345,19 +414,7 @@
           return agencyColorNameToHex[raw] || agencyColorNameToHex[raw.toLowerCase()] || raw;
         });
 
-        new Chart(document.getElementById("agencyChart"), {
-          type: "pie",
-          data: {
-            labels: agencyLabels,
-            datasets: [{
-              data: agencyData,
-              backgroundColor: agencyBackgroundColors,
-              borderColor: "#ffffff",
-              borderWidth: 2
-            }]
-          },
-          options: pieOptions
-        });
+        createPieChart("agencyChart", agencyLabels, agencyData, agencyBackgroundColors);
 
         const usersByType = <%- JSON.stringify((charts && charts.usersByType) || {}) %>;
         const unknownType = <%- JSON.stringify((charts && charts.unknownType) || 0) %>;
@@ -376,19 +433,7 @@
           return agencyColorNameToHex[raw] || agencyColorNameToHex[raw.toLowerCase()] || defaultAgencyColor;
         });
 
-        new Chart(document.getElementById("typeChart"), {
-          type: "pie",
-          data: {
-            labels: typeLabels,
-            datasets: [{
-              data: typeData,
-              backgroundColor: typeBackgroundColors,
-              borderColor: "#ffffff",
-              borderWidth: 2
-            }]
-          },
-          options: pieOptions
-        });
+        createPieChart("typeChart", typeLabels, typeData, typeBackgroundColors);
       }
 
       function loadChartJsAndInit() {
@@ -480,8 +525,11 @@
           ciStr = String(rawCi);
         }
 
-        $("takClients").textContent = ccStr;
-        window.__latestConnectedClients = ccStr;
+        var ccEl = $("takClients");
+        if (ccEl) ccEl.textContent = ccStr;
+        var ccCard = document.getElementById("connectedClientsStatCard");
+        var tableOpen = !!(ccCard && ccCard.classList.contains("connected-clients-expanded-card"));
+        if (!tableOpen) window.__latestConnectedClients = ccStr;
 
         var ciEl = document.getElementById("takConnectedIntegrations");
         if (ciEl) ciEl.textContent = ciStr;
@@ -495,28 +543,27 @@
 
       async function refresh(){
         try{
-          const res = await fetch("/api/tak/metrics", { headers: { "Accept": "application/json" } });
+          const res = await fetch("/api/tak/metrics", { headers: { "Accept": "application/json" }, cache: "no-store" });
           if (!res.ok) throw new Error("HTTP " + res.status);
           const data = await res.json();
           apply(data);
         }catch(e){
           // no "Connected"/status pill on this page; just leave values as-is
         }
+        if (typeof window.__refreshConnectedClientsList === "function") {
+          window.__refreshConnectedClientsList();
+        }
       }
 
       // Initial render from server-side snapshot
       const initial = <%- JSON.stringify(takMetrics || null) %>;
       if (initial) apply(initial);
-      // Expose smoothing-aware updater for other scripts (manual refresh, etc.)
       window.__takApplyDashboardMetrics = apply;
 
-      // Delay the first health check until after full page load, then +5s.
-      // Then poll every 20s.
+      // Cache is filled by the worker (~15s). Poll it, do not wait on TAK HTTP.
       function startTakPolling() {
-        setTimeout(async () => {
-          await refresh();
-          setInterval(refresh, 20000);
-        }, 5000);
+        if (!initial) void refresh();
+        setInterval(refresh, 15000);
       }
 
       if (document.readyState === "complete") {
@@ -528,6 +575,21 @@
   </script>
 
   <script>
+    <% if (isGlobalAdmin || isAgencyAdmin) { %>
+    window.TAK_PORTAL_MAP_DEFAULTS = { basemap: "<%= typeof defaultMapSource !== 'undefined' ? defaultMapSource : 'dark-matter' %>" };
+    window.TAK_PORTAL_MAP_USER_KEY = "<%= typeof mapStorageUserKey !== 'undefined' ? mapStorageUserKey : 'anonymous' %>";
+    window.TAK_PORTAL_MAP_ASSETS = {
+      maplibreJsUrl: "<%= typeof maplibreJsUrl !== 'undefined' ? maplibreJsUrl : 'https://unpkg.com/maplibre-gl@5.13.0/dist/maplibre-gl.js' %>",
+      maplibreCssUrl: "<%= typeof maplibreCssUrl !== 'undefined' ? maplibreCssUrl : 'https://unpkg.com/maplibre-gl@5.13.0/dist/maplibre-gl.css' %>",
+    };
+    <% } %>
+  </script>
+  <% if (isGlobalAdmin || isAgencyAdmin) { %>
+  <script src="<%= mapBasemapsJsUrl %>"></script>
+  <script src="<%= dashboardMiniMapJsUrl %>" defer></script>
+  <% } %>
+
+  <script>
     (function () {
       var row = document.getElementById("takStatsRow");
       var card = document.getElementById("connectedClientsStatCard");
@@ -536,11 +598,22 @@
       var NODERED_PREFIX = "nodered-";
       var TLS_CALLSIGN_PREFIX = "tls:";
 
+      function isBlankConnectedField(v) {
+        var s = (v != null ? String(v).trim() : "");
+        return !s || /^[—–−\-]+$/.test(s);
+      }
+
       function isExcludedConnectedClient(item) {
+        if (!item) return true;
         var u = (item.username != null ? String(item.username).trim() : "").toLowerCase();
         if (u.indexOf(NODERED_PREFIX) === 0) return true;
         var c = (item.callsign != null ? String(item.callsign).trim() : "").toLowerCase();
-        return c.indexOf(TLS_CALLSIGN_PREFIX) === 0;
+        if (c.indexOf(TLS_CALLSIGN_PREFIX) === 0) return true;
+        var uid = String(item.uid || item.clientUid || "").trim().toLowerCase();
+        if (c === "tak-portal") return true;
+        if (uid === "takportal-channel-patch-bridge") return true;
+        if (c.indexOf(".takportal.") >= 0 || uid.indexOf(".takportal.") >= 0) return true;
+        return false;
       }
 
       var TEAM_COLORS = {
@@ -551,11 +624,22 @@
       };
 
       var originalCardHtml = card.innerHTML;
-      var expandedRefreshTimer = null;
       var groupControlRefreshTimer = null;
-      var EXPANDED_REFRESH_MS = 20000;
       var GROUP_CONTROL_REFRESH_MS = 8000;
       var currentGroupControlClientId = null;
+      var clientLoadAbort = null;
+
+      function abortClientLoads() {
+        if (!clientLoadAbort) return;
+        try { clientLoadAbort.abort(); } catch (_) {}
+        clientLoadAbort = null;
+      }
+
+      function beginClientLoads() {
+        abortClientLoads();
+        clientLoadAbort = typeof AbortController !== "undefined" ? new AbortController() : null;
+        return clientLoadAbort ? clientLoadAbort.signal : undefined;
+      }
 
       function esc(s) {
         if (s == null || s === "") return "";
@@ -571,17 +655,171 @@
       }
 
       var latestSubscriptions = [];
+      var latestConnectedRows = [];
+      var latestConnectedRawItems = [];
+      var connectedClientsSortState = { key: "callsign", dir: "asc" };
+
+      function normalizeConnectedSortValue(v) {
+        return String(v == null || v === "—" ? "" : v).trim().toLowerCase();
+      }
+
+      function getConnectedClientSortValue(row, key) {
+        if (!row) return "";
+        if (key === "callsign") return normalizeConnectedSortValue(row.callsign);
+        if (key === "username") return normalizeConnectedSortValue(row.username);
+        if (key === "takClient") return normalizeConnectedSortValue(row.takClient);
+        if (key === "version") return normalizeConnectedSortValue(row.version);
+        if (key === "battery") return normalizeConnectedSortValue(row.battery);
+        if (key === "role") return normalizeConnectedSortValue(row.role);
+        return "";
+      }
+
+      function isConnectedBatteryEmpty(row) {
+        if (!row) return true;
+        var v = row.battery;
+        if (v == null) return true;
+        var s = String(v).trim();
+        return !s || s === "—";
+      }
+
+      function compareConnectedClientRows(a, b, key, dir) {
+        if (key === "battery") {
+          var aEmpty = isConnectedBatteryEmpty(a);
+          var bEmpty = isConnectedBatteryEmpty(b);
+          if (aEmpty && bEmpty) return 0;
+          if (aEmpty) return 1;
+          if (bEmpty) return -1;
+          var av = normalizeConnectedSortValue(a.battery);
+          var bv = normalizeConnectedSortValue(b.battery);
+          var cmp = av.localeCompare(bv, undefined, { numeric: true, sensitivity: "base" });
+          return dir === "desc" ? -cmp : cmp;
+        }
+        var av = getConnectedClientSortValue(a, key);
+        var bv = getConnectedClientSortValue(b, key);
+        var cmp = String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: "base" });
+        return dir === "desc" ? -cmp : cmp;
+      }
+
+      function applyConnectedClientsSort(rows, rawItems) {
+        var list = (Array.isArray(rows) ? rows : []).map(function (r, idx) {
+          return {
+            row: r,
+            raw: Array.isArray(rawItems) && rawItems[idx] ? rawItems[idx] : null
+          };
+        });
+        list.sort(function (a, b) {
+          return compareConnectedClientRows(
+            a.row,
+            b.row,
+            connectedClientsSortState.key,
+            connectedClientsSortState.dir
+          );
+        });
+        return {
+          rows: list.map(function (x) { return x.row; }),
+          rawItems: list.map(function (x) { return x.raw; })
+        };
+      }
+
+      function updateConnectedClientsSortIndicators() {
+        var thead = card.querySelector(".connected-clients-table thead");
+        var ths = Array.from(thead ? thead.querySelectorAll("th.sortable") : []);
+        ths.forEach(function (th) {
+          var key = th.getAttribute("data-key");
+          var indicator = th.querySelector(".sortIndicator");
+          if (!indicator) return;
+          if (key === connectedClientsSortState.key) {
+            indicator.textContent = connectedClientsSortState.dir === "asc" ? "▲" : "▼";
+          } else {
+            indicator.textContent = "";
+          }
+        });
+      }
+
+      function setConnectedClientsData(rows, rawItems) {
+        latestConnectedRows = Array.isArray(rows) ? rows.slice() : [];
+        latestConnectedRawItems = Array.isArray(rawItems) ? rawItems.slice() : [];
+        var sorted = applyConnectedClientsSort(latestConnectedRows, latestConnectedRawItems);
+        fillExpandedTableBody(sorted.rows, sorted.rawItems);
+        updateConnectedClientsSortIndicators();
+      }
+
+      function visibleConnectedUserCount(rows) {
+        var n = 0;
+        (rows || []).forEach(function (r) {
+          if (isBlankConnectedField(r && r.callsign) && isBlankConnectedField(r && r.username)) return;
+          n += 1;
+        });
+        return n;
+      }
+
+      function applyConnectedClientsPayload(data) {
+        if (!data || !data.configured || !Array.isArray(data.data)) return false;
+        var list = data.data.filter(function (item) {
+          return !isExcludedConnectedClient(item);
+        });
+        setConnectedClientsData(list.map(mapConnectedClientRow), list);
+        window.__latestConnectedClients = String(visibleConnectedUserCount(latestConnectedRows));
+        return true;
+      }
+
+      function refreshConnectedClientsList() {
+        if (!card.classList.contains("connected-clients-expanded-card")) return Promise.resolve();
+        return fetch("/api/tak/subscriptions", {
+          headers: { Accept: "application/json" },
+          credentials: "same-origin",
+          redirect: "manual",
+          cache: "no-store"
+        })
+          .then(function (res) { return res.json(); })
+          .then(function (data) {
+            if (!card.classList.contains("connected-clients-expanded-card")) return;
+            applyConnectedClientsPayload(data);
+          })
+          .catch(function () {});
+      }
+      window.__refreshConnectedClientsList = refreshConnectedClientsList;
 
       function batteryCell(value) {
         var s = value != null ? String(value).trim() : "";
         return s ? esc(s) : "—";
       }
 
+      function atakRoleAbbreviation(role) {
+        var raw = String(role || "").trim();
+        if (!raw || raw === "—") return "—";
+        var map = {
+          "team member": "TM",
+          "team lead": "TL",
+          hq: "HQ",
+          sniper: "SNIPER",
+          medic: "MEDIC",
+          "forward observer": "FO",
+          rto: "RTO",
+          k9: "K9"
+        };
+        return map[raw.toLowerCase()] || raw;
+      }
+
+      function mapConnectedClientRow(item) {
+        return {
+          callsign: item.callsign != null ? String(item.callsign).trim() : "",
+          username: item.username != null ? String(item.username).trim() : "",
+          takClient: item.takClient != null ? String(item.takClient).trim() || "—" : "—",
+          version: item.version != null && String(item.version).trim() !== "—" ? String(item.version).trim() : "",
+          battery: item.battery != null ? String(item.battery).trim() : "",
+          role: item.role != null ? String(item.role).trim() || "—" : "—",
+          team: item.team != null ? String(item.team).trim() : "",
+          subscriptionUid: item.subscriptionUid != null ? String(item.subscriptionUid).trim() : "",
+          clientUid: item.clientUid != null ? String(item.clientUid).trim() : ""
+        };
+      }
+
       function fillExpandedTableBody(rows, rawItems) {
         latestSubscriptions = (Array.isArray(rows) ? rows : []).map(function (r, idx) {
           var raw = Array.isArray(rawItems) && rawItems[idx] ? rawItems[idx] : {};
           var merged = Object.assign({}, raw, r);
-          ["takClient", "callsign", "username", "role", "battery"].forEach(function (key) {
+          ["takClient", "callsign", "username", "role", "battery", "version"].forEach(function (key) {
             if (merged[key] === "—") merged[key] = raw[key];
           });
           return merged;
@@ -590,13 +828,16 @@
         if (!tbody) return;
         tbody.innerHTML = "";
         (rows || []).forEach(function (r) {
+          if (isBlankConnectedField(r && r.callsign) && isBlankConnectedField(r && r.username)) return;
           var tr = document.createElement("tr");
           if (r.clientUid || r.subscriptionUid) {
             tr.setAttribute("data-client-uid", r.clientUid || r.subscriptionUid);
           }
           var bg = teamToBg(r.team);
           if (bg !== "transparent") tr.style.backgroundColor = bg;
-          tr.innerHTML = "<td>" + esc(r.callsign) + "</td><td>" + esc(r.username) + "</td><td>" + esc(r.takClient) + "</td><td>" + batteryCell(r.battery) + "</td><td>" + esc(r.role) + "</td>";
+          var roleFull = r.role != null ? String(r.role).trim() : "";
+          var roleAbbr = atakRoleAbbreviation(roleFull);
+          tr.innerHTML = "<td class=\"cardTitleCell\"><div class=\"cardTitleText\">" + esc(r.callsign) + "</div></td><td class=\"ccUsernameCell\" data-label=\"Username\">" + esc(r.username) + "</td><td class=\"ccClientCell\" data-label=\"TAK Client\">" + esc(r.takClient) + "</td><td class=\"ccVersionCell\" data-label=\"Version\">" + batteryCell(r.version) + "</td><td class=\"ccBatteryCell\" data-label=\"Battery\">" + batteryCell(r.battery) + "</td><td class=\"ccRoleCell\" data-label=\"Role\" title=\"" + esc(roleFull || roleAbbr) + "\">" + esc(roleAbbr) + "</td>";
           tbody.appendChild(tr);
         });
       }
@@ -607,8 +848,15 @@
           '<h2 class="cardTitle">Connected Users</h2>' +
           '<button type="button" class="btn" id="connectedClientsCloseBtn">Close</button>' +
           '</div>' +
-          '<div class="connected-clients-table-wrap"><table class="connected-clients-table">' +
-          '<thead><tr><th>Callsign</th><th>Username</th><th>TAK Client</th><th>Battery</th><th>Role</th></tr></thead>' +
+          '<div class="connected-clients-table-wrap listCardTableWrap"><table class="connected-clients-table listCardTable">' +
+          '<thead><tr>' +
+          '<th class="sortable" data-key="callsign">Callsign <span class="sortIndicator" aria-hidden="true"></span></th>' +
+          '<th class="sortable" data-key="username">Username <span class="sortIndicator" aria-hidden="true"></span></th>' +
+          '<th class="sortable" data-key="takClient">TAK Client <span class="sortIndicator" aria-hidden="true"></span></th>' +
+          '<th class="sortable ccVersionHead" data-key="version">Version <span class="sortIndicator" aria-hidden="true"></span></th>' +
+          '<th class="sortable" data-key="battery">Battery <span class="sortIndicator" aria-hidden="true"></span></th>' +
+          '<th class="sortable" data-key="role">Role <span class="sortIndicator" aria-hidden="true"></span></th>' +
+          '</tr></thead>' +
           '<tbody id="connectedClientsTableBody"></tbody></table></div></div>' +
           '<div class="modalOverlay" id="clientGroupsOverlay" style="display:none;">' +
             '<div class="modal group-control-modal" role="dialog" aria-modal="true" aria-labelledby="clientGroupsTitle">' +
@@ -616,11 +864,16 @@
                 '<h2 id="clientGroupsTitle" style="margin:0;">Connected User</h2>' +
                 '<button class="btn" id="clientGroupsCloseBtn" type="button">Close</button>' +
               '</div>' +
-              '<div class="modalBody">' +
+              '<div class="modalBody client-modal-body">' +
+                '<div class="client-modal-map-pane">' +
+                  '<div id="clientMiniMap" aria-label="User location map"></div>' +
+                  '<div id="clientMiniMapEmpty" class="client-mini-map-empty" hidden>No live location</div>' +
+                '</div>' +
+                '<div class="client-modal-controls-pane">' +
                 '<div id="clientGroupsError" class="msg error" style="display:none; margin-bottom:10px;"></div>' +
                 '<h3 class="connected-user-section-title">Group / Channel Control</h3>' +
                 '<div id="clientGroupsLoading" class="muted" style="display:none;">Loading groups…</div>' +
-                '<div class="group-control-table-wrap" id="clientGroupsTableWrap" style="display:none;">' +
+                '<div class="group-control-table-wrap" id="clientGroupsTableWrap">' +
                   '<table class="group-control-table">' +
                     '<thead><tr><th>Enabled</th><th>Group</th></tr></thead>' +
                     '<tbody id="clientGroupsTableBody"></tbody>' +
@@ -630,7 +883,7 @@
                 '<div class="connected-user-section-divider"></div>' +
                 '<h3 class="connected-user-section-title">Send Callsign Preferences</h3>' +
                 '<div id="prefConfigLoading" class="muted" style="display:none;">Loading configuration…</div>' +
-                '<div id="prefConfigForm" class="pref-config-form" style="display:none;">' +
+                '<div id="prefConfigForm" class="pref-config-form">' +
                   '<label class="pref-config-field">' +
                     '<span class="pref-config-label">Callsign</span>' +
                     '<input type="text" id="prefConfigCallsign" class="input" autocomplete="off" />' +
@@ -653,7 +906,7 @@
                 '<div class="connected-user-section-divider"></div>' +
                 '<h3 class="connected-user-section-title">Send Data Sync</h3>' +
                 '<div id="dataSyncLoading" class="muted" style="display:none;">Loading missions…</div>' +
-                '<div id="dataSyncForm" class="data-sync-form" style="display:none;">' +
+                '<div id="dataSyncForm" class="data-sync-form">' +
                   '<label class="pref-config-field data-sync-field">' +
                     '<span class="pref-config-label">Mission</span>' +
                     '<select id="dataSyncMissionSelect" class="input"></select>' +
@@ -664,13 +917,31 @@
                   '<div id="dataSyncStatus" class="pref-config-status" style="display:none;"></div>' +
                 '</div>' +
                 '</div>' +
+                '</div>' +
               '</div>' +
             '</div>' +
           '</div>';
         card.innerHTML = html;
         card.classList.add("connected-clients-expanded-card");
         row.classList.add("connected-clients-row-expanded");
-        fillExpandedTableBody(rows, rawItems);
+        setConnectedClientsData(rows, rawItems);
+        var connectedClientsThead = card.querySelector(".connected-clients-table thead");
+        if (connectedClientsThead) {
+          connectedClientsThead.addEventListener("click", function (e) {
+            var th = e.target && e.target.closest ? e.target.closest("th.sortable") : null;
+            if (!th) return;
+            e.stopPropagation();
+            var key = th.getAttribute("data-key");
+            if (!key) return;
+            if (connectedClientsSortState.key === key) {
+              connectedClientsSortState.dir = connectedClientsSortState.dir === "asc" ? "desc" : "asc";
+            } else {
+              connectedClientsSortState.key = key;
+              connectedClientsSortState.dir = "asc";
+            }
+            setConnectedClientsData(latestConnectedRows, latestConnectedRawItems);
+          });
+        }
         document.getElementById("connectedClientsCloseBtn").addEventListener("click", function (e) {
           e.preventDefault();
           e.stopPropagation();
@@ -679,11 +950,18 @@
         // Wire up modal behavior
         var overlay = document.getElementById("clientGroupsOverlay");
         var closeBtn = document.getElementById("clientGroupsCloseBtn");
-        var tableBody = document.getElementById("clientGroupsTableBody");
-        var tableWrap = document.getElementById("clientGroupsTableWrap");
-        var loadingEl = document.getElementById("clientGroupsLoading");
+        var tableBody = null;
+        var tableWrap = null;
+        var loadingEl = null;
         var errorEl = document.getElementById("clientGroupsError");
         var titleEl = document.getElementById("clientGroupsTitle");
+        function refreshGroupControlElements() {
+          tableBody = document.getElementById("clientGroupsTableBody");
+          tableWrap = document.getElementById("clientGroupsTableWrap");
+          loadingEl = document.getElementById("clientGroupsLoading");
+        }
+
+        refreshGroupControlElements();
         var groupToggleInFlight = false;
         var prefConfigSendInFlight = false;
         var prefConfigCallsignEl = document.getElementById("prefConfigCallsign");
@@ -702,6 +980,34 @@
         var dataSyncFormEl = document.getElementById("dataSyncForm");
         var dataSyncSendInFlight = false;
 
+        function isAbortErr(err) {
+          return !!(err && (err.name === "AbortError" || err.code === 20));
+        }
+
+        function isCurrentClient(clientId) {
+          return !!clientId && clientId === currentGroupControlClientId;
+        }
+
+        function portalJsonFetch(url, options) {
+          options = options || {};
+          var headers = Object.assign({ Accept: "application/json" }, options.headers || {});
+          return fetch(url, Object.assign({}, options, {
+            headers: headers,
+            credentials: "same-origin",
+            redirect: "manual"
+          })).then(function (res) {
+            if (res.type === "opaqueredirect" || (res.status >= 300 && res.status < 400)) {
+              throw new Error("Session expired. Refresh the page.");
+            }
+            return res.json().then(function (body) {
+              if (!res.ok) throw new Error((body && body.error) || "Request failed");
+              return body;
+            }, function () {
+              throw new Error("Request failed" + (res.status ? " (" + res.status + ")" : ""));
+            });
+          });
+        }
+
         function resolveSubTakClient(sub) {
           if (!sub) return "";
           var raw = sub.takClient != null ? String(sub.takClient).trim() : "";
@@ -712,12 +1018,18 @@
         }
 
         function isPreferenceConfigClient(sub) {
-          return resolveSubTakClient(sub).toUpperCase() === "ATAK-CIV";
+          var client = resolveSubTakClient(sub).toUpperCase();
+          return (
+            client === "ATAK-CIV" ||
+            client === "TAKAWARE-CIV" ||
+            client === "WINTAKTRACKER" ||
+            client === "ANDROIDTAKTRACKER"
+          );
         }
 
         function isDataSyncClient(sub) {
           var client = resolveSubTakClient(sub).toUpperCase();
-          return client === "ATAK-CIV" || client === "ITAK";
+          return client === "ATAK-CIV" || client === "ITAK" || client === "TAKAWARE-CIV";
         }
 
         function setPreferenceConfigVisible(visible) {
@@ -761,7 +1073,7 @@
 
         function setPrefConfigLoading(on) {
           if (prefConfigLoadingEl) prefConfigLoadingEl.style.display = on ? "block" : "none";
-          if (prefConfigFormEl) prefConfigFormEl.style.display = on ? "none" : "block";
+          if (prefConfigFormEl) prefConfigFormEl.style.display = "block";
         }
 
         function fillSelectOptions(selectEl, options, selectedValue, emptyLabel) {
@@ -806,27 +1118,31 @@
           }
         }
 
-        function loadPreferenceConfig(clientId) {
+        function loadPreferenceConfig(clientId, signal) {
           if (!clientId) return Promise.reject(new Error("Missing client id"));
           setPrefConfigLoading(true);
           showPrefConfigStatus("");
-          return fetch("/api/tak/clients/" + encodeURIComponent(clientId) + "/preference-config", {
-            headers: { Accept: "application/json" },
+          return portalJsonFetch("/api/tak/clients/" + encodeURIComponent(clientId) + "/preference-config", {
+            signal: signal
           })
-            .then(function (res) {
-              return res.json().then(function (body) {
-                if (!res.ok) throw new Error((body && body.error) || "Failed to load configuration");
-                return body;
-              });
-            })
             .then(function (data) {
+              if (!isCurrentClient(clientId)) return data;
               setPrefConfigLoading(false);
               if (prefConfigCallsignEl) prefConfigCallsignEl.value = data.callsign || "";
               fillSelectOptions(prefConfigTeamEl, data.teamOptions || [], data.teamLabel || "", "Select team…");
               fillSelectOptions(prefConfigRoleEl, data.roleOptions || [], data.roleLabel || "Team Member", null);
+              // Live CoT callsign often matches preference, not Marti subscription.
+              if (
+                window.DashboardMiniMap &&
+                typeof window.DashboardMiniMap.setCallsign === "function" &&
+                data.callsign
+              ) {
+                window.DashboardMiniMap.setCallsign(data.callsign).catch(function () {});
+              }
               return data;
             })
             .catch(function (err) {
+              if (isAbortErr(err) || !isCurrentClient(clientId)) return;
               setPrefConfigLoading(false);
               showPrefConfigStatus(err.message || "Failed to load configuration", "error");
               throw err;
@@ -850,17 +1166,11 @@
           }
           showPrefConfigStatus("");
 
-          fetch("/api/tak/clients/" + encodeURIComponent(clientId) + "/send-preference-config", {
+          portalJsonFetch("/api/tak/clients/" + encodeURIComponent(clientId) + "/send-preference-config", {
             method: "POST",
             headers: { Accept: "application/json", "Content-Type": "application/json" },
-            body: JSON.stringify({ callsign: callsign, teamLabel: teamLabel, roleLabel: roleLabel }),
+            body: JSON.stringify({ callsign: callsign, teamLabel: teamLabel, roleLabel: roleLabel })
           })
-            .then(function (res) {
-              return res.json().then(function (body) {
-                if (!res.ok) throw new Error((body && body.error) || "Failed to send configuration");
-                return body;
-              });
-            })
             .then(function (data) {
               var label = data.callsign || data.username || "client";
               showPrefConfigStatus("Configuration sent to " + label + ".", "success");
@@ -892,23 +1202,18 @@
 
         function setDataSyncLoading(on) {
           if (dataSyncLoadingEl) dataSyncLoadingEl.style.display = on ? "block" : "none";
-          if (dataSyncFormEl) dataSyncFormEl.style.display = on ? "none" : "block";
+          if (dataSyncFormEl) dataSyncFormEl.style.display = "block";
         }
 
-        function loadDataSyncMissions(clientId) {
+        function loadDataSyncMissions(clientId, signal) {
           if (!clientId) return Promise.reject(new Error("Missing client id"));
           setDataSyncLoading(true);
           showDataSyncStatus("");
-          return fetch("/api/tak/clients/" + encodeURIComponent(clientId) + "/data-sync-missions", {
-            headers: { Accept: "application/json" },
+          return portalJsonFetch("/api/tak/clients/" + encodeURIComponent(clientId) + "/data-sync-missions", {
+            signal: signal
           })
-            .then(function (res) {
-              return res.json().then(function (body) {
-                if (!res.ok) throw new Error((body && body.error) || "Failed to load missions");
-                return body;
-              });
-            })
             .then(function (data) {
+              if (!isCurrentClient(clientId)) return data;
               setDataSyncLoading(false);
               var missions = Array.isArray(data.missions) ? data.missions : [];
               var options = missions.map(function (m) {
@@ -920,6 +1225,7 @@
               return data;
             })
             .catch(function (err) {
+              if (isAbortErr(err) || !isCurrentClient(clientId)) return;
               setDataSyncLoading(false);
               showDataSyncStatus(err.message || "Failed to load missions", "error");
               throw err;
@@ -941,17 +1247,11 @@
           }
           showDataSyncStatus("");
 
-          fetch("/api/tak/clients/" + encodeURIComponent(clientId) + "/send-data-sync-invite", {
+          portalJsonFetch("/api/tak/clients/" + encodeURIComponent(clientId) + "/send-data-sync-invite", {
             method: "POST",
             headers: { Accept: "application/json", "Content-Type": "application/json" },
-            body: JSON.stringify({ missionName: missionName }),
+            body: JSON.stringify({ missionName: missionName })
           })
-            .then(function (res) {
-              return res.json().then(function (body) {
-                if (!res.ok) throw new Error((body && body.error) || "Failed to send invite");
-                return body;
-              });
-            })
             .then(function (data) {
               var label = data.callsign || data.username || "client";
               showDataSyncStatus('Data Sync invite sent for "' + (data.missionName || missionName) + '" to ' + label + ".", "success");
@@ -981,7 +1281,7 @@
 
         function setGroupControlLoading(on) {
           if (loadingEl) loadingEl.style.display = on ? "block" : "none";
-          if (tableWrap) tableWrap.style.display = on ? "none" : "block";
+          if (tableWrap) tableWrap.style.display = "block";
         }
 
         function renderGroupControlRows(groups) {
@@ -999,13 +1299,13 @@
             }
 
             var tdOn = document.createElement("td");
-            var cb = document.createElement("input");
-            cb.type = "checkbox";
-            cb.checked = !!g.active;
-            cb.className = "group-control-checkbox";
-            if (g.locked && g.active) cb.disabled = true;
-            cb.setAttribute("aria-label", "Enable " + groupControlDisplayName(g));
-            tdOn.appendChild(cb);
+            var toggle = document.createElement("button");
+            toggle.type = "button";
+            toggle.className = "settings-toggle " + (g.active ? "is-on" : "is-off");
+            toggle.setAttribute("aria-pressed", g.active ? "true" : "false");
+            toggle.setAttribute("aria-label", "Enable " + groupControlDisplayName(g));
+            if (g.locked && g.active) toggle.disabled = true;
+            tdOn.appendChild(toggle);
 
             var tdName = document.createElement("td");
             tdName.textContent = groupControlDisplayName(g);
@@ -1020,21 +1320,17 @@
           opts = opts || {};
           if (!clientId) return Promise.reject(new Error("Missing client id"));
           if (opts.showLoading !== false) setGroupControlLoading(true);
-          return fetch("/api/tak/clients/" + encodeURIComponent(clientId) + "/groups", {
-            headers: { Accept: "application/json" },
+          return portalJsonFetch("/api/tak/clients/" + encodeURIComponent(clientId) + "/groups", {
+            signal: opts.signal
           })
-            .then(function (res) {
-              return res.json().then(function (body) {
-                if (!res.ok) throw new Error((body && body.error) || "Failed to load groups");
-                return body;
-              });
-            })
             .then(function (data) {
+              if (!isCurrentClient(clientId)) return data;
               setGroupControlLoading(false);
               renderGroupControlRows(data.groups || []);
               return data;
             })
             .catch(function (err) {
+              if (isAbortErr(err) || !isCurrentClient(clientId)) return;
               setGroupControlLoading(false);
               if (!opts.silent) showGroupControlError(err.message || "Failed to load groups");
               throw err;
@@ -1050,6 +1346,7 @@
             clearInterval(groupControlRefreshTimer);
             groupControlRefreshTimer = null;
           }
+          abortClientLoads();
           currentGroupControlClientId = null;
           showGroupControlError("");
           showPrefConfigStatus("");
@@ -1058,16 +1355,19 @@
           setDataSyncLoading(false);
           setPreferenceConfigVisible(false);
           setDataSyncSectionVisible(false);
+          if (window.DashboardMiniMap) window.DashboardMiniMap.destroy();
           if (overlay) overlay.style.display = "none";
         }
 
         function openClientGroupsModal(sub) {
           if (!overlay || !sub) return;
+          refreshGroupControlElements();
 
           var clientId = (sub.clientUid && String(sub.clientUid).trim()) || (sub.subscriptionUid && String(sub.subscriptionUid).trim()) || "";
           if (!clientId) return;
 
           currentGroupControlClientId = clientId;
+          var loadSignal = beginClientLoads();
           var username = (sub.username && String(sub.username).trim()) || "";
           var callsign = (sub.callsign && String(sub.callsign).trim()) || "";
           var titleParts = ["Connected User"];
@@ -1076,32 +1376,56 @@
           if (titleEl) titleEl.textContent = titleParts.join(" — ");
           showGroupControlError("");
           showPrefConfigStatus("");
-          overlay.style.display = "flex";
 
           var canPreferenceConfig = isPreferenceConfigClient(sub);
           var canDataSync = isDataSyncClient(sub);
           setPreferenceConfigVisible(canPreferenceConfig);
           setDataSyncSectionVisible(canDataSync);
+          setGroupControlLoading(true);
+          if (canPreferenceConfig) setPrefConfigLoading(true);
+          if (canDataSync) setDataSyncLoading(true);
 
-          loadGroupControlState(clientId).catch(function () {});
+          overlay.style.display = "flex";
+
+          loadGroupControlState(clientId, { signal: loadSignal }).catch(function () {});
           if (canPreferenceConfig) {
-            loadPreferenceConfig(clientId).catch(function () {});
+            loadPreferenceConfig(clientId, loadSignal).catch(function () {});
           }
           if (canDataSync) {
-            loadDataSyncMissions(clientId).catch(function () {});
+            loadDataSyncMissions(clientId, loadSignal).catch(function () {});
           }
 
           if (groupControlRefreshTimer) clearInterval(groupControlRefreshTimer);
           groupControlRefreshTimer = setInterval(function () {
             if (!currentGroupControlClientId || groupToggleInFlight) return;
-            loadGroupControlState(currentGroupControlClientId, { showLoading: false, silent: true }).catch(function () {});
+            loadGroupControlState(currentGroupControlClientId, {
+              showLoading: false,
+              silent: true,
+              signal: clientLoadAbort && clientLoadAbort.signal
+            }).catch(function () {});
           }, GROUP_CONTROL_REFRESH_MS);
+
+          if (window.DashboardMiniMap && (callsign || username || clientId)) {
+            requestAnimationFrame(function () {
+              requestAnimationFrame(function () {
+                if (currentGroupControlClientId !== clientId) return;
+                window.DashboardMiniMap.open(clientId, callsign, username).catch(function () {});
+              });
+            });
+          }
+        }
+
+        function setGroupToggleVisual(toggle, active) {
+          if (!toggle) return;
+          toggle.classList.toggle("is-on", !!active);
+          toggle.classList.toggle("is-off", !active);
+          toggle.setAttribute("aria-pressed", active ? "true" : "false");
         }
 
         function applyGroupControlToggle(tr, active) {
           if (!tr || !currentGroupControlClientId || groupToggleInFlight) return;
-          var cb = tr.querySelector(".group-control-checkbox");
-          if (!cb || cb.disabled) return;
+          var toggle = tr.querySelector(".settings-toggle");
+          if (!toggle || toggle.disabled) return;
           if (tr.getAttribute("data-locked") === "true" && !active) {
             showGroupControlError("The only assigned group cannot be disabled.");
             return;
@@ -1111,55 +1435,43 @@
           var accessMode = tr.getAttribute("data-access-mode") || "";
           var previous = !active;
 
-          cb.checked = active;
+          setGroupToggleVisual(toggle, active);
           groupToggleInFlight = true;
-          cb.disabled = true;
+          toggle.disabled = true;
           showGroupControlError("");
 
-          fetch("/api/tak/clients/" + encodeURIComponent(currentGroupControlClientId) + "/groups", {
+          var toggleClientId = currentGroupControlClientId;
+          portalJsonFetch("/api/tak/clients/" + encodeURIComponent(toggleClientId) + "/groups", {
             method: "PUT",
             headers: { Accept: "application/json", "Content-Type": "application/json" },
-            body: JSON.stringify({ groupName: groupName, accessMode: accessMode, active: active }),
+            body: JSON.stringify({ groupName: groupName, accessMode: accessMode, active: active })
           })
-            .then(function (res) {
-              return res.json().then(function (body) {
-                if (!res.ok) throw new Error((body && body.error) || "Failed to update group");
-                return body;
-              });
-            })
             .then(function (data) {
+              if (!isCurrentClient(toggleClientId)) return;
               renderGroupControlRows(data.groups || []);
             })
             .catch(function (err) {
-              cb.checked = previous;
+              if (isAbortErr(err) || !isCurrentClient(toggleClientId)) return;
+              setGroupToggleVisual(toggle, previous);
               tr.className = (previous ? "group-control-row-active" : "group-control-row-inactive") + " group-control-row";
               showGroupControlError(err.message || "Failed to update group");
             })
             .finally(function () {
-              cb.disabled = false;
+              var locked = tr.getAttribute("data-locked") === "true";
+              toggle.disabled = locked && toggle.classList.contains("is-on");
               groupToggleInFlight = false;
             });
-        }
-
-        function onGroupControlCheckboxChange(e) {
-          var cb = e.target;
-          if (!cb || !cb.classList.contains("group-control-checkbox")) return;
-          var tr = cb.closest("tr");
-          if (!tr) return;
-          applyGroupControlToggle(tr, cb.checked);
         }
 
         function onGroupControlRowClick(e) {
           var tr = e.target.closest("tr.group-control-row");
           if (!tr || !tableBody || !tableBody.contains(tr)) return;
-          if (e.target.closest("input.group-control-checkbox")) return;
-          var cb = tr.querySelector(".group-control-checkbox");
-          if (!cb || cb.disabled) return;
-          applyGroupControlToggle(tr, !cb.checked);
+          var toggle = tr.querySelector(".settings-toggle");
+          if (!toggle || toggle.disabled) return;
+          applyGroupControlToggle(tr, !toggle.classList.contains("is-on"));
         }
 
         if (tableBody) {
-          tableBody.addEventListener("change", onGroupControlCheckboxChange);
           tableBody.addEventListener("click", onGroupControlRowClick);
         }
         if (closeBtn) {
@@ -1210,41 +1522,11 @@
             openClientGroupsModal(sub);
           });
         }
-
-        if (expandedRefreshTimer) clearInterval(expandedRefreshTimer);
-        expandedRefreshTimer = setInterval(function () {
-          if (!card.classList.contains("connected-clients-expanded-card")) return;
-          fetch("/api/tak/subscriptions", { headers: { Accept: "application/json" } })
-            .then(function (res) { return res.json(); })
-            .then(function (data) {
-              if (!data.configured || !Array.isArray(data.data)) return;
-              var list = data.data.filter(function (item) {
-                return !isExcludedConnectedClient(item);
-              });
-              var nextRows = list.map(function (item) {
-                return {
-                  callsign: item.callsign != null ? String(item.callsign).trim() : "",
-                  username: item.username != null ? String(item.username).trim() : "",
-                  takClient: item.takClient != null ? String(item.takClient).trim() || "—" : "—",
-                  battery: item.battery != null ? String(item.battery).trim() : "",
-                  role: item.role != null ? String(item.role).trim() || "—" : "—",
-                  team: item.team != null ? String(item.team).trim() : "",
-                  subscriptionUid: item.subscriptionUid != null ? String(item.subscriptionUid).trim() : "",
-                  clientUid: item.clientUid != null ? String(item.clientUid).trim() : ""
-                };
-              });
-              nextRows.sort(function (a, b) { return (a.callsign || "").localeCompare(b.callsign || "", undefined, { sensitivity: "base" }); });
-              fillExpandedTableBody(nextRows, list);
-            })
-            .catch(function () {});
-        }, EXPANDED_REFRESH_MS);
       }
 
       function collapse() {
-        if (expandedRefreshTimer) {
-          clearInterval(expandedRefreshTimer);
-          expandedRefreshTimer = null;
-        }
+        abortClientLoads();
+        if (window.DashboardMiniMap) window.DashboardMiniMap.destroy();
         if (groupControlRefreshTimer) {
           clearInterval(groupControlRefreshTimer);
           groupControlRefreshTimer = null;
@@ -1265,31 +1547,21 @@
       card.style.cursor = "pointer";
       function tryExpand() {
         if (card.classList.contains("connected-clients-expanded-card")) return;
-        card.querySelector(".statValue").textContent = "…";
-        fetch("/api/tak/subscriptions", { headers: { Accept: "application/json" } })
+        renderExpandedView([], []);
+        var tbody = document.getElementById("connectedClientsTableBody");
+        if (tbody) {
+          tbody.innerHTML = '<tr><td colspan="6" class="muted" style="text-align:center;padding:18px;">Loading…</td></tr>';
+        }
+        fetch("/api/tak/subscriptions", {
+          headers: { Accept: "application/json" },
+          credentials: "same-origin",
+          redirect: "manual",
+          cache: "no-store"
+        })
           .then(function (res) { return res.json(); })
           .then(function (data) {
-            if (!data.configured || !Array.isArray(data.data)) {
-              collapse();
-              return;
-            }
-            var list = data.data.filter(function (item) {
-              return !isExcludedConnectedClient(item);
-            });
-            var rows = list.map(function (item) {
-              return {
-                callsign: item.callsign != null ? String(item.callsign).trim() : "",
-                username: item.username != null ? String(item.username).trim() : "",
-                takClient: item.takClient != null ? String(item.takClient).trim() || "—" : "—",
-                battery: item.battery != null ? String(item.battery).trim() : "",
-                role: item.role != null ? String(item.role).trim() || "—" : "—",
-                team: item.team != null ? String(item.team).trim() : "",
-                subscriptionUid: item.subscriptionUid != null ? String(item.subscriptionUid).trim() : "",
-                clientUid: item.clientUid != null ? String(item.clientUid).trim() : ""
-              };
-            });
-            rows.sort(function (a, b) { return (a.callsign || "").localeCompare(b.callsign || "", undefined, { sensitivity: "base" }); });
-            renderExpandedView(rows, list);
+            if (!card.classList.contains("connected-clients-expanded-card")) return;
+            if (!applyConnectedClientsPayload(data)) collapse();
           })
           .catch(function () { collapse(); });
       }
@@ -1325,7 +1597,9 @@
               var el = document.getElementById("takClients");
               var cc = data && typeof data.connectedClients === "number" ? String(data.connectedClients) : "--";
               if (el) el.textContent = cc;
-              window.__latestConnectedClients = cc;
+              if (!card.classList.contains("connected-clients-expanded-card")) {
+                window.__latestConnectedClients = cc;
+              }
               var ci = document.getElementById("takConnectedIntegrations");
               var ciVal = data && typeof data.connectedIntegrations === "number" ? String(data.connectedIntegrations) : "--";
               if (ci) ci.textContent = ciVal;
@@ -1342,6 +1616,9 @@
                 if (s < 86400) parts.push(m + "m");
                 up.textContent = parts.join(" ");
               }
+            }
+            if (typeof window.__refreshConnectedClientsList === "function") {
+              window.__refreshConnectedClientsList();
             }
           }).catch(function () {});
       };
@@ -1364,6 +1641,9 @@
   }
   @media (max-width: 1100px){
     .grid3{ grid-template-columns: 1fr; }
+    .grid4{ grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 640px){
     .grid4{ grid-template-columns: 1fr; }
   }
 
@@ -1412,7 +1692,7 @@
     color: inherit;
     cursor: pointer;
   }
-  .statCardLink:hover .card{ border-color: rgba(255,255,255,0.15); }
+  .statCardLink:hover .card{ border-color: color-mix(in srgb, var(--btn) 42%, var(--line)); }
 
   /* Remove card margin inside grids so row spacing is controlled below */
   .main .grid3 .card,
@@ -1429,8 +1709,8 @@
 
   /* Slightly refreshed card feel */
   .card{
-    border: 1px solid rgba(255,255,255,0.06);
-    box-shadow: 0 10px 25px rgba(0,0,0,0.18);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--elevate);
     border-radius: 16px;
   }
 
@@ -1461,16 +1741,14 @@
     letter-spacing: -0.01em;
   }
 
-  /* Makes both charts smaller + centered */
+  /* Chart.js owns canvas size. Forcing CSS width/height on the canvas
+     breaks hover hit-testing (especially with html { zoom } on desktop). */
   .chartWrap{
+    position: relative;
     max-width: 100%;
     width: 100%;
     height: 340px;
     margin: 0 auto;
-  }
-  .chartWrap canvas{
-    width: 100% !important;
-    height: 100% !important;
   }
 
   .maBanner{
@@ -1482,6 +1760,7 @@
   }
   .maBannerIncident{ background: #992525; }
   .maBannerEvent{ background: #995725; }
+  .channelPatchBanner{ background: #995725; }
   .userReqBanner{
     padding: 12px 14px;
     border-radius: 12px;
@@ -1499,36 +1778,178 @@
     display: block;
   }
 
-  #connectedClientsStatCard[role="button"]:hover { border-color: rgba(255,255,255,0.15); }
+  #connectedClientsStatCard[role="button"]:hover { border-color: color-mix(in srgb, var(--btn) 42%, var(--line)); }
   .connected-clients-expanded { padding: 12px; }
   .connected-clients-expanded-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
   .connected-clients-expanded-header .cardTitle { margin: 0; }
   .connected-clients-table-wrap { max-height: 380px; overflow-y: auto; }
   .connected-clients-table { width: 100%; border-collapse: collapse; font-size: 14px; }
   .connected-clients-table th { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); color: var(--muted); font-weight: 600; }
+  .connected-clients-table th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+  .connected-clients-table th.sortable:hover { text-decoration: underline; }
+  .connected-clients-table .sortIndicator { display: inline-block; min-width: 12px; margin-left: 6px; opacity: 0.9; }
   .connected-clients-table td { padding: 8px 12px; border-bottom: 1px solid var(--line); }
-  .connected-clients-table tbody tr:hover { background: rgba(255,255,255,0.06); }
+  .connected-clients-table tbody tr:hover { background: var(--hover); }
+  @media (max-width: 990px) {
+    .connected-clients-table-wrap.listCardTableWrap {
+      overflow-x: hidden;
+    }
+    .connected-clients-table.listCardTable {
+      width: 100%;
+      min-width: 0 !important;
+      border-collapse: separate;
+      border-spacing: 0 12px;
+    }
+    .connected-clients-table.listCardTable thead { display: none; }
+    .connected-clients-table.listCardTable tbody {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .connected-clients-table.listCardTable tbody tr {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-areas:
+        "title title"
+        "username tak"
+        "battery role";
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel);
+      overflow: hidden;
+      cursor: pointer;
+    }
+    .connected-clients-table .cardTitleCell { grid-area: title; }
+    .connected-clients-table .ccUsernameCell { grid-area: username; }
+    .connected-clients-table .ccClientCell { grid-area: tak; }
+    .connected-clients-table .ccVersionHead,
+    .connected-clients-table .ccVersionCell { display: none !important; }
+    .connected-clients-table .ccBatteryCell { grid-area: battery; }
+    .connected-clients-table .ccRoleCell { grid-area: role; }
+    .connected-clients-table.listCardTable tbody tr.emptyStateRow {
+      display: block;
+      border: none;
+      background: transparent;
+      cursor: default;
+    }
+    .connected-clients-table.listCardTable tbody td {
+      display: block;
+      border-top: none;
+      border-bottom: none;
+      padding: 8px 12px;
+      word-break: normal;
+      overflow-wrap: anywhere;
+      min-width: 0 !important;
+      max-width: none !important;
+      white-space: normal;
+    }
+    .connected-clients-table.listCardTable tbody td[data-label]::before {
+      content: attr(data-label);
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .connected-clients-table .cardTitleCell::before {
+      display: none;
+    }
+    .connected-clients-table .cardTitleCell { padding-top: 12px; padding-bottom: 4px; }
+    .connected-clients-table .cardTitleText { font-weight: 600; font-size: 15px; line-height: 1.3; word-break: break-word; }
+  }
 
-  .group-control-modal { width: min(720px, 95vw); max-height: 90vh; display: flex; flex-direction: column; }
-  .group-control-modal .modalBody { overflow: auto; display: flex; flex-direction: column; gap: 8px; }
+  .group-control-modal.modal {
+    width: min(1100px, 96vw);
+    height: min(72vh, 640px);
+    min-height: min(66vh, 600px);
+    max-height: 82vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .group-control-modal .modalHeader {
+    flex: 0 0 auto;
+    position: relative;
+    top: auto;
+  }
+  .group-control-modal .modalBody.client-modal-body {
+    display: flex;
+    flex-direction: row;
+    gap: 12px;
+    flex: 1 1 auto;
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
+    align-items: stretch;
+  }
+  .client-modal-map-pane {
+    flex: 1 1 62%;
+    min-width: 300px;
+    min-height: 320px;
+    height: 100%;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    background: var(--input-bg);
+  }
+  #clientMiniMap { flex: 1 1 auto; width: 100%; height: 100%; min-height: 320px; }
+  .client-mini-map-empty {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 14px;
+    background: rgba(0, 0, 0, 0.35);
+    pointer-events: none;
+  }
+  .client-mini-map-empty:not([hidden]) {
+    display: flex;
+  }
+  .client-modal-controls-pane {
+    flex: 1 1 38%;
+    max-width: 400px;
+    min-height: 320px;
+    height: 100%;
+    min-width: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+  .group-control-modal .client-modal-controls-pane { overflow-x: hidden; overflow-y: auto; }
   .connected-user-section-title { margin: 0 0 8px; font-size: 15px; font-weight: 600; }
   .connected-user-section-divider { border-top: 1px solid var(--line); margin: 14px 0 10px; }
-  .group-control-table-wrap { max-height: 240px; overflow: auto; margin-top: 4px; }
+  .group-control-table-wrap {
+    max-height: min(200px, 28vh);
+    min-height: 120px;
+    overflow: auto;
+    margin-top: 4px;
+    margin-bottom: 4px;
+  }
   .group-control-table { width: 100%; border-collapse: collapse; font-size: 14px; }
   .group-control-table th { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); color: var(--muted); font-weight: 600; }
   .group-control-table td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
-  .group-control-table td:first-child { width: 72px; text-align: center; }
+  .group-control-table td:first-child { width: 52px; text-align: center; }
   .group-control-row { cursor: pointer; }
   .group-control-row-locked { cursor: default; }
-  .group-control-row-locked .group-control-checkbox:disabled { cursor: default; opacity: 1; }
+  .group-control-row .settings-toggle { vertical-align: middle; }
+  .group-control-row-locked .settings-toggle:disabled { cursor: default; opacity: 1; }
   .group-control-row-active { background: rgba(67, 160, 71, 0.22); }
   .group-control-row-inactive { background: rgba(229, 57, 53, 0.18); }
   .group-control-row-active:hover { background: rgba(67, 160, 71, 0.3); }
   .group-control-row-inactive:hover { background: rgba(229, 57, 53, 0.26); }
-  .group-control-checkbox { width: 1.1em; height: 1.1em; cursor: pointer; }
-  .group-control-checkbox:disabled { cursor: wait; opacity: 0.6; }
   #clientGroupsError.error { color: var(--danger, #e53935); }
-  .pref-config-form { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr); gap: 10px 12px; align-items: end; }
+  #prefConfigSection { min-height: 168px; }
+  #dataSyncSection { min-height: 112px; }
+  .pref-config-form { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr); gap: 10px 12px; align-items: end; min-height: 132px; }
   .pref-config-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
   .pref-config-label { font-size: 13px; color: var(--muted); font-weight: 600; }
   .pref-config-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; align-items: flex-end; margin-top: 12px; }
@@ -1536,8 +1957,28 @@
   .pref-config-status { margin-top: 8px; font-size: 14px; }
   .pref-config-status.success { color: var(--success, #43a047); }
   .pref-config-status.error { color: var(--danger, #e53935); }
-  .data-sync-form { margin-top: 0; }
+  .data-sync-form { margin-top: 0; min-height: 88px; }
   .data-sync-field { max-width: 100%; }
+  @media (max-width: 768px) {
+    .client-modal-map-pane { display: none; }
+    .group-control-modal .modalBody.client-modal-body {
+      flex-direction: column;
+      min-height: 0;
+      height: 100%;
+    }
+    .group-control-modal.modal {
+      width: min(720px, 96vw);
+      height: 96dvh;
+      min-height: 96dvh;
+      max-height: 96dvh;
+    }
+    .client-modal-controls-pane {
+      flex: 1 1 auto;
+      max-width: none;
+      min-height: 0;
+      height: auto;
+    }
+  }
   @media (max-width: 640px) {
     .pref-config-form { grid-template-columns: 1fr; }
     .pref-config-actions .btn.success { width: 100%; }

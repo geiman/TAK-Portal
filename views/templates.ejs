@@ -7,17 +7,20 @@
     scopedSuffix: "Templates",
     singleFallbackTitle: "Agency Templates"
   }) %>
-  
-  <div class="card">
-    <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: 12px;">
-      <h2 style="margin: 0;" id="formTitle">Create New Template</h2>
-      <div class="row" style="gap:8px;">
-        <button class="btn" id="cancelEditBtn" type="button" style="display:none;">Cancel Edit</button>
-      </div>
-    </div>
 
-    <form id="form" class="templatesGrid" autocomplete="off">
-      <% const singleAgencyTemplatesAdmin = !isGlobalAdmin && isAgencyAdmin && Array.isArray(allowedAgencySuffixes) && allowedAgencySuffixes.length === 1; %>
+  <%
+    const singleAgencyTemplatesAdmin = !isGlobalAdmin && isAgencyAdmin && Array.isArray(allowedAgencySuffixes) && allowedAgencySuffixes.length === 1;
+    const _tplColors = [
+      "Blue","Dark Blue","Brown","Cyan","Green","Dark Green","Magenta","Maroon",
+      "Orange","Purple","Red","Teal","White","Yellow"
+    ];
+    const _tplColorLabels = (typeof teamColorLabels === "object" && teamColorLabels) ? teamColorLabels : {};
+  %>
+
+  <div class="card createFormCard">
+    <h2>Create New Template</h2>
+
+    <form id="form" class="templatesGrid createForm" autocomplete="off">
       <div class="templateTopRow <%= singleAgencyTemplatesAdmin ? 'agency-admin-locked' : '' %>">
         <label class="<%= singleAgencyTemplatesAdmin ? 'agency-hidden' : '' %>">Agency
           <select id="agency">
@@ -34,20 +37,9 @@
         <label>Color Override (optional)
           <select id="colorOverride">
             <option value="">Use Default Agency Color</option>
-            <option value="Blue">Blue</option>
-            <option value="Dark Blue">Dark Blue</option>
-            <option value="Brown">Brown</option>
-            <option value="Cyan">Cyan</option>
-            <option value="Green">Green</option>
-            <option value="Dark Green">Dark Green</option>
-            <option value="Magenta">Magenta</option>
-            <option value="Maroon">Maroon</option>
-            <option value="Orange">Orange</option>
-            <option value="Purple">Purple</option>
-            <option value="Red">Red</option>
-            <option value="Teal">Teal</option>
-            <option value="White">White</option>
-            <option value="Yellow">Yellow</option>
+            <% _tplColors.forEach(function (c) { %>
+              <option value="<%= c %>"><%= _tplColorLabels[c] || c %></option>
+            <% }); %>
           </select>
         </label>
 
@@ -65,7 +57,7 @@
 
       <div style="grid-column:1/-1;">
         <label>Groups
-          <div class="row" style="gap:10px; margin-top:8px; align-items:center;">
+          <div class="row" style="gap:10px; align-items:center;">
             <input id="groupSearch" placeholder="Search groups..." style="flex:1; min-width:0;" />
             <button class="btn" type="button" id="selectAllBtn">Select All</button>
             <button class="btn" type="button" id="clearAllBtn">Clear</button>
@@ -77,9 +69,9 @@
         </label>
       </div>
 
-      <div style="grid-column:1/-1; justify-content:flex-end;" class="row">
+      <div style="grid-column:1/-1; justify-content:flex-end;" class="row createActionsRow">
         <span id="msg" class="msg"></span>
-        <button class="btn success" id="submitBtn" type="submit">Create Template</button>
+        <button class="btn success" id="submitBtn" type="submit">Create New Template</button>
       </div>
     </form>
   </div>
@@ -103,6 +95,16 @@
       />
     </div>
 
+    <div id="templateListMsg" class="msg"></div>
+
+    <div class="pagination" id="templatesPaginationTop" style="display:none;">
+      <button class="btn pagination-first-last" type="button" id="templatesFirstBtnTop">First</button>
+      <button class="btn" type="button" id="templatesPrevBtnTop">Previous</button>
+      <span id="templatesPageInfoTop"></span>
+      <button class="btn" type="button" id="templatesNextBtnTop">Next</button>
+      <button class="btn pagination-first-last" type="button" id="templatesLastBtnTop">Last</button>
+    </div>
+
     <div class="listCardTableWrap">
       <table class="table listCardTable templatesTable">
         <thead>
@@ -120,6 +122,14 @@
         <tbody id="tbody"></tbody>
       </table>
     </div>
+
+    <div class="pagination" id="templatesPaginationBottom" style="display:none;">
+      <button class="btn pagination-first-last" type="button" id="templatesFirstBtnBottom">First</button>
+      <button class="btn" type="button" id="templatesPrevBtnBottom">Previous</button>
+      <span id="templatesPageInfoBottom"></span>
+      <button class="btn" type="button" id="templatesNextBtnBottom">Next</button>
+      <button class="btn pagination-first-last" type="button" id="templatesLastBtnBottom">Last</button>
+    </div>
   </div>
 
   <div class="card templatesExportCard">
@@ -129,6 +139,74 @@
   </div>
 </main>
 
+<!-- Edit Template Modal -->
+<div class="modalOverlay" id="editTemplateOverlay" style="display:none;">
+  <div class="modal editTemplateModal" role="dialog" aria-modal="true" aria-labelledby="editTemplateTitle">
+    <div class="modalHeader">
+      <div class="modalHeaderLeft">
+        <h2 id="editTemplateTitle" style="margin:0;">Edit Template</h2>
+      </div>
+      <button class="btn" id="editTemplateCloseBtn" type="button">Close</button>
+    </div>
+    <div class="modalBody">
+      <form id="editForm" class="templatesGrid editTemplateGrid" autocomplete="off">
+        <div class="templateTopRow <%= singleAgencyTemplatesAdmin ? 'agency-admin-locked' : '' %>">
+          <label class="<%= singleAgencyTemplatesAdmin ? 'agency-hidden' : '' %>">Agency
+            <select id="editAgency">
+              <option value="">Select an agency</option>
+            </select>
+          </label>
+
+          <label>Template Name
+            <input id="editName" placeholder="Template Name Here (ex. Patrol, Medic, etc...)" required />
+          </label>
+        </div>
+
+        <div class="templateSecondRow">
+          <label>Color Override (optional)
+            <select id="editColorOverride">
+              <option value="">Use Default Agency Color</option>
+              <% _tplColors.forEach(function (c) { %>
+                <option value="<%= c %>"><%= _tplColorLabels[c] || c %></option>
+              <% }); %>
+            </select>
+          </label>
+
+          <label>Role
+            <select id="editRole"></select>
+          </label>
+
+          <label>Default Template
+            <select id="editIsDefault">
+              <option value="no">No</option>
+              <option value="yes">Yes</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="editTemplateGroupsSection">
+          <label>Groups
+            <div class="row" style="gap:10px; margin-top:8px; align-items:center;">
+              <input id="editGroupSearch" placeholder="Search groups..." style="flex:1; min-width:0;" />
+              <button class="btn" type="button" id="editSelectAllBtn">Select All</button>
+              <button class="btn" type="button" id="editClearAllBtn">Clear</button>
+            </div>
+
+            <div id="editGroupsBox" class="groupsBox">
+              <div id="editGroupsInner" class="groupsInner"></div>
+            </div>
+          </label>
+        </div>
+
+        <div class="editTemplateFooter row">
+          <span id="editMsg" class="msg"></span>
+          <button class="btn success" id="editSubmitBtn" type="submit">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 <script>
 const msg = document.getElementById("msg");
 const tbody = document.getElementById("tbody");
@@ -136,6 +214,10 @@ const form = document.getElementById("form");
 const IS_GLOBAL_ADMIN = <%= isGlobalAdmin ? 'true' : 'false' %>;
 const IS_AGENCY_ADMIN = <%= isAgencyAdmin ? 'true' : 'false' %>;
 const ALLOWED_AGENCY_SUFFIXES = <%- JSON.stringify(allowedAgencySuffixes || []) %>;
+/** Color name → "Blue — Aircraft" from Settings → Deployment Packet Colors / Teams */
+const TEAM_COLOR_LABELS = <%- JSON.stringify((typeof teamColorLabels === "object" && teamColorLabels) ? teamColorLabels : {}) %>;
+/** Role name → "HQ — Command Staff / Admin Support" from Settings → Deployment Packet Roles */
+const ROLE_LABELS = <%- JSON.stringify((typeof roleLabels === "object" && roleLabels) ? roleLabels : {}) %>;
 const IS_MULTI_AGENCY_ADMIN =
   IS_AGENCY_ADMIN &&
   !IS_GLOBAL_ADMIN &&
@@ -144,50 +226,31 @@ const IS_MULTI_AGENCY_ADMIN =
 const AGENCY_ADMIN_SUFFIX = <%- JSON.stringify((!isGlobalAdmin && isAgencyAdmin && Array.isArray(allowedAgencySuffixes) && allowedAgencySuffixes.length === 1) ? String(allowedAgencySuffixes[0] || "").trim().toLowerCase() : "") %>;
 const templateNameSearch = document.getElementById("templateNameSearch");
 const templateAgencyFilterSelect = document.getElementById("templateAgencyFilterSelect");
+const TEMPLATES_PAGE_SIZE = 25;
+let templatesPage = 1;
+const templatesPaginationTop = document.getElementById("templatesPaginationTop");
+const templatesPaginationBottom = document.getElementById("templatesPaginationBottom");
+const templatesFirstBtnTop = document.getElementById("templatesFirstBtnTop");
+const templatesPrevBtnTop = document.getElementById("templatesPrevBtnTop");
+const templatesNextBtnTop = document.getElementById("templatesNextBtnTop");
+const templatesLastBtnTop = document.getElementById("templatesLastBtnTop");
+const templatesPageInfoTop = document.getElementById("templatesPageInfoTop");
+const templatesFirstBtnBottom = document.getElementById("templatesFirstBtnBottom");
+const templatesPrevBtnBottom = document.getElementById("templatesPrevBtnBottom");
+const templatesNextBtnBottom = document.getElementById("templatesNextBtnBottom");
+const templatesLastBtnBottom = document.getElementById("templatesLastBtnBottom");
+const templatesPageInfoBottom = document.getElementById("templatesPageInfoBottom");
 
 // ---- sortable Existing Templates table ----
 let viewTemplates = []; // [{ t, idx }] where idx is the original index in the stored templates array
 let sortState = { key: "agency", dir: "asc" }; // default: agency, then name
 
 function getAgencyDisplay(t){
-  return t && t.agencySuffix ? (agencyAbbrFromSuffix(t.agencySuffix) || t.agencySuffix) : "";
+  return t && t.agencySuffix ? (agencyNameFromSuffix(t.agencySuffix) || t.agencySuffix) : "";
 }
 
 function displayGroupName(name){
   return String(name || "").replace(/^tak_/, "");
-}
-
-let mutualAidGroupNamesLower = new Set();
-
-function isMutualAidGroupName(name) {
-  const key = String(name || "").trim().toLowerCase();
-  return key ? mutualAidGroupNamesLower.has(key) : false;
-}
-
-function stripMutualAidGroupNames(names) {
-  const out = [];
-  for (const raw of Array.isArray(names) ? names : []) {
-    const name = String(raw || "").trim();
-    if (!name || isMutualAidGroupName(name)) continue;
-    out.push(name);
-  }
-  return out;
-}
-
-/** Abbreviations for Existing Templates table only */
-function abbrevRoleForTable(role){
-  const r = String(role || "").trim();
-  const map = {
-    "Team Member": "TM",
-    "Team Lead": "TL",
-    "HQ": "HQ",
-    "Sniper": "S",
-    "Medic": "M",
-    "Forward Observer": "FO",
-    "RTO": "RTO",
-    "K9": "K9",
-  };
-  return map[r] || (r ? esc(r) : "TM");
 }
 
 function getSortValue(pair, key){
@@ -197,7 +260,7 @@ function getSortValue(pair, key){
   if (key === "color") return String(t.colorOverride || "");
   if (key === "role") return String((t.role || "Team Member").trim() || "Team Member");
   if (key === "default") return t.isDefault ? "1" : "";
-  if (key === "groups") return String((t.groups || []).join(", "));
+  if (key === "groups") return (t.groups || []).length;
   return "";
 }
 
@@ -208,6 +271,12 @@ function stableSort(arr, key, dir){
     .sort((a, b) => {
       const av = getSortValue(a.item, key);
       const bv = getSortValue(b.item, key);
+
+      if (key === "groups") {
+        const cmp = Number(av) - Number(bv);
+        if (cmp !== 0) return cmp * sign;
+        return a.originalPos - b.originalPos;
+      }
 
       const aBlank = !String(av || "").trim();
       const bBlank = !String(bv || "").trim();
@@ -230,9 +299,13 @@ function stableSort(arr, key, dir){
     .map(x => x.item);
 }
 
+function formatGroupsCount(groups){
+  const count = Array.isArray(groups) ? groups.length : 0;
+  return count === 1 ? "1 Group" : `${count} Groups`;
+}
+
 function renderTemplates(list){
   tbody.innerHTML = (list || []).map(({t, idx}) => {
-    const groupsText = esc(stripMutualAidGroupNames(t.groups || []).map(displayGroupName).join(", "));
     return `
     <tr>
       <td class="tplAgencyCell" data-label="Agency">${t.agencySuffix ? esc(getAgencyDisplay(t) || t.agencySuffix) : "—"}</td>
@@ -240,10 +313,10 @@ function renderTemplates(list){
         <div class="tplNameText cardTitleText">${esc(t.name)}</div>
         ${t.isDefault ? `<span class="tplDefaultBadge cardMetaBadge">Default</span>` : ""}
       </td>
-      <td class="tplColorCell">${t.colorOverride ? esc(t.colorOverride) : "—"}</td>
-      <td class="tplRoleCell" data-label="Role">${abbrevRoleForTable(t.role)}</td>
-      <td class="tplDefaultCell">${t.isDefault ? "Yes" : ""}</td>
-      <td class="groupsCell tplGroupsCell" data-label="Groups">${groupsText || "—"}</td>
+      <td class="tplColorCell">${t.colorOverride ? esc(t.colorOverride) : "Default"}</td>
+      <td class="tplRoleCell" data-label="Role" title="${esc(t.role || "Team Member")}">${esc(atakRoleAbbreviation(t.role || "Team Member"))}</td>
+      <td class="tplDefaultCell">${t.isDefault ? "✓" : ""}</td>
+      <td class="tplGroupsCell" data-label="Groups">${esc(formatGroupsCount(t.groups))}</td>
       <td class="tplUsersCell" data-label="Users">${templateUserCountForRow(t)}</td>
       <td class="tplActionsCell cardActionsCell">
         <div class="actionsCell cardActionsRow">
@@ -281,8 +354,37 @@ function updateSortIndicators(){
 function applySortAndRender(){
   const filtered = getFilteredTemplatePairs();
   const sorted = stableSort(filtered, sortState.key, sortState.dir);
-  renderTemplates(sorted);
+  const total = sorted.length;
+  const totalPages = Math.max(1, Math.ceil(total / TEMPLATES_PAGE_SIZE));
+  if (templatesPage > totalPages) templatesPage = totalPages;
+  if (templatesPage < 1) templatesPage = 1;
+  const pageList = total > TEMPLATES_PAGE_SIZE
+    ? sorted.slice((templatesPage - 1) * TEMPLATES_PAGE_SIZE, templatesPage * TEMPLATES_PAGE_SIZE)
+    : sorted;
+  updateTemplatesPaginationControls(total, totalPages);
+  renderTemplates(pageList);
   updateSortIndicators();
+  updateTemplateListMsg(pageList.length, total);
+}
+
+function updateTemplatesPaginationControls(total, totalPages) {
+  const show = total > TEMPLATES_PAGE_SIZE;
+  if (templatesPaginationTop) templatesPaginationTop.style.display = show ? "flex" : "none";
+  if (templatesPaginationBottom) templatesPaginationBottom.style.display = show ? "flex" : "none";
+  if (!show) return;
+
+  const infoText = `Page ${templatesPage} of ${totalPages}`;
+  if (templatesPageInfoTop) templatesPageInfoTop.textContent = infoText;
+  if (templatesPageInfoBottom) templatesPageInfoBottom.textContent = infoText;
+
+  const disablePrev = templatesPage <= 1;
+  const disableNext = templatesPage >= totalPages;
+  [templatesFirstBtnTop, templatesFirstBtnBottom, templatesPrevBtnTop, templatesPrevBtnBottom].forEach((btn) => {
+    if (btn) btn.disabled = disablePrev;
+  });
+  [templatesNextBtnTop, templatesNextBtnBottom, templatesLastBtnTop, templatesLastBtnBottom].forEach((btn) => {
+    if (btn) btn.disabled = disableNext;
+  });
 }
 
 // click-to-sort headers
@@ -303,14 +405,13 @@ function applySortAndRender(){
       sortState.key = key;
       sortState.dir = "asc";
     }
+    templatesPage = 1;
     applySortAndRender();
   });
 })();
 
 
-const formTitle = document.getElementById("formTitle");
 const submitBtn = document.getElementById("submitBtn");
-const cancelEditBtn = document.getElementById("cancelEditBtn");
 
 const nameEl = document.getElementById("name");
 const agencyEl = document.getElementById("agency");
@@ -334,15 +435,22 @@ const selectAllBtn = document.getElementById("selectAllBtn");
 const clearAllBtn = document.getElementById("clearAllBtn");
 const groupsInner = document.getElementById("groupsInner");
 
-groupsBox.addEventListener("change", (e) => {
-  const cb = e.target;
-  if (!cb || cb.tagName !== "INPUT" || cb.type !== "checkbox") return;
-
-  const name = String(cb.value);
-
-  if (cb.checked) pickedGroupNames.add(name);
-  else pickedGroupNames.delete(name);
-});
+const editTemplateOverlay = document.getElementById("editTemplateOverlay");
+const editForm = document.getElementById("editForm");
+const editTemplateTitle = document.getElementById("editTemplateTitle");
+const editTemplateCloseBtn = document.getElementById("editTemplateCloseBtn");
+const editSubmitBtn = document.getElementById("editSubmitBtn");
+const editMsg = document.getElementById("editMsg");
+const editNameEl = document.getElementById("editName");
+const editAgencyEl = document.getElementById("editAgency");
+const editIsDefaultEl = document.getElementById("editIsDefault");
+const editColorOverrideEl = document.getElementById("editColorOverride");
+const editRoleEl = document.getElementById("editRole");
+const editGroupSearch = document.getElementById("editGroupSearch");
+const editGroupsBox = document.getElementById("editGroupsBox");
+const editSelectAllBtn = document.getElementById("editSelectAllBtn");
+const editClearAllBtn = document.getElementById("editClearAllBtn");
+const editGroupsInner = document.getElementById("editGroupsInner");
 
 let allGroups = [];
 let allTemplates = [];
@@ -354,10 +462,64 @@ let groupsLoaded = false;
 let groupsLoadingForAgency = false;
 let editingIndex = null;
 let pickedGroupNames = new Set();
+let editPickedGroupNames = new Set();
+
+function bindGroupBox(boxEl, which){
+  if (!boxEl) return;
+  boxEl.addEventListener("change", (e) => {
+    const cb = e.target;
+    if (!cb || cb.tagName !== "INPUT" || cb.type !== "checkbox") return;
+    const picked = groupPicker(which).picked;
+    const name = String(cb.value);
+    if (cb.checked) picked.add(name);
+    else picked.delete(name);
+  });
+}
+
+bindGroupBox(groupsBox, "create");
+bindGroupBox(editGroupsBox, "edit");
+
+function replacePicked(picked, names){
+  picked.clear();
+  for (const n of names || []) {
+    const name = String(n || "").trim();
+    if (name) picked.add(name);
+  }
+}
+
+function groupPicker(which){
+  if (which === "edit") {
+    return {
+      picked: editPickedGroupNames,
+      inner: editGroupsInner,
+      search: editGroupSearch,
+      box: editGroupsBox,
+    };
+  }
+  return {
+    picked: pickedGroupNames,
+    inner: groupsInner,
+    search: groupSearch,
+    box: groupsBox,
+  };
+}
 
 function setMsg(text, ok=true){
   msg.textContent = text || "";
   msg.className = "msg " + (ok ? "ok" : "bad");
+}
+
+function setEditMsg(text, ok=true){
+  if (!editMsg) return;
+  editMsg.textContent = text || "";
+  editMsg.className = "msg " + (ok ? "ok" : "bad");
+}
+
+function setListMsg(text, ok=true){
+  const el = document.getElementById("templateListMsg");
+  if (!el) return;
+  el.textContent = text || "";
+  el.className = "msg " + (ok ? "ok" : "bad");
 }
 
 function formatTemplateSyncStatus(sync) {
@@ -378,40 +540,81 @@ function esc(s){
     .replaceAll("'","&#39;");
 }
 
-function renderRoleOptions(selectedRole){
-  if (!roleEl) return;
-  const role = String(selectedRole || "Team Member").trim() || "Team Member";
-  roleEl.innerHTML = ATAK_ROLE_OPTIONS
-    .map((r) => `<option value="${esc(r)}">${esc(r)}</option>`)
-    .join("");
-  roleEl.value = ATAK_ROLE_OPTIONS.includes(role) ? role : "Team Member";
+function templateColorLabel(color) {
+  const c = String(color || "").trim();
+  return TEAM_COLOR_LABELS[c] || c;
 }
 
-function renderGroups(filterText = ""){
+function templateRoleLabel(role) {
+  const r = String(role || "").trim();
+  return ROLE_LABELS[r] || r;
+}
+
+function atakRoleAbbreviation(role) {
+  const raw = String(role || "").trim();
+  if (!raw || raw === "—") return "—";
+  const map = {
+    "team member": "TM",
+    "team lead": "TL",
+    hq: "HQ",
+    sniper: "SNIPER",
+    medic: "MEDIC",
+    "forward observer": "FO",
+    rto: "RTO",
+    k9: "K9",
+  };
+  return map[raw.toLowerCase()] || raw;
+}
+
+function renderRoleOptions(selectEl, selectedRole){
+  if (!selectEl) return;
+  const role = String(selectedRole || "Team Member").trim() || "Team Member";
+  selectEl.innerHTML = ATAK_ROLE_OPTIONS
+    .map((r) => `<option value="${esc(r)}">${esc(templateRoleLabel(r))}</option>`)
+    .join("");
+  selectEl.value = ATAK_ROLE_OPTIONS.includes(role) ? role : "Team Member";
+}
+
+function renderGroups(filterText = "", which = "create"){
+  const picker = groupPicker(which);
+  const inner = picker.inner;
+  const picked = picker.picked;
+  if (!inner) return;
+
   if (groupsLoadingForAgency && !allGroups.length) {
-    groupsInner.innerHTML = '<p class="muted" style="margin:0;padding:8px;">Loading groups…</p>';
+    inner.innerHTML = '<p class="muted" style="margin:0;padding:8px;">Loading groups…</p>';
     return;
   }
-  if (!allGroups.length) {
-    groupsInner.innerHTML = '<p class="muted" style="margin:0;padding:8px;">No groups available.</p>';
+
+  const names = allGroups.map((g) => String(g.name || "").trim()).filter(Boolean);
+  const seen = new Set(names.map((n) => n.toLowerCase()));
+  for (const n of picked) {
+    const name = String(n || "").trim();
+    if (!name || seen.has(name.toLowerCase())) continue;
+    names.push(name);
+    seen.add(name.toLowerCase());
+  }
+  names.sort((a, b) => a.localeCompare(b));
+
+  if (!names.length) {
+    inner.innerHTML = '<p class="muted" style="margin:0;padding:8px;">No groups found.</p>';
     return;
   }
 
   const q = String(filterText || "").trim().toLowerCase();
+  const list = q
+    ? names.filter((n) => {
+        return n.toLowerCase().includes(q) || displayGroupName(n).toLowerCase().includes(q);
+      })
+    : names;
 
-  const list = allGroups
-    .map(g => String(g.name))
-    .filter(rawName => !isMutualAidGroupName(rawName))
-    .sort((a,b)=>a.localeCompare(b))
-    .filter(rawName => {
-      if (!q) return true;
-      const raw = rawName.toLowerCase();
-      const disp = displayGroupName(rawName).toLowerCase();
-      return raw.includes(q) || disp.includes(q);
-    });
+  if (!list.length) {
+    inner.innerHTML = '<p class="muted" style="margin:0;padding:8px;">No matching groups.</p>';
+    return;
+  }
 
-  groupsInner.innerHTML = list.map(rawName => {
-    const checked = pickedGroupNames.has(rawName) ? "checked" : "";
+  inner.innerHTML = list.map(rawName => {
+    const checked = picked.has(rawName) ? "checked" : "";
     return `
       <label class="groupItem">
         <input type="checkbox" value="${esc(rawName)}" ${checked} />
@@ -419,6 +622,34 @@ function renderGroups(filterText = ""){
       </label>
     `;
   }).join("");
+}
+
+function renderVisibleGroupPickers(){
+  renderGroups(groupSearch?.value || "", "create");
+  renderGroups(editGroupSearch?.value || "", "edit");
+}
+
+function agencyOptionHtml(agencies){
+  return `<option value="">Select an agency</option>` +
+    (agencies || []).map((a) => {
+      const abbr = (a.groupPrefix || "").trim();
+      const suffix = (a.suffix || "").trim();
+      const name = (a.name || "").trim();
+      return `<option value="${esc(suffix)}">${esc(name)}${abbr ? ` (${esc(abbr)})` : ""}</option>`;
+    }).join("");
+}
+
+function fillAgencySelect(selectEl, agencies){
+  if (!selectEl) return;
+  const prev = String(selectEl.value || "");
+  selectEl.innerHTML = agencyOptionHtml(agencies);
+  if (AGENCY_ADMIN_SUFFIX) {
+    selectEl.value = AGENCY_ADMIN_SUFFIX;
+    selectEl.disabled = true;
+    return;
+  }
+  selectEl.disabled = false;
+  if (prev) selectEl.value = prev;
 }
 
 async function loadAgencies(){
@@ -436,36 +667,18 @@ async function loadAgencies(){
     )
   );
 
-  agencyEl.innerHTML = `<option value="">Select an agency</option>` +
-    allAgencies.map(a => {
-      const abbr = (a.groupPrefix || "").trim();
-      const suffix = (a.suffix || "").trim();
-      const name = (a.name || "").trim();
-
-      return `<option value="${esc(suffix)}">
-        ${esc(name)}${abbr ? ` (${esc(abbr)})` : ""}
-      </option>`;
-    }).join("");
-
-  if (!IS_GLOBAL_ADMIN && IS_AGENCY_ADMIN && AGENCY_ADMIN_SUFFIX) {
-    agencyEl.value = AGENCY_ADMIN_SUFFIX;
-    agencyEl.disabled = true;
-  } else if (!IS_GLOBAL_ADMIN && IS_AGENCY_ADMIN && ALLOWED_AGENCY_SUFFIXES.length > 1) {
+  let optionAgencies = allAgencies;
+  if (!IS_GLOBAL_ADMIN && IS_AGENCY_ADMIN && ALLOWED_AGENCY_SUFFIXES.length > 1) {
     const allowed = new Set(
       ALLOWED_AGENCY_SUFFIXES.map((s) => String(s || "").trim().toLowerCase())
     );
-    agencyEl.innerHTML =
-      `<option value="">Select an agency</option>` +
-      allAgencies
-        .filter((a) => allowed.has(String(a?.suffix || "").trim().toLowerCase()))
-        .map((a) => {
-          const abbr = (a.groupPrefix || "").trim();
-          const suffix = (a.suffix || "").trim();
-          const name = (a.name || "").trim();
-          return `<option value="${esc(suffix)}">${esc(name)}${abbr ? ` (${esc(abbr)})` : ""}</option>`;
-        })
-        .join("");
+    optionAgencies = allAgencies.filter((a) =>
+      allowed.has(String(a?.suffix || "").trim().toLowerCase())
+    );
   }
+
+  fillAgencySelect(agencyEl, optionAgencies);
+  fillAgencySelect(editAgencyEl, optionAgencies);
 
   updateTemplateAgencyFilterOptions();
 }
@@ -473,40 +686,30 @@ async function loadAgencies(){
 async function loadGroups(options = {}){
   const { force = false } = options || {};
   if (groupsLoaded && !force) {
-    renderGroups(groupSearch.value);
+    renderVisibleGroupPickers();
     return;
   }
 
   groupsLoadingForAgency = true;
-  renderGroups(groupSearch.value);
+  renderVisibleGroupPickers();
   try {
-    const res = await fetch("/api/users/meta");
-    const meta = await res.json();
-    if (!res.ok) throw new Error(meta.error || "Failed to load groups");
+    const res = await fetch("/api/groups");
+    const out = await res.json();
+    if (!res.ok) throw new Error(out.error || "Failed to load groups");
 
-    mutualAidGroupNamesLower = new Set(
-      (Array.isArray(meta.mutualAidCreatedGroupNames) ? meta.mutualAidCreatedGroupNames : [])
-        .map((n) => String(n || "").trim().toLowerCase())
-        .filter(Boolean)
-    );
+    allGroups = Array.isArray(out) ? out : (Array.isArray(out.groups) ? out.groups : []);
 
-    allGroups = (Array.isArray(meta.groups) ? meta.groups : [])
-      .filter((g) => !isMutualAidGroupName(g?.name));
-
-    for (const name of [...pickedGroupNames]) {
-      if (isMutualAidGroupName(name)) pickedGroupNames.delete(name);
-    }
     groupsLoaded = true;
-    renderGroups(groupSearch.value);
   } finally {
     groupsLoadingForAgency = false;
+    renderVisibleGroupPickers();
   }
 }
 
-function agencyAbbrFromSuffix(suffix){
+function agencyNameFromSuffix(suffix){
   const s = String(suffix || "").trim().toLowerCase();
   const a = allAgencies.find(x => String(x.suffix || "").trim().toLowerCase() === s);
-  return String(a?.groupPrefix || "").trim();
+  return String(a?.name || "").trim();
 }
 
 function updateTemplateAgencyFilterOptions(){
@@ -532,7 +735,7 @@ function updateTemplateAgencyFilterOptions(){
     `<option value="">All Agencies</option>` +
     agencies.map(a => {
       const suffix = String(a.suffix || "").trim().toLowerCase();
-      const abbr = String(a.groupPrefix || "").trim().toUpperCase();
+      const abbr = String(a.groupPrefix || "").trim();
       const name = String(a.name || "").trim();
       const label = abbr ? `${name} (${abbr})` : name;
       return `<option value="${esc(suffix)}">${esc(label)}</option>`;
@@ -541,26 +744,44 @@ function updateTemplateAgencyFilterOptions(){
   if (prevVal) templateAgencyFilterSelect.value = prevVal;
 }
 
-function getFilteredTemplatePairs(){
+function getAgencyScopedTemplatePairs(){
   const base = Array.isArray(viewTemplates) ? viewTemplates.slice() : [];
-  const needle = String(templateNameSearch?.value || "").trim().toLowerCase();
   const agencyFilter = String(templateAgencyFilterSelect?.value || "").trim().toLowerCase();
 
   return base.filter(({ t }) => {
-    const tpl = t || {};
-    const name = String(tpl.name || "").toLowerCase();
-    const sfx = String(tpl.agencySuffix || "").trim().toLowerCase();
-
-    // Name search
-    if (needle && !name.includes(needle)) return false;
-
-    // Agency filter (global admin or multi-agency admin)
+    const sfx = String((t || {}).agencySuffix || "").trim().toLowerCase();
     if ((IS_GLOBAL_ADMIN || IS_MULTI_AGENCY_ADMIN) && templateAgencyFilterSelect && agencyFilter) {
       return sfx === agencyFilter;
     }
-
     return true;
   });
+}
+
+function getFilteredTemplatePairs(){
+  const needle = String(templateNameSearch?.value || "").trim().toLowerCase();
+  return getAgencyScopedTemplatePairs().filter(({ t }) => {
+    const name = String((t || {}).name || "").toLowerCase();
+    if (needle && !name.includes(needle)) return false;
+    return true;
+  });
+}
+
+function updateTemplateListMsg(shown, total){
+  const el = document.getElementById("templateListMsg");
+  if (!el) return;
+  const needle = String(templateNameSearch?.value || "").trim();
+  const n = Number(shown || 0);
+  const t = Number(total || 0);
+  el.className = "msg ok";
+  if (!t) {
+    el.textContent = needle ? `No templates found for "${needle}".` : "No templates found.";
+    return;
+  }
+  if (needle) {
+    el.textContent = `Showing ${n} of ${t} template(s) for "${needle}".`;
+  } else {
+    el.textContent = `Showing ${n} of ${t} template(s).`;
+  }
 }
 
 async function loadTemplatesList(){
@@ -608,58 +829,73 @@ async function loadTemplates(){
 }
 
 function setCreateMode(){
-  editingIndex = null;
-  formTitle.textContent = "Create New Template";
-  submitBtn.textContent = "Create Template";
-  cancelEditBtn.style.display = "none";
   setMsg("");
 
   nameEl.value = "";
   agencyEl.value = (!IS_GLOBAL_ADMIN && IS_AGENCY_ADMIN && AGENCY_ADMIN_SUFFIX) ? AGENCY_ADMIN_SUFFIX : "";
   agencyEl.disabled = Boolean(AGENCY_ADMIN_SUFFIX);
   colorOverrideEl.value = "";
-  renderRoleOptions("Team Member");
+  renderRoleOptions(roleEl, "Team Member");
   isDefaultEl.value = "no";
   groupSearch.value = "";
   pickedGroupNames.clear();
-  renderGroups("");
+  renderGroups("", "create");
 }
 
-function setEditMode(idx){
-  editingIndex = idx;
-  const t = findTemplateByIndex(idx);
+function isEditModalOpen(){
+  return !!(editTemplateOverlay && editTemplateOverlay.style.display !== "none");
+}
 
-  formTitle.textContent = "Edit Template";
-  submitBtn.textContent = "Save Changes";
-  cancelEditBtn.style.display = "inline-block";
-  setMsg("");
+function openEditModal(){
+  if (!editTemplateOverlay) return;
+  editTemplateOverlay.style.display = "flex";
+  document.body.classList.add("noScroll");
+}
 
-  nameEl.value = t.name || "";
-  agencyEl.value = t.agencySuffix || "";
-  colorOverrideEl.value = t.colorOverride || "";
-  renderRoleOptions(t.role || "Team Member");
-  isDefaultEl.value = t.isDefault ? "yes" : "no";
-  groupSearch.value = "";
-  pickedGroupNames = new Set(stripMutualAidGroupNames(t.groups || []));
-  renderGroups("");
+function closeEditModal(){
+  if (!editTemplateOverlay) return;
+  editTemplateOverlay.style.display = "none";
+  document.body.classList.remove("noScroll");
+  editingIndex = null;
+  editPickedGroupNames.clear();
+  setEditMsg("");
+  if (editGroupSearch) editGroupSearch.value = "";
+  if (editSubmitBtn) editSubmitBtn.disabled = false;
+}
 
-  window.scrollTo({ top: 0, behavior: "smooth" });
+function fillEditModal(t){
+  const name = String(t?.name || "").trim();
+  if (editTemplateTitle) {
+    editTemplateTitle.textContent = name ? `Edit Template - ${name}` : "Edit Template";
+  }
+  setEditMsg("");
+  editNameEl.value = t.name || "";
+  editAgencyEl.value = t.agencySuffix || "";
+  editAgencyEl.disabled = Boolean(AGENCY_ADMIN_SUFFIX);
+  editColorOverrideEl.value = t.colorOverride || "";
+  renderRoleOptions(editRoleEl, t.role || "Team Member");
+  editIsDefaultEl.value = t.isDefault ? "yes" : "no";
+  if (editGroupSearch) editGroupSearch.value = "";
+  replacePicked(editPickedGroupNames, t.groups || []);
+  renderGroups("", "edit");
 }
 
 function findTemplateByIndex(idx) {
   return allTemplates.find((x) => x && x._index === idx) || allTemplates[idx];
 }
 
-window.editTemplate = (idx) => setEditMode(idx);
+window.editTemplate = (idx) => {
+  const t = findTemplateByIndex(idx);
+  if (!t) return;
+  editingIndex = idx;
+  fillEditModal(t);
+  openEditModal();
+};
 
 window.duplicateTemplate = async (idx) => {
   const t = findTemplateByIndex(idx);
   if (!t) return;
 
-  editingIndex = null;
-  formTitle.textContent = "Create New Template";
-  submitBtn.textContent = "Create Template";
-  cancelEditBtn.style.display = "none";
   setMsg("");
 
   const targetAgency = t.agencySuffix || "";
@@ -669,52 +905,107 @@ window.duplicateTemplate = async (idx) => {
   const baseName = String(t.name || "").trim();
   nameEl.value = baseName ? `${baseName} Copy` : "Copy";
   colorOverrideEl.value = t.colorOverride || "";
-  renderRoleOptions(t.role || "Team Member");
+  renderRoleOptions(roleEl, t.role || "Team Member");
   isDefaultEl.value = t.isDefault ? "yes" : "no";
   groupSearch.value = "";
-  pickedGroupNames = new Set(stripMutualAidGroupNames(t.groups || []));
-  renderGroups("");
+  replacePicked(pickedGroupNames, t.groups || []);
+  renderGroups("", "create");
 
   window.scrollTo({ top: 0, behavior: "smooth" });
 };
 
 window.deleteTemplate = async (idx) => {
   if(!confirm("Delete this template?\n\nThis will also unlink existing users currently tied to this template for current template tracking, and they will be treated as Manual Group Selection.")) return;
-  setMsg("");
+  setListMsg("");
 
   const res = await fetch("/api/templates/" + idx, { method:"DELETE" });
   const out = await res.json();
 
   if(!res.ok){
-    setMsg(out.error || "Delete failed", false);
+    setListMsg(out.error || "Delete failed", false);
     return;
   }
 
   const syncMsg = out?.currentTemplateSync ? ` ${formatTemplateSyncStatus(out.currentTemplateSync)}` : "";
-  setMsg(`Template deleted.${syncMsg}`, true);
-
-  if (editingIndex === idx) setCreateMode();
+  if (editingIndex === idx) closeEditModal();
 
   await loadTemplates();
+  setListMsg(`Template deleted.${syncMsg}`, true);
 };
 
-groupSearch.oninput = () => {
-  renderGroups(groupSearch.value);
-};
+if (groupSearch) {
+  groupSearch.oninput = () => {
+    renderGroups(groupSearch.value, "create");
+  };
+}
+
+if (editGroupSearch) {
+  editGroupSearch.oninput = () => {
+    renderGroups(editGroupSearch.value, "edit");
+  };
+}
 
 agencyEl.addEventListener("change", () => {
   pickedGroupNames.clear();
   groupSearch.value = "";
-  renderGroups("");
+  renderGroups("", "create");
 });
 
+if (editAgencyEl) {
+  editAgencyEl.addEventListener("change", () => {
+    editPickedGroupNames.clear();
+    if (editGroupSearch) editGroupSearch.value = "";
+    renderGroups("", "edit");
+  });
+}
+
 if (templateNameSearch) {
-  templateNameSearch.addEventListener("input", applySortAndRender);
+  templateNameSearch.addEventListener("input", () => {
+    templatesPage = 1;
+    applySortAndRender();
+  });
 }
 
 if (templateAgencyFilterSelect) {
-  templateAgencyFilterSelect.addEventListener("change", applySortAndRender);
+  templateAgencyFilterSelect.addEventListener("change", () => {
+    templatesPage = 1;
+    applySortAndRender();
+  });
 }
+
+[templatesFirstBtnTop, templatesFirstBtnBottom].forEach((btn) => {
+  if (!btn) return;
+  btn.onclick = () => {
+    if (templatesPage <= 1) return;
+    templatesPage = 1;
+    applySortAndRender();
+  };
+});
+[templatesPrevBtnTop, templatesPrevBtnBottom].forEach((btn) => {
+  if (!btn) return;
+  btn.onclick = () => {
+    if (templatesPage <= 1) return;
+    templatesPage -= 1;
+    applySortAndRender();
+  };
+});
+[templatesNextBtnTop, templatesNextBtnBottom].forEach((btn) => {
+  if (!btn) return;
+  btn.onclick = () => {
+    templatesPage += 1;
+    applySortAndRender();
+  };
+});
+[templatesLastBtnTop, templatesLastBtnBottom].forEach((btn) => {
+  if (!btn) return;
+  btn.onclick = () => {
+    const total = getFilteredTemplatePairs().length;
+    const totalPages = Math.max(1, Math.ceil(total / TEMPLATES_PAGE_SIZE));
+    if (templatesPage >= totalPages) return;
+    templatesPage = totalPages;
+    applySortAndRender();
+  };
+});
 
 selectAllBtn.onclick = () => {
   Array.from(groupsBox.querySelectorAll('input[type="checkbox"]')).forEach(cb => {
@@ -730,7 +1021,37 @@ clearAllBtn.onclick = () => {
   pickedGroupNames.clear();
 };
 
-cancelEditBtn.onclick = () => setCreateMode();
+if (editSelectAllBtn) {
+  editSelectAllBtn.onclick = () => {
+    if (!editGroupsBox) return;
+    Array.from(editGroupsBox.querySelectorAll('input[type="checkbox"]')).forEach(cb => {
+      cb.checked = true;
+      editPickedGroupNames.add(cb.value);
+    });
+  };
+}
+
+if (editClearAllBtn) {
+  editClearAllBtn.onclick = () => {
+    if (!editGroupsBox) return;
+    Array.from(editGroupsBox.querySelectorAll('input[type="checkbox"]')).forEach(cb => {
+      cb.checked = false;
+    });
+    editPickedGroupNames.clear();
+  };
+}
+
+if (editTemplateCloseBtn) {
+  editTemplateCloseBtn.onclick = () => closeEditModal();
+}
+if (editTemplateOverlay) {
+  editTemplateOverlay.addEventListener("click", (e) => {
+    if (e.target === editTemplateOverlay) closeEditModal();
+  });
+}
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && isEditModalOpen()) closeEditModal();
+});
 
 form.onsubmit = async (e) => {
   e.preventDefault();
@@ -741,48 +1062,89 @@ form.onsubmit = async (e) => {
     agencySuffix: agencyEl.value,
     colorOverride: (colorOverrideEl.value || ""),
     role: String(roleEl?.value || "Team Member").trim() || "Team Member",
-    groups: stripMutualAidGroupNames(Array.from(pickedGroupNames)),
+    groups: Array.from(pickedGroupNames),
     isDefault: isDefaultEl.value === "yes"
   };
 
   if (!payload.name) return setMsg("Template name is required", false);
   if (!payload.groups.length) {
-    return setMsg("Select at least one group (mutual aid groups cannot be used in templates)", false);
+    return setMsg("Select at least one group", false);
   }
 
-  const isEdit = editingIndex !== null;
-  const url = isEdit ? ("/api/templates/" + editingIndex) : "/api/templates";
-  const method = isEdit ? "PUT" : "POST";
-
   submitBtn.disabled = true;
-  setMsg(isEdit ? "Applying changes..." : "Creating template...");
+  setMsg("Creating template...");
   try {
-    const res = await fetch(url, {
-      method,
+    const res = await fetch("/api/templates", {
+      method: "POST",
       headers: {"Content-Type":"application/json"},
       body: JSON.stringify(payload)
     });
 
     const out = await res.json();
     if(!res.ok){
-      setMsg(out.error || (isEdit ? "Update failed" : "Create failed"), false);
+      setMsg(out.error || "Create failed", false);
       return;
     }
 
-    if (isEdit) {
-      const syncMsg = out?.currentTemplateSync ? ` ${formatTemplateSyncStatus(out.currentTemplateSync)}` : "";
-      setMsg(`Template updated.${syncMsg}`, true);
-    } else {
-      setMsg("Template created", true);
-    }
     await loadTemplates();
     setCreateMode();
+    setMsg("Template created", true);
   } catch (err) {
-    setMsg(err?.message || (isEdit ? "Update failed" : "Create failed"), false);
+    setMsg(err?.message || "Create failed", false);
   } finally {
     submitBtn.disabled = false;
   }
 };
+
+if (editForm) {
+  editForm.onsubmit = async (e) => {
+    e.preventDefault();
+    setEditMsg("");
+
+    if (editingIndex === null) {
+      return setEditMsg("No template selected", false);
+    }
+
+    const payload = {
+      name: editNameEl.value.trim(),
+      agencySuffix: editAgencyEl.value,
+      colorOverride: (editColorOverrideEl.value || ""),
+      role: String(editRoleEl?.value || "Team Member").trim() || "Team Member",
+      groups: Array.from(editPickedGroupNames),
+      isDefault: editIsDefaultEl.value === "yes"
+    };
+
+    if (!payload.name) return setEditMsg("Template name is required", false);
+    if (!payload.groups.length) {
+      return setEditMsg("Select at least one group", false);
+    }
+
+    if (editSubmitBtn) editSubmitBtn.disabled = true;
+    setEditMsg("Applying changes...");
+    try {
+      const res = await fetch("/api/templates/" + editingIndex, {
+        method: "PUT",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify(payload)
+      });
+
+      const out = await res.json();
+      if(!res.ok){
+        setEditMsg(out.error || "Update failed", false);
+        return;
+      }
+
+      const syncMsg = out?.currentTemplateSync ? ` ${formatTemplateSyncStatus(out.currentTemplateSync)}` : "";
+      closeEditModal();
+      await loadTemplates();
+      setListMsg(`Template updated.${syncMsg}`, true);
+    } catch (err) {
+      setEditMsg(err?.message || "Update failed", false);
+    } finally {
+      if (editSubmitBtn) editSubmitBtn.disabled = false;
+    }
+  };
+}
 
 const exportTemplatesCsvBtn = document.getElementById("exportTemplatesCsvBtn");
 if (exportTemplatesCsvBtn) {
@@ -833,6 +1195,7 @@ if (exportTemplatesCsvBtn) {
       loadGroups(),
     ]);
     setCreateMode();
+    renderRoleOptions(editRoleEl, "Team Member");
     loadTemplateUserCounts();
   } catch (err) {
     setMsg(err.message || "Failed to load page", false);
@@ -841,6 +1204,61 @@ if (exportTemplatesCsvBtn) {
 </script>
 
 <style>
+.pagination {
+  margin: 12px 0 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.pagination .btn {
+  padding: 4px 14px;
+  border-radius: 999px;
+  background: #2f3241;
+  border: 1px solid #3a3d4d;
+  color: #e4e4e4;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.pagination .btn:hover:not(:disabled) {
+  background: #3a3d4d;
+  border-color: #4a4d5e;
+}
+
+.pagination .btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+#templatesPageInfoTop,
+#templatesPageInfoBottom {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  opacity: 0.9;
+  font-size: 12px;
+}
+
+/* Sortable header UI */
+th.sortable{
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+th.sortable:hover{
+  text-decoration: underline;
+}
+.sortIndicator{
+  display: inline-block;
+  min-width: 12px;
+  margin-left: 6px;
+  opacity: 0.9;
+}
+
 .templatesGrid {
   display: grid;
   gap: 12px;
@@ -955,7 +1373,7 @@ if (exportTemplatesCsvBtn) {
 }
 
 .templatesTable td {
-  vertical-align: top;
+  vertical-align: middle;
 }
 
 .templatesTable .tplNameText {
@@ -969,7 +1387,8 @@ if (exportTemplatesCsvBtn) {
 
 .templatesTable .tplAgencyCell,
 .templatesTable .tplRoleCell,
-.templatesTable .tplUsersCell {
+.templatesTable .tplUsersCell,
+.templatesTable .tplGroupsCell {
   white-space: nowrap;
 }
 
@@ -997,10 +1416,100 @@ if (exportTemplatesCsvBtn) {
   filter: brightness(0.95);
 }
 
-.groupsCell {
-  white-space: normal;
-  word-break: break-word;
-  max-width: 320px;
+#editTemplateOverlay {
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+#editTemplateOverlay .editTemplateModal {
+  display: flex;
+  flex-direction: column;
+  width: min(1100px, 100%);
+  max-height: 92vh;
+  overflow: hidden;
+}
+
+#editTemplateOverlay .modalHeader {
+  flex: 0 0 auto;
+}
+
+#editTemplateOverlay .modalHeaderLeft {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+#editTemplateOverlay .modalHeaderLeft h2 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#editTemplateOverlay .modalBody {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#editTemplateOverlay .editTemplateGrid {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  overflow: hidden;
+}
+
+#editTemplateOverlay .editTemplateGroupsSection {
+  grid-column: 1 / -1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#editTemplateOverlay .editTemplateGroupsSection > label {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+}
+
+#editTemplateOverlay .editTemplateGroupsSection .row {
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+}
+
+#editTemplateOverlay .editTemplateGroupsSection .groupsBox {
+  flex: 1 1 auto;
+  min-height: 8rem;
+  max-height: none;
+  overflow-y: auto;
+}
+
+#editTemplateOverlay .editTemplateFooter {
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+}
+
+#editTemplateOverlay .editTemplateFooter .msg {
+  margin-right: auto;
+}
+
+#editTemplateOverlay label > input:not([type="checkbox"]),
+#editTemplateOverlay label > select {
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+body.noScroll .main {
+  overflow: hidden !important;
 }
 
 /* Mobile: stacked cards, no horizontal scroll */
@@ -1094,11 +1603,6 @@ if (exportTemplatesCsvBtn) {
     color: var(--muted);
   }
 
-  .templatesTable .tplGroupsCell {
-    white-space: normal;
-    word-break: break-word;
-  }
-
   .listCardTable .cardActionsCell::before {
     display: none;
   }
@@ -1133,6 +1637,126 @@ if (exportTemplatesCsvBtn) {
 @media (max-width: 400px) {
   .listCardTable .cardActionsRow {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 990px) {
+  #editTemplateOverlay {
+    padding: 0;
+    align-items: stretch;
+    justify-content: stretch;
+  }
+  #editTemplateOverlay .editTemplateModal {
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    max-height: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+  }
+  #editTemplateOverlay .modalHeader {
+    padding-top: max(14px, env(safe-area-inset-top));
+    padding-left: max(14px, env(safe-area-inset-left));
+    padding-right: max(14px, env(safe-area-inset-right));
+    gap: 8px;
+    align-items: center;
+  }
+  #editTemplateOverlay .modalHeaderLeft {
+    flex: 1 1 auto;
+  }
+  #editTemplateOverlay .modalHeaderLeft h2 {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    font-size: 16px;
+    line-height: 1.3;
+  }
+  #editTemplateOverlay .modalHeader > .btn {
+    flex: 0 0 auto;
+    min-height: 44px;
+  }
+  #editTemplateOverlay .modalBody {
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    padding-left: max(14px, env(safe-area-inset-left));
+    padding-right: max(14px, env(safe-area-inset-right));
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
+  }
+  #editTemplateOverlay .editTemplateGrid {
+    display: flex;
+    flex-direction: column;
+    overflow: visible;
+    flex: 0 0 auto;
+    min-height: auto;
+    height: auto;
+  }
+  #editTemplateOverlay .templateTopRow,
+  #editTemplateOverlay .templateSecondRow {
+    grid-template-columns: 1fr;
+  }
+  #editTemplateOverlay .editTemplateGroupsSection,
+  #editTemplateOverlay .editTemplateGroupsSection > label {
+    flex: 0 0 auto;
+    min-height: auto;
+    overflow: visible;
+  }
+  #editTemplateOverlay .editTemplateGroupsSection .row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-items: stretch;
+  }
+  #editTemplateOverlay .editTemplateGroupsSection .row input {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+  #editTemplateOverlay .editTemplateGroupsSection .row .btn {
+    width: 100%;
+    min-height: 44px;
+  }
+  #editTemplateOverlay .editTemplateGroupsSection .groupsBox {
+    flex: 0 0 auto;
+    min-height: 10rem;
+    max-height: min(40dvh, 22rem);
+  }
+  #editTemplateOverlay .editTemplateGroupsSection .groupsInner {
+    column-count: 2;
+    column-width: 160px;
+  }
+  #editTemplateOverlay .editTemplateFooter {
+    position: sticky;
+    bottom: 0;
+    z-index: 4;
+    background: var(--raised);
+    margin-top: 12px;
+    padding-top: 12px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+    box-shadow: 0 -10px 16px var(--raised);
+    flex-wrap: wrap;
+  }
+  #editTemplateOverlay .editTemplateFooter .btn {
+    min-height: 44px;
+    width: 100%;
+  }
+  #editTemplateOverlay .editTemplateFooter .msg {
+    margin: 0 0 8px;
+    width: 100%;
+  }
+  #editTemplateOverlay .editTemplateFooter .msg:empty {
+    display: none;
+  }
+  #editTemplateOverlay input:not([type="checkbox"]),
+  #editTemplateOverlay select {
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 560px) {
+  #editTemplateOverlay .editTemplateGroupsSection .groupsInner {
+    column-count: 1;
   }
 }
 

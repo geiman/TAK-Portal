@@ -7,12 +7,13 @@
  * Settings (all optional; if not set, cert creation is skipped):
  *   TAK_SSH_HOST       SSH host (default: hostname from TAK_URL)
  *   TAK_SSH_PORT       SSH port (default: 22)
- *   TAK_SSH_USER       SSH username (non-root OK; handshake configures sudo)
- *   TAK_SSH_SUDO_PASSWORD Optional fallback when passwordless sudo cannot be installed
+ *   TAK_SSH_USER       SSH username (non-root OK; handshake configures sudo/dzdo)
+ *   TAK_SSH_PRIVILEGE_CMD  "sudo" (default) or "dzdo"
+ *   TAK_SSH_SUDO_PASSWORD Optional fallback when passwordless sudo/dzdo cannot be installed
  *   TAK_SSH_PRIVATE_KEY_PATH   Path to PEM private key file
  *   TAK_SSH_PASSPHRASE Optional passphrase for encrypted key
  *
- * Command run on server: sudo -u tak bash -c 'cd /opt/tak/certs && bash makeCert.sh client <username>'
+ * Command run on server: <sudo|dzdo> -u tak bash -c 'cd /opt/tak/certs && bash makeCert.sh client <username>'
  */
 
 const fs = require("fs");
@@ -43,8 +44,21 @@ function quoteForSingleQuotedShell(str) {
   return String(str || "").replace(/'/g, "'\"'\"'");
 }
 
-const PRIVILEGED_UNAVAILABLE_MSG =
-  "SSH connected but privileged commands are not available. In Server Settings, run Generate Key + Handshake again with an account that can sudo (the portal installs passwordless sudo automatically).";
+function normalizePrivilegeBin(raw) {
+  return String(raw || "").trim().toLowerCase() === "dzdo" ? "dzdo" : "sudo";
+}
+
+function getPrivilegeBin() {
+  return normalizePrivilegeBin(getString("TAK_SSH_PRIVILEGE_CMD", "sudo"));
+}
+
+function privilegedUnavailableMessage() {
+  const bin = getPrivilegeBin();
+  if (bin === "dzdo") {
+    return "SSH connected but privileged commands are not available. In Server Settings, run Generate Key + Handshake again with an account that can run dzdo.";
+  }
+  return "SSH connected but privileged commands are not available. In Server Settings, run Generate Key + Handshake again with an account that can sudo (the portal installs passwordless sudo automatically).";
+}
 
 const TAK_CORE_CONFIG_PATH = "/opt/tak/CoreConfig.xml";
 const TAK_CERTS_DIR = "/opt/tak/certs";
@@ -52,16 +66,16 @@ const TAK_PORTAL_CERTS_REPAIR_SCRIPT = "/opt/tak/utils/tak-portal-repair-certs.s
 
 /** Shell checks that match commands granted in /etc/sudoers.d/tak-portal (not bare `sudo true`). */
 function shellProbeNopasswdRootAccess() {
-  return `sudo -n cat ${TAK_CORE_CONFIG_PATH} >/dev/null 2>&1`;
+  return `${getPrivilegeBin()} -n cat ${TAK_CORE_CONFIG_PATH} >/dev/null 2>&1`;
 }
 
 function shellProbeNopasswdAsTakUser() {
-  return "sudo -n -u tak id >/dev/null 2>&1";
+  return `${getPrivilegeBin()} -n -u tak id >/dev/null 2>&1`;
 }
 
 function shellProbePasswordSudoAccess(password) {
   const safePass = quoteForSingleQuotedShell(password);
-  return `printf '%s\\n' '${safePass}' | sudo -S -p '' cat ${TAK_CORE_CONFIG_PATH} >/dev/null 2>&1`;
+  return `printf '%s\\n' '${safePass}' | ${getPrivilegeBin()} -S -p '' cat ${TAK_CORE_CONFIG_PATH} >/dev/null 2>&1`;
 }
 
 let privilegedModeCache = null;
@@ -71,7 +85,7 @@ function clearPrivilegedModeCache() {
 }
 
 function connectConfigKey(connectConfig) {
-  return `${connectConfig.host}:${connectConfig.port}:${connectConfig.username}`;
+  return `${connectConfig.host}:${connectConfig.port}:${connectConfig.username}:${getPrivilegeBin()}`;
 }
 
 function toConnectConfig(cfg) {
@@ -99,58 +113,65 @@ function assertSafePortalSshUsername(username) {
 
 function buildPrivilegedCommand(innerCommand, mode, options = {}) {
   const runAsUser = String(options.runAsUser || "").trim();
+  const bin = getPrivilegeBin();
   if (!mode || mode.mode === "none") {
-    throw new Error(PRIVILEGED_UNAVAILABLE_MSG);
+    throw new Error(privilegedUnavailableMessage());
   }
 
   if (mode.mode === "direct") {
     if (runAsUser) {
+      const sshUser = String(options.sshUsername || "").trim();
+      if (sshUser && sshUser === runAsUser) {
+        return innerCommand;
+      }
       throw new Error(
-        "SSH user can access CoreConfig directly but cannot run commands as the tak user. Use an account with sudo or re-run Configure Sudo Access."
+        `SSH user can access CoreConfig directly but cannot run commands as the tak user. Use an account with ${bin} or re-run SSH setup.`
       );
     }
     return innerCommand;
   }
   if (mode.mode === "root") {
-    if (runAsUser) return `sudo -u ${runAsUser} ${innerCommand}`;
+    if (runAsUser) return `${bin} -u ${runAsUser} ${innerCommand}`;
     return innerCommand;
   }
   if (mode.mode === "nopasswd") {
-    if (runAsUser) return `sudo -n -u ${runAsUser} ${innerCommand}`;
-    return `sudo -n ${innerCommand}`;
+    if (runAsUser) return `${bin} -n -u ${runAsUser} ${innerCommand}`;
+    return `${bin} -n ${innerCommand}`;
   }
   if (mode.mode === "password" && mode.password) {
     const safePass = quoteForSingleQuotedShell(mode.password);
     if (runAsUser) {
-      return `printf '%s\\n' '${safePass}' | sudo -S -p '' -u ${runAsUser} ${innerCommand}`;
+      return `printf '%s\\n' '${safePass}' | ${bin} -S -p '' -u ${runAsUser} ${innerCommand}`;
     }
-    return `printf '%s\\n' '${safePass}' | sudo -S -p '' ${innerCommand}`;
+    return `printf '%s\\n' '${safePass}' | ${bin} -S -p '' ${innerCommand}`;
   }
-  throw new Error(PRIVILEGED_UNAVAILABLE_MSG);
+  throw new Error(privilegedUnavailableMessage());
+}
+
+function takCertCommandOptions(connect, extra = {}) {
+  return {
+    sshUsername: String(connect?.username || "").trim(),
+    ...extra,
+  };
 }
 
 function buildPrivilegedTeeCommand(remoteAbsolutePath, mode) {
   const safePath = quoteForSingleQuotedShell(String(remoteAbsolutePath || "").trim());
   const teeInner = `tee '${safePath}' > /dev/null`;
+  const bin = getPrivilegeBin();
   if (mode.mode === "root") return teeInner;
-  if (mode.mode === "nopasswd") return `sudo -n ${teeInner}`;
+  if (mode.mode === "nopasswd") return `${bin} -n ${teeInner}`;
   if (mode.mode === "password" && mode.password) {
     const safePass = quoteForSingleQuotedShell(mode.password);
-    return `(printf '%s\\n' '${safePass}'; cat) | sudo -S -p '' ${teeInner}`;
+    return `(printf '%s\\n' '${safePass}'; cat) | ${bin} -S -p '' ${teeInner}`;
   }
-  throw new Error(PRIVILEGED_UNAVAILABLE_MSG);
+  throw new Error(privilegedUnavailableMessage());
 }
 
 async function probePrivilegedMode(connectConfig) {
   const idRes = await execOverSsh(connectConfig, "id -u", 15000);
   if (idRes.ok && String(idRes.stdout || "").trim() === "0") {
     return { mode: "root" };
-  }
-
-  const canRead = await execOverSsh(connectConfig, `test -r ${TAK_CORE_CONFIG_PATH}`, 15000);
-  const canWrite = await execOverSsh(connectConfig, `test -w ${TAK_CORE_CONFIG_PATH}`, 15000);
-  if (canRead.ok && canWrite.ok) {
-    return { mode: "direct" };
   }
 
   const nopassRoot = await execOverSsh(connectConfig, shellProbeNopasswdRootAccess(), 15000);
@@ -169,6 +190,12 @@ async function probePrivilegedMode(connectConfig) {
     if (passRes.ok) {
       return { mode: "password", password: sudoPassword };
     }
+  }
+
+  const canRead = await execOverSsh(connectConfig, `test -r ${TAK_CORE_CONFIG_PATH}`, 15000);
+  const canWrite = await execOverSsh(connectConfig, `test -w ${TAK_CORE_CONFIG_PATH}`, 15000);
+  if (canRead.ok && canWrite.ok) {
+    return { mode: "direct" };
   }
 
   return { mode: "none" };
@@ -190,8 +217,9 @@ async function getPrivilegedMode(connectConfig, { forceRefresh = false } = {}) {
 
   let mode = await probePrivilegedMode(connectConfig);
 
+  const bin = getPrivilegeBin();
   const sudoersConfigured = String(getString("TAK_SSH_SUDOERS_CONFIGURED", "")).toLowerCase() === "true";
-  if (!sudoersConfigured && mode.mode === "password" && mode.password) {
+  if (bin === "sudo" && !sudoersConfigured && mode.mode === "password" && mode.password) {
     const install = await installPortalSudoersUsingStoredPassword(connectConfig, connectConfig.username);
     if (install.ok) {
       mode = await probePrivilegedMode(connectConfig);
@@ -270,7 +298,7 @@ async function installPortalSudoersOnRemote(connectConfig, sshPassword, portalUs
   const script = buildPortalSudoersInstallScript(portalUsername);
   const b64 = Buffer.from(script, "utf8").toString("base64");
   const safePass = quoteForSingleQuotedShell(String(sshPassword || ""));
-  const cmd = `printf '%s\\n' '${safePass}' | sudo -S -p '' bash -lc 'echo ${b64} | base64 -d | bash'`;
+  const cmd = `printf '%s\\n' '${safePass}' | ${getPrivilegeBin()} -S -p '' bash -lc 'echo ${b64} | base64 -d | bash'`;
   return execOverSsh(connectConfig, cmd, 90000);
 }
 
@@ -331,93 +359,12 @@ async function runTakCertsRepairWithStoredSudoPassword(connect) {
     return { ok: false, message: "No stored sudo password for cert repair." };
   }
   const safePass = quoteForSingleQuotedShell(password);
-  const cmd = `printf '%s\\n' '${safePass}' | sudo -S -p '' ${buildInlineTakCertsRepairCommand()}`;
+  const cmd = `printf '%s\\n' '${safePass}' | ${getPrivilegeBin()} -S -p '' ${buildInlineTakCertsRepairCommand()}`;
   return execOverSsh(connect, cmd, 30000);
 }
 
 /**
- * Ensure sudoers includes cert repair, deploy repair script, and fix /opt/tak/certs permissions.
- */
-async function syncPortalSudoersForCertRepair(connect, portalUsername) {
-  const probe = await execOverSsh(
-    connect,
-    `sudo -n bash ${TAK_PORTAL_CERTS_REPAIR_SCRIPT} >/dev/null 2>&1`,
-    15000
-  );
-  if (probe.ok) return { ok: true };
-
-  const user = assertSafePortalSshUsername(portalUsername || connect.username);
-  const storedPw = getSudoPasswordFromSettings();
-  if (storedPw) {
-    const install = await installPortalSudoersOnRemote(connect, storedPw, user);
-    if (!install.ok) {
-      return { ok: false, message: install.message || "Could not refresh portal sudoers for cert repair." };
-    }
-    clearPrivilegedModeCache();
-  }
-
-  let mode = await getPrivilegedMode(connect, { forceRefresh: true });
-  if (!storedPw && mode.mode === "password" && mode.password) {
-    const install = await installPortalSudoersOnRemote(connect, mode.password, user);
-    if (install.ok) {
-      clearPrivilegedModeCache();
-      mode = await getPrivilegedMode(connect, { forceRefresh: true });
-    }
-  }
-  const deploy = await deployTakPortalCertsRepairScript(connect, mode);
-  if (!deploy.ok) {
-    const inline = await runInlineTakCertsRepair(connect, mode);
-    if (!inline.ok) {
-      const withPw = await runTakCertsRepairWithStoredSudoPassword(connect);
-      if (!withPw.ok) {
-        return {
-          ok: false,
-          message:
-            deploy.message ||
-            inline.message ||
-            withPw.message ||
-            "Could not deploy cert repair on the TAK server.",
-        };
-      }
-    }
-  } else {
-    const repair = await runTakPortalCertsRepair(connect, mode);
-    if (!repair.ok) {
-      const inline = await runInlineTakCertsRepair(connect, mode);
-      if (!inline.ok) {
-        const withPw = await runTakCertsRepairWithStoredSudoPassword(connect);
-        if (!withPw.ok) {
-          return { ok: false, message: repair.message || inline.message || withPw.message };
-        }
-      }
-    }
-  }
-
-  const verify = await execOverSsh(
-    connect,
-    `sudo -n bash ${TAK_PORTAL_CERTS_REPAIR_SCRIPT} >/dev/null 2>&1`,
-    15000
-  );
-  if (verify.ok) return { ok: true };
-
-  mode = await getPrivilegedMode(connect, { forceRefresh: true });
-  const finalRepair = await runTakPortalCertsRepair(connect, mode);
-  if (finalRepair.ok) return { ok: true };
-
-  const finalInline = await runInlineTakCertsRepair(connect, mode);
-  if (finalInline.ok) return { ok: true };
-
-  return {
-    ok: false,
-    message:
-      finalRepair.message ||
-      finalInline.message ||
-      "Certificate directory repair failed. In Server Settings, use Reconfigure Sudo with your SSH account password once, then retry.",
-  };
-}
-
-/**
- * During handshake: install /etc/sudoers.d/tak-portal, or store sudo password for -S fallback.
+ * During handshake: install /etc/sudoers.d/tak-portal (sudo), or probe passwordless/password dzdo.
  */
 async function configureRemoteSudoAccessAfterHandshake({ host, port, username, password }) {
   const connect = {
@@ -429,7 +376,45 @@ async function configureRemoteSudoAccessAfterHandshake({ host, port, username, p
     tryKeyboard: true,
   };
 
+  const bin = getPrivilegeBin();
   const portalUser = assertSafePortalSshUsername(username);
+
+  if (bin === "dzdo") {
+    const nopass = await execOverSsh(connect, shellProbeNopasswdRootAccess(), 20000);
+    if (nopass.ok) {
+      clearPrivilegedModeCache();
+      let verifyConnect = connect;
+      const keyCfg = getTakSshConfig();
+      if (keyCfg && keyCfg.username === portalUser && keyCfg.host === String(host || "").trim()) {
+        verifyConnect = toConnectConfig(keyCfg);
+      }
+      const mode = await getPrivilegedMode(verifyConnect, { forceRefresh: true });
+      await deployTakPortalCertsRepairScript(verifyConnect, mode);
+      await runTakPortalCertsRepair(verifyConnect, mode);
+      return { ok: true, method: "sudoers" };
+    }
+
+    const passRes = await execOverSsh(connect, shellProbePasswordSudoAccess(password), 20000);
+    if (passRes.ok) {
+      return { ok: true, method: "password", sudoPassword: password };
+    }
+
+    console.warn(
+      "[TAK SSH] Could not configure passwordless dzdo for portal user:",
+      nopass.message || nopass.stderr || passRes.message || passRes.stderr || "unknown"
+    );
+    return {
+      ok: false,
+      method: "none",
+      message:
+        passRes.message ||
+        passRes.stderr ||
+        nopass.message ||
+        nopass.stderr ||
+        "dzdo configuration failed (passwordless and password dzdo checks both failed)",
+    };
+  }
+
   const install = await installPortalSudoersOnRemote(connect, password, portalUser);
   if (install.ok) {
     clearPrivilegedModeCache();
@@ -457,7 +442,7 @@ async function configureRemoteSudoAccessAfterHandshake({ host, port, username, p
   }
 
   console.warn(
-    "[TAK SSH] Could not configure passwordless sudo for portal user:",
+    `[TAK SSH] Could not configure passwordless ${bin} for portal user:`,
     install.message || install.stderr || passRes.message || passRes.stderr || "unknown"
   );
   return {
@@ -467,7 +452,7 @@ async function configureRemoteSudoAccessAfterHandshake({ host, port, username, p
       install.message ||
       passRes.message ||
       passRes.stderr ||
-      "sudo configuration failed (install and password sudo checks both failed)",
+      `${bin} configuration failed (install and password ${bin} checks both failed)`,
   };
 }
 
@@ -559,7 +544,11 @@ async function fetchIntegrationCertPairFromRemote(username) {
 
   const connect = toConnectConfig(cfg);
   const mode = await getPrivilegedMode(connect);
-  const command = buildPrivilegedCommand(remoteScript, mode, { runAsUser: "tak" });
+  const command = buildPrivilegedCommand(
+    remoteScript,
+    mode,
+    takCertCommandOptions(connect, { runAsUser: "tak" })
+  );
   const result = await execOverSsh(connect, command);
 
   if (!result.ok) {
@@ -632,7 +621,11 @@ async function revokeIntegrationCertViaSshScript(username) {
 
   const connect = toConnectConfig(cfg);
   const mode = await getPrivilegedMode(connect);
-  const revokeCommand = buildPrivilegedCommand(revokeInner, mode, { runAsUser: "tak" });
+  const revokeCommand = buildPrivilegedCommand(
+    revokeInner,
+    mode,
+    takCertCommandOptions(connect, { runAsUser: "tak" })
+  );
   const result = await execOverSsh(connect, revokeCommand, 45000);
 
   if (!result.ok) {
@@ -649,7 +642,11 @@ async function revokeIntegrationCertViaSshScript(username) {
     "done; " +
     "rm -f \"./files/${name}-trusted.pem\" \"./${name}-trusted.pem\"'";
 
-  const cleanupCommand = buildPrivilegedCommand(cleanupInner, mode, { runAsUser: "tak" });
+  const cleanupCommand = buildPrivilegedCommand(
+    cleanupInner,
+    mode,
+    takCertCommandOptions(connect, { runAsUser: "tak" })
+  );
   const cleanupResult = await execOverSsh(
     connect,
     cleanupCommand,
@@ -758,6 +755,22 @@ function getTakSshConfig() {
   const passphrase = getString("TAK_SSH_PASSPHRASE", "").trim() || undefined;
 
   return { host, port, username, privateKey, passphrase };
+}
+
+/**
+ * Sync check: SSH key login is configured AND privileged access is expected to work
+ * (passwordless sudoers installed, stored sudo password, or root SSH user).
+ * Used to gate features that need sudo (e.g. enrollment Data Package truststore fetch).
+ */
+function isPrivilegedSshReady(settings) {
+  if (!getTakSshConfig()) return false;
+  const cfg = settings || settingsSvc.getSettings() || {};
+  const sudoersConfigured =
+    String(cfg.TAK_SSH_SUDOERS_CONFIGURED || "").trim().toLowerCase() === "true";
+  if (sudoersConfigured) return true;
+  if (String(cfg.TAK_SSH_SUDO_PASSWORD || "").trim()) return true;
+  const sshUser = String(cfg.TAK_SSH_USER || "").trim().toLowerCase();
+  return sshUser === "root";
 }
 
 function getLocalKeyStatus() {
@@ -1037,11 +1050,12 @@ function execOverSsh(connectConfig, command, timeoutMs = 30000) {
   });
 }
 
-async function onboardTakSshWithPassword({ host, port, username, password }) {
+async function onboardTakSshWithPassword({ host, port, username, password, privilegeCmd }) {
   const h = String(host || "").trim();
   const u = String(username || "").trim();
   const p = String(password || "");
   const sshPort = Number.parseInt(String(port || "22"), 10) || 22;
+  const bin = normalizePrivilegeBin(privilegeCmd || getPrivilegeBin());
 
   if (!h) throw new Error("Target host is required.");
   if (!u) throw new Error("SSH username is required.");
@@ -1073,6 +1087,15 @@ async function onboardTakSshWithPassword({ host, port, username, password }) {
     throw new Error(result.message || "SSH handshake failed.");
   }
 
+  const currentBeforeHandshake = settingsSvc.getSettings() || {};
+  if (String(currentBeforeHandshake.TAK_SSH_PRIVILEGE_CMD || "") !== bin) {
+    settingsSvc.saveSettings({
+      ...currentBeforeHandshake,
+      TAK_SSH_PRIVILEGE_CMD: bin,
+    });
+    clearPrivilegedModeCache();
+  }
+
   const sudoSetup = await configureRemoteSudoAccessAfterHandshake({
     host: h,
     port: sshPort,
@@ -1086,6 +1109,7 @@ async function onboardTakSshWithPassword({ host, port, username, password }) {
     TAK_SSH_HOST: h,
     TAK_SSH_PORT: String(sshPort),
     TAK_SSH_USER: u,
+    TAK_SSH_PRIVILEGE_CMD: bin,
     TAK_SSH_ONBOARDED: "true",
     TAK_SSH_LAST_HANDSHAKE_AT: new Date().toISOString(),
     TAK_SSH_PRIVATE_KEY_PATH: keyStatus.privateKeyPath,
@@ -1100,6 +1124,7 @@ async function onboardTakSshWithPassword({ host, port, username, password }) {
     nextSettings.TAK_SSH_SUDOERS_CONFIGURED = "false";
   } else {
     nextSettings.TAK_SSH_SUDOERS_CONFIGURED = "false";
+    nextSettings.ALLOWED_CLIENT_DATA_PACKAGE = "false";
   }
 
   settingsSvc.saveSettings(nextSettings);
@@ -1107,12 +1132,15 @@ async function onboardTakSshWithPassword({ host, port, username, password }) {
 
   let message = "SSH key installed on remote server. Handshake complete.";
   if (sudoSetup.method === "sudoers") {
-    message += " Passwordless sudo for TAK Portal was configured on the server.";
+    message +=
+      bin === "dzdo"
+        ? " Passwordless dzdo for TAK Portal is available on the server."
+        : " Passwordless sudo for TAK Portal was configured on the server.";
   } else if (sudoSetup.method === "password") {
-    message += " Sudo access will use the handshake password when needed.";
+    message += ` ${bin === "dzdo" ? "dzdo" : "Sudo"} access will use the handshake password when needed.`;
   } else {
     message +=
-      " Warning: could not configure sudo on the server; Locate and other privileged SSH actions may fail until you re-handshake with a sudo-capable account.";
+      ` Warning: could not configure ${bin} on the server; Locate and other privileged SSH actions may fail until you re-handshake with a ${bin}-capable account.`;
   }
 
   return {
@@ -1342,30 +1370,45 @@ function streamRemoteSshExec(command, handlers = {}) {
 }
 
 /**
- * Verify (and repair via portal SSH) /opt/tak/certs so the tak user can source cert-metadata.sh.
+ * Verify (and repair via inline SSH commands) /opt/tak/certs so the tak user can source cert-metadata.sh.
  * makeCert.sh line 6 sources cert-metadata.sh; without read access DIR stays empty and mkdir fails.
+ * Does not invoke /opt/tak/utils/tak-portal-repair-certs.sh — that file is only deployed during SSH handshake.
  */
-async function ensureRemoteTakCertEnvironment(connect, _mode, portalUsername) {
-  const sync = await syncPortalSudoersForCertRepair(connect, portalUsername || connect.username);
-  if (!sync.ok) {
-    return sync;
-  }
-
-  const mode = await getPrivilegedMode(connect, { forceRefresh: true });
+async function ensureRemoteTakCertEnvironment(connect, mode, _portalUsername) {
   const verifyAsTak =
     `bash -lc 'set -e; cd ${TAK_CERTS_DIR}; test -r cert-metadata.sh; test -r makeCert.sh; . ./cert-metadata.sh; ` +
     '[ -n "$DIR" ] || DIR=files; export DIR; mkdir -p "$DIR"; bash -n makeCert.sh\'';
 
-  const verifyCmd = buildPrivilegedCommand(verifyAsTak, mode, { runAsUser: "tak" });
-  const result = await execOverSsh(connect, verifyCmd, 30000);
+  let currentMode = mode || (await getPrivilegedMode(connect));
+  const buildVerifyCmd = (m) =>
+    buildPrivilegedCommand(
+      verifyAsTak,
+      m,
+      takCertCommandOptions(connect, { runAsUser: "tak" })
+    );
+  let verifyCmd = buildVerifyCmd(currentMode);
+  let result = await execOverSsh(connect, verifyCmd, 30000);
   if (result.ok) return { ok: true };
 
-  const detail = String(result.stderr || result.message || "").trim();
+  let repair = await runInlineTakCertsRepair(connect, currentMode);
+  if (!repair.ok) {
+    repair = await runTakCertsRepairWithStoredSudoPassword(connect);
+  }
+  if (repair.ok) {
+    currentMode = await getPrivilegedMode(connect, { forceRefresh: true });
+    verifyCmd = buildVerifyCmd(currentMode);
+    result = await execOverSsh(connect, verifyCmd, 30000);
+    if (result.ok) return { ok: true };
+  }
+
+  const detail = String(result.stderr || result.message || repair.message || "").trim();
   return {
     ok: false,
     message:
       detail ||
-      "TAK certificate directory is still not usable after automated repair. In Server Settings, use Reconfigure Sudo with your SSH account password once, then retry.",
+      "TAK certificate directory is not usable. In Server Settings, verify SSH/" +
+      getPrivilegeBin() +
+      " access for the tak user, then retry.",
   };
 }
 
@@ -1406,7 +1449,11 @@ async function createTakClientCertForIntegration(username) {
     return { ok: false, message: envCheck.message };
   }
 
-  const command = buildPrivilegedCommand(inner, mode, { runAsUser: "tak" });
+  const command = buildPrivilegedCommand(
+    inner,
+    mode,
+    takCertCommandOptions(connect, { runAsUser: "tak" })
+  );
   const result = await execOverSsh(connect, command);
   if (!result.ok) return { ok: false, message: result.message };
   if (TAK_DEBUG) console.log("[TAK SSH] makeCert.sh succeeded for", un);
@@ -1435,7 +1482,9 @@ async function testSshConnectionAndPrivilegedAccess() {
       remoteUser: String(login.stdout || "").trim(),
       message:
         priv.message ||
-        "SSH login works but privileged commands failed. Re-run full SSH setup with an account that can sudo.",
+        "SSH login works but privileged commands failed. Re-run full SSH setup with an account that can " +
+        getPrivilegeBin() +
+        ".",
     };
   }
 
@@ -1447,7 +1496,328 @@ async function testSshConnectionAndPrivilegedAccess() {
   };
 }
 
+async function fetchTakTruststoreP12FromRemote() {
+  const cfg = getTakSshConfig();
+  if (!cfg) {
+    throw new Error("SSH is not configured. Complete SSH handshake in Settings.");
+  }
+
+  const remoteScript =
+    "bash -lc 'set -e; cd /opt/tak/certs; " +
+    "pass=atakatak; " +
+    "if [ -r cert-metadata.sh ]; then set +e; . ./cert-metadata.sh >/dev/null 2>&1; set -e; " +
+    "if [ -n \"$CAPASS\" ]; then pass=\"$CAPASS\"; elif [ -n \"$PASS\" ]; then pass=\"$PASS\"; fi; fi; " +
+    "p12path=\"\"; " +
+    "for f in ./files/truststore-root.p12 ./truststore-root.p12 /opt/tak/certs/files/truststore-root.p12 /opt/tak/certs/truststore-root.p12 ./files/truststore-intermediate.p12 ./truststore-intermediate.p12 /opt/tak/certs/files/truststore-intermediate.p12 /opt/tak/certs/truststore-intermediate.p12; do " +
+    "[ -f \"$f\" ] && p12path=\"$f\" && break; done; " +
+    "if [ -z \"$p12path\" ]; then echo \"Missing truststore-root.p12 on TAK server\" 1>&2; exit 44; fi; " +
+    "echo __TAK_TRUST_PASS_BEGIN__; printf \"%s\" \"$pass\"; echo; echo __TAK_TRUST_PASS_END__; " +
+    "echo __TAK_TRUST_PATH_BEGIN__; printf \"%s\" \"$p12path\"; echo; echo __TAK_TRUST_PATH_END__; " +
+    "echo __TAK_TRUST_P12_BEGIN__; base64 \"$p12path\" | tr -d \"\\n\"; echo; echo __TAK_TRUST_P12_END__'";
+
+  const connect = toConnectConfig(cfg);
+  const mode = await getPrivilegedMode(connect);
+  const command = buildPrivilegedCommand(
+    remoteScript,
+    mode,
+    takCertCommandOptions(connect, { runAsUser: "tak" })
+  );
+  const result = await execOverSsh(connect, command, 45000);
+  if (!result.ok) {
+    throw new Error(result.message || "Failed to fetch TAK truststore from the TAK server.");
+  }
+
+  const out = String(result.stdout || "");
+  const passMatch = out.match(/__TAK_TRUST_PASS_BEGIN__\s*([\s\S]*?)\s*__TAK_TRUST_PASS_END__/);
+  const pathMatch = out.match(/__TAK_TRUST_PATH_BEGIN__\s*([\s\S]*?)\s*__TAK_TRUST_PATH_END__/);
+  const p12Match = out.match(/__TAK_TRUST_P12_BEGIN__\s*([\s\S]*?)\s*__TAK_TRUST_P12_END__/);
+  if (!p12Match) {
+    throw new Error("Remote truststore output could not be parsed.");
+  }
+  const p12B64 = String(p12Match[1] || "").replace(/\s+/g, "");
+  const p12 = Buffer.from(p12B64, "base64");
+  if (!p12.length) {
+    throw new Error("Remote truststore was empty.");
+  }
+  const password = String(passMatch && passMatch[1] != null ? passMatch[1] : "atakatak").replace(/\r?\n/g, "");
+  const sourcePath = String(pathMatch && pathMatch[1] ? pathMatch[1] : "").trim();
+  return { p12, password: password || "atakatak", sourcePath };
+}
+
+/**
+ * Fetch the TAK signing/intermediate CA truststore (.p12) from the server.
+ * Matches truststore*intermediate*.p12 by name (any CN), else any truststore*.p12
+ * that is not the root truststore — does not hardcode a specific CA title.
+ */
+async function fetchTakIntermediateTruststoreP12FromRemote() {
+  const cfg = getTakSshConfig();
+  if (!cfg) {
+    throw new Error("SSH is not configured. Complete SSH handshake in Settings.");
+  }
+
+  const remoteScript =
+    "bash -lc 'set -e; cd /opt/tak/certs; " +
+    "pass=atakatak; " +
+    "if [ -r cert-metadata.sh ]; then set +e; . ./cert-metadata.sh >/dev/null 2>&1; set -e; " +
+    "if [ -n \"$CAPASS\" ]; then pass=\"$CAPASS\"; elif [ -n \"$PASS\" ]; then pass=\"$PASS\"; fi; fi; " +
+    "p12path=\"\"; " +
+    "pick_from_dir() { " +
+    "  local d=\"$1\"; [ -d \"$d\" ] || return 0; " +
+    "  local f bn; " +
+    "  for f in \"$d\"/truststore*.p12; do " +
+    "    [ -f \"$f\" ] || continue; " +
+    "    bn=$(basename \"$f\"); " +
+    "    case \"$bn\" in *[Ii][Nn][Tt][Ee][Rr][Mm][Ee][Dd][Ii][Aa][Tt][Ee]*) p12path=\"$f\"; return 0;; esac; " +
+    "  done; " +
+    "  for f in \"$d\"/truststore*.p12; do " +
+    "    [ -f \"$f\" ] || continue; " +
+    "    bn=$(basename \"$f\"); " +
+    "    case \"$bn\" in *[Rr][Oo][Oo][Tt]*) continue;; esac; " +
+    "    p12path=\"$f\"; return 0; " +
+    "  done; " +
+    "}; " +
+    "pick_from_dir ./files; " +
+    "if [ -z \"$p12path\" ]; then pick_from_dir .; fi; " +
+    "if [ -z \"$p12path\" ]; then pick_from_dir /opt/tak/certs/files; fi; " +
+    "if [ -z \"$p12path\" ]; then pick_from_dir /opt/tak/certs; fi; " +
+    "if [ -z \"$p12path\" ]; then echo \"Missing intermediate truststore*.p12 on TAK server\" 1>&2; exit 44; fi; " +
+    "echo __TAK_TRUST_PASS_BEGIN__; printf \"%s\" \"$pass\"; echo; echo __TAK_TRUST_PASS_END__; " +
+    "echo __TAK_TRUST_PATH_BEGIN__; printf \"%s\" \"$p12path\"; echo; echo __TAK_TRUST_PATH_END__; " +
+    "echo __TAK_TRUST_P12_BEGIN__; base64 \"$p12path\" | tr -d \"\\n\"; echo; echo __TAK_TRUST_P12_END__'";
+
+  const connect = toConnectConfig(cfg);
+  const mode = await getPrivilegedMode(connect);
+  const command = buildPrivilegedCommand(
+    remoteScript,
+    mode,
+    takCertCommandOptions(connect, { runAsUser: "tak" })
+  );
+  const result = await execOverSsh(connect, command, 45000);
+  if (!result.ok) {
+    throw new Error(
+      result.message || "Failed to fetch TAK intermediate truststore from the TAK server."
+    );
+  }
+
+  const out = String(result.stdout || "");
+  const passMatch = out.match(/__TAK_TRUST_PASS_BEGIN__\s*([\s\S]*?)\s*__TAK_TRUST_PASS_END__/);
+  const pathMatch = out.match(/__TAK_TRUST_PATH_BEGIN__\s*([\s\S]*?)\s*__TAK_TRUST_PATH_END__/);
+  const p12Match = out.match(/__TAK_TRUST_P12_BEGIN__\s*([\s\S]*?)\s*__TAK_TRUST_P12_END__/);
+  if (!p12Match) {
+    throw new Error("Remote intermediate truststore output could not be parsed.");
+  }
+  const p12B64 = String(p12Match[1] || "").replace(/\s+/g, "");
+  const p12 = Buffer.from(p12B64, "base64");
+  if (!p12.length) {
+    throw new Error("Remote intermediate truststore was empty.");
+  }
+  const password = String(passMatch && passMatch[1] != null ? passMatch[1] : "atakatak").replace(
+    /\r?\n/g,
+    ""
+  );
+  const sourcePath = String(pathMatch && pathMatch[1] ? pathMatch[1] : "").trim();
+  const baseName = path.basename(sourcePath || "truststore-intermediate.p12");
+  const safeFileName =
+    String(baseName || "truststore-intermediate.p12")
+      .replace(/[^a-zA-Z0-9._-]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^\.+/, "") || "truststore-intermediate.p12";
+  return {
+    p12,
+    password: password || "atakatak",
+    sourcePath,
+    fileName: safeFileName,
+  };
+}
+
+const REMOTE_TMP_SYNC_DIR = "/tmp/tak-portal-plugin-sync";
+
+function withSshConnection(connectConfig, timeoutMs, workFn) {
+  return new Promise((resolve) => {
+    const conn = new Client();
+    let finished = false;
+    const done = (payload) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(t);
+      try {
+        conn.end();
+      } catch (_) {}
+      resolve(payload);
+    };
+
+    const t = setTimeout(() => {
+      done({ ok: false, message: "SSH operation timed out.", stdout: "", stderr: "", exitCode: null });
+    }, timeoutMs);
+
+    conn
+      .on("keyboard-interactive", (name, instructions, instructionsLang, prompts, finish) => {
+        if (connectConfig && connectConfig.password) {
+          finish([String(connectConfig.password)]);
+          return;
+        }
+        finish([]);
+      })
+      .on("ready", () => {
+        Promise.resolve()
+          .then(() => workFn(conn))
+          .then((result) => done(result || { ok: true }))
+          .catch((err) => {
+            done({
+              ok: false,
+              message: err?.message || String(err),
+              stdout: "",
+              stderr: "",
+              exitCode: null,
+            });
+          });
+      })
+      .on("error", (err) => {
+        done({ ok: false, message: err.message || String(err), stdout: "", stderr: "", exitCode: null });
+      })
+      .connect(connectConfig);
+  });
+}
+
+function sftpMkdirp(sftp, remoteDir) {
+  const parts = String(remoteDir || "")
+    .split("/")
+    .filter(Boolean);
+  let current = "";
+  return parts.reduce((prev, part) => {
+    return prev.then(() => {
+      current += "/" + part;
+      return new Promise((resolve, reject) => {
+        sftp.mkdir(current, (err) => {
+          if (!err || err.code === 4 || /Failure|exists/i.test(String(err.message || ""))) {
+            return resolve();
+          }
+          return reject(err);
+        });
+      });
+    });
+  }, Promise.resolve());
+}
+
+function sftpFastPut(sftp, localPath, remotePath) {
+  return new Promise((resolve, reject) => {
+    sftp.fastPut(localPath, remotePath, (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+}
+
+/**
+ * Upload a local file to an absolute remote path using SFTP to a temp dir,
+ * then privileged move into the destination (handles /opt/tak ownership).
+ */
+async function uploadRemoteFilePrivileged({ localPath, remoteAbsolutePath, timeoutMs = 600000 }) {
+  const local = String(localPath || "").trim();
+  const remote = String(remoteAbsolutePath || "").trim();
+  if (!local || !fs.existsSync(local)) {
+    return { ok: false, message: "Local file not found.", stdout: "", stderr: "", exitCode: null };
+  }
+  if (!remote.startsWith("/")) {
+    return { ok: false, message: "Remote path must be absolute.", stdout: "", stderr: "", exitCode: null };
+  }
+  if (!isPrivilegedSshReady()) {
+    return {
+      ok: false,
+      message: "SSH privileged access is not ready. Complete SSH handshake in Settings.",
+      stdout: "",
+      stderr: "",
+      exitCode: null,
+    };
+  }
+
+  const cfg = getTakSshConfig();
+  if (!cfg) {
+    return {
+      ok: false,
+      message: "SSH is not configured. Complete the SSH handshake in Settings first.",
+      stdout: "",
+      stderr: "",
+      exitCode: null,
+    };
+  }
+
+  const connect = toConnectConfig(cfg);
+  const baseName = path.basename(remote);
+  const tmpRemote = `${REMOTE_TMP_SYNC_DIR}/${Date.now()}_${baseName.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+  const remoteDir = path.posix.dirname(remote);
+
+  const uploadResult = await withSshConnection(connect, timeoutMs, async (conn) => {
+    const sftp = await new Promise((resolve, reject) => {
+      conn.sftp((err, s) => (err ? reject(err) : resolve(s)));
+    });
+    await sftpMkdirp(sftp, REMOTE_TMP_SYNC_DIR);
+    await sftpFastPut(sftp, local, tmpRemote);
+    return { ok: true };
+  });
+  if (!uploadResult.ok) return uploadResult;
+
+  const safeTmp = quoteForSingleQuotedShell(tmpRemote);
+  const safeDestDir = quoteForSingleQuotedShell(remoteDir);
+  const safeDest = quoteForSingleQuotedShell(remote);
+  const moveCmd =
+    `mkdir -p '${safeDestDir}' && ` +
+    `mv -f '${safeTmp}' '${safeDest}' && ` +
+    `chown tak:tak '${safeDest}' 2>/dev/null || true && ` +
+    `chmod 644 '${safeDest}' 2>/dev/null || true`;
+  return runRemotePrivilegedCommand(moveCmd, Math.max(60000, Math.min(timeoutMs, 120000)));
+}
+
+/**
+ * List filenames in a remote directory (non-recursive). Returns [] if missing.
+ */
+async function listRemoteDir(remoteAbsolutePath, timeoutMs = 60000) {
+  const remote = String(remoteAbsolutePath || "").trim();
+  if (!remote.startsWith("/")) {
+    return { ok: false, message: "Remote path must be absolute.", names: [] };
+  }
+  const cfg = getTakSshConfig();
+  if (!cfg) {
+    return { ok: false, message: "SSH is not configured.", names: [] };
+  }
+  const connect = toConnectConfig(cfg);
+
+  // Prefer privileged ls so /opt/tak is readable even when the SSH user cannot SFTP there.
+  const safe = quoteForSingleQuotedShell(remote);
+  const ls = await runRemotePrivilegedCommand(
+    `if [ -d '${safe}' ]; then ls -1A '${safe}'; else echo '__MISSING__'; fi`,
+    timeoutMs
+  );
+  if (!ls.ok) {
+    return { ok: false, message: ls.message || "Failed to list remote directory.", names: [] };
+  }
+  const out = String(ls.stdout || "").trim();
+  if (out === "__MISSING__" || !out) {
+    return { ok: true, names: [] };
+  }
+  const names = out
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .filter((n) => n !== "__MISSING__");
+  return { ok: true, names };
+}
+
+/**
+ * Remove a remote file via privileged rm.
+ */
+async function removeRemoteFilePrivileged(remoteAbsolutePath, timeoutMs = 60000) {
+  const remote = String(remoteAbsolutePath || "").trim();
+  if (!remote.startsWith("/")) {
+    return { ok: false, message: "Remote path must be absolute.", stdout: "", stderr: "", exitCode: null };
+  }
+  const safe = quoteForSingleQuotedShell(remote);
+  return runRemotePrivilegedCommand(`rm -f '${safe}'`, timeoutMs);
+}
+
 module.exports = {
+  getPrivilegeBin,
+  normalizePrivilegeBin,
   getLocalKeyStatus,
   ensureLocalSshKeyPair,
   onboardTakSshWithPassword,
@@ -1460,11 +1830,17 @@ module.exports = {
   runRemoteRebootFireAndForget,
   streamRemoteSshExec,
   writeRemoteFileViaSudoTee,
+  uploadRemoteFilePrivileged,
+  listRemoteDir,
+  removeRemoteFilePrivileged,
   hasStoredIntegrationCertFiles,
   provisionIntegrationCertFiles,
   getOrProvisionIntegrationCertFiles,
   revokeIntegrationCertViaSshScript,
   deleteStoredIntegrationCertFiles,
   getTakSshConfig,
+  isPrivilegedSshReady,
   createTakClientCertForIntegration,
+  fetchTakTruststoreP12FromRemote,
+  fetchTakIntermediateTruststoreP12FromRemote,
 };

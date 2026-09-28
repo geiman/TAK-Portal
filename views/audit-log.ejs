@@ -6,6 +6,26 @@
     if (!s) return "—";
     return s.replace(/_/g, " ");
   }
+  function csvFilterCount(val) {
+    return String(val || "")
+      .split(",")
+      .map(function (s) { return s.trim(); })
+      .filter(Boolean).length;
+  }
+  function filterToggleLabel(base, val) {
+    const n = csvFilterCount(val);
+    return n ? (base + " (" + n + ") ▾") : (base + " ▾");
+  }
+  function auditDateParts(val) {
+    const s = String(val || "").trim();
+    const m = /^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?$/.exec(s);
+    return {
+      value: m ? s : (s ? s.slice(0, 10) : ""),
+      y: m ? m[1] : "",
+      m: m && m[2] ? m[2] : "",
+      d: m && m[3] ? m[3] : "",
+    };
+  }
 %>
 
 <main class="main">
@@ -21,29 +41,64 @@
     <div class="row" style="justify-content: space-between; align-items:center; gap:12px; flex-wrap:wrap;">
       <h2 style="margin:0;">Audit Events</h2>
 
-      <form method="GET" action="/audit-log" class="row" style="gap:8px; flex-wrap:wrap; align-items:center;">
+      <form id="auditFilterForm" method="GET" action="/audit-log" class="row" style="gap:8px; flex-wrap:wrap; align-items:center;">
         <input type="hidden" name="actor" id="actorFilterInput" value="<%= filters?.actor || '' %>" />
         <input type="hidden" name="action" id="actionFilterInput" value="<%= filters?.action || '' %>" />
         <input type="hidden" name="agencySuffix" id="agencyFilterInput" value="<%= filters?.agencySuffix || '' %>" />
+        <input type="hidden" name="page" id="auditPageInput" value="<%= result?.page || 1 %>" />
+        <input type="hidden" name="pageSize" value="<%= result?.pageSize || filters?.pageSize || 50 %>" />
         <%
-          const fromDateVal = (filters && filters.from) ? String(filters.from).slice(0, 10) : '';
-          const toDateVal = (filters && filters.to) ? String(filters.to).slice(0, 10) : '';
+          const fromParts = auditDateParts(filters && filters.from);
+          const toParts = auditDateParts(filters && filters.to);
         %>
         <span class="audit-date-row">
-          <input type="date" name="from" class="input audit-date-input" value="<%= fromDateVal %>" />
+          <span class="input audit-date-control" data-date-bound="from">
+            <input type="hidden" name="from" value="<%= fromParts.value %>" />
+            <input type="text" class="audit-date-part" data-part="month" maxlength="2" inputmode="numeric" placeholder="mm" value="<%= fromParts.m %>" aria-label="From month" autocomplete="off" spellcheck="false" />
+            <span class="audit-date-sep">/</span>
+            <input type="text" class="audit-date-part" data-part="day" maxlength="2" inputmode="numeric" placeholder="dd" value="<%= fromParts.d %>" aria-label="From day" autocomplete="off" spellcheck="false" />
+            <span class="audit-date-sep">/</span>
+            <input type="text" class="audit-date-part" data-part="year" maxlength="4" inputmode="numeric" placeholder="yyyy" value="<%= fromParts.y %>" aria-label="From year" autocomplete="off" spellcheck="false" />
+            <button type="button" class="audit-date-cal" aria-label="Choose from date" tabindex="-1">
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="1.5" y="3" width="13" height="11.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.25"/><path d="M1.5 6.5h13M5 1.5v3M11 1.5v3" fill="none" stroke="currentColor" stroke-width="1.25"/></svg>
+            </button>
+            <input type="date" class="audit-date-native" tabindex="-1" aria-hidden="true"<%= fromParts.d ? ' value="' + fromParts.value + '"' : "" %> />
+          </span>
           <span class="audit-date-to">to</span>
-          <input type="date" name="to" class="input audit-date-input" value="<%= toDateVal %>" />
+          <span class="input audit-date-control" data-date-bound="to">
+            <input type="hidden" name="to" value="<%= toParts.value %>" />
+            <input type="text" class="audit-date-part" data-part="month" maxlength="2" inputmode="numeric" placeholder="mm" value="<%= toParts.m %>" aria-label="To month" autocomplete="off" spellcheck="false" />
+            <span class="audit-date-sep">/</span>
+            <input type="text" class="audit-date-part" data-part="day" maxlength="2" inputmode="numeric" placeholder="dd" value="<%= toParts.d %>" aria-label="To day" autocomplete="off" spellcheck="false" />
+            <span class="audit-date-sep">/</span>
+            <input type="text" class="audit-date-part" data-part="year" maxlength="4" inputmode="numeric" placeholder="yyyy" value="<%= toParts.y %>" aria-label="To year" autocomplete="off" spellcheck="false" />
+            <button type="button" class="audit-date-cal" aria-label="Choose to date" tabindex="-1">
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="1.5" y="3" width="13" height="11.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.25"/><path d="M1.5 6.5h13M5 1.5v3M11 1.5v3" fill="none" stroke="currentColor" stroke-width="1.25"/></svg>
+            </button>
+            <input type="date" class="audit-date-native" tabindex="-1" aria-hidden="true"<%= toParts.d ? ' value="' + toParts.value + '"' : "" %> />
+          </span>
         </span>
 
+        <input
+          type="text"
+          name="q"
+          class="input audit-search-input"
+          placeholder="Search any field…"
+          value="<%= filters?.q || '' %>"
+          aria-label="Search audit log"
+          autocomplete="off"
+          spellcheck="false"
+        />
+
         <div class="filter-multiselect" data-filter="actor">
-          <button type="button" class="btn filter-toggle" id="actorFilterToggle">Actor ▾</button>
+          <button type="button" class="btn filter-toggle" id="actorFilterToggle" data-filter-label="Actor"><%= filterToggleLabel("Actor", filters?.actor) %></button>
           <div class="filter-menu">
             <div class="filter-menu-inner">
               <label class="filter-option">
                 <input type="checkbox" value="" data-filter-value="__all" checked>
                 <span>All actors</span>
               </label>
-              <% (actorOptions || []).forEach(function(a) { %>
+              <% (Array.isArray(actorOptions) ? actorOptions : []).forEach(function(a) { %>
                 <%
                   const actorLabel = (a.displayName && a.username) ? (a.displayName + ' - ' + a.username) : (a.displayName || a.username || '');
                 %>
@@ -57,14 +112,14 @@
         </div>
 
         <div class="filter-multiselect" data-filter="action">
-          <button type="button" class="btn filter-toggle" id="actionFilterToggle">Action ▾</button>
+          <button type="button" class="btn filter-toggle" id="actionFilterToggle" data-filter-label="Action"><%= filterToggleLabel("Action", filters?.action) %></button>
           <div class="filter-menu">
             <div class="filter-menu-inner">
               <label class="filter-option">
                 <input type="checkbox" value="" data-filter-value="__all" checked>
                 <span>All actions</span>
               </label>
-              <% (actionOptions || []).forEach(function(a) { %>
+              <% (Array.isArray(actionOptions) ? actionOptions : []).forEach(function(a) { %>
                 <label class="filter-option">
                   <input type="checkbox" value="<%= a %>" data-filter-value="<%= a %>">
                   <span><%= formatAuditAction(a) %></span>
@@ -75,7 +130,7 @@
         </div>
 
         <div class="filter-multiselect" data-filter="agency">
-          <button type="button" class="btn filter-toggle" id="agencyFilterToggle">Agency ▾</button>
+          <button type="button" class="btn filter-toggle" id="agencyFilterToggle" data-filter-label="Agency"><%= filterToggleLabel("Agency", filters?.agencySuffix) %></button>
           <div class="filter-menu">
             <div class="filter-menu-inner">
               <label class="filter-option">
@@ -93,12 +148,24 @@
           </div>
         </div>
 
-        <button class="btn" type="submit">Filter</button>
-        <button class="btn" id="exportAuditCsvBtn" type="button">Export CSV</button>
+        <%
+          const hasActiveFilters = !!(
+            String(filters?.q || "").trim() ||
+            String(filters?.from || "").trim() ||
+            String(filters?.to || "").trim() ||
+            csvFilterCount(filters?.actor) ||
+            csvFilterCount(filters?.action) ||
+            csvFilterCount(filters?.agencySuffix) ||
+            String(filters?.targetType || "").trim()
+          );
+        %>
+        <button class="btn btn-grey" type="button" id="auditClearFiltersBtn" <%= hasActiveFilters ? "" : "hidden" %>>Clear Filters</button>
+        <button class="btn qr" id="exportAuditCsvBtn" type="button">Export View To CSV</button>
       </form>
     </div>
 
-    <table class="table">
+    <div class="listCardTableWrap" style="overflow-x: auto;">
+    <table class="table listCardTable audit-log-table">
       <thead>
         <tr>
           <th>Time</th>
@@ -112,7 +179,7 @@
       <tbody id="auditTbody">
 
         <% if (!result || !result.items || !result.items.length) { %>
-          <tr>
+          <tr class="emptyStateRow">
             <td colspan="6" class="muted">No audit events found.</td>
           </tr>
         <% } %>
@@ -124,23 +191,23 @@
               data-target-id="<%= log.targetId || '' %>">
 
             <!-- Time -->
-            <td>
+            <td class="auditTimeCell" data-label="Time">
               <span class="ts" data-ts="<%= log.timestamp || '' %>"></span>
             </td>
 
             <!-- Actor -->
-            <td>
+            <td class="auditActorCell" data-label="Actor">
               <strong><%= log.actor?.displayName || log.actor?.username || '—' %></strong><br>
               <span class="muted"><%= log.actor?.username || '' %></span>
             </td>
 
             <!-- Action -->
-            <td>
-              <span class="badge"><%= formatAuditAction(log.action) %></span>
+            <td class="cardTitleCell">
+              <span class="badge cardTitleText"><%= formatAuditAction(log.action) %></span>
             </td>
 
           <!-- Target (names from details or userMap/groupMap, fallback to ID) -->
-          <td>
+          <td class="auditTargetCell" data-label="Target">
             <%
               const type = String(log.targetType || '').toLowerCase();
               const details = log.details || {};
@@ -225,7 +292,7 @@
           </td>
 
             <!-- Agency -->
-            <td>
+            <td class="auditAgencyCell" data-label="Agency">
               <%
                 const sfx = String(log.agencySuffix || '').toLowerCase();
                 const agencyObj = agencyMap?.[sfx];
@@ -235,9 +302,11 @@
             </td>
 
             <!-- Details -->
-            <td>
+            <td class="cardActionsCell">
               <% if (log.details && Object.keys(log.details).length) { %>
-                <button class="btn viewDetailsBtn" type="button">View Details</button>
+                <div class="cardActionsRow">
+                  <button class="btn viewDetailsBtn" type="button">View Details</button>
+                </div>
               <% } else { %>
                 <span class="muted">—</span>
               <% } %>
@@ -248,20 +317,23 @@
 
       </tbody>
     </table>
+    </div>
 
-    <!-- Pagination -->
+    <!-- Pagination: submit the current form (search + filters) with a new page -->
+    <div id="auditPaginationWrap">
     <% if (result && result.pageCount > 1) {
       const atFirst = result.page <= 1;
       const atLast = result.page >= result.pageCount;
     %>
       <nav class="audit-pagination" aria-label="Audit log pages">
-        <% if (atFirst) { %><span class="btn disabled" aria-disabled="true">First</span><% } else { %><a class="btn" href="<%= pageLinks.first %>">First</a><% } %>
-        <% if (atFirst) { %><span class="btn disabled" aria-disabled="true">Prev</span><% } else { %><a class="btn" href="<%= pageLinks.prev %>">Prev</a><% } %>
+        <button type="submit" class="btn<%= atFirst ? ' disabled' : '' %>" form="auditFilterForm" data-audit-page="1" <%= atFirst ? 'disabled' : '' %>>First</button>
+        <button type="submit" class="btn<%= atFirst ? ' disabled' : '' %>" form="auditFilterForm" data-audit-page="<%= Math.max(1, result.page - 1) %>" <%= atFirst ? 'disabled' : '' %>>Prev</button>
         <span class="audit-page-info" id="auditPageInfo">Page <%= result.page %> of <%= result.pageCount %></span>
-        <% if (atLast) { %><span class="btn disabled" aria-disabled="true">Next</span><% } else { %><a class="btn" href="<%= pageLinks.next %>">Next</a><% } %>
-        <% if (atLast) { %><span class="btn disabled" aria-disabled="true">Last</span><% } else { %><a class="btn" href="<%= pageLinks.last %>">Last</a><% } %>
+        <button type="submit" class="btn<%= atLast ? ' disabled' : '' %>" form="auditFilterForm" data-audit-page="<%= Math.min(result.pageCount, result.page + 1) %>" <%= atLast ? 'disabled' : '' %>>Next</button>
+        <button type="submit" class="btn<%= atLast ? ' disabled' : '' %>" form="auditFilterForm" data-audit-page="<%= result.pageCount %>" <%= atLast ? 'disabled' : '' %>>Last</button>
       </nav>
     <% } %>
+    </div>
 
   </div>
 
@@ -285,6 +357,9 @@
 
 </main>
 
+<script type="application/json" id="auditUserMapJson"><%- JSON.stringify(typeof userMap !== 'undefined' ? userMap : {}) %></script>
+<script type="application/json" id="auditGroupMapJson"><%- JSON.stringify(typeof groupMap !== 'undefined' ? groupMap : {}) %></script>
+<script type="application/json" id="auditAgencyMapJson"><%- JSON.stringify(typeof agencyMap !== 'undefined' ? agencyMap : {}) %></script>
 <script>
   window.AUDIT_USER_MAP = <%- JSON.stringify(typeof userMap !== 'undefined' ? userMap : {}) %>;
   window.AUDIT_GROUP_MAP = <%- JSON.stringify(typeof groupMap !== 'undefined' ? groupMap : {}) %>;
@@ -297,6 +372,18 @@
 }
 .filter-multiselect .filter-toggle{
   white-space:nowrap;
+}
+.btn-grey {
+  background-color: #6c757d;
+  border-color: #6c757d;
+  color: #fff;
+}
+.btn-grey:hover {
+  background-color: #5a6268;
+  border-color: #545b62;
+}
+#auditClearFiltersBtn[hidden] {
+  display: none !important;
 }
 .filter-multiselect .filter-menu{
   position:absolute;
@@ -355,9 +442,88 @@
   font-size:13px;
   color:var(--muted,#a8b3cf);
 }
-.audit-date-input{
+.audit-date-control{
+  position:relative;
+  display:inline-flex;
+  align-items:center;
+  gap:0;
   width:auto;
-  min-width:140px;
+  min-width:168px;
+  padding:8px 34px 8px 12px;
+  box-sizing:border-box;
+}
+.audit-date-control .audit-date-part{
+  background:transparent;
+  border:none;
+  box-shadow:none;
+  padding:0 2px;
+  margin:0;
+  border-radius:4px;
+  text-align:center;
+  color:inherit;
+  font:inherit;
+  outline:none;
+  box-sizing:content-box;
+  overflow:visible;
+}
+.audit-date-control .audit-date-part:focus{
+  border:none;
+  box-shadow:none;
+  background:color-mix(in srgb, var(--btn) 18%, transparent);
+}
+.audit-date-part[data-part="month"],
+.audit-date-part[data-part="day"]{
+  width:3ch;
+  min-width:3ch;
+}
+.audit-date-part[data-part="year"]{
+  width:5ch;
+  min-width:5ch;
+}
+.audit-date-sep{
+  color:var(--muted,#a8b3cf);
+  padding:0 1px;
+  user-select:none;
+}
+.audit-date-cal{
+  position:absolute;
+  right:6px;
+  top:50%;
+  transform:translateY(-50%);
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:22px;
+  height:22px;
+  padding:0;
+  border:none;
+  background:transparent;
+  color:var(--muted,#a8b3cf);
+  cursor:pointer;
+}
+.audit-date-cal:hover{
+  color:var(--text,#e5e7eb);
+}
+.audit-date-native{
+  position:absolute;
+  width:0;
+  height:0;
+  opacity:0;
+  pointer-events:none;
+  border:0;
+  padding:0;
+  margin:0;
+}
+.audit-search-input{
+  width:auto;
+  min-width:180px;
+  max-width:260px;
+}
+.audit-search-input::-webkit-search-cancel-button,
+.audit-search-input::-webkit-search-decoration{
+  -webkit-appearance:none;
+  appearance:none;
+  display:none;
 }
 
 .audit-pagination{
@@ -376,6 +542,9 @@
   min-width:4.5rem;
   text-align:center;
   text-decoration:none;
+  appearance:none;
+  font: inherit;
+  cursor:pointer;
 }
 .audit-pagination .btn.disabled{
   opacity:0.45;
@@ -438,12 +607,87 @@
 .auditDetailsRawWrap{ margin-top:12px; }
 .auditDetailsRawWrap summary{ cursor:pointer; padding:4px 0; }
 
-@media (max-width: 640px){
-  .table th:nth-child(4),
-  .table td:nth-child(4),
-  .table th:nth-child(5),
-  .table td:nth-child(5){
+@media (max-width: 990px) {
+  .listCardTableWrap {
+    overflow-x: hidden;
+  }
+  .audit-log-table.listCardTable {
+    width: 100%;
+    min-width: 0 !important;
+    border-collapse: separate;
+    border-spacing: 0 12px;
+  }
+  .audit-log-table.listCardTable thead { display: none; }
+  .audit-log-table.listCardTable tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .audit-log-table.listCardTable tbody tr {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      "title title"
+      "time actor"
+      "target agency"
+      "actions actions";
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--panel);
+    overflow: hidden;
+  }
+  .audit-log-table .cardTitleCell { grid-area: title; }
+  .audit-log-table .auditTimeCell { grid-area: time; }
+  .audit-log-table .auditActorCell { grid-area: actor; }
+  .audit-log-table .auditTargetCell { grid-area: target; }
+  .audit-log-table .auditAgencyCell { grid-area: agency; }
+  .audit-log-table .cardActionsCell { grid-area: actions; }
+  .audit-log-table.listCardTable tbody tr.emptyStateRow {
+    display: block;
+    border: none;
+    background: transparent;
+  }
+  .audit-log-table.listCardTable tbody td {
+    display: block;
+    border-top: none;
+    padding: 8px 12px;
+    word-break: normal;
+    overflow-wrap: anywhere;
+    min-width: 0 !important;
+    max-width: none !important;
+    white-space: normal;
+  }
+  .audit-log-table.listCardTable tbody td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .audit-log-table .cardTitleCell::before,
+  .audit-log-table .cardActionsCell::before {
     display: none;
+  }
+  .audit-log-table .cardTitleCell { padding-top: 12px; padding-bottom: 4px; }
+  .audit-log-table .cardTitleText { font-weight: 600; font-size: 15px; line-height: 1.3; word-break: break-word; }
+  .audit-log-table .cardActionsCell { padding-top: 10px; padding-bottom: 12px; }
+  .audit-log-table .cardActionsRow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    width: 100%;
+  }
+  .audit-log-table .cardActionsRow .btn {
+    width: 100% !important;
+    max-width: 100%;
+    min-width: 0;
+    margin: 0;
+    white-space: nowrap;
+    box-sizing: border-box;
+    text-align: center;
   }
 }
 </style>
@@ -453,8 +697,8 @@
   const tbody = document.getElementById('auditTbody');
   const tpl = document.getElementById('detailsTemplate');
 
-  const USER_MAP = window.AUDIT_USER_MAP || {};
-  const GROUP_MAP = window.AUDIT_GROUP_MAP || {};
+  function getUserMap() { return window.AUDIT_USER_MAP || {}; }
+  function getGroupMap() { return window.AUDIT_GROUP_MAP || {}; }
 
   const FRIENDLY_LABELS = {
     username: 'Username',
@@ -515,7 +759,7 @@
   function resolveUserName(id) {
     if (id == null || id === '') return null;
     var key = String(id);
-    var u = USER_MAP[key];
+    var u = getUserMap()[key];
     if (!u) return null;
     if (u.username && u.name) return u.username + ' - ' + u.name;
     return u.username || u.name || null;
@@ -523,7 +767,7 @@
 
   function resolveGroupName(uuid) {
     if (uuid == null || uuid === '') return null;
-    return GROUP_MAP[String(uuid)] || null;
+    return getGroupMap()[String(uuid)] || null;
   }
 
   function formatValue(val, key) {
@@ -630,11 +874,11 @@
     try { details = JSON.parse(raw || '{}'); } catch {}
 
     var targetDisplay = targetId;
-    if (targetType.toLowerCase() === 'user' && targetId && USER_MAP[targetId]) {
-      var u = USER_MAP[targetId];
+    if (targetType.toLowerCase() === 'user' && targetId && getUserMap()[targetId]) {
+      var u = getUserMap()[targetId];
       targetDisplay = (u.username && u.name) ? (u.username + ' - ' + u.name) : (u.username || u.name || targetId);
-    } else if (targetType.toLowerCase() === 'group' && targetId && GROUP_MAP[targetId]) {
-      targetDisplay = GROUP_MAP[targetId];
+    } else if (targetType.toLowerCase() === 'group' && targetId && getGroupMap()[targetId]) {
+      targetDisplay = getGroupMap()[targetId];
     } else if (targetType.toLowerCase() === 'group') {
       var detailGroupName = String(details?.groupName || details?.name || '').trim();
       if (detailGroupName) targetDisplay = detailGroupName;
@@ -677,8 +921,10 @@
 </script>
 <script>
 (function(){
-  const form = document.querySelector('form[action="/audit-log"]');
+  const form = document.getElementById("auditFilterForm") || document.querySelector('form[action="/audit-log"]');
   if (!form) return;
+
+  const pageInput = document.getElementById("auditPageInput");
 
   function parseCsv(val) {
     return String(val || "")
@@ -686,6 +932,153 @@
       .map(function(s){ return s.trim(); })
       .filter(Boolean);
   }
+
+  function resetToFirstPage() {
+    if (pageInput) pageInput.value = "1";
+  }
+
+  function isReadyDateValue(raw) {
+    const s = String(raw || "").trim();
+    if (!s) return true;
+    return /^\d{4}$/.test(s) || /^\d{4}-(0[1-9]|1[0-2])$/.test(s) || /^\d{4}-(0[1-9]|1[0-2])-\d{2}$/.test(s);
+  }
+
+  function buildFilterDest(page) {
+    const url = new URL(window.location.origin + (form.getAttribute("action") || "/audit-log"));
+    const fd = new FormData(form);
+    if (page != null) fd.set("page", String(page));
+    fd.forEach(function (value, key) {
+      const v = String(value == null ? "" : value).trim();
+      if (!v) return;
+      if (key === "page" && v === "1") return;
+      if ((key === "from" || key === "to") && !isReadyDateValue(v)) return;
+      url.searchParams.set(key, v);
+    });
+    return url.pathname + url.search;
+  }
+
+  function formatAuditLogTimestamps(root) {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    (root || document).querySelectorAll(".ts").forEach(function (el) {
+      const raw = el.getAttribute("data-ts");
+      if (!raw) return;
+      try {
+        el.textContent = new Date(raw).toLocaleString(undefined, { timeZone: tz });
+      } catch (_) {
+        el.textContent = raw;
+      }
+    });
+  }
+  window.formatAuditLogTimestamps = formatAuditLogTimestamps;
+
+  function applyJsonMap(doc, id, windowKey) {
+    const el = doc.getElementById(id);
+    if (!el) return;
+    try {
+      window[windowKey] = JSON.parse(el.textContent || "{}");
+    } catch (_) {}
+  }
+
+  let refreshGen = 0;
+  let refreshAbort = null;
+
+  async function refreshAuditView(page) {
+    if (page != null && pageInput) pageInput.value = String(page);
+    const dest = buildFilterDest();
+    if (refreshAbort) refreshAbort.abort();
+    if (dest === window.location.pathname + window.location.search) {
+      syncClearBtn();
+      return;
+    }
+
+    const gen = ++refreshGen;
+    refreshAbort = new AbortController();
+
+    try {
+      const res = await fetch(dest, {
+        credentials: "same-origin",
+        redirect: "manual",
+        signal: refreshAbort.signal,
+        headers: { Accept: "text/html" },
+      });
+      if (gen !== refreshGen) return;
+      if (res.type === "opaqueredirect" || res.status === 401) {
+        window.location.assign(dest);
+        return;
+      }
+      if (!res.ok) return;
+      const html = await res.text();
+      if (gen !== refreshGen) return;
+
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const nextBody = doc.getElementById("auditTbody");
+      const curBody = document.getElementById("auditTbody");
+      if (nextBody && curBody) curBody.innerHTML = nextBody.innerHTML;
+
+      const nextPager = doc.getElementById("auditPaginationWrap");
+      const curPager = document.getElementById("auditPaginationWrap");
+      if (nextPager && curPager) curPager.innerHTML = nextPager.innerHTML;
+
+      const nextPageInput = doc.getElementById("auditPageInput");
+      if (pageInput && nextPageInput) pageInput.value = nextPageInput.value;
+
+      applyJsonMap(doc, "auditUserMapJson", "AUDIT_USER_MAP");
+      applyJsonMap(doc, "auditGroupMapJson", "AUDIT_GROUP_MAP");
+      applyJsonMap(doc, "auditAgencyMapJson", "AUDIT_AGENCY_MAP");
+
+      formatAuditLogTimestamps(curBody);
+      history.replaceState(null, "", dest);
+      syncClearBtn();
+    } catch (err) {
+      if (err && err.name === "AbortError") return;
+    }
+  }
+
+  function submitFilters(page) {
+    refreshAuditView(page != null ? page : "1");
+  }
+
+  function formHasActiveFilters() {
+    const keys = ["q", "from", "to"];
+    for (let i = 0; i < keys.length; i++) {
+      const el = form.querySelector('[name="' + keys[i] + '"]');
+      if (el && String(el.value || "").trim()) return true;
+    }
+    const hiddenIds = ["actorFilterInput", "actionFilterInput", "agencyFilterInput"];
+    for (let i = 0; i < hiddenIds.length; i++) {
+      const el = document.getElementById(hiddenIds[i]);
+      if (el && String(el.value || "").trim()) return true;
+    }
+    return false;
+  }
+
+  const clearBtn = document.getElementById("auditClearFiltersBtn");
+  function syncClearBtn() {
+    if (!clearBtn) return;
+    clearBtn.hidden = !formHasActiveFilters();
+  }
+  syncClearBtn();
+
+  if (clearBtn) {
+    clearBtn.addEventListener("click", function (e) {
+      e.preventDefault();
+      clearBtn.hidden = true;
+      window.location.assign(form.getAttribute("action") || "/audit-log");
+    });
+  }
+
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    const submitter = e.submitter || document.activeElement;
+    const pageAttr = submitter && submitter.getAttribute ? submitter.getAttribute("data-audit-page") : null;
+    if (pageAttr) {
+      if (submitter.disabled) return;
+      refreshAuditView(pageAttr);
+      return;
+    }
+    resetToFirstPage();
+    refreshAuditView("1");
+  });
 
   function setupFilter(opts) {
     const container = document.querySelector(opts.containerSelector);
@@ -699,6 +1092,15 @@
     );
 
     const initial = parseCsv(input.value);
+    let filterTimer = null;
+
+    function updateToggleLabel(selectedCount) {
+      if (!toggle) return;
+      const base = toggle.getAttribute("data-filter-label") || "Filter";
+      toggle.textContent = selectedCount
+        ? (base + " (" + selectedCount + ") ▾")
+        : (base + " ▾");
+    }
 
     checkboxes.forEach(function(cb){
       const val = cb.getAttribute("data-filter-value");
@@ -708,6 +1110,7 @@
         cb.checked = initial.includes(val);
       }
     });
+    updateToggleLabel(initial.length);
 
     function syncInput() {
       const selected = checkboxes
@@ -720,6 +1123,8 @@
       if (allBox) {
         allBox.checked = selected.length === 0;
       }
+      updateToggleLabel(selected.length);
+      syncClearBtn();
     }
 
     checkboxes.forEach(function(cb){
@@ -739,6 +1144,10 @@
           }
         }
         syncInput();
+        clearTimeout(filterTimer);
+        filterTimer = setTimeout(function () {
+          submitFilters(1);
+        }, 350);
       });
     });
 
@@ -773,19 +1182,155 @@
       if (!el.contains(e.target)) el.classList.remove("open");
     });
   });
+
+  const fromInput = form.querySelector('input[name="from"]');
+  const toInput = form.querySelector('input[name="to"]');
+  let dateTimer = null;
+  function onDateReady() {
+    syncClearBtn();
+    clearTimeout(dateTimer);
+    const fromVal = fromInput ? String(fromInput.value || "").trim() : "";
+    const toVal = toInput ? String(toInput.value || "").trim() : "";
+    if (!isReadyDateValue(fromVal) || !isReadyDateValue(toVal)) return;
+    dateTimer = setTimeout(function () {
+      const stillFrom = fromInput ? String(fromInput.value || "").trim() : "";
+      const stillTo = toInput ? String(toInput.value || "").trim() : "";
+      if (!isReadyDateValue(stillFrom) || !isReadyDateValue(stillTo)) return;
+      submitFilters(1);
+    }, 350);
+  }
+
+  function digitsOnly(el, max) {
+    const next = String(el.value || "").replace(/\D/g, "").slice(0, max);
+    if (el.value !== next) el.value = next;
+    return next;
+  }
+
+  function composeSlotDate(month, day, year) {
+    const y = String(year || "").replace(/\D/g, "");
+    const m = String(month || "").replace(/\D/g, "");
+    const d = String(day || "").replace(/\D/g, "");
+    if (!y && !m && !d) return "";
+    if (y.length !== 4) return null;
+    if (!m && !d) return y;
+    if (m.length < 2) return null;
+    const mi = Number(m);
+    if (mi < 1 || mi > 12) return null;
+    if (!d) return y + "-" + m;
+    if (d.length < 2) return null;
+    const di = Number(d);
+    if (di < 1 || di > 31) return null;
+    return y + "-" + m + "-" + d;
+  }
+
+  function setupDateControl(wrap) {
+    if (!wrap) return;
+    const hidden = wrap.querySelector('input[type="hidden"]');
+    const month = wrap.querySelector('[data-part="month"]');
+    const day = wrap.querySelector('[data-part="day"]');
+    const year = wrap.querySelector('[data-part="year"]');
+    const native = wrap.querySelector(".audit-date-native");
+    const calBtn = wrap.querySelector(".audit-date-cal");
+    if (!hidden || !month || !day || !year) return;
+    const parts = [month, day, year];
+
+    function syncHidden() {
+      const composed = composeSlotDate(month.value, day.value, year.value);
+      if (composed == null) return false;
+      hidden.value = composed;
+      if (native) native.value = /^\d{4}-\d{2}-\d{2}$/.test(composed) ? composed : "";
+      return true;
+    }
+
+    function focusPart(el) {
+      el.focus();
+      try { el.select(); } catch (_) {}
+    }
+
+    parts.forEach(function (el, idx) {
+      el.addEventListener("focus", function () {
+        try { el.select(); } catch (_) {}
+      });
+      el.addEventListener("keydown", function (e) {
+        if (e.key === "/" || e.key === "-" || e.key === "ArrowRight") {
+          if (e.key !== "ArrowRight" || el.selectionStart === String(el.value || "").length) {
+            e.preventDefault();
+            if (parts[idx + 1]) focusPart(parts[idx + 1]);
+          }
+        } else if (e.key === "ArrowLeft" || e.key === "Backspace") {
+          if (!String(el.value || "") || (e.key === "ArrowLeft" && el.selectionStart === 0)) {
+            if (parts[idx - 1]) {
+              e.preventDefault();
+              focusPart(parts[idx - 1]);
+            }
+          }
+        }
+      });
+      el.addEventListener("input", function () {
+        const max = el.getAttribute("data-part") === "year" ? 4 : 2;
+        const val = digitsOnly(el, max);
+        if (el.getAttribute("data-part") !== "year" && val.length >= 2 && parts[idx + 1]) {
+          focusPart(parts[idx + 1]);
+        }
+        if (syncHidden()) onDateReady();
+        else syncClearBtn();
+      });
+      el.addEventListener("blur", function () {
+        if (el.getAttribute("data-part") !== "year" && el.value.length === 1) {
+          el.value = "0" + el.value;
+        }
+        if (syncHidden()) onDateReady();
+      });
+    });
+
+    if (calBtn && native) {
+      calBtn.addEventListener("click", function () {
+        if (typeof native.showPicker === "function") {
+          try { native.showPicker(); return; } catch (_) {}
+        }
+        native.click();
+      });
+      native.addEventListener("change", function () {
+        const v = String(native.value || "");
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return;
+        year.value = v.slice(0, 4);
+        month.value = v.slice(5, 7);
+        day.value = v.slice(8, 10);
+        hidden.value = v;
+        onDateReady();
+      });
+    }
+  }
+
+  document.querySelectorAll(".audit-date-control").forEach(setupDateControl);
+
+  const searchInput = form.querySelector('input[name="q"]');
+  if (searchInput) {
+    let searchTimer = null;
+    searchInput.addEventListener("input", function() {
+      syncClearBtn();
+      clearTimeout(searchTimer);
+      const typed = searchInput.value;
+      searchTimer = setTimeout(function () {
+        if (searchInput.value !== typed) return;
+        submitFilters(1);
+      }, 400);
+    });
+  }
 })();
 </script>
 <script>
 (function() {
+  if (typeof window.formatAuditLogTimestamps === "function") {
+    window.formatAuditLogTimestamps(document);
+    return;
+  }
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
   document.querySelectorAll(".ts").forEach(el => {
     const raw = el.getAttribute("data-ts");
     if (!raw) return;
-
     try {
-      const d = new Date(raw);
-      el.textContent = d.toLocaleString(undefined, { timeZone: tz });
+      el.textContent = new Date(raw).toLocaleString(undefined, { timeZone: tz });
     } catch (e) {
       el.textContent = raw;
     }
@@ -871,9 +1416,19 @@
   }
 
   async function fetchAllFilteredRows() {
-    const params = new URLSearchParams(window.location.search || "");
-    params.delete("page");
-    params.delete("pageSize");
+    const form = document.getElementById("auditFilterForm");
+    const params = new URLSearchParams();
+    const filterKeys = ["q", "actor", "action", "targetType", "agencySuffix", "from", "to"];
+    if (form) {
+      const fd = new FormData(form);
+      filterKeys.forEach(function (key) {
+        const v = String(fd.get(key) == null ? "" : fd.get(key)).trim();
+        if (!v) return;
+        if ((key === "from" || key === "to") && !/^\d{4}(-\d{2}(-\d{2})?)?$/.test(v)) return;
+        params.set(key, v);
+      });
+    }
+    const hasFilters = filterKeys.some(function (key) { return params.has(key); });
 
     const rows = [];
     let page = 1;
@@ -908,7 +1463,7 @@
       page += 1;
     }
 
-    return rows;
+    return { rows, hasFilters };
   }
 
   exportBtn.addEventListener("click", async function() {
@@ -917,8 +1472,11 @@
     exportBtn.textContent = "Exporting...";
 
     let rows = [];
+    let hasFilters = false;
     try {
-      rows = await fetchAllFilteredRows();
+      const out = await fetchAllFilteredRows();
+      rows = out.rows;
+      hasFilters = !!out.hasFilters;
     } catch (err) {
       alert(err?.message || "Failed to export audit logs.");
       exportBtn.disabled = false;
@@ -935,7 +1493,7 @@
     const ts = new Date().toISOString().replace(/[:.]/g, "-");
     const a = document.createElement("a");
     a.href = url;
-    a.download = `audit-log-filtered-${ts}.csv`;
+    a.download = hasFilters ? `audit-log-view-${ts}.csv` : `audit-log-${ts}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

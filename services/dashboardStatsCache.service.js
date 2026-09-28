@@ -1,6 +1,5 @@
 const settingsSvc = require("./settings.service");
 const usersService = require("./users.service");
-const groupsService = require("./groups.service");
 const agenciesStore = require("./agencies.service");
 const accessSvc = require("./access.service");
 
@@ -10,6 +9,8 @@ const DEFAULT_INITIAL_DELAY_SECONDS = 8;
 
 /** Coalesces concurrent refreshNow() calls so waiters get the same result, not stale zeros. */
 let _refreshInFlight = null;
+let _refreshDebounceTimer = null;
+const DIRECTORY_REFRESH_DEBOUNCE_MS = 200;
 
 /** Per normalized agency name: coalesced refresh promises. */
 const _agencyRefreshInFlight = new Map();
@@ -101,50 +102,67 @@ function buildCharts(users, agencies) {
   return { usersByAgency, unknownAgency, usersByType, unknownType };
 }
 
+function startDashboardStatsRefresher() {
+  // Worker writes dashboard_stats. Web only reads Postgres.
+}
+
 async function refreshNow() {
   if (_refreshInFlight) return _refreshInFlight;
-
   _refreshInFlight = (async () => {
-    _state.lastError = null;
-
     try {
-      // One lightweight user-directory pass + groups in parallel (avoids doubling Authentik work).
-      const [{ visibleUsers, integrationCount }, groups] = await Promise.all([
-        usersService.fetchUsersForDashboardStats(),
-        groupsService.getAllGroups(), // <-- use portal logic
-      ]);
-
-      // Local data (agencies)
-      const agencies = agenciesStore.load();
-
-      const charts = buildCharts(visibleUsers || [], agencies || []);
-
-      _state.snapshot = {
-        stats: {
-          totalUsers: Array.isArray(visibleUsers) ? visibleUsers.length : 0,
-          totalGroups: Array.isArray(groups) ? groups.length : 0,
-          totalAgencies: Array.isArray(agencies) ? agencies.length : 0,
-          totalIntegrations: integrationCount,
-        },
-        charts,
-      };
-
-      _state.refreshedAt = new Date();
-      return _state.snapshot;
+      const directorySync = require("./directorySync.service");
+      await directorySync.writeDashboardStats();
+      await readDashboardStatsRow();
+      return snapshotFromState();
     } catch (err) {
       _state.lastError = err?.message || String(err);
-      console.warn("[DASHBOARD] Authentik stats cache refresh failed:", err);
-      // Avoid unbounded /dashboard awaits when Authentik is down and we never had a successful refresh.
-      if (!_state.refreshedAt) {
-        _state.refreshedAt = new Date();
-      }
-      return _state.snapshot; // keep last good snapshot
+      return snapshotFromState();
     } finally {
       _refreshInFlight = null;
     }
   })();
-
   return _refreshInFlight;
+}
+
+function snapshotFromState() {
+  const refreshedAt = _state.refreshedAt;
+  const ageMs = refreshedAt ? Date.now() - refreshedAt.getTime() : null;
+  return {
+    ..._state.snapshot,
+    refreshedAt,
+    ageMs,
+    error: _state.lastError,
+  };
+}
+
+async function readDashboardStatsRow() {
+  const db = require("./db");
+  if (!db.isConfigured()) return;
+  try {
+    const r = await db.query("SELECT payload, updated_at FROM dashboard_stats WHERE id = 1");
+    const row = r.rows[0];
+    if (row && row.payload && typeof row.payload === "object") {
+      _state.snapshot = {
+        stats: row.payload.stats || _state.snapshot.stats,
+        charts: row.payload.charts || _state.snapshot.charts,
+      };
+      _state.refreshedAt = row.updated_at ? new Date(row.updated_at) : new Date();
+      _state.lastError = null;
+    }
+  } catch (_) {
+    /* keep last in-memory */
+  }
+}
+
+async function getDashboardStatsSnapshot() {
+  if (_refreshDebounceTimer) {
+    clearTimeout(_refreshDebounceTimer);
+    _refreshDebounceTimer = null;
+    return refreshNow();
+  }
+  if (_refreshInFlight) return _refreshInFlight;
+  await readDashboardStatsRow();
+  return snapshotFromState();
 }
 
 function stopDashboardStatsRefresher() {
@@ -154,47 +172,9 @@ function stopDashboardStatsRefresher() {
   }
 }
 
-function startDashboardStatsRefresher() {
-  // If already running, do nothing (use restartDashboardStatsRefresher to reconfigure)
-  if (_state.timer) return;
-
-  const seconds = parseRefreshSeconds();
-  const initialDelaySeconds = parseInitialDelaySeconds();
-
-  // Prime immediately so /dashboard is not stuck on zeros until the old "first refresh after delay" runs.
-  void refreshNow().catch(() => null);
-
-  // Optional second pass after startup so Authentik/network can settle (same intent as before).
-  if (initialDelaySeconds > 0) {
-    setTimeout(() => {
-      refreshNow().catch(() => null);
-    }, initialDelaySeconds * 1000).unref?.();
-  }
-
-  _state.timer = setInterval(() => {
-    refreshNow().catch(() => null);
-  }, seconds * 1000);
-
-  console.log(
-    `[DASHBOARD] Authentik stats cache enabled: immediate refresh + optional settle at ${initialDelaySeconds}s, then every ${seconds}s`
-  );
-}
-
 function restartDashboardStatsRefresher() {
   stopDashboardStatsRefresher();
   startDashboardStatsRefresher();
-}
-
-function getDashboardStatsSnapshot() {
-  const refreshedAt = _state.refreshedAt;
-  const ageMs = refreshedAt ? Date.now() - refreshedAt.getTime() : null;
-
-  return {
-    ..._state.snapshot,
-    refreshedAt,
-    ageMs,
-    error: _state.lastError,
-  };
 }
 
 function normalizeAgencyNameKey(agencyName) {
@@ -225,7 +205,7 @@ function resolveManagedAgenciesForUser(authUser) {
     byNameKey.set(key, {
       name,
       suffix: norm,
-      groupPrefix: String(agency.groupPrefix || "").trim().toUpperCase(),
+      groupPrefix: String(agency.groupPrefix || "").trim(),
       color: String(agency.color || "").trim() || null,
     });
   }
@@ -247,23 +227,21 @@ async function refreshAgencyNow(agencyName, { expectedAgencySuffix, groupPrefix,
   const refreshPromise = (async () => {
     const prev = _agencySnapshots.get(key);
     try {
-      const [totalUsers, usersByTemplate, groups] = await Promise.all([
+      const [totalUsers, usersByTemplate, totalGroups] = await Promise.all([
         usersService.countUsersByAgencyName(name),
         usersService.buildUsersByTemplateForAgencyName(name, { expectedAgencySuffix }),
-        groupsService.getAllGroups(),
+        require("./directoryRepo.service").countGroupsMatching({
+          agencyName: name,
+          createdType: "agency",
+        }),
       ]);
-
-      const filteredGroups = accessSvc.filterAgencySpecificGroupsForDashboard(
-        groups || [],
-        groupPrefix
-      );
 
       const entry = {
         agencyName: name,
         expectedAgencySuffix: String(expectedAgencySuffix || "").trim().toLowerCase(),
         stats: {
           totalUsers: Number(totalUsers) || 0,
-          totalGroups: Array.isArray(filteredGroups) ? filteredGroups.length : 0,
+          totalGroups: Number(totalGroups) || 0,
         },
         charts: {
           usersByTemplate: usersByTemplate || {},
@@ -365,25 +343,39 @@ function invalidateAgencyDashboardSnapshots() {
 }
 
 /**
- * Call after agencies.json changes (create, edit, delete, rename).
- * Clears per-agency dashboard cache and refreshes global dashboard stats in the background.
+ * Call after users, groups, or agencies change. Debounced so bulk create/delete
+ * writes dashboard_stats once. Dashboard GET waits for an in-flight refresh.
  */
-function refreshAfterAgenciesChanged() {
+function refreshAfterDirectoryChanged() {
   invalidateAgencyDashboardSnapshots();
-  void refreshNow().catch((err) => {
-    console.warn("[DASHBOARD] refresh after agencies change failed:", err?.message || err);
-  });
+  if (_refreshDebounceTimer) clearTimeout(_refreshDebounceTimer);
+  _refreshDebounceTimer = setTimeout(() => {
+    _refreshDebounceTimer = null;
+    void refreshNow().catch((err) => {
+      console.warn("[DASHBOARD] refresh after directory change failed:", err?.message || err);
+    });
+  }, DIRECTORY_REFRESH_DEBOUNCE_MS);
 }
 
 /**
- * Call after bulk user changes (e.g. CSV import).
- * Clears per-agency dashboard cache and refreshes global dashboard stats in the background.
+ * Call after agencies.json changes (create, edit, delete, rename).
+ */
+function refreshAfterAgenciesChanged() {
+  refreshAfterDirectoryChanged();
+}
+
+/**
+ * Call after user create/delete/import.
  */
 function refreshAfterUsersChanged() {
-  invalidateAgencyDashboardSnapshots();
-  void refreshNow().catch((err) => {
-    console.warn("[DASHBOARD] refresh after users change failed:", err?.message || err);
-  });
+  refreshAfterDirectoryChanged();
+}
+
+/**
+ * Call after group create/delete/rename.
+ */
+function refreshAfterGroupsChanged() {
+  refreshAfterDirectoryChanged();
 }
 
 async function getAgencyDashboardForUser(authUser) {
@@ -427,6 +419,8 @@ module.exports = {
   refreshNow,
   refreshAfterAgenciesChanged,
   refreshAfterUsersChanged,
+  refreshAfterGroupsChanged,
+  refreshAfterDirectoryChanged,
   invalidateAgencyDashboardSnapshots,
   getDashboardStatsSnapshot,
   normalizeAgencyNameKey,

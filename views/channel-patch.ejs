@@ -1,0 +1,649 @@
+<%- include("partials/header") %>
+<%- include("partials/sidebar") %>
+
+<main class="main">
+  <%- include("partials/scoped-admin-page-title", {
+    globalTitle: "Channel Patch",
+    scopedSuffix: "Channel Patch",
+    singleFallbackTitle: "Agency Channel Patch"
+  }) %>
+
+  <div class="card createFormCard">
+    <div class="row cp-formHeader createFormHeader" style="justify-content: space-between; align-items: center;">
+      <h2 style="margin: 0;" id="cpFormTitle">Create New Patch</h2>
+      <div class="row" style="gap:8px;">
+        <button class="btn" id="cpCancelEditBtn" type="button" style="display:none;">Cancel Edit</button>
+      </div>
+    </div>
+
+    <div class="createForm">
+    <label class="cp-field">
+      Name
+      <input id="cpName" type="text" placeholder="e.g. Multi-Agency Patch, Task Force Patch, etc..." maxlength="120" />
+    </label>
+
+    <div>
+      <label>
+        Channels
+        <div class="row cp-channelToolbar" style="gap:10px; align-items:center; flex-wrap:wrap;">
+          <input id="cpChannelSearch" type="search" placeholder="Search channels..." style="flex:1; min-width:0;" />
+          <button class="btn" type="button" id="cpSelectAllBtn">Select All</button>
+          <button class="btn" type="button" id="cpClearAllBtn">Clear All</button>
+        </div>
+
+        <div id="cpChannelsBox" class="groupsBox">
+          <div id="cpChannelsInner" class="groupsInner">
+            <div class="msg">Loading channels…</div>
+          </div>
+        </div>
+      </label>
+    </div>
+
+    <div class="row cp-formFooter createActionsRow" style="justify-content:flex-end; align-items:center; flex-wrap:wrap;">
+      <div id="cpFormMsg" class="msg"></div>
+      <div class="cp-enableCreate" id="cpEnableCreateRow">
+        <span>Enable Patch Upon Creation</span>
+        <button
+          type="button"
+          id="cpCreateEnabled"
+          class="settings-toggle is-on"
+          aria-pressed="true"
+          aria-label="Enable Patch Upon Creation"
+        ></button>
+      </div>
+      <button class="btn success" type="button" id="cpSubmitBtn">Create New Patch</button>
+    </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content: space-between; align-items:center;">
+      <h2 style="margin:0;">Existing Patches</h2>
+    </div>
+    <div id="cpPatchBoard" class="cp-board">
+      <div class="msg">Loading patches…</div>
+    </div>
+  </div>
+</main>
+
+<style>
+  .cp-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+  }
+  .cp-field input {
+    width: 100%;
+    max-width: 420px;
+    box-sizing: border-box;
+  }
+
+  .groupsBox {
+    margin-top: 10px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    border-radius: 12px;
+    padding: 10px;
+    max-height: 320px;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  .groupsInner {
+    column-width: 280px;
+    column-gap: 14px;
+    column-count: 4;
+  }
+  .groupItem {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 10px;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+    break-inside: avoid;
+    -webkit-column-break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .groupItem span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .cp-enableCreate {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    user-select: none;
+    font-size: 0.92rem;
+  }
+
+  .cp-board {
+    margin-top: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .cp-patch {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 14px 16px;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .cp-patch.is-on {
+    border-color: color-mix(in srgb, #22c55e 55%, var(--line));
+    background: color-mix(in srgb, #22c55e 16%, var(--panel));
+  }
+  .cp-patch.is-off {
+    border-color: color-mix(in srgb, #ef4444 50%, var(--line));
+    background: color-mix(in srgb, #ef4444 14%, var(--panel));
+  }
+  .cp-patchTop {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .cp-patchTitle {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+  }
+  .cp-patchActions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .cp-enableRow {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.88rem;
+  }
+  .cp-danger {
+    background: transparent;
+    border: 1px solid color-mix(in srgb, #e35d5d 55%, var(--line));
+    color: #e35d5d;
+  }
+  .cp-danger:hover {
+    background: color-mix(in srgb, #e35d5d 12%, transparent);
+  }
+
+  .cp-topology {
+    margin-top: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .cp-node {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: color-mix(in srgb, var(--bg) 65%, transparent);
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+  .cp-empty {
+    padding: 18px 4px;
+    color: var(--muted, #8b93a7);
+  }
+
+  /* Mobile: stacked layout, no horizontal scroll — same pattern as Templates */
+  @media (max-width: 990px) {
+    .cp-formHeader {
+      flex-wrap: wrap;
+      align-items: stretch !important;
+      gap: 10px;
+    }
+    .cp-formHeader h2 {
+      flex: 1 1 100%;
+    }
+    .cp-formHeader .row,
+    .cp-formHeader .btn {
+      width: 100% !important;
+    }
+
+    .cp-field input {
+      max-width: 100%;
+    }
+
+    .cp-channelToolbar {
+      align-items: stretch !important;
+    }
+    .cp-channelToolbar input {
+      flex: 1 1 100%;
+      width: 100%;
+    }
+    .cp-channelToolbar .btn {
+      flex: 1 1 calc(50% - 10px);
+      width: 100% !important;
+      min-width: 0;
+      text-align: center;
+    }
+
+    .groupsInner {
+      column-count: 2;
+      column-width: auto;
+    }
+    .groupItem {
+      white-space: normal;
+    }
+    .groupItem span {
+      overflow: visible;
+      text-overflow: unset;
+      word-break: break-word;
+    }
+
+    .cp-formFooter {
+      flex-direction: column;
+      align-items: stretch !important;
+      justify-content: flex-start !important;
+    }
+    .cp-formFooter .msg {
+      width: 100%;
+    }
+    .cp-enableCreate {
+      width: 100%;
+      justify-content: space-between;
+    }
+    .cp-formFooter .btn {
+      width: 100% !important;
+    }
+
+    .cp-patchTop {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .cp-patchTitle {
+      word-break: break-word;
+    }
+    .cp-patchActions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      width: 100%;
+      gap: 8px;
+    }
+    .cp-enableRow {
+      grid-column: 1 / -1;
+      justify-content: space-between;
+    }
+    .cp-patchActions .btn {
+      width: 100% !important;
+      max-width: 100%;
+      min-width: 0;
+      margin: 0;
+      box-sizing: border-box;
+      text-align: center;
+    }
+    .cp-node {
+      max-width: 100%;
+      white-space: normal;
+      word-break: break-word;
+    }
+  }
+
+  @media (max-width: 560px) {
+    .groupsInner {
+      column-count: 1;
+    }
+    .cp-channelToolbar .btn {
+      flex: 1 1 100%;
+    }
+  }
+
+  @media (max-width: 400px) {
+    .cp-patchActions {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<script>
+(function () {
+  const formTitle = document.getElementById("cpFormTitle");
+  const cancelEditBtn = document.getElementById("cpCancelEditBtn");
+  const channelsBox = document.getElementById("cpChannelsBox");
+  const channelsInner = document.getElementById("cpChannelsInner");
+  const channelSearch = document.getElementById("cpChannelSearch");
+  const selectAllBtn = document.getElementById("cpSelectAllBtn");
+  const clearAllBtn = document.getElementById("cpClearAllBtn");
+  const nameInput = document.getElementById("cpName");
+  const submitBtn = document.getElementById("cpSubmitBtn");
+  const createEnabledBtn = document.getElementById("cpCreateEnabled");
+  const enableCreateRow = document.getElementById("cpEnableCreateRow");
+  const formMsg = document.getElementById("cpFormMsg");
+  const board = document.getElementById("cpPatchBoard");
+
+  /** @type {{ name: string, displayName: string, baseKey: string }[]} */
+  let channels = [];
+  /** @type {object[]} */
+  let patchesCache = [];
+  /** Persist checked names across filter re-renders */
+  const selectedNames = new Set();
+  /** @type {string|null} */
+  let editingId = null;
+  let isAgencyScoped = false;
+
+  function esc(s) {
+    return String(s ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function displayFor(nameOrKey) {
+    const raw = String(nameOrKey || "").trim();
+    const hit = channels.find(
+      (c) => c.name === raw || c.baseKey === raw.toLowerCase() || c.displayName === raw
+    );
+    return hit ? hit.displayName : raw.replace(/^tak_/i, "");
+  }
+
+  function isToggleOn(btn) {
+    return !!(btn && btn.classList.contains("is-on"));
+  }
+
+  function setToggle(btn, on) {
+    if (!btn) return;
+    btn.classList.toggle("is-on", !!on);
+    btn.classList.toggle("is-off", !on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+
+  function filteredChannels() {
+    const q = String(channelSearch.value || "").trim().toLowerCase();
+    return channels.filter((c) => {
+      if (!q) return true;
+      return (
+        c.displayName.toLowerCase().includes(q) ||
+        c.name.toLowerCase().includes(q)
+      );
+    });
+  }
+
+  function renderChannelsBox() {
+    const list = filteredChannels();
+
+    if (!list.length) {
+      channelsInner.innerHTML = isAgencyScoped
+        ? '<div class="msg">No agency channels in your scope.</div>'
+        : '<div class="msg">No matching channels.</div>';
+      return;
+    }
+
+    channelsInner.innerHTML = list
+      .map((c) => {
+        const checked = selectedNames.has(c.name) ? "checked" : "";
+        return `<label class="groupItem"><input type="checkbox" value="${esc(
+          c.name
+        )}" ${checked} /><span>${esc(c.displayName)}</span></label>`;
+      })
+      .join("");
+  }
+
+  function setMsg(text, isError) {
+    formMsg.textContent = text || "";
+    formMsg.style.color = isError ? "#e35d5d" : "";
+  }
+
+  function setCreateMode() {
+    editingId = null;
+    formTitle.textContent = "Create New Patch";
+    submitBtn.textContent = "Create New Patch";
+    cancelEditBtn.style.display = "none";
+    enableCreateRow.style.display = "";
+    setToggle(createEnabledBtn, true);
+    nameInput.value = "";
+    channelSearch.value = "";
+    selectedNames.clear();
+    renderChannelsBox();
+    setMsg("");
+  }
+
+  function setEditMode(id) {
+    const patch = patchesCache.find((p) => String(p.id) === String(id));
+    if (!patch) return;
+
+    editingId = String(patch.id);
+    formTitle.textContent = "Edit Patch";
+    submitBtn.textContent = "Save Changes";
+    cancelEditBtn.style.display = "inline-block";
+    enableCreateRow.style.display = "none";
+    setMsg("");
+
+    nameInput.value = patch.name || "";
+    channelSearch.value = "";
+    selectedNames.clear();
+    for (const g of patch.groups || []) {
+      const hit = channels.find(
+        (c) =>
+          c.name === g ||
+          c.baseKey === String(g).toLowerCase() ||
+          c.displayName === g
+      );
+      selectedNames.add(hit ? hit.name : g);
+    }
+    renderChannelsBox();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function api(path, opts) {
+    const res = await fetch(path, {
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      ...opts,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const err = new Error(data.error || data.message || res.statusText || "Request failed");
+      err.status = res.status;
+      throw err;
+    }
+    return data;
+  }
+
+  function renderBoard(patches) {
+    patchesCache = Array.isArray(patches) ? patches : [];
+    if (!patchesCache.length) {
+      board.innerHTML = isAgencyScoped
+        ? '<div class="cp-empty">No patches in your agency scope.</div>'
+        : '<div class="cp-empty">No patches yet.</div>';
+      return;
+    }
+
+    board.innerHTML = patchesCache
+      .map((p) => {
+        const groups = Array.isArray(p.groups) ? p.groups : [];
+        const nodesHtml = groups
+          .map((g) => `<span class="cp-node">${esc(displayFor(g))}</span>`)
+          .join("");
+
+        return `
+          <article class="cp-patch ${p.enabled ? "is-on" : "is-off"}" data-id="${esc(p.id)}">
+            <div class="cp-patchTop">
+              <h3 class="cp-patchTitle">${esc(p.name)}</h3>
+              <div class="cp-patchActions cardActionsRow">
+                <div class="cp-enableRow">
+                  <button
+                    type="button"
+                    class="settings-toggle ${p.enabled ? "is-on" : "is-off"} cp-enableToggle"
+                    aria-pressed="${p.enabled ? "true" : "false"}"
+                    aria-label="Enable ${esc(p.name)}"
+                  ></button>
+                </div>
+                <button type="button" class="btn cp-editBtn">Edit</button>
+                <button type="button" class="btn cp-danger cp-deleteBtn">Delete</button>
+              </div>
+            </div>
+            <div class="cp-topology">${nodesHtml}</div>
+          </article>`;
+      })
+      .join("");
+  }
+
+  async function loadMeta() {
+    const meta = await api("/api/channel-patch/meta");
+    isAgencyScoped = !!meta.isAgencyAdmin && !meta.isGlobalAdmin;
+    channels = Array.isArray(meta.channels) ? meta.channels : [];
+    channels.sort((a, b) =>
+      String(a.displayName || "").localeCompare(String(b.displayName || ""), undefined, {
+        sensitivity: "base",
+      })
+    );
+    renderChannelsBox();
+  }
+
+  async function loadPatches() {
+    const data = await api("/api/channel-patch");
+    renderBoard(Array.isArray(data.patches) ? data.patches : []);
+  }
+
+  async function refreshAll() {
+    await loadMeta();
+    await loadPatches();
+  }
+
+  channelSearch.addEventListener("input", () => {
+    renderChannelsBox();
+  });
+
+  channelsBox.addEventListener("change", (e) => {
+    const cb = e.target && e.target.matches('input[type="checkbox"]') ? e.target : null;
+    if (!cb) return;
+    if (cb.checked) selectedNames.add(cb.value);
+    else selectedNames.delete(cb.value);
+  });
+
+  selectAllBtn.addEventListener("click", () => {
+    for (const c of filteredChannels()) selectedNames.add(c.name);
+    renderChannelsBox();
+  });
+
+  clearAllBtn.addEventListener("click", () => {
+    for (const c of filteredChannels()) selectedNames.delete(c.name);
+    renderChannelsBox();
+  });
+
+  createEnabledBtn.addEventListener("click", () => {
+    setToggle(createEnabledBtn, !isToggleOn(createEnabledBtn));
+  });
+
+  cancelEditBtn.addEventListener("click", () => setCreateMode());
+
+  submitBtn.addEventListener("click", async () => {
+    setMsg("");
+    const groups = Array.from(selectedNames);
+    if (groups.length < 2) {
+      setMsg("Select at least two channels.", true);
+      return;
+    }
+    const name = String(nameInput.value || "").trim();
+    submitBtn.disabled = true;
+    const isEdit = !!editingId;
+    try {
+      if (isEdit) {
+        await api("/api/channel-patch/" + encodeURIComponent(editingId), {
+          method: "PATCH",
+          body: JSON.stringify({
+            name,
+            groups,
+          }),
+        });
+        setCreateMode();
+        setMsg("Patch updated.");
+      } else {
+        await api("/api/channel-patch", {
+          method: "POST",
+          body: JSON.stringify({
+            name: name || undefined,
+            groups,
+            enabled: isToggleOn(createEnabledBtn),
+          }),
+        });
+        setCreateMode();
+        setMsg("Patch created.");
+      }
+      await loadPatches();
+    } catch (err) {
+      setMsg(err.message || (isEdit ? "Update failed" : "Create failed"), true);
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+
+  board.addEventListener("click", async (e) => {
+    const toggle = e.target.closest(".cp-enableToggle");
+    if (toggle) {
+      const card = toggle.closest(".cp-patch");
+      if (!card) return;
+      const id = card.getAttribute("data-id");
+      const next = !isToggleOn(toggle);
+      setToggle(toggle, next);
+      card.classList.toggle("is-on", next);
+      card.classList.toggle("is-off", !next);
+      toggle.disabled = true;
+      try {
+        await api("/api/channel-patch/" + encodeURIComponent(id), {
+          method: "PATCH",
+          body: JSON.stringify({ enabled: next }),
+        });
+        await loadPatches();
+      } catch (err) {
+        setToggle(toggle, !next);
+        card.classList.toggle("is-on", !next);
+        card.classList.toggle("is-off", next);
+        alert(err.message || "Update failed");
+      } finally {
+        toggle.disabled = false;
+      }
+      return;
+    }
+
+    const editBtn = e.target.closest(".cp-editBtn");
+    if (editBtn) {
+      const card = editBtn.closest(".cp-patch");
+      if (!card) return;
+      setEditMode(card.getAttribute("data-id"));
+      return;
+    }
+
+    const btn = e.target.closest(".cp-deleteBtn");
+    if (!btn) return;
+    const card = btn.closest(".cp-patch");
+    if (!card) return;
+    const id = card.getAttribute("data-id");
+    const title = card.querySelector(".cp-patchTitle")?.textContent || "this patch";
+    if (!confirm(`Delete ${title}?`)) return;
+    btn.disabled = true;
+    try {
+      await api("/api/channel-patch/" + encodeURIComponent(id), { method: "DELETE" });
+      if (editingId && String(editingId) === String(id)) setCreateMode();
+      await loadPatches();
+    } catch (err) {
+      alert(err.message || "Delete failed");
+      btn.disabled = false;
+    }
+  });
+
+  refreshAll().catch((err) => {
+    setMsg(err.message || "Failed to load", true);
+    board.innerHTML = `<div class="msg" style="color:#e35d5d;">${esc(
+      err.message || "Failed to load patches"
+    )}</div>`;
+  });
+})();
+</script>

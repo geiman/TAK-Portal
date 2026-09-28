@@ -1,7 +1,10 @@
 const api = require("./authentik");
+const db = require("./db");
+const cryptoSecrets = require("./cryptoSecrets");
 
 const TOKEN_DESCRIPTION = "TAK Portal Enrollment";
 const IDENT_PREFIX = "tak-portal-enroll-";
+const CACHE_MIN_REMAINING_MS = 30 * 1000;
 
 function toIso(dt) {
   return dt instanceof Date ? dt.toISOString() : new Date(dt).toISOString();
@@ -18,6 +21,14 @@ function parseExpires(tokenObj) {
 async function getUserIdByUsername(username) {
   const u = String(username || "").trim();
   if (!u) throw new Error("Missing username");
+
+  try {
+    const directoryRepo = require("./directoryRepo.service");
+    const local = await directoryRepo.getUserByUsername(u);
+    if (local && local.authentik_pk != null) return local.authentik_pk;
+  } catch (_) {
+    // Fall through to Authentik if the directory is unavailable.
+  }
 
   // Authentik can vary here; be resilient:
   // 1) try exact-style filter
@@ -89,6 +100,73 @@ async function createAppPasswordForUserId(userId, expiresAt) {
   return created.identifier || identifier;
 }
 
+async function readCachedEnrollment(authentikUserPk) {
+  const pk = String(authentikUserPk || "").trim();
+  if (!pk) return null;
+  try {
+    const r = await db.query(
+      `SELECT identifier, key_enc, expires_at
+         FROM enrollment_app_passwords
+        WHERE authentik_user_pk = $1
+          AND expires_at > now() + interval '30 seconds'`,
+      [pk]
+    );
+    const row = r.rows[0];
+    if (!row) return null;
+    const key = cryptoSecrets.decryptSecret(row.key_enc);
+    if (!key) return null;
+    return {
+      identifier: String(row.identifier || "").trim(),
+      key,
+      expiresAt: toIso(row.expires_at),
+    };
+  } catch (err) {
+    console.warn(
+      "[authentikTokens] enrollment cache read failed:",
+      err?.message || err
+    );
+    return null;
+  }
+}
+
+async function writeCachedEnrollment(authentikUserPk, payload) {
+  const pk = String(authentikUserPk || "").trim();
+  const identifier = String(payload?.identifier || "").trim();
+  const key = String(payload?.key || "").trim();
+  if (!pk || !identifier || !key) return;
+  try {
+    await db.query(
+      `INSERT INTO enrollment_app_passwords
+         (authentik_user_pk, identifier, key_enc, expires_at, updated_at)
+       VALUES ($1, $2, $3, $4::timestamptz, now())
+       ON CONFLICT (authentik_user_pk) DO UPDATE SET
+         identifier = EXCLUDED.identifier,
+         key_enc = EXCLUDED.key_enc,
+         expires_at = EXCLUDED.expires_at,
+         updated_at = now()`,
+      [pk, identifier, cryptoSecrets.encryptSecret(key), payload.expiresAt]
+    );
+  } catch (err) {
+    console.warn(
+      "[authentikTokens] enrollment cache write failed:",
+      err?.message || err
+    );
+  }
+}
+
+async function pruneExpiredEnrollmentCache() {
+  try {
+    await db.query(
+      `DELETE FROM enrollment_app_passwords WHERE expires_at < now()`
+    );
+  } catch (err) {
+    console.warn(
+      "[authentikTokens] enrollment cache prune failed:",
+      err?.message || err
+    );
+  }
+}
+
 /**
  * Return an existing (non-expired) enrollment token for this user, or create one.
  * Reuses within TTL window to avoid multiple active tokens per user.
@@ -110,8 +188,33 @@ async function getOrCreateEnrollmentAppPassword(params, ttlMinutes = 15) {
   if (!u) throw new Error("Missing username");
 
   const now = new Date();
+  const directoryRepo = require("./directoryRepo.service");
   const cleanedUserId = userId ? String(userId).trim() : "";
-  const resolvedUserId = (/^\d+$/.test(cleanedUserId)) ? cleanedUserId : await getUserIdByUsername(u);
+  let resolvedUserId = null;
+  if (cleanedUserId) {
+    const existing = await directoryRepo.getUserById(cleanedUserId).catch(() => null);
+    if (existing && existing.authentik_pk != null) {
+      resolvedUserId = String(existing.authentik_pk);
+    } else if (/^\d+$/.test(cleanedUserId)) {
+      resolvedUserId = cleanedUserId;
+    }
+  }
+  if (!resolvedUserId) {
+    try {
+      resolvedUserId = String(await directoryRepo.waitForAuthentikPk(u, 15000));
+    } catch (e) {
+      if (e && e.code === "AUTHENTIK_SYNC_PENDING") throw e;
+      throw new Error("Still syncing to Authentik — try again in a moment.");
+    }
+  }
+
+  const cached = await readCachedEnrollment(resolvedUserId);
+  if (cached && cached.identifier && cached.key) {
+    const exp = new Date(cached.expiresAt).getTime();
+    if (Number.isFinite(exp) && exp - now.getTime() > CACHE_MIN_REMAINING_MS) {
+      return cached;
+    }
+  }
 
   const tokens = await listUserAppPasswordsByUserId(resolvedUserId);
 
@@ -122,36 +225,29 @@ async function getOrCreateEnrollmentAppPassword(params, ttlMinutes = 15) {
       return d === TOKEN_DESCRIPTION || ident.startsWith(IDENT_PREFIX);
     })
     .map((t) => ({ t, expires: parseExpires(t) }))
-    .filter((x) => x.expires && x.expires.getTime() > now.getTime())
+    .filter((x) => x.expires && x.expires.getTime() > now.getTime() + CACHE_MIN_REMAINING_MS)
     .sort((a, b) => b.expires.getTime() - a.expires.getTime())[0];
 
+  const createdExpires = new Date(now.getTime() + ttlMinutes * 60 * 1000);
   const identifier = candidate
     ? String(candidate.t.identifier)
-    : await createAppPasswordForUserId(
-        resolvedUserId,
-        new Date(now.getTime() + ttlMinutes * 60 * 1000)
-      );
+    : await createAppPasswordForUserId(resolvedUserId, createdExpires);
 
-  // Refresh token details (expires may not be present in create response)
-  const freshList = await listUserAppPasswordsByUserId(resolvedUserId);
-  const tokenObj =
-    freshList.find((t) => String(t?.identifier || "") === identifier) || candidate?.t;
-
-  const expires =
-    parseExpires(tokenObj) || new Date(now.getTime() + ttlMinutes * 60 * 1000);
-
+  const expires = candidate?.expires || createdExpires;
   const key = await viewTokenKey(identifier);
-
-  return {
+  const result = {
     identifier,
     key,
     expiresAt: toIso(expires),
   };
+  await writeCachedEnrollment(resolvedUserId, result);
+  return result;
 }
 
 module.exports = {
   getUserIdByUsername,
   getOrCreateEnrollmentAppPassword,
+  pruneExpiredEnrollmentCache,
   TOKEN_DESCRIPTION,
   IDENT_PREFIX,
 };

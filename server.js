@@ -4,12 +4,13 @@ const path = require("path");
 const fs = require("fs");
 const multer = require("multer");
 const settingsSvc = require("./services/settings.service");
-const dashboardStatsCache = require("./services/dashboardStatsCache.service");
+const prefPkgSvc = require("./services/preferencePackage.service");
 const takDashboardCache = require("./services/takDashboardCache.service");
 const axios = require("axios");
-const { getString } = require("./services/env");
+const { getString, getBool, isLiveMapEnabled } = require("./services/env");
 const { URL } = require("url");
 const pkg = require("./package.json");
+const appVersion = require("./services/appVersion.service");
 const mutualAidSvc = require("./services/mutualAid.service");
 const portalAuth = require("./services/portalAuth.middleware");
 const portalAuthEnrich = require("./services/portalAuthEnrich.middleware");
@@ -25,12 +26,20 @@ const permsSvc = require("./services/permissions.service");
 const mouSvc = require("./services/mouService");
 const mouScheduler = require("./services/mouScheduler");
 const mapPageAssets = require("./services/mapPageAssets.service");
+const mapBasemapsConfig = require("./config/mapBasemaps");
 const accessControlRoutes = require("./routes/accessControl.routes");
 const usersSvc = require("./services/users.service");
 const groupsSvc = require("./services/groups.service");
+const channelPatchStore = require("./services/channelPatch.store");
+const channelPatchAccess = require("./services/channelPatchAccess.service");
+const accessSvc = require("./services/access.service");
 const agencyTypesSvc = require("./services/agencyTypes.service");
+const regionsSvc = require("./services/regions.service");
 const locatorsSvc = require("./services/locators.service");
+const locatorForm = require("./services/locatorForm.service");
+const locatorCot = require("./services/locatorCot.service");
 const pluginsSvc = require("./services/plugins.service");
+const atakApkSvc = require("./services/atakApk.service");
 const { toSafeApiError } = require("./services/apiErrorPayload.service");
 const {
   USER_AGREEMENT_SESSION_COOKIE,
@@ -58,59 +67,37 @@ const FONT_FAMILY_OPTIONS = new Set([
 const DEFAULT_SITE_FONT_FAMILY =
   "system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
 
-// Expose version to all EJS views (e.g. sidebar)
-app.locals.APP_VERSION = pkg.version || "dev";
-app.locals.APP_LATEST_VERSION = pkg.version || "dev";
+// Expose version to all EJS views (e.g. sidebar).
+// `version` stays the last stable release so update checks and 1.4.9 installs
+// are unchanged. `beta-version` is only present on post-stable builds.
+const APP_STABLE_VERSION = String(pkg.version || "dev").trim();
+const APP_BETA_VERSION = String(pkg["beta-version"] || "").trim();
+app.locals.APP_VERSION = APP_STABLE_VERSION;
+app.locals.APP_BETA_VERSION = APP_BETA_VERSION;
+app.locals.APP_IS_BETA_BUILD = Boolean(
+  APP_BETA_VERSION && APP_BETA_VERSION !== APP_STABLE_VERSION
+);
+app.locals.APP_LATEST_VERSION = APP_STABLE_VERSION;
 app.locals.APP_UPDATE_AVAILABLE = false;
 
-// Simple semver compare: returns true if `latest` > `current`
-function isNewerVersion(latest, current) {
-  const toParts = (v) =>
-    String(v || "0.0.0")
-      .split(".")
-      .map((n) => parseInt(n, 10) || 0);
+let loggedAvailableUpdateVersion = null;
 
-  const [la, lb, lc] = toParts(latest);
-  const [ca, cb, cc] = toParts(current);
-
-  if (la !== ca) return la > ca;
-  if (lb !== cb) return lb > cb;
-  return lc > cc;
-}
-
-async function checkForUpdates() {
+async function refreshAppUpdateLocals() {
   try {
-    // You can move this to an env var if you like
-    const repo = process.env.GITHUB_REPO || "AdventureSeeker423/TAK-Portal";
-
-    // Grab package.json from main and read its version
-    const url = `https://raw.githubusercontent.com/${repo}/main/package.json`;
-    const response = await axios.get(url, { timeout: 5000 });
-
-    const data =
-      typeof response.data === "string"
-        ? JSON.parse(response.data)
-        : response.data;
-
-    const latestVersion = data.version || app.locals.APP_VERSION;
-
-    app.locals.APP_LATEST_VERSION = latestVersion;
-    app.locals.APP_UPDATE_AVAILABLE = isNewerVersion(
-      latestVersion,
-      app.locals.APP_VERSION
-    );
-
-    console.log(
-      `[update-check] current=${app.locals.APP_VERSION} latest=${latestVersion} update=${app.locals.APP_UPDATE_AVAILABLE}`
-    );
-  } catch (err) {
-    console.warn("Failed to check for updates:", err.message || err);
-  }
+    const db = require("./services/db");
+    if (!db.isConfigured()) return;
+    const r = await db.query("SELECT latest, update_available FROM app_update_meta WHERE id = 1");
+    const row = r.rows[0];
+    if (!row) return;
+    if (row.latest) app.locals.APP_LATEST_VERSION = row.latest;
+    const running = appVersion.runningVersion(pkg);
+    app.locals.APP_UPDATE_AVAILABLE = appVersion.isUpdateAvailable(row.latest, pkg);
+    if (app.locals.APP_UPDATE_AVAILABLE && loggedAvailableUpdateVersion !== row.latest) {
+      loggedAvailableUpdateVersion = row.latest;
+      console.log(`[update] ${running} → ${row.latest} available`);
+    }
+  } catch (_) {}
 }
-
-// Run once on startup, then periodically (every 15 min)
-checkForUpdates();
-setInterval(checkForUpdates, 15 * 60 * 1000);
 
 app.use(express.json({ limit: "25mb" }));
 app.use(express.urlencoded({ extended: true }));
@@ -120,6 +107,83 @@ app.use(
   "/mutual-aid-logos",
   express.static(path.join(__dirname, "data", "mutual-aid-logos"))
 );
+
+app.set("view engine", "ejs");
+app.set("views", path.join(__dirname, "views"));
+
+const migrationGate = require("./services/migrationGate.middleware");
+const stackHealthGate = require("./services/stackHealthGate.middleware");
+const jsonImport = require("./services/jsonImport.service");
+const stackHealth = require("./services/stackHealth.service");
+
+app.get("/api/system/health", async (req, res) => {
+  try {
+    const health = await stackHealth.getStackHealth();
+    return res.status(health.ok ? 200 : 503).json(health);
+  } catch (e) {
+    return res.status(503).json({
+      ok: false,
+      migrating: false,
+      postgres: { ok: false, detail: e?.message || "health_failed" },
+      worker: { ok: false, detail: "health_failed" },
+    });
+  }
+});
+
+app.get("/api/system/migration-status", async (req, res) => {
+  try {
+    return res.json(await jsonImport.readStatusJson());
+  } catch (e) {
+    return res.json({ active: false, phase: "idle", percent: 100 });
+  }
+});
+
+app.post("/api/system/migration-retry", async (req, res) => {
+  try {
+    const s = await jsonImport.readStatusJson();
+    if (s.phase !== "failed") {
+      return res.status(409).json({ error: "retry_not_available", phase: s.phase });
+    }
+    jsonImport.retry().catch((e) => console.error("[json-import] retry:", e?.message || e));
+    return res.json({ ok: true });
+  } catch (e) {
+    return res.status(500).json({ error: e?.message || "retry failed" });
+  }
+});
+
+app.get("/migration", async (req, res) => {
+  try {
+    const status = await jsonImport.readStatusJson();
+    if (!status.active) return res.redirect("/");
+    return res.status(503).render("migration", { status });
+  } catch (e) {
+    return res.redirect("/");
+  }
+});
+
+app.get("/stack-down", async (req, res) => {
+  try {
+    const health = await stackHealth.getStackHealth();
+    if (health.ok) return res.redirect("/");
+    return res.status(503).render("stack-down", {
+      health,
+      unavailable: stackHealth.getUnavailablePageLocals(),
+    });
+  } catch (e) {
+    const unavailable = stackHealth.getUnavailablePageLocals();
+    return res.status(503).render("stack-down", {
+      health: {
+        ok: false,
+        title: unavailable.title,
+        message: unavailable.message,
+      },
+      unavailable,
+    });
+  }
+});
+
+app.use(migrationGate);
+app.use(stackHealthGate);
 
 // Multer storage for settings uploads (certs + branding)
 const uploadStorage = multer.diskStorage({
@@ -163,7 +227,8 @@ const uploadStorage = multer.diskStorage({
 
     if (file.fieldname === "BRAND_LOGO_UPLOAD") {
       const ext = path.extname(safeOriginal) || ".png";
-      return cb(null, "logo" + ext);
+      // A unique URL prevents browsers from showing a cached previous logo.
+      return cb(null, `logo-${Date.now()}${ext}`);
     }
 
     cb(null, safeOriginal);
@@ -171,6 +236,54 @@ const uploadStorage = multer.diskStorage({
 });
 
 const upload = multer({ storage: uploadStorage });
+
+function pageTitleForPath(pathname, portalTitle, serverAbbrev) {
+  const p = String(pathname || "/").replace(/\/+$/, "") || "/";
+  const liveMapTitle = "Live Map";
+  const labels = [
+    ["/dashboard", "Dashboard"],
+    ["/setup-my-device", "Setup My Device"],
+    ["/users", "Users"],
+    ["/groups", "Groups / Channels"],
+    ["/templates", "Templates"],
+    ["/audit-log", "Audit Log"],
+    ["/data-packages", "Data Package"],
+    ["/data-package", "Data Package"],
+    ["/data-sync", "Data Sync"],
+    ["/email", "Email Users"],
+    ["/locate-persons", "Locate Persons"],
+    ["/locate-legacy", "Locate Persons"],
+    ["/locate", "Locate Persons"],
+    ["/mutual-aid", "Mutual Aid"],
+    ["/admin/mou", "MOU Documents"],
+    ["/mou", "MOU Documents"],
+    ["/agencies", "Agencies"],
+    ["/integrations", "Integrations"],
+    ["/plugin-manager", "Plugin Manager"],
+    ["/cloudtak-marketplace", "CloudTAK Plugin Marketplace"],
+    ["/access-control", "Access Control"],
+    ["/settings", "Server Settings"],
+    ["/plugins", "ATAK Plugins"],
+    ["/map", liveMapTitle],
+    ["/getting-started", "Getting Started"],
+    ["/channel-patch", "Channel Patch"],
+    ["/pending-user-requests", "Pending Requests"],
+    ["/lookup", "Lookup"],
+    ["/request-access", "Request Access"],
+  ];
+  if (p === "/") return "Dashboard";
+  let bestPrefix = "";
+  let bestLabel = "";
+  for (const [prefix, label] of labels) {
+    if (p === prefix || p.startsWith(prefix + "/")) {
+      if (prefix.length >= bestPrefix.length) {
+        bestPrefix = prefix;
+        bestLabel = label;
+      }
+    }
+  }
+  return bestLabel || portalTitle || "TAK Portal";
+}
 
 // Expose settings + theme/logo + current path to all views (for sidebar active state)
 app.use((req, res, next) => {
@@ -190,6 +303,8 @@ app.use((req, res, next) => {
       ? rawSiteFontFamily
       : "";
     res.locals.settings = settings || {};
+    res.locals.teamColorLabels = prefPkgSvc.buildTeamColorLabelMap(settings || {});
+    res.locals.roleLabels = prefPkgSvc.buildRoleLabelMap(settings || {});
     // Server default is used when no per-device theme has been saved yet.
     res.locals.brandTheme = defaultTheme === "light" ? "light" : "dark";
     res.locals.brandLogoUrl = settings.BRAND_LOGO_URL || "";
@@ -202,9 +317,16 @@ app.use((req, res, next) => {
     res.locals.primaryButtonColor = primaryButtonColor;
     res.locals.siteFontFamily = siteFontFamily;
     res.locals.currentPath = (req.path || "/").replace(/\/+$/, "") || "/";
+    res.locals.pageTitle = pageTitleForPath(
+      res.locals.currentPath,
+      res.locals.portalTitle,
+      serverAbbrev
+    );
   } catch (err) {
     console.warn("Failed to load settings for request:", err?.message || err);
     res.locals.settings = {};
+    res.locals.teamColorLabels = {};
+    res.locals.roleLabels = {};
     res.locals.brandTheme = "dark";
     res.locals.brandLogoUrl = "";
     res.locals.serverAbbrev = "TAK";
@@ -212,6 +334,11 @@ app.use((req, res, next) => {
     res.locals.primaryButtonColor = "";
     res.locals.siteFontFamily = "";
     res.locals.currentPath = (req.path || "/").replace(/\/+$/, "") || "/";
+    res.locals.pageTitle = pageTitleForPath(
+      res.locals.currentPath,
+      res.locals.portalTitle,
+      res.locals.serverAbbrev
+    );
   }
   next();
 });
@@ -222,6 +349,7 @@ const PUBLIC_PATHS = new Set([
   "/lookup",
   "/request-access",
   "/request-access/confirmation",
+  "/api/system/health",
 ]);
 
 function isPublicPortalBypass(req) {
@@ -237,7 +365,7 @@ function isPublicPortalBypass(req) {
   if (method === "GET" && /^\/request-access\/[a-f0-9]{32,64}\/(data|meta)$/i.test(p)) {
     return true;
   }
-  if (method === "POST" && /^\/request-access\/[a-f0-9]{32,64}\/(approve|reject)$/i.test(p)) {
+  if (method === "POST" && /^\/request-access\/[a-f0-9]{32,64}\/(approve|reject|create-agency)$/i.test(p)) {
     return true;
   }
   // Tokenized external MOU signing (under /request-access* for Caddy public bypass)
@@ -291,11 +419,14 @@ app.use((req, res, next) => {
     const isSetupMyDevicePath =
       normalizedPath === "/setup-my-device" ||
       normalizedPath.startsWith("/api/setup-my-device");
+    const isAtakApkDownloadPath =
+      normalizedPath === "/api/atak/download";
     const isAgreementExemptPath =
       normalizedPath === "/logout" ||
       isAgreementApiPath ||
       (isPortalAdmin && normalizedPath === "/dashboard") ||
-      isSetupMyDevicePath;
+      isSetupMyDevicePath ||
+      isAtakApkDownloadPath;
 
     if (
       !isAgreementTargetUser ||
@@ -345,6 +476,15 @@ function requirePermission(permissionId) {
   };
 }
 
+app.get("/api/system/directory-sync-status", requirePermission("page.users"), async (req, res) => {
+  try {
+    const directorySync = require("./services/directorySync.service");
+    return res.json(await directorySync.getDirectorySyncStatus());
+  } catch (e) {
+    return res.json({ ok: true, lastError: null, lastSuccessAt: null });
+  }
+});
+
 function requireBetaMode(req, res, next) {
   const cfg = settingsSvc.getSettings() || {};
   const beta = String(cfg.BETA_MODE || "").toLowerCase() === "true";
@@ -368,10 +508,73 @@ function requireGlobalAdminRole(req, res, next) {
   return next();
 }
 
+function getMapStorageUserKey(req) {
+  return String(req.authentikUser?.uid || req.authentikUser?.username || "anonymous").replace(
+    /[^a-zA-Z0-9._-]/g,
+    "_"
+  );
+}
+
+function getDefaultMapSource() {
+  const settings = settingsSvc.getSettings() || {};
+  return mapBasemapsConfig.getDefaultMapSource(settings);
+}
+
+function applyLiveMapRuntime() {
+  try {
+    const geofenceEngine = require("./services/geofence.engine");
+    if (isLiveMapEnabled()) {
+      geofenceEngine.start();
+    } else {
+      geofenceEngine.stop();
+    }
+  } catch (e) {
+    console.log("⚠️ Live Map runtime apply failed", e?.message || e);
+  }
+}
+
+function isDashboardMiniMapApiPath(req) {
+  const raw = String(req.path || req.url || "").split("?")[0];
+  const p = raw.replace(/\/+$/, "") || "/";
+  return (
+    p === "/icons" ||
+    p.startsWith("/icons/") ||
+    p === "/api/map/icons" ||
+    p.startsWith("/api/map/icons/")
+  );
+}
+
+function requireLiveMapEnabled(req, res, next) {
+  if (isLiveMapEnabled() || isDashboardMiniMapApiPath(req)) return next();
+  if (isApiRequest(req)) {
+    return res.status(404).json({ error: "Live Map is disabled" });
+  }
+  const u = req.authentikUser;
+  const dest = u && (u.isGlobalAdmin || u.isAgencyAdmin) ? "/" : "/setup-my-device";
+  return res.redirect(dest);
+}
+
+function requireCloudtakMarketplaceEnabled(req, res, next) {
+  if (getBool("CLOUDTAK_MARKETPLACE_ENABLED", false)) return next();
+  const p = String(req.originalUrl || req.path || "").split("?")[0];
+  if (
+    /\/api\/cloudtak-marketplace\/ssh\/(test|detect|key)\/?$/.test(p) ||
+    /\/api\/cloudtak-marketplace\/notify\/test\/?$/.test(p)
+  ) {
+    return next();
+  }
+  if (isApiRequest(req)) {
+    return res.status(404).json({ error: "CloudTAK Plugin Marketplace is disabled" });
+  }
+  return res.status(404).render("access-denied", {
+    username: req.authentikUser?.username || "",
+  });
+}
+
 function requireMapAccess(req, res, next) {
   const u = req.authentikUser;
-  if (!u || (!u.isGlobalAdmin && !u.isAgencyAdmin)) {
-    const username = u && u.username ? u.username : "";
+  if (!u) {
+    const username = "";
     if (isApiRequest(req)) {
       return res.status(403).json({ error: "Forbidden" });
     }
@@ -388,8 +591,6 @@ function requireBetaModeApi(req, res, next) {
   }
   next();
 }
-app.set("view engine", "ejs");
-app.set("views", path.join(__dirname, "views"));
 
 app.get("/logout", (req, res) => {
   // Where to send the user back after logout (the portal itself)
@@ -419,6 +620,7 @@ app.get("/logout", (req, res) => {
 
 // API Routes
 app.use("/api/agencies", require("./routes/agencies.routes"));
+app.use("/api/regions", require("./routes/regions.routes"));
 app.use("/api/users", require("./routes/users.routes"));
 app.use("/api/groups", require("./routes/groups.routes"));
 app.use("/api/templates", require("./routes/templates.routes"));
@@ -451,18 +653,85 @@ app.get("/api/plugins/:id/download", (req, res) => {
     return res.status(500).json({ error: toSafeApiError(err) });
   }
 });
+// Hosted ATAK client APK for Setup My Device (same audience as plugin downloads).
+app.get("/api/atak/download", (req, res) => {
+  try {
+    const filePath = atakApkSvc.getApkFilePath();
+    if (!filePath) {
+      return res.status(404).json({ error: "No ATAK APK has been uploaded." });
+    }
+    const filename = atakApkSvc.getOriginalName();
+    auditSvc.auditFromRequest(req, {
+      action: "ATAK_APK_DOWNLOADED",
+      targetType: "atak_apk",
+      targetId: "client",
+      details: {
+        filename,
+        summary: `Downloaded hosted ATAK APK ${filename}.`,
+      },
+    });
+    const safeDisposition = String(filename || "atak-client.apk").replace(
+      /["\\\r\n]/g,
+      "_"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${safeDisposition}"`
+    );
+    res.setHeader("Content-Type", "application/vnd.android.package-archive");
+    return res.sendFile(filePath);
+  } catch (err) {
+    return res.status(500).json({ error: toSafeApiError(err) });
+  }
+});
 app.use("/api/audit-log", requirePermission("page.audit_log"), require("./routes/auditLog.routes"));
 app.use("/api/plugins", requirePermission("page.plugin_manager"), require("./routes/plugins.routes"));
+app.use(
+  "/api/cloudtak-marketplace",
+  requireGlobalAdminRole,
+  requireCloudtakMarketplaceEnabled,
+  require("./routes/cloudtakMarketplace.routes")
+);
 app.use("/api/integrations", requirePermission("page.integrations"), require("./routes/integrations.routes"));
 app.use("/api/ssh", requirePermission("page.integrations"), require("./routes/ssh.routes"));
-app.use("/api/map", requireMapAccess, require("./routes/map.routes"));
+app.use("/api/map", requireMapAccess, requireLiveMapEnabled, require("./routes/map.routes"));
+app.use(
+  "/api/channel-patch",
+  requirePermission("page.channel_patch"),
+  require("./routes/channel-patch.routes")
+);
 app.use(
   "/api/settings/tak-maintenance",
   requirePermission("page.settings"),
   require("./routes/settingsTakMaintenance.routes")
 );
+app.use(
+  "/api/settings/atak-apk",
+  requirePermission("page.settings"),
+  require("./routes/atakApk.routes")
+);
+app.use(
+  "/api/settings/openaddresses",
+  requirePermission("page.settings"),
+  require("./routes/openaddresses.routes")
+);
+app.use(
+  "/api/settings/backup",
+  requirePermission("page.settings"),
+  require("./routes/settingsBackup.routes")
+);
+app.use(
+  "/api/settings/legacy-import",
+  requirePermission("page.settings"),
+  require("./routes/settingsLegacyImport.routes")
+);
 // Locate + data packages (admin + JSON APIs): page-aligned capability.
 app.use("/api/locate", requirePermission("page.locate"), require("./routes/locate.routes"));
+app.use(
+  "/api/locate-legacy",
+  requirePermission("page.locate"),
+  require("./routes/locate-legacy.routes")
+);
 
 app.use(
   "/api/data-sync",
@@ -531,10 +800,28 @@ async function handlePublicLocatePing(req, res) {
       Number.isFinite(accuracyMeters) && accuracyMeters >= 0 && accuracyMeters < 1e7
         ? accuracyMeters
         : null;
-    const last = formStringField(body.lastName);
-    const first = formStringField(body.firstName);
-    const name = locatorsSvc.formatLocatePingNameForTak(first, last);
-    const remarks = formStringField(body.remarks);
+
+    const live = locatorsSvc.isLiveLocator(loc);
+    let name;
+    let remarks;
+    let answers;
+    let callsign;
+    if (live) {
+      const form = locatorForm.normalizeForm(loc.form);
+      const parsed = locatorForm.validateAnswers(form, locatorForm.parseAnswers(body));
+      if (parsed.error) {
+        return res.status(400).json({ ok: false, error: parsed.error });
+      }
+      answers = parsed.answers;
+      callsign = locatorForm.formatLiveCallsign(loc.title, form, answers);
+      remarks = locatorForm.formatLiveRemarks(form, answers);
+      name = callsign;
+    } else {
+      const last = formStringField(body.lastName);
+      const first = formStringField(body.firstName);
+      name = locatorsSvc.formatLocatePingNameForTak(first, last);
+      remarks = formStringField(body.remarks);
+    }
 
     locatorsSvc.addHistoryEntry({
       locatorId: loc.id,
@@ -544,6 +831,8 @@ async function handlePublicLocatePing(req, res) {
       remarks,
       kind: "interval",
       accuracyMeters: acc,
+      answers,
+      callsign,
     });
 
     const accLabel =
@@ -564,6 +853,7 @@ async function handlePublicLocatePing(req, res) {
       details: {
         slug,
         locatorTitle: loc.title,
+        kind: locatorsSvc.locatorKind(loc),
         latitude: lat,
         longitude: lng,
         accuracyMeters: acc,
@@ -581,6 +871,20 @@ async function handlePublicLocatePing(req, res) {
     res.json({ ok: true });
 
     setImmediate(() => {
+      if (live) {
+        locatorCot
+          .publishPing(loc, {
+            latitude: lat,
+            longitude: lng,
+            accuracyMeters: acc,
+            callsign,
+            remarks,
+          })
+          .catch((err) => {
+            console.error("[locate ping] live CoT failed:", err?.message || err);
+          });
+        return;
+      }
       locatorsSvc
         .relayPingToTak({
           latitude: lat,
@@ -608,6 +912,11 @@ function handlePublicLocateStopSharing(req, res) {
       return res.status(403).json({ ok: false, error: "This locator is inactive." });
     }
     locatorsSvc.setSharingStoppedByUser(loc.id, true);
+    if (locatorsSvc.isLiveLocator(loc)) {
+      locatorCot.publishDelete(loc).catch((err) => {
+        console.error("[locate stop] live CoT delete failed:", err?.message || err);
+      });
+    }
     auditSvc.logEvent({
       actor: null,
       request: {
@@ -670,44 +979,100 @@ app.get("/", (req, res) => {
   return res.redirect("dashboard");
 });
 
-app.get("/users/create", (req, res) => res.render("users-create"));
-app.get("/users/manage", (req, res) => {
+app.get("/users", requirePermission("page.users"), async (req, res) => {
   const pendingUserRequestsCount =
     userRequestsSvc.countRequestsForUser(req.authentikUser);
-  const dashboardSnap = dashboardStatsCache.getDashboardStatsSnapshot();
-  const dashboardTotalUsers = Number(
-    dashboardSnap &&
-    dashboardSnap.stats &&
-    dashboardSnap.stats.totalUsers
-  );
+  const enrollmentPkg = require("./services/enrollmentPackage.service");
 
-  return res.render("users-manage", {
+  return res.render("users", {
     pendingUserRequestsCount,
-    dashboardTotalUsers: Number.isFinite(dashboardTotalUsers) ? dashboardTotalUsers : null,
+    dataPackageAvailable: enrollmentPkg.isDataPackageAvailable(),
   });
 });
+app.get("/users/manage", requirePermission("page.users"), (req, res) => res.redirect(301, "/users"));
+app.get("/users/create", requirePermission("page.users"), (req, res) => res.redirect(301, "/users"));
 app.get("/sample-users.csv", requirePermission("page.users"), (req, res) => {
-  const filePath = path.join(__dirname, "sample-users.csv");
-  return res.download(filePath, "users-import-template.csv");
+  const csv = usersSvc.buildUsersImportTemplateCsv();
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader(
+    "Content-Disposition",
+    'attachment; filename="users-import-template.csv"'
+  );
+  return res.send(csv);
 });
 app.get("/sample-agencies.csv", requirePermission("page.users"), (req, res) => {
   const filePath = path.join(__dirname, "sample-agencies.csv");
   return res.download(filePath, "agencies-import-template.csv");
 });
 app.get("/csv-instructions-readme.txt", requirePermission("page.users"), (req, res) => {
-  const filePath = path.join(__dirname, "csv-instructions-readme.txt");
-  return res.download(filePath, "csv-instructions-readme.txt");
+  const text = usersSvc.buildUsersImportCsvInstructions();
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  res.setHeader(
+    "Content-Disposition",
+    'attachment; filename="csv-instructions-readme.txt"'
+  );
+  return res.send(text);
 });
-app.get("/groups", (req, res) => res.render("groups"));
+app.get("/groups", async (req, res) => {
+  const canSeeChannelPatch =
+    typeof res.locals.perm !== "function" || res.locals.perm("page.channel_patch");
+  let activeChannelPatchCount = 0;
+  if (canSeeChannelPatch) {
+    try {
+      const enabled = channelPatchStore.listEnabled();
+      if (enabled.length) {
+        const authUser = req.authentikUser || null;
+        const access = accessSvc.getAgencyAccess(authUser);
+        const allowed = await channelPatchAccess.resolveAllowedChannelKeySet(authUser);
+        activeChannelPatchCount = channelPatchAccess.filterPatchesForAccess(
+          access,
+          enabled,
+          allowed
+        ).length;
+      }
+    } catch (_) {
+      activeChannelPatchCount = 0;
+    }
+  }
+  return res.render("groups", { canSeeChannelPatch, activeChannelPatchCount });
+});
 app.get("/agencies", requirePermission("page.agencies"), (req, res) =>
   res.render("agencies", {
     agencyTypeOptions: agencyTypesSvc.getAgencyTypeOptions(),
+    regionOptions: regionsSvc.listNormalized(),
+    regionCountyLocks: regionsSvc.listLocks(),
   })
 ); //require Global Admin
 app.get("/templates", (req, res) => res.render("templates"));
-app.get("/mutual-aid", requirePermission("page.mutual_aid"), (req, res) =>
-  res.render("mutual-aid")
-); //require Global Admin
+app.get("/mutual-aid", requirePermission("page.mutual_aid"), (req, res) => {
+  let enrollmentFlyerHtml = "";
+  try {
+    enrollmentFlyerHtml = fs.readFileSync(
+      path.join(__dirname, "views", "partials", "mutual_aid_enrollment_flyer.html"),
+      "utf8"
+    );
+  } catch (err) {
+    console.warn(
+      "[mutual-aid] enrollment flyer template missing:",
+      err?.message || err
+    );
+  }
+  let flyerUserAgreement = { enabled: false, text: "" };
+  try {
+    const agreement = mouSvc.getCurrentUserAgreement();
+    const body = String(agreement?.current?.bodyMarkdown || "").trim();
+    flyerUserAgreement = {
+      enabled: agreement?.enabled === true && !!body,
+      text: body,
+    };
+  } catch (err) {
+    console.warn(
+      "[mutual-aid] user agreement unavailable for flyer:",
+      err?.message || err
+    );
+  }
+  res.render("mutual-aid", { enrollmentFlyerHtml, flyerUserAgreement });
+}); //require Global Admin
 app.get("/integrations", requirePermission("page.integrations"), (req, res) =>
   res.render("integrations")
 );
@@ -716,12 +1081,34 @@ app.get("/integrations", requirePermission("page.integrations"), (req, res) =>
 app.get("/email", requirePermission("page.email"), (req, res) =>
   res.render("email")
 );
+
+// Channel Patch (global + agency admins; agency-scoped in the route)
+app.get("/channel-patch", requirePermission("page.channel_patch"), (req, res) =>
+  res.render("channel-patch")
+);
 app.get("/locate-persons", (req, res) => {
   res.redirect(301, "/locate");
 });
 
-// Locate admin page: global admins only (not beta-gated).
-app.get("/locate", requirePermission("page.locate"), (req, res) => res.render("locate"));
+app.get("/locate-legacy", requirePermission("page.locate"), (req, res) =>
+  res.render("locate-legacy")
+);
+
+function locateEmailConfigured() {
+  const emailCfg = emailSvc.getSmtpConfig();
+  return !!(emailSvc.isEmailEnabled() && emailCfg.host && emailCfg.from);
+}
+
+// Locate admin page: global + agency admins with page.locate.
+app.get("/locate", requirePermission("page.locate"), (req, res) =>
+  res.render("locate", {
+    smsConfigured: smsSvc.isSmsConfigured(),
+    emailConfigured: locateEmailConfigured(),
+    teamColors: prefPkgSvc.ALLOWED_TEAM_COLORS,
+    defaultLocateHeading: locatorForm.DEFAULT_HEADING,
+    defaultLocateIntro: locatorForm.DEFAULT_INTRO,
+  })
+);
 
 app.get("/data-sync", requirePermission("page.data_sync"), (req, res) =>
   res.render("data-sync")
@@ -733,6 +1120,19 @@ app.get("/locate/:slug", (req, res) => {
   const loc = locatorsSvc.getBySlug(slug);
   if (!loc || loc.archived) {
     return res.status(404).render("locate-not-found");
+  }
+  if (locatorsSvc.isLiveLocator(loc)) {
+    const form = locatorForm.normalizeForm(loc.form);
+    return res.render("locate-public-live", {
+      slug: loc.slug,
+      pingIntervalSeconds: locatorsSvc.normalizePingIntervalSeconds(loc.pingIntervalSeconds, 15),
+      locatorActive: loc.active,
+      intervalEpoch: Number(loc.intervalEpoch) || 1,
+      remotePingEpoch: Number(loc.remotePingEpoch) || 1,
+      formHeading: form.heading,
+      formIntro: form.intro,
+      formFields: form.fields,
+    });
   }
   return res.render("locate-public", {
     slug: loc.slug,
@@ -751,17 +1151,23 @@ app.get("/plugin-manager", requirePermission("page.plugin_manager"), async (req,
   return res.render("plugin-manager", { takGovLink, plugins });
 });
 
+app.get(
+  "/cloudtak-marketplace",
+  requireGlobalAdminRole,
+  requireCloudtakMarketplaceEnabled,
+  (req, res) => res.render("cloudtak-marketplace")
+);
+
 // Beta: Getting Started (global admins only, beta mode)
-app.get("/map", requireMapAccess, (req, res) => {
+app.get("/map", requireMapAccess, requireLiveMapEnabled, (req, res) => {
   res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
-  const mapUserKey = String(
-    req.authentikUser?.uid || req.authentikUser?.username || "anonymous"
-  ).replace(/[^a-zA-Z0-9._-]/g, "_");
+  const mapUserKey = getMapStorageUserKey(req);
   return res.render("map", {
     ...mapPageAssets.getRenderLocals(),
     mapStorageUserKey: mapUserKey,
+    defaultMapSource: getDefaultMapSource(),
   });
 });
 app.get("/getting-started", requireGlobalAdminRole, requireBetaMode, (req, res) =>
@@ -801,7 +1207,7 @@ app.get("/audit-log", requirePermission("page.audit_log"), async (req, res) => {
       pageSize: raw.pageSize || "50",
     };
 
-    const result = auditSvc.queryLogs(filters);
+    const result = await auditSvc.queryLogs(filters);
     const agencies = agenciesStore.load();
 
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -860,9 +1266,11 @@ app.get("/audit-log", requirePermission("page.audit_log"), async (req, res) => {
     }))
     .sort((a, b) => a.label.localeCompare(b.label));
 
-  const actionOptions = auditSvc.listDistinctValues({ field: "actions" });
-  const targetTypeOptions = auditSvc.listDistinctValues({ field: "targetTypes" });
-  const actorOptions = auditSvc.listDistinctActors();
+  const [actionOptions, targetTypeOptions, actorOptions] = await Promise.all([
+    auditSvc.listDistinctValues({ field: "actions" }),
+    auditSvc.listDistinctValues({ field: "targetTypes" }),
+    auditSvc.listDistinctActors(),
+  ]);
 
   function buildLink(newPage) {
     const u = new URL(`${req.protocol}://${req.get("host")}${req.path}`);
@@ -925,24 +1333,29 @@ app.get("/setup-my-device", async (req, res) => {
     qrSvc.getTakUrl()
   ) {
     try {
-      const tokensSvc = require("./services/authentikTokens.service");
-      const { identifier, key, expiresAt } =
-        await tokensSvc.getOrCreateEnrollmentAppPassword({
+      const localUser = await usersSvc.getLocalUserForAuth(user);
+      if (!localUser || localUser.is_active === false) {
+        enrollQrBootstrap = null;
+      } else {
+        const tokensSvc = require("./services/authentikTokens.service");
+        const { identifier, key, expiresAt } =
+          await tokensSvc.getOrCreateEnrollmentAppPassword({
+            username: u,
+            userId: user.uid || null,
+          });
+        const enrollUrl = qrSvc.buildEnrollUrl({ username: u, token: key });
+        const qrCode = enrollUrl
+          ? await qrSvc.generateDisplayQrDataUrl(enrollUrl)
+          : "";
+        enrollQrBootstrap = {
           username: u,
-          userId: user.uid || null,
-        });
-      const enrollUrl = qrSvc.buildEnrollUrl({ username: u, token: key });
-      const qrCode = enrollUrl
-        ? await qrSvc.generateDisplayQrDataUrl(enrollUrl)
-        : "";
-      enrollQrBootstrap = {
-        username: u,
-        tokenIdentifier: identifier,
-        token: key,
-        expiresAt,
-        enrollUrl: enrollUrl || "",
-        qrCode,
-      };
+          tokenIdentifier: identifier,
+          token: key,
+          expiresAt,
+          enrollUrl: enrollUrl || "",
+          qrCode,
+        };
+      }
     } catch (err) {
       console.warn(
         "[setup-my-device] enroll QR bootstrap failed:",
@@ -951,10 +1364,14 @@ app.get("/setup-my-device", async (req, res) => {
       enrollQrBootstrap = null;
     }
   }
+  const locateConfigSvc = require("./services/locateConfig.service");
+  const takSshSvc = require("./services/takSsh.service");
   return res.render("setup-my-device", {
     takHost,
     takClientConnectionPort,
     enrollQrBootstrap,
+    sshConfigured: !!takSshSvc.isPrivilegedSshReady(),
+    atakApk: atakApkSvc.getApkInfo(),
     agreementSummary: mouSvc.getAgreementSummaryForUser(req.authentikUser, {
       acceptedForSession: hasAcceptedAgreementForSession(
         req,
@@ -1098,16 +1515,10 @@ app.post("/lookup", async (req, res) => {
       throw new Error("Email address or Username Not Found");
     }
 
-    const allUsers = await usersSvc.getAllUsers({ forceRefresh: true });
-    const usernameMatches = allUsers.filter(
-      (u) => String(u.username || "").trim().toLowerCase() === form.username
-    );
-    const user = usernameMatches.find(
-      (u) => !u.email || !String(u.email).trim()
-    );
-    const userHasEmailOnFile = usernameMatches.some(
-      (u) => u.email && String(u.email).trim()
-    );
+    const found = await usersSvc.getUserById(form.username);
+    const usernameExists = !!found;
+    const userHasEmailOnFile = !!(found && found.email && String(found.email).trim());
+    const user = found && !userHasEmailOnFile ? found : null;
 
     if (!user) {
       logLookupFailure("user_not_found", {
@@ -1115,7 +1526,7 @@ app.post("/lookup", async (req, res) => {
         agencySuffix: String(agency?.suffix || "").trim().toLowerCase() || undefined,
         agencyName: String(agency?.name || "") || undefined,
         lookupEnabledAgencyCount,
-        usernameExists: usernameMatches.length > 0,
+        usernameExists,
         userHasEmailOnFile,
       });
       throw new Error("Email address or Username Not Found");
@@ -1200,7 +1611,22 @@ app.post("/lookup", async (req, res) => {
 });
 
 // Public: request access form (must remain reachable by non-authenticated users)
+function isRequestAccessEnabled() {
+  return getBool("REQUEST_ACCESS_ENABLED", true);
+}
+
+function isRequestAccessRequireAllAgencyDetails() {
+  return getBool("REQUEST_ACCESS_REQUIRE_ALL_AGENCY_DETAILS", false);
+}
+
+function renderRequestAccessDisabled(req, res) {
+  return res.status(404).render("access-denied", {
+    username: req.authentikUser?.username || "",
+  });
+}
+
 app.get("/request-access", (req, res) => {
+  if (!isRequestAccessEnabled()) return renderRequestAccessDisabled(req, res);
   const agencies = agenciesStore.filterPublicEnrollmentAgencies(agenciesStore.load());
   const settings = (res.locals && res.locals.settings) ? res.locals.settings : (settingsSvc.getSettings() || {});
   const hcaptchaSiteKey = String(settings.HCAPTCHA_SITE_KEY || "").trim();
@@ -1211,6 +1637,10 @@ app.get("/request-access", (req, res) => {
     agencies,
     form: {},
     error: null,
+    requireAllAgencyDetails: isRequestAccessRequireAllAgencyDetails(),
+    agencyTypeOptions: agencyTypesSvc.getAgencyTypeOptions(),
+    regionOptions: regionsSvc.listNormalized(),
+    regionCountyLocks: regionsSvc.listLocks(),
     hcaptchaEnabled,
     hcaptchaSiteKey: hcaptchaEnabled ? hcaptchaSiteKey : ""
   });
@@ -1218,6 +1648,7 @@ app.get("/request-access", (req, res) => {
 
 app.post("/request-access", async (req, res) => {
   try {
+    if (!isRequestAccessEnabled()) return renderRequestAccessDisabled(req, res);
     const body = req.body || {};
 
     // hCaptcha enforcement (enabled only if BOTH keys are set)
@@ -1254,6 +1685,14 @@ app.post("/request-access", async (req, res) => {
       agencySuffix: body.agencySuffix,
       otherAgency: body.otherAgency,
       otherReason: body.otherReason,
+      groupPrefix: body.groupPrefix,
+      usernameTokenPlacement: body.usernameTokenPlacement,
+      suffix: body.suffix,
+      state: body.state,
+      county: body.county,
+      countyAbbrev: body.countyAbbrev,
+      type: body.type,
+      stateFederalAgency: body.stateFederalAgency,
     });
 
     auditSvc.logEvent({
@@ -1272,10 +1711,42 @@ app.post("/request-access", async (req, res) => {
         agencySuffix: body.agencySuffix,
         otherAgency: body.otherAgency,
         otherReason: body.otherReason,
+        groupPrefix: body.groupPrefix,
+        usernameTokenPlacement: body.usernameTokenPlacement,
+        suffix: body.suffix,
+        state: body.state,
+        county: body.county,
+        countyAbbrev: body.countyAbbrev,
+        type: body.type,
+        stateFederalAgency: body.stateFederalAgency,
       },
     });
 
-    return res.redirect("/request-access/confirmation");
+    if (created?.autoApproved) {
+      auditSvc.logEvent({
+        actor: req.authentikUser || null,
+        request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+        action: "CREATE_USER",
+        targetType: "user",
+        targetId: String(created?.createdUser?.pk || created?.createdUsername || ""),
+        details: {
+          username: created?.createdUsername,
+          email: body.email,
+          name: [body.lastName, body.firstName].filter(Boolean).join(", "),
+          groups: Array.isArray(created?.createdGroups)
+            ? created.createdGroups.map((g) => g?.name).filter(Boolean)
+            : [],
+          created_method: "request_access_auto_approve",
+          agencySuffix: body.agencySuffix,
+        },
+      });
+    }
+
+    return res.redirect(
+      created?.autoApproved
+        ? "/request-access/confirmation?created=1"
+        : "/request-access/confirmation"
+    );
   } catch (err) {
     const agencies = agenciesStore.filterPublicEnrollmentAgencies(agenciesStore.load());
     const settings = (res.locals && res.locals.settings) ? res.locals.settings : (settingsSvc.getSettings() || {});
@@ -1289,6 +1760,10 @@ app.post("/request-access", async (req, res) => {
       showLoginLink: err?.code === "USER_ALREADY_EXISTS",
       loginUrl: "/",
       form: req.body || {},
+      requireAllAgencyDetails: isRequestAccessRequireAllAgencyDetails(),
+      agencyTypeOptions: agencyTypesSvc.getAgencyTypeOptions(),
+      regionOptions: regionsSvc.listNormalized(),
+      regionCountyLocks: regionsSvc.listLocks(),
       hcaptchaEnabled,
       hcaptchaSiteKey: hcaptchaEnabled ? hcaptchaSiteKey : "",
     });
@@ -1296,7 +1771,10 @@ app.post("/request-access", async (req, res) => {
 });
 
 app.get("/request-access/confirmation", (req, res) => {
-  return res.render("request-access-confirmation");
+  if (!isRequestAccessEnabled()) return renderRequestAccessDisabled(req, res);
+  return res.render("request-access-confirmation", {
+    autoApproved: String(req.query.created || "") === "1",
+  });
 });
 
 userRequestsRoutes.registerPublicReviewRoutes(app);
@@ -1306,12 +1784,19 @@ app.get("/request-access/:reviewToken", (req, res, next) => {
   if (!userRequestsRoutes.isValidReviewToken(token)) return next();
   return res.render("request-access-review", {
     reviewToken: token,
+    agencyTypeOptions: agencyTypesSvc.getAgencyTypeOptions(),
+    regionOptions: regionsSvc.listNormalized(),
+    regionCountyLocks: regionsSvc.listLocks(),
   });
 });
 
 // Admin: review pending access requests
 app.get("/pending-user-requests", requirePermission("page.users"), (req, res) => {
-  return res.render("pending-user-requests");
+  return res.render("pending-user-requests", {
+    agencyTypeOptions: agencyTypesSvc.getAgencyTypeOptions(),
+    regionOptions: regionsSvc.listNormalized(),
+    regionCountyLocks: regionsSvc.listLocks(),
+  });
 });
 
 app.get("/settings", requirePermission("page.settings"), (req, res) => {
@@ -1421,19 +1906,33 @@ app.get("/settings", requirePermission("page.settings"), (req, res) => {
   }
 
   const locateConfigSvc = require("./services/locateConfig.service");
+  const takSshSvcForSettings = require("./services/takSsh.service");
   const takSshMaintenanceVisible = locateConfigSvc.isSshConfigured().configured;
+  const sshPrivilegedReady = takSshSvcForSettings.isPrivilegedSshReady(settings);
 
   res.render("settings", {
   settings,
   keys,
   emailTemplates,
+  mapBasemapOptions: mapBasemapsConfig.BASEMAP_OPTIONS,
   importStatus: req.query.import,
   importError: req.query.error,
   smsTest: req.query.smsTest || "",
   smsErr: req.query.smsErr || "",
   p12Exists,
   caExists,
-  takSshMaintenanceVisible
+  takSshMaintenanceVisible,
+  sshPrivilegedReady,
+  defaultAgencyTypes: agencyTypesSvc.DEFAULT_AGENCY_TYPES,
+  configurableAgencyTypes: agencyTypesSvc.getConfigurableAgencyTypes(settings),
+  atakApk: atakApkSvc.getApkInfo(),
+  portalDb: {
+    host: "127.0.0.1",
+    port: String(process.env.POSTGRES_HOST_PORT || "47193"),
+    user: "takportal",
+    database: "takportal",
+    password: String(process.env.POSTGRES_PASSWORD || ""),
+  },
   });
 });
 
@@ -1455,6 +1954,61 @@ app.post(
 
     // Grab the current full settings object
     const currentSettings = settingsSvc.getSettings() || {};
+
+    // Reset all email template overrides to built-in files in /email_templates.
+    // This path only clears EMAIL_TEMPLATES_OVERRIDES; other settings are unchanged.
+    const resetAllEmailTemplatesRaw =
+      req.body && req.body._resetAllEmailTemplates != null
+        ? String(req.body._resetAllEmailTemplates).trim().toLowerCase()
+        : "";
+    if (
+      resetAllEmailTemplatesRaw === "1" ||
+      resetAllEmailTemplatesRaw === "true" ||
+      resetAllEmailTemplatesRaw === "yes" ||
+      resetAllEmailTemplatesRaw === "on"
+    ) {
+      const next = { ...currentSettings };
+      delete next.EMAIL_TEMPLATES_OVERRIDES;
+
+      try {
+        settingsSvc.saveSettings(next);
+      } catch (err) {
+        console.error("[settings] reset all email templates failed:", err);
+        if (wantsJson) {
+          return res.status(500).json({
+            ok: false,
+            error: err?.message || "Reset failed",
+          });
+        }
+        return res.status(500).send("Failed to reset email templates");
+      }
+
+      try {
+        auditSvc.logEvent({
+          actor: req.authentikUser || null,
+          request: {
+            method: req.method,
+            path: req.originalUrl || req.path,
+            ip: req.ip,
+          },
+          action: "UPDATE_SETTINGS",
+          targetType: "settings",
+          targetId: "server",
+          details: {
+            changedKeys: ["EMAIL_TEMPLATES_OVERRIDES"],
+            resetAllEmailTemplates: true,
+          },
+        });
+      } catch (e) {
+        // never block settings save
+      }
+
+      if (wantsJson) {
+        return res.json({ ok: true, resetAllEmailTemplates: true });
+      }
+      return res.redirect("/settings");
+    }
+
     // Start from existing settings so we don't lose anything (like BRAND_LOGO_URL)
     const merged = { ...currentSettings };
 
@@ -1469,9 +2023,20 @@ app.post(
       });
     }
 
-    // Flat fields like "settings[BRAND_THEME]" created by multer
+    // Flat fields like "settings[BRAND_THEME]" / nested
+    // "settings[EMAIL_TEMPLATES_OVERRIDES][file.html]" created by multer.
     Object.keys(rawBody).forEach((key) => {
-      const match = key.match(/^settings\[(.+)\]$/);
+      const nested = key.match(/^settings\[([^\]]+)\]\[([^\]]+)\]$/);
+      if (nested) {
+        const parent = nested[1];
+        const child = nested[2];
+        if (!bodySettings[parent] || typeof bodySettings[parent] !== "object") {
+          bodySettings[parent] = {};
+        }
+        bodySettings[parent][child] = rawBody[key];
+        return;
+      }
+      const match = key.match(/^settings\[([^\]]+)\]$/);
       if (match) {
         bodySettings[match[1]] = rawBody[key];
       }
@@ -1492,6 +2057,15 @@ app.post(
         merged[key] = raw ? raw.toUpperCase() : "";
         return;
       }
+      if (key === "DEFAULT_MAP_SOURCE") {
+        merged[key] = mapBasemapsConfig.normalizeBasemapId(bodySettings[key]);
+        return;
+      }
+      if (key === "TAK_SSH_PRIVILEGE_CMD") {
+        merged[key] =
+          String(bodySettings[key] || "").trim().toLowerCase() === "dzdo" ? "dzdo" : "sudo";
+        return;
+      }
       merged[key] = bodySettings[key];
     });
 
@@ -1503,6 +2077,10 @@ app.post(
         : null;
 
     // --- email template overrides (HTML bodies) ---
+    // Important: do NOT persist textarea bodies on general Save Settings / autosave.
+    // Browsers decode HTML entities inside <textarea> content, so "default" markup
+    // posted back no longer matches /email_templates and would falsely become Custom.
+    // Overrides are only written when Save Custom Template is used; resets still apply.
     const currentOverrides =
       currentSettings &&
       currentSettings.EMAIL_TEMPLATES_OVERRIDES &&
@@ -1526,24 +2104,19 @@ app.post(
         .trim();
     }
 
-    if (overridesFromForm && typeof overridesFromForm === "object") {
-      Object.keys(overridesFromForm).forEach((filename) => {
-        // If a per-template Save was used, ignore other templates.
-        if (onlyTemplate && filename !== onlyTemplate) {
-          return;
-        }
-
-        const value = overridesFromForm[filename];
-        if (typeof value !== "string") {
-          return;
-        }
-
+    if (
+      onlyTemplate &&
+      overridesFromForm &&
+      typeof overridesFromForm === "object"
+    ) {
+      const value = overridesFromForm[onlyTemplate];
+      if (typeof value === "string") {
         let isSameAsDefault = false;
 
         if (templatesDirForCompare) {
           try {
             const defaultHtml = fs.readFileSync(
-              path.join(templatesDirForCompare, filename),
+              path.join(templatesDirForCompare, onlyTemplate),
               "utf8"
             );
             if (normalizeHtml(value) === normalizeHtml(defaultHtml)) {
@@ -1553,20 +2126,18 @@ app.post(
             // If we can't read the default file, we just treat it as custom.
             console.error(
               "[settings] Failed to read default email template for compare:",
-              filename,
+              onlyTemplate,
               err
             );
           }
         }
 
         if (isSameAsDefault) {
-          // If the value matches the default on disk, we do NOT keep an override.
-          delete currentOverrides[filename];
+          delete currentOverrides[onlyTemplate];
         } else {
-          // Otherwise, keep/update the override.
-          currentOverrides[filename] = value;
+          currentOverrides[onlyTemplate] = value;
         }
-      });
+      }
     }
 
     const resetMap = bodySettings.EMAIL_TEMPLATES_OVERRIDES_RESET;
@@ -1625,6 +2196,19 @@ app.post(
     // IMPORTANT: if no logo file uploaded, we do NOT touch merged.BRAND_LOGO_URL
     // so it stays whatever it was before.
 
+    const takSshSvcForSave = require("./services/takSsh.service");
+    takSshSvcForSave.clearPrivilegedModeCache();
+    if (!takSshSvcForSave.isPrivilegedSshReady(merged)) {
+      merged.ALLOWED_CLIENT_DATA_PACKAGE = "false";
+    }
+
+    // Autosave can POST empty detect fields while Detect is still running.
+    for (const key of ["CLOUDTAK_MARKETPLACE_PATH", "CLOUDTAK_MARKETPLACE_COMPOSE_SERVICE"]) {
+      if (!String(merged[key] || "").trim() && String(currentSettings[key] || "").trim()) {
+        merged[key] = currentSettings[key];
+      }
+    }
+
     // Save the FULL merged settings object
     try {
       settingsSvc.saveSettings(merged);
@@ -1637,6 +2221,30 @@ app.post(
         });
       }
       return res.status(500).send("Failed to save settings");
+    }
+
+    if (logoFiles.length > 0) {
+      const previousLogoUrl = String(currentSettings.BRAND_LOGO_URL || "")
+        .split("?")[0]
+        .trim();
+      if (previousLogoUrl.startsWith("/branding/")) {
+        const previousLogoName = path.basename(previousLogoUrl);
+        const currentLogoName = path.basename(logoFiles[0].path);
+        if (
+          previousLogoName.startsWith("logo") &&
+          previousLogoName !== currentLogoName
+        ) {
+          try {
+            fs.unlinkSync(
+              path.join(__dirname, "data", "branding", previousLogoName)
+            );
+          } catch (err) {
+            if (err?.code !== "ENOENT") {
+              console.warn("[settings] Failed to remove previous logo:", err);
+            }
+          }
+        }
+      }
     }
 
     try {
@@ -1684,6 +2292,22 @@ app.post(
       // never block settings save
     }
 
+    applyLiveMapRuntime();
+
+    try {
+      const marketplace = require("./services/cloudtakMarketplace.service");
+      if (
+        marketplace.isEnabledValue(merged.CLOUDTAK_MARKETPLACE_ENABLED) &&
+        !marketplace.isEnabledValue(currentSettings.CLOUDTAK_MARKETPLACE_ENABLED)
+      ) {
+        void marketplace.onEnabled({ createdBy: req.authentikUser && req.authentikUser.username }).catch((err) => {
+          console.warn("[cloudtak-marketplace] enable:", err?.message || err);
+        });
+      }
+    } catch (err) {
+      console.warn("[cloudtak-marketplace] enable hook:", err?.message || err);
+    }
+
     if (wantsJson) {
       return res.json({ ok: true });
     }
@@ -1691,36 +2315,51 @@ app.post(
   }
 );
 
-// Send a simple SMTP test email using Always CC / BCC lists
+// Send a simple SMTP test email using Always CC / BCC lists from the current form.
 
-app.post("/settings/test-email", requirePermission("page.settings"), async (req, res) => {
+app.post(
+  "/settings/test-email",
+  requirePermission("page.settings"),
+  upload.fields([
+    { name: "TAK_API_P12_UPLOAD", maxCount: 1 },
+    { name: "TAK_CA_UPLOAD", maxCount: 1 },
+    { name: "BRAND_LOGO_UPLOAD", maxCount: 1 },
+  ]),
+  async (req, res) => {
     console.log("[settings] Test email requested");
 
-  try {
-    const result = await emailSvc.sendMail({
-      // no explicit "to": we only use CC / BCC lists
-      subject: "TAK Portal - Email SMTP Test",
-      text: "TAK Portal - Email SMTP Test",
-    });
+    try {
+      const bodySettings = settingsSvc.collectBodySettings(req.body || {});
+      const currentSettings = settingsSvc.getSettings() || {};
+      const merged = emailSvc.mergeEmailFormSettings(currentSettings, bodySettings);
 
-    if (result.sent) {
-      auditSvc.auditFromRequest(req, {
-        action: "SETTINGS_TEST_EMAIL_SENT",
-        targetType: "settings",
-        targetId: "smtp",
-        details: { summary: "Sent SMTP test email from Settings." },
+      settingsSvc.saveSettings(merged);
+
+      const result = await emailSvc.sendMail({
+        // no explicit "to": we only use CC / BCC lists
+        subject: "TAK Portal - Email SMTP Test",
+        text: "TAK Portal - Email SMTP Test",
       });
-    }
 
-    console.log("[settings] Test email result:", result);
-    return res.redirect("/settings");
-  } catch (err) {
-    console.error("[settings] Test email failed:", err?.message || err);
-    return res
-      .status(500)
-      .send("Failed to send test email. Check SMTP settings and server logs.");
+      if (result.sent) {
+        auditSvc.auditFromRequest(req, {
+          action: "SETTINGS_TEST_EMAIL_SENT",
+          targetType: "settings",
+          targetId: "smtp",
+          details: { summary: "Sent SMTP test email from Settings." },
+        });
+      }
+
+      console.log("[settings] Test email result:", result);
+      return res.redirect("/settings");
+    } catch (err) {
+      console.error("[settings] Test email failed:", err?.message || err);
+      return res
+        .status(500)
+        .send("Failed to send test email. Check SMTP settings and server logs.");
+    }
   }
-});
+);
 
 const uploadSmsTest = multer();
 app.post(
@@ -1807,194 +2446,68 @@ app.post(
 );
 
 
-// Import (restore) a zip into the data folder
-// Expected zip structure is either:
-//   - data/<files...>  (matches the Export Configuration zip)
-//   - <files...>       (will be treated as data/<files...>)
-app.post(
-  "/settings/import-data",
-  requirePermission("page.settings"),
-  upload.single("CONFIG_ZIP_UPLOAD"),
-  async (req, res) => {
-    const unzipper = require("unzipper");
-    const { finished } = require("stream/promises");
-
-    try {
-      if (!req.file || !req.file.path) {
-        return res.redirect("/settings?error=No+file+uploaded");
-      }
-
-      const zipPath = req.file.path;
-      const dataDir = path.join(__dirname, "data");
-
-      // Ensure data directory exists
-      if (!fs.existsSync(dataDir)) {
-        fs.mkdirSync(dataDir, { recursive: true });
-      }
-
-      const directory = await unzipper.Open.file(zipPath);
-      const dataDirResolved = path.resolve(dataDir) + path.sep;
-      let filesExtracted = 0;
-      const extractedPaths = [];
-
-      // Extract entries safely (prevent Zip Slip)
-      for (const entry of directory.files) {
-        // Normalize to forward slashes as used inside zip archives
-        const raw = (entry.path || "").replace(/\\/g, "/");
-
-        // Ignore empty / weird names
-        if (!raw || raw === "/" || raw.endsWith("/")) {
-          if (entry.type === "Directory") continue;
-        }
-
-        // Only allow restoring into data/
-        const rel = raw.startsWith("data/") ? raw.slice("data/".length) : raw;
-
-        if (!rel) continue;
-
-        // Basic traversal / absolute path protection
-        if (rel.includes("..") || rel.startsWith("/") || rel.startsWith("\\")) {
-          console.warn("Skipping unsafe zip entry:", raw);
-          continue;
-        }
-
-        const outPath = path.join(dataDir, rel);
-        const outResolved = path.resolve(outPath);
-
-        if (!outResolved.startsWith(dataDirResolved)) {
-          console.warn("Skipping zip entry outside dataDir:", raw);
-          continue;
-        }
-
-        if (entry.type === "Directory") {
-          if (!fs.existsSync(outResolved)) {
-            fs.mkdirSync(outResolved, { recursive: true });
-          }
-          continue;
-        }
-
-        // Ensure parent dir exists
-        const parent = path.dirname(outResolved);
-        if (!fs.existsSync(parent)) {
-          fs.mkdirSync(parent, { recursive: true });
-        }
-
-        // Overwrite/create file
-        const writeStream = fs.createWriteStream(outResolved);
-        await finished(entry.stream().pipe(writeStream));
-        filesExtracted += 1;
-        if (extractedPaths.length < 30) extractedPaths.push(rel);
-      }
-
-      auditSvc.auditFromRequest(req, {
-        action: "SETTINGS_DATA_IMPORTED",
-        targetType: "settings",
-        targetId: "data",
-        details: {
-          zipName: path.basename(zipPath),
-          filesExtracted,
-          samplePaths: extractedPaths,
-          summary: `Imported configuration zip (${filesExtracted} file(s) into data/).`,
-        },
-      });
-
-      // Cleanup uploaded zip
-      try {
-        fs.unlinkSync(zipPath);
-      } catch (_) {}
-
-      // IMPORTANT: reload cached settings from disk so UI reflects imported settings.json
-      try {
-        settingsSvc.ensureSettingsInitialized();
-      } catch (e) {
-        console.warn("[settings] Failed to reload settings after import:", e?.message || e);
-      }
-
-      return res.redirect("/settings?import=1");
-
-    } catch (err) {
-      console.error("Import data zip error:", err);
-      try {
-        if (req.file?.path) fs.unlinkSync(req.file.path);
-      } catch (_) {}
-      return res.redirect("/settings?error=Failed+to+import+zip");
-    }
-  }
-);
-
-// Export a zip of the data folder
-app.get("/settings/export-data", requirePermission("page.settings"), (req, res) => {
-  const archiver = require("archiver");
-  const dataDir = path.join(__dirname, "data");
-
-  if (!fs.existsSync(dataDir)) {
-    return res.status(404).send("No data directory to export");
-  }
-
-  auditSvc.auditFromRequest(req, {
-    action: "SETTINGS_DATA_EXPORTED",
-    targetType: "settings",
-    targetId: "data",
-    details: {
-      summary: "Exported portal data folder as zip (tak-portal-data.zip).",
-    },
-  });
-
-  res.setHeader("Content-Type", "application/zip");
-  res.setHeader(
-    "Content-Disposition",
-    'attachment; filename="tak-portal-data.zip"'
-  );
-
-  const archive = archiver("zip", { zlib: { level: 9 } });
-
-  archive.on("error", (err) => {
-    console.error("Export data zip error:", err);
-    res.status(500).end("Failed to export data");
-  });
-
-  archive.pipe(res);
-  archive.directory(dataDir, "data");
-  archive.finalize();
-});
-
-const port = process.env.WEB_UI_PORT || 3000;
-
-app.listen(port, () => {
-  console.log(`✅ TAK Portal running on http://localhost:${port}`);
-
-  // Prime dashboard Authentik stats cache (dashboard-only)
-  dashboardStatsCache.startDashboardStatsRefresher();
-
-  // TAK metrics for dashboard HTML: background refresh so /dashboard does not wait on TAK
-  takDashboardCache.startTakDashboardRefresher();
-
-  // Rehydrate expiration timers from stored mutual aid records.
+async function boot() {
+  const db = require("./services/db");
+  const pgCache = require("./services/pgCache");
   try {
-    mutualAidSvc.initExpirationScheduler();
+    settingsSvc.ensureSettingsInitialized();
   } catch (e) {
+    console.warn("[boot] settings init:", e?.message || e);
+  }
+  try {
+    require("./services/cryptoSecrets").getKeyBuffer({ allowCreate: true });
+  } catch (error) {
+    console.error("[boot] encryption key initialization failed:", error.message);
+    process.exit(1);
+  }
+  if (!db.isConfigured()) {
+    console.error("DATABASE_URL is not set");
+    process.exit(1);
+  }
+  try {
+    await db.connectWithRetry(60000);
+    await db.migrate();
+    await pgCache.hydrate();
+  } catch (e) {
+    console.error("[boot] Postgres migrate failed:", e?.message || e);
+    process.exit(1);
+  }
+  const port = process.env.WEB_UI_PORT || 3000;
+  app.listen(port, () => {
     console.log(
-      "⚠️ Mutual aid expiration scheduler init failed",
-      e?.message || e
+      `✅ TAK Portal ${app.locals.APP_VERSION} running on http://localhost:${port}`
     );
-  }
-
-  try {
-    mouScheduler.startScheduler();
-  } catch (e) {
-    console.log("⚠️ MOU reminder scheduler init failed", e?.message || e);
-  }
-
-  try {
-    const takUrl = getString("TAK_URL", "");
-    if (!takUrl) {
-      console.log("⚠️ TAK_URL not set in settings.json");
-      return;
+    refreshAppUpdateLocals();
+    setInterval(refreshAppUpdateLocals, 60 * 1000).unref?.();
+    try {
+      applyLiveMapRuntime();
+    } catch (e) {
+      console.log("⚠️ Geofence evaluator init failed", e?.message || e);
     }
+    try {
+      const channelPatchEngine = require("./services/channelPatch.engine");
+      channelPatchEngine.start();
+    } catch (e) {
+      console.log("⚠️ Channel patch engine init failed", e?.message || e);
+    }
+    jsonImport.run().catch((e) => console.error("[json-import]", e?.message || e));
+    setInterval(() => {
+      stackHealth.getStackHealth().catch(() => {});
+    }, 20000).unref?.();
+    try {
+      const takUrl = getString("TAK_URL", "");
+      if (!takUrl) {
+        console.log("⚠️ TAK_URL not set in settings.json");
+      } else {
+        console.log("TAK host:", new URL(takUrl).hostname);
+      }
+    } catch (e) {
+      console.log("⚠️ Invalid TAK_URL in settings.json");
+    }
+  });
+}
 
-    const host = new URL(takUrl).hostname;
-    console.log("TAK host:", host);
-  } catch (e) {
-    console.log("⚠️ Invalid TAK_URL in settings.json");
-  }
+boot().catch((e) => {
+  console.error("[boot] fatal:", e?.message || e);
+  process.exit(1);
 });

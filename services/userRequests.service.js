@@ -5,7 +5,9 @@ const store = require("./userRequests.store");
 const emailSvc = require("./email.service");
 const settingsSvc = require("./settings.service");
 const usersSvc = require("./users.service");
-const authentik = require("./authentik");
+const directoryRepo = require("./directoryRepo.service");
+const templatesStore = require("./templates.service");
+const { getBool } = require("./env");
 
 function genId() {
   if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
@@ -111,6 +113,164 @@ function getPortalBaseUrl() {
   return "";
 }
 
+function parseConfiguredGroupNames(raw) {
+  if (!raw) return [];
+  return String(raw)
+    .split(/[;,]/)
+    .map((entry) => String(entry || "").trim())
+    .filter(Boolean);
+}
+
+function uniqueEmails(list) {
+  const seen = new Set();
+  const out = [];
+  for (const value of Array.isArray(list) ? list : []) {
+    const email = String(value || "").trim();
+    const key = email.toLowerCase();
+    if (!email || seen.has(key)) continue;
+    seen.add(key);
+    out.push(email);
+  }
+  return out;
+}
+
+async function resolveGroupByName(groupName) {
+  const name = String(groupName || "").trim();
+  if (!name) return null;
+  return directoryRepo.getGroupById(name);
+}
+
+async function fetchUsersFromGroupMembershipList(group) {
+  const groupPk = String(group?.pk || group?.id || "").trim();
+  if (!groupPk) return [];
+  try {
+    const out = await directoryRepo.getGroupMembersPaged(groupPk, {
+      page: 1,
+      pageSize: 500,
+    });
+    return Array.isArray(out?.users) ? out.users : [];
+  } catch (err) {
+    console.warn(
+      "[user-requests] group member lookup failed:",
+      groupPk,
+      err?.message || err
+    );
+    return [];
+  }
+}
+
+async function getUsersForGroupName(groupName) {
+  const group = await resolveGroupByName(groupName);
+  if (!group?.pk) return [];
+
+  let users = [];
+  try {
+    users = await usersSvc.getUsersByGroups([group.pk], {
+      includeHiddenPrefixes: true,
+      ignoreUserPathFilter: true,
+    });
+  } catch (err) {
+    console.warn(
+      "[user-requests] groups_by_pk lookup failed:",
+      groupName,
+      err?.message || err
+    );
+  }
+
+  if (!Array.isArray(users) || !users.length) {
+    users = await fetchUsersFromGroupMembershipList(group);
+  }
+
+  return Array.isArray(users) ? users : [];
+}
+
+async function collectEmailsForGroupNames(groupNames) {
+  const emails = [];
+  for (const groupName of groupNames) {
+    const users = await getUsersForGroupName(groupName);
+    for (const user of users) {
+      emails.push(user?.email);
+    }
+  }
+  return uniqueEmails(emails);
+}
+
+async function getGlobalAdminEmails() {
+  const settings = settingsSvc.getSettings ? settingsSvc.getSettings() || {} : {};
+  return collectEmailsForGroupNames(
+    parseConfiguredGroupNames(settings.PORTAL_AUTH_REQUIRED_GROUP)
+  );
+}
+
+async function resolveAccessRequestRecipientSets(agency) {
+  const agencyAdminEmails = agency
+    ? await collectEmailsForGroupNames(
+        accessSvc.getAgencyAdminGroupNamesForAgency(agency)
+      )
+    : [];
+  const globalAdminEmails = await getGlobalAdminEmails();
+  const globalSet = new Set(globalAdminEmails.map((e) => e.toLowerCase()));
+  return {
+    agencyAdminEmails: agencyAdminEmails.filter(
+      (email) => !globalSet.has(email.toLowerCase())
+    ),
+    globalAdminEmails,
+  };
+}
+
+async function resolveAccessRequestRecipients(agency) {
+  const { agencyAdminEmails, globalAdminEmails } =
+    await resolveAccessRequestRecipientSets(agency);
+  return agencyAdminEmails.length ? agencyAdminEmails : globalAdminEmails;
+}
+
+const ALLOWED_REQUEST_STATES = new Set([
+  "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DC", "DE", "FL", "GA", "HI", "ID",
+  "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS",
+  "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK",
+  "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV",
+  "WI", "WY", "FED", "OTHER",
+]);
+
+function toTitleCaseWords(str) {
+  return String(str || "")
+    .toLowerCase()
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+function normalizeCountyName(raw) {
+  let v = String(raw || "").trim().replace(/\s+/g, " ");
+  if (!v) return "";
+  const lower = v.toLowerCase();
+  if (lower.endsWith(" county")) {
+    const base = v.slice(0, lower.lastIndexOf(" county"));
+    return toTitleCaseWords(base);
+  }
+  return toTitleCaseWords(v);
+}
+
+function normalizeRequestedAgencyFields(input) {
+  const sfRaw = String(input?.stateFederalAgency ?? "").trim().toLowerCase();
+  const stateFederalAgency =
+    sfRaw === "yes" || sfRaw === "true" || sfRaw === "1" || input?.stateFederalAgency === true;
+  return {
+    groupPrefix: agenciesStore.normalizeGroupPrefix(input.groupPrefix),
+    usernameTokenPlacement: accessSvc.normalizeUsernameTokenPlacement(
+      input.usernameTokenPlacement || "suffix"
+    ),
+    suffix: normalizeStr(input.suffix).toLowerCase(),
+    state: normalizeStr(input.state).toUpperCase(),
+    county: normalizeCountyName(input.county),
+    countyAbbrev: normalizeStr(input.countyAbbrev).toUpperCase().replace(/[^A-Z0-9]/g, ""),
+    type: normalizeStr(input.type),
+    stateFederalAgency: !!stateFederalAgency,
+  };
+}
+
 function validateCreate(input) {
   const firstName = normalizeStr(input.firstName);
   const lastName = normalizeStr(input.lastName);
@@ -131,6 +291,7 @@ function validateCreate(input) {
   const radioCallsign = normalizeStr(input.radioCallsign);
   const otherAgency = normalizeStr(input.otherAgency);
   const otherReason = normalizeStr(input.otherReason);
+  const requestedAgency = normalizeRequestedAgencyFields(input || {});
 
   if (!firstName) throw new Error("First Name is required");
   if (!lastName) throw new Error("Last Name is required");
@@ -148,6 +309,28 @@ function validateCreate(input) {
   if (isOther) {
     if (!otherAgency) throw new Error("Please enter your agency name");
     if (!otherReason) throw new Error("Please enter your reason for requesting access");
+    if (!requestedAgency.type) throw new Error("Agency Type is required");
+
+    const requireAllAgencyDetails = getBool(
+      "REQUEST_ACCESS_REQUIRE_ALL_AGENCY_DETAILS",
+      false
+    );
+    if (requireAllAgencyDetails) {
+      const gpErr = agenciesStore.validateGroupPrefix(requestedAgency.groupPrefix);
+      if (gpErr) throw new Error(gpErr);
+      if (!requestedAgency.suffix) throw new Error("Username Suffix/Prefix is required");
+      if (!requestedAgency.state) throw new Error("State is required");
+      if (!ALLOWED_REQUEST_STATES.has(requestedAgency.state)) {
+        throw new Error("State is not valid");
+      }
+      if (!requestedAgency.stateFederalAgency) {
+        if (!requestedAgency.county) throw new Error("County is required");
+        if (!requestedAgency.countyAbbrev) throw new Error("County Abbreviation is required");
+      }
+      if (requestedAgency.countyAbbrev && requestedAgency.countyAbbrev.length < 2) {
+        throw new Error("County Abbreviation must be at least 2 characters");
+      }
+    }
   }
 
   if (!isOther) {
@@ -166,7 +349,24 @@ function validateCreate(input) {
     }
   }
 
-  return { firstName, lastName, email, badgeNumber, radioCallsign, agencySuffix, otherAgency, otherReason };
+  return {
+    firstName,
+    lastName,
+    email,
+    badgeNumber,
+    radioCallsign,
+    agencySuffix,
+    otherAgency,
+    otherReason,
+    groupPrefix: isOther ? requestedAgency.groupPrefix : null,
+    usernameTokenPlacement: isOther ? requestedAgency.usernameTokenPlacement : null,
+    suffix: isOther ? requestedAgency.suffix : null,
+    state: isOther ? requestedAgency.state : null,
+    county: isOther ? requestedAgency.county : null,
+    countyAbbrev: isOther ? requestedAgency.countyAbbrev : null,
+    type: isOther ? requestedAgency.type : null,
+    stateFederalAgency: isOther ? !!requestedAgency.stateFederalAgency : null,
+  };
 }
 
 function listRequests() {
@@ -217,6 +417,49 @@ function deleteRequestsForAgencySuffix(suffix) {
   return removed;
 }
 
+function shouldAutoApproveRequest(agency, validated) {
+  if (!agency || !validated) return false;
+  if (String(validated.agencySuffix || "").trim().toLowerCase() === "__other__") return false;
+  if (agency.autoApproveRequests !== true) return false;
+  const defaultTpl = templatesStore.getDefaultTemplateForAgency(agency.suffix);
+  if (!defaultTpl) return false;
+  const list = agenciesStore.domainsListFromStored(agency.lookupDomain);
+  if (list.length > 0 && !agenciesStore.emailDomainInAgencyList(validated.email, agency.lookupDomain)) {
+    return false;
+  }
+  return true;
+}
+
+async function tryAutoApproveRequest(agency, validated, reqObj) {
+  const defaultTpl = templatesStore.getDefaultTemplateForAgency(agency?.suffix);
+  if (!defaultTpl) return null;
+  const result = await usersSvc.createUser(
+    {
+      badge: validated.badgeNumber,
+      agencySuffix: agency.suffix,
+      email: validated.email,
+      firstName: validated.firstName,
+      lastName: validated.lastName,
+      radioCallsign: validated.radioCallsign,
+      templateIndex: String(defaultTpl.name || "").trim(),
+      permissions: "user",
+    },
+    {
+      createdBy: {
+        username: "auto-approve",
+        displayName: "Agency Auto-Approve",
+      },
+      creationMethod: "request_access_auto_approve",
+      waitForOutbox: false,
+    }
+  );
+  reqObj.autoApproved = true;
+  reqObj.createdUsername = result?.user?.username || null;
+  reqObj.createdUser = result?.user || null;
+  reqObj.createdGroups = Array.isArray(result?.groups) ? result.groups : [];
+  return reqObj;
+}
+
 async function createRequest(input) {
   const v = validateCreate(input || {});
   const agencies = agenciesStore.load();
@@ -241,6 +484,7 @@ async function createRequest(input) {
   const reqObj = {
     id: genId(),
     reviewToken: genReviewToken(),
+    globalReviewToken: genReviewToken(),
     createdAt: now,
     firstName: v.firstName,
     lastName: v.lastName,
@@ -251,7 +495,25 @@ async function createRequest(input) {
     agencyName: agency ? String(agency.name || "").trim() : null,
     otherAgency: v.agencySuffix === "__other__" ? v.otherAgency : null,
     otherReason: v.agencySuffix === "__other__" ? v.otherReason : null,
+    groupPrefix: v.agencySuffix === "__other__" ? v.groupPrefix : null,
+    usernameTokenPlacement:
+      v.agencySuffix === "__other__" ? v.usernameTokenPlacement : null,
+    suffix: v.agencySuffix === "__other__" ? v.suffix : null,
+    state: v.agencySuffix === "__other__" ? v.state : null,
+    county: v.agencySuffix === "__other__" ? v.county : null,
+    countyAbbrev: v.agencySuffix === "__other__" ? v.countyAbbrev : null,
+    type: v.agencySuffix === "__other__" ? v.type : null,
+    stateFederalAgency: v.agencySuffix === "__other__" ? !!v.stateFederalAgency : null,
   };
+
+  if (shouldAutoApproveRequest(agency, v)) {
+    try {
+      const autoApproved = await tryAutoApproveRequest(agency, v, reqObj);
+      if (autoApproved) return autoApproved;
+    } catch (err) {
+      console.error("Auto-approve of access request failed; saving as pending:", err);
+    }
+  }
 
   const all = store.load();
   all.push(reqObj);
@@ -261,85 +523,112 @@ async function createRequest(input) {
   // Email Notification Logic
   // ===============================
   try {
-    let recipients = [];
+    const isOtherRequest = reqObj.agencySuffix === "__other__";
+    const { agencyAdminEmails, globalAdminEmails } =
+      await resolveAccessRequestRecipientSets(isOtherRequest ? null : agency);
 
-    async function getUsersInGroup(groupName) {
-      if (!groupName) return [];
+    const portalBaseUrl = getPortalBaseUrl();
+    function reviewUrlForToken(token) {
+      const path = `/request-access/${token}`;
+      return portalBaseUrl ? `${portalBaseUrl}${path}` : path;
+    }
 
-      const groupResp = await authentik.get(
-        `/core/groups/?name=${encodeURIComponent(groupName)}`
-      );
+    const noticeBatches = [];
+    if (!isOtherRequest && agencyAdminEmails.length) {
+      noticeBatches.push({
+        recipients: agencyAdminEmails,
+        reviewUrl: reviewUrlForToken(reqObj.reviewToken),
+      });
+    }
+    if (globalAdminEmails.length) {
+      noticeBatches.push({
+        recipients: globalAdminEmails,
+        reviewUrl: reviewUrlForToken(reqObj.globalReviewToken),
+      });
+    }
 
-      const group = groupResp.data?.results?.[0];
-      if (!group) return [];
-
-      const groupPk = group.pk;
-
-      let users = [];
-      let next = "/core/users/?page_size=200";
-
-      while (next) {
-        const resp = await authentik.get(next);
-        const data = resp.data;
-
-        users.push(...(data.results || []));
-
-        next = data.next
-          ? data.next.replace(/^.*\/api\/v3/, "")
-          : null;
+    if (!noticeBatches.length) {
+      console.warn("No recipients found for access request notification.");
+    } else {
+      const reasonLine = reqObj.otherReason
+        ? `Reason for requesting access: ${reqObj.otherReason}\n`
+        : "";
+      const otherAgencyDetailLines = [];
+      if (isOtherRequest) {
+        if (reqObj.groupPrefix) {
+          otherAgencyDetailLines.push({
+            label: "Agency Abbreviation / Short Name",
+            value: String(reqObj.groupPrefix),
+          });
+        }
+        if (reqObj.suffix) {
+          otherAgencyDetailLines.push({
+            label: "Username Identifier",
+            value: `${reqObj.usernameTokenPlacement || "suffix"} (${reqObj.suffix})`,
+          });
+        }
+        if (reqObj.state) {
+          otherAgencyDetailLines.push({
+            label: "State",
+            value: String(reqObj.state),
+          });
+        }
+        if (reqObj.state || reqObj.groupPrefix || reqObj.suffix) {
+          otherAgencyDetailLines.push({
+            label: "State/Federal Agency",
+            value: reqObj.stateFederalAgency ? "Yes" : "No",
+          });
+        }
+        if (reqObj.county) {
+          otherAgencyDetailLines.push({
+            label: "County",
+            value: String(reqObj.county),
+          });
+        }
+        if (reqObj.countyAbbrev) {
+          otherAgencyDetailLines.push({
+            label: "County Abbreviation",
+            value: String(reqObj.countyAbbrev),
+          });
+        }
+        if (reqObj.type) {
+          otherAgencyDetailLines.push({
+            label: "Agency Type",
+            value: String(reqObj.type),
+          });
+        }
       }
+      const otherAgencyDetailsText = otherAgencyDetailLines.length
+        ? otherAgencyDetailLines.map((l) => `${l.label}: ${l.value}`).join("\n") + "\n"
+        : "";
+      const otherAgencyDetailsHtml = otherAgencyDetailLines.length
+        ? otherAgencyDetailLines
+            .map(
+              (l) =>
+                `<strong>${escapeHtml(l.label)}:</strong> ${escapeHtml(l.value)}<br/>`
+            )
+            .join("\n  ") + "\n"
+        : "";
 
-      return users
-        .filter(
-          (u) =>
-            Array.isArray(u.groups) &&
-            u.groups.includes(groupPk) &&
-            u.email
-        )
-        .map((u) => u.email);
-    }
+      for (const batch of noticeBatches) {
+        const safeReviewUrl = escapeHtml(batch.reviewUrl);
+        await emailSvc.sendMail({
+          to: batch.recipients.join(","),
+          subject: "New TAK Portal Access Request",
+          text: `A new user has requested access to TAK Portal.
 
-    // Try agency admins first
-    if (v.agencySuffix !== "__other__" && agency) {
-      const agencyAdminGroup =
-        accessSvc.getAgencyAdminGroupName(agency);
-
-      recipients = await getUsersInGroup(agencyAdminGroup);
-    }
-
-    // Fallback to global admins
-    if (!recipients.length) {
-      const settings = settingsSvc.getSettings();
-      const globalGroup = settings.PORTAL_AUTH_REQUIRED_GROUP;
-      recipients = await getUsersInGroup(globalGroup);
-    }
-
-    if (recipients.length) {
-const reasonLine = reqObj.otherReason
-  ? `Reason for requesting access: ${reqObj.otherReason}\n`
-  : "";
-const portalBaseUrl = getPortalBaseUrl();
-const reviewPath = `/request-access/${reqObj.reviewToken}`;
-const reviewUrl = portalBaseUrl ? `${portalBaseUrl}${reviewPath}` : reviewPath;
-const safeReviewUrl = escapeHtml(reviewUrl);
-
-await emailSvc.sendMail({
-  to: recipients.join(","),
-  subject: "New TAK Portal Access Request",
-  text: `A new user has requested access to TAK Portal.
-
-Review Request: ${reviewUrl}
+Review Request: ${batch.reviewUrl}
 
 Name: ${reqObj.lastName}, ${reqObj.firstName}
 Email: ${reqObj.email}
 Badge: ${reqObj.badgeNumber}
 ${reqObj.radioCallsign ? `Radio Callsign: ${reqObj.radioCallsign}\n` : ""}Agency: ${
-    reqObj.agencyName ||
-    reqObj.otherAgency ||
-    reqObj.agencySuffix
-  }
-${reasonLine}`,
-  html: `
+            reqObj.agencyName ||
+            reqObj.otherAgency ||
+            reqObj.agencySuffix
+          }
+${otherAgencyDetailsText}${reasonLine}`,
+          html: `
 <p>A new user has requested access to TAK Portal.</p>
 <p><strong><a href="${safeReviewUrl}">Review Request</a></strong></p>
 <p>
@@ -358,6 +647,7 @@ ${reasonLine}`,
       reqObj.agencySuffix
     )
   }<br/>
+  ${otherAgencyDetailsHtml}
   ${
     reqObj.otherReason
       ? `<strong>Reason for requesting access:</strong> ${escapeHtml(reqObj.otherReason)}`
@@ -365,11 +655,9 @@ ${reasonLine}`,
   }
 </p>
 `,
-});
-
-      console.log("Access request notification sent to:", recipients);
-    } else {
-      console.warn("No recipients found for access request notification.");
+        });
+        console.log("Access request notification sent to:", batch.recipients);
+      }
     }
   } catch (err) {
     console.error("Failed to send access request notification:", err);
@@ -414,11 +702,71 @@ function getById(id) {
   return all.find((r) => String(r.id || "") === rid) || null;
 }
 
+function markAgencyCreated(id, agency, mainGroupName) {
+  const rid = String(id || "").trim();
+  if (!rid) throw new Error("User request ID is required");
+
+  const all = store.load();
+  const index = all.findIndex((r) => String(r.id || "") === rid);
+  if (index < 0) throw new Error("Pending user request was not found");
+  if (String(all[index].agencySuffix || "") !== "__other__") {
+    throw new Error("Only Other agency requests can be linked to a created agency");
+  }
+
+  const suffix = normalizeStr(agency?.suffix).toLowerCase();
+  const groupPrefix = agenciesStore.normalizeGroupPrefix(agency?.groupPrefix);
+  if (!suffix) throw new Error("Created agency suffix is required");
+
+  all[index].createdAgency = {
+    suffix,
+    name: normalizeStr(agency?.name) || null,
+    groupPrefix: groupPrefix || null,
+    mainGroupName: normalizeStr(mainGroupName) || null,
+    createdAt: new Date().toISOString(),
+  };
+
+  store.save(all);
+  return all[index];
+}
+
 function getByReviewToken(token) {
   const value = String(token || "").trim();
   if (!value) return null;
   const all = store.load();
-  return all.find((r) => String(r?.reviewToken || "") === value) || null;
+  return (
+    all.find(
+      (r) =>
+        String(r?.reviewToken || "") === value ||
+        String(r?.globalReviewToken || "") === value
+    ) || null
+  );
+}
+
+function canChangeAgencyForReviewToken(token, request) {
+  const value = String(token || "").trim();
+  if (!request || !value) return false;
+  const globalToken = String(request.globalReviewToken || "").trim();
+  const agencyToken = String(request.reviewToken || "").trim();
+  if (globalToken && value === globalToken) return true;
+  if (globalToken && agencyToken && value === agencyToken) return false;
+  // Legacy single-token links: Other-agency requests were sent to global admins.
+  return String(request.agencySuffix || "") === "__other__";
+}
+
+function toPublicReviewRequest(request) {
+  if (!request || typeof request !== "object") return null;
+  const { reviewToken, globalReviewToken, ...rest } = request;
+  return rest;
+}
+
+function getReviewAccessForToken(token) {
+  const request = getByReviewToken(token);
+  if (!request) return null;
+  return {
+    request,
+    publicRequest: toPublicReviewRequest(request),
+    canChangeAgency: canChangeAgencyForReviewToken(token, request),
+  };
 }
 
 module.exports = {
@@ -428,8 +776,14 @@ module.exports = {
   countPendingRequestsForAgencySuffix,
   deleteRequestsForAgencySuffix,
   createRequest,
+  shouldAutoApproveRequest,
   deleteRequest,
   deleteRequestForUser,
   getById,
   getByReviewToken,
+  getReviewAccessForToken,
+  canChangeAgencyForReviewToken,
+  markAgencyCreated,
+  validateCreate,
+  resolveAccessRequestRecipients,
 };

@@ -18,13 +18,45 @@ const {
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
-function renderNotFound(req, res) {
-  if ((req.originalUrl || req.path || "").startsWith("/api/")) {
-    return res.status(404).json({ error: "Not found" });
+function renderNotFound(req, res, err) {
+  if (err) {
+    console.warn(
+      "[mou] not found:",
+      req.method,
+      req.originalUrl || req.path,
+      err?.message || err
+    );
   }
-  return res.status(404).render("access-denied", {
+  if ((req.originalUrl || req.path || "").startsWith("/api/")) {
+    return res.status(404).json({ error: err?.message || "Not found" });
+  }
+  return res.status(404).render("mou_not_found", {
     username: req.authentikUser?.username || "",
+    message: err?.message || "Document not found.",
+    backHref: "/mou",
   });
+}
+
+function renderForbidden(req, res, message) {
+  if ((req.originalUrl || req.path || "").startsWith("/api/")) {
+    return res.status(403).json({ error: message || "Forbidden" });
+  }
+  return res.status(403).render("mou_not_found", {
+    username: req.authentikUser?.username || "",
+    message:
+      message ||
+      "You do not have permission to view this signed document.",
+    backHref: "/mou",
+  });
+}
+
+function canViewAgencyEvidence(authUser, stream, agencyId) {
+  if (!authUser || !stream) return false;
+  if (canSeeStream(authUser, stream)) return true;
+  const suffix = normalizeMoUAgencySuffix(agencyId);
+  if (!suffix) return false;
+  if (accessSvc.isSuffixAllowed(authUser, suffix)) return true;
+  return mouService.canUserSignAgencyForStream(authUser, stream, suffix);
 }
 
 function requireMouEnabled(req, res, next) {
@@ -57,10 +89,14 @@ function requireGlobalAdmin(req, res, next) {
   return next();
 }
 
-function requireAgencyAdmin(req, res, next) {
-  if (!req.authentikUser || !req.authentikUser.isAgencyAdmin) {
+function requireMoUSignAccess(req, res, next) {
+  const user = req.authentikUser;
+  if (!user || (!user.isAgencyAdmin && !user.isGlobalAdmin)) {
+    if ((req.originalUrl || req.path || "").startsWith("/api/")) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
     return res.status(403).render("access-denied", {
-      username: req.authentikUser?.username || "",
+      username: user?.username || "",
     });
   }
   return next();
@@ -273,6 +309,54 @@ function resolveSignableAgencyChoices(authUser, stream) {
     }));
 }
 
+function normalizeMoUAgencySuffix(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+/**
+ * Pick the agency context for /mou/sign — requires ?agencyId= when several are signable.
+ */
+function resolveSigningAgencyFromChoices(agencyChoices, requestedAgencyId) {
+  const list = Array.isArray(agencyChoices) ? agencyChoices : [];
+  if (!list.length) return null;
+
+  const requested = normalizeMoUAgencySuffix(requestedAgencyId);
+  if (requested) {
+    return list.find((agency) => normalizeMoUAgencySuffix(agency.suffix) === requested) || null;
+  }
+
+  const pending = list.filter((agency) => !agency.currentSignature);
+  if (pending.length === 1) return pending[0];
+  if (list.length === 1) return list[0];
+
+  return null;
+}
+
+function buildMoUSignPageUrls(stream, versionRecord, agencySuffix) {
+  const suffix = normalizeMoUAgencySuffix(agencySuffix);
+  const contentUrls = mouService.buildContentUrls(stream, versionRecord);
+  const signedEvidence =
+    suffix && mouService.getCurrentAgencySignatureForStream(stream, suffix)
+      ? mouService.getAgencyEvidence({
+          mouId: stream.mouId,
+          agencyId: suffix,
+          version: versionRecord.version,
+        })
+      : null;
+  const signedEvidenceViewUrl = suffix
+    ? `/mou/agency/${encodeURIComponent(stream.mouId)}/${encodeURIComponent(suffix)}?version=${encodeURIComponent(versionRecord.version)}`
+    : "";
+  const signedEvidencePdfUrl = suffix
+    ? `/mou/agency/${encodeURIComponent(stream.mouId)}/${encodeURIComponent(suffix)}/pdf?version=${encodeURIComponent(versionRecord.version)}`
+    : "";
+  return {
+    contentUrls,
+    signedEvidence,
+    signedEvidenceViewUrl,
+    signedEvidencePdfUrl,
+  };
+}
+
 function parseAgencySigningPayload(body, agencySuffixes) {
   const agencySigning = {};
   const suffixes = Array.isArray(agencySuffixes) ? agencySuffixes : [];
@@ -368,6 +452,67 @@ async function resolveSignerStatus(authUser) {
   } catch {
     return "Agency Administrator";
   }
+}
+
+async function resolveSignerEmail(authUser) {
+  try {
+    const userId =
+      (authUser?.uid && String(authUser.uid).trim()) ||
+      (await tokensSvc.getUserIdByUsername(authUser?.username || ""));
+    if (!userId) return "";
+    const fullUser = await usersSvc.getUserById(userId);
+    return String(fullUser?.email || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function triggerCountersignedSignerNotification(req, result) {
+  void Promise.resolve()
+    .then(async () => {
+      const agency = mouService.getAgencyBySuffix(result?.signature?.agencyId);
+      const notifyResult = await mouScheduler.sendCountersignedNotificationToSigner({
+        stream: result?.stream,
+        version: result?.version,
+        signature: result?.signature,
+        agency,
+      });
+      if (notifyResult?.sent) return;
+      if (notifyResult?.skipped) {
+        console.warn("[MOU_COUNTERSIGN] Signer notification skipped", {
+          mouId: result?.stream?.mouId || null,
+          version: result?.version?.version || null,
+          agencyId: result?.signature?.agencyId || null,
+          reason: notifyResult.reason || "Unknown reason",
+        });
+        return;
+      }
+      throw new Error(
+        notifyResult?.error || "Failed to send countersigned notification to signer."
+      );
+    })
+    .catch((notifyErr) => {
+      console.error("[MOU_COUNTERSIGN] Signer notification failure", {
+        mouId: result?.stream?.mouId || null,
+        version: result?.version?.version || null,
+        agencyId: result?.signature?.agencyId || null,
+        error: notifyErr?.message || String(notifyErr || "Unknown notification error"),
+      });
+      auditRequest(req, {
+        action: "MOU_COUNTERSIGNED_NOTIFICATION_FAILED",
+        targetType: "mou",
+        targetId: String(result?.stream?.mouId || ""),
+        agencySuffix: result?.signature?.agencyId || null,
+        details: {
+          mouId: result?.stream?.mouId || "",
+          version: result?.version?.version || null,
+          agencyId: result?.signature?.agencyId || null,
+          error:
+            notifyErr?.message ||
+            String(notifyErr || "Failed to notify original signer of countersignature."),
+        },
+      });
+    });
 }
 
 function buildStreamCard(authUser, stream) {
@@ -632,7 +777,7 @@ router.get("/mou/file/:mouId/:version", requireMouEnabled, requireMouPermission,
     }
     return res.send(content.html);
   } catch (err) {
-    return renderNotFound(req, res);
+    return renderNotFound(req, res, err);
   }
 });
 
@@ -685,21 +830,20 @@ router.get("/mou/view/:mouId/:version", requireMouEnabled, requireMouPermission,
       updatedFromOlderVersion: req.query.updated === "1",
     });
   } catch (err) {
-    return renderNotFound(req, res);
+    return renderNotFound(req, res, err);
   }
 });
 
 router.get("/mou/agency/:mouId/:agencyId", requireMouEnabled, requireMouPermission, (req, res) => {
   try {
     const agencyId = String(req.params.agencyId || "").trim().toLowerCase();
-    const canSeeAll = !!req.authentikUser?.isGlobalAdmin;
-    const canSeeOwnAgency =
-      !!req.authentikUser?.isAgencyAdmin &&
-      accessSvc.isSuffixAllowed(req.authentikUser, agencyId);
-    if (!canSeeAll && !canSeeOwnAgency) {
-      return res.status(403).render("access-denied", {
-        username: req.authentikUser?.username || "",
-      });
+    const stream = mouService.getStreamById(req.params.mouId);
+    if (!canViewAgencyEvidence(req.authentikUser, stream, agencyId)) {
+      return renderForbidden(
+        req,
+        res,
+        "You do not have permission to view this signed document for the selected agency."
+      );
     }
 
     const evidence = mouService.getAgencyEvidence({
@@ -721,21 +865,20 @@ router.get("/mou/agency/:mouId/:agencyId", requireMouEnabled, requireMouPermissi
       updatedFromOlderVersion: false,
     });
   } catch (err) {
-    return renderNotFound(req, res);
+    return renderNotFound(req, res, err);
   }
 });
 
 router.get("/mou/agency/:mouId/:agencyId/pdf", requireMouEnabled, requireMouPermission, async (req, res) => {
   try {
     const agencyId = String(req.params.agencyId || "").trim().toLowerCase();
-    const canSeeAll = !!req.authentikUser?.isGlobalAdmin;
-    const canSeeOwnAgency =
-      !!req.authentikUser?.isAgencyAdmin &&
-      accessSvc.isSuffixAllowed(req.authentikUser, agencyId);
-    if (!canSeeAll && !canSeeOwnAgency) {
-      return res.status(403).render("access-denied", {
-        username: req.authentikUser?.username || "",
-      });
+    const stream = mouService.getStreamById(req.params.mouId);
+    if (!canViewAgencyEvidence(req.authentikUser, stream, agencyId)) {
+      return renderForbidden(
+        req,
+        res,
+        "You do not have permission to download this signed document for the selected agency."
+      );
     }
 
     const pdf = await mouService.getSignedPdfExport({
@@ -747,21 +890,56 @@ router.get("/mou/agency/:mouId/:agencyId/pdf", requireMouEnabled, requireMouPerm
     res.setHeader("Content-Disposition", buildContentDisposition("attachment", pdf.fileName));
     return res.send(pdf.buffer);
   } catch (err) {
-    return renderNotFound(req, res);
+    return renderNotFound(req, res, err);
   }
 });
+
+router.get(
+  "/mou/agency/:mouId/:agencyId/signed-content",
+  requireMouEnabled,
+  requireMouPermission,
+  (req, res) => {
+    try {
+      const agencyId = String(req.params.agencyId || "").trim().toLowerCase();
+      const stream = mouService.getStreamById(req.params.mouId);
+      if (!canViewAgencyEvidence(req.authentikUser, stream, agencyId)) {
+        return renderForbidden(
+          req,
+          res,
+          "You do not have permission to view this signed document for the selected agency."
+        );
+      }
+
+      const content = mouService.getSignedContentExport({
+        mouId: req.params.mouId,
+        agencyId,
+        version: req.query.version,
+      });
+      res.setHeader("Content-Type", content.contentType);
+      res.setHeader(
+        "Content-Disposition",
+        buildContentDisposition(
+          req.query.download === "1" ? "attachment" : "inline",
+          content.fileName
+        )
+      );
+      return res.send(content.buffer);
+    } catch (err) {
+      return renderNotFound(req, res, err);
+    }
+  }
+);
 
 router.get("/mou/agency-file/:mouId/:agencyId", requireMouEnabled, requireMouPermission, (req, res) => {
   try {
     const agencyId = String(req.params.agencyId || "").trim().toLowerCase();
-    const canSeeAll = !!req.authentikUser?.isGlobalAdmin;
-    const canSeeOwnAgency =
-      !!req.authentikUser?.isAgencyAdmin &&
-      accessSvc.isSuffixAllowed(req.authentikUser, agencyId);
-    if (!canSeeAll && !canSeeOwnAgency) {
-      return res.status(403).render("access-denied", {
-        username: req.authentikUser?.username || "",
-      });
+    const stream = mouService.getStreamById(req.params.mouId);
+    if (!canViewAgencyEvidence(req.authentikUser, stream, agencyId)) {
+      return renderForbidden(
+        req,
+        res,
+        "You do not have permission to view this signed document for the selected agency."
+      );
     }
 
     const evidence = mouService.getAgencyEvidence({
@@ -769,26 +947,37 @@ router.get("/mou/agency-file/:mouId/:agencyId", requireMouEnabled, requireMouPer
       agencyId,
       version: req.query.version,
     });
-    if (!evidence.uploadedSignedCopyAbsPath) {
-      return renderNotFound(req, res);
+    const part = String(req.query.part || "").trim().toLowerCase();
+    const useCountersign = part === "countersign";
+    const countersignature = evidence.signature?.countersignature;
+    const absPath = useCountersign
+      ? evidence.countersignUploadedAbsPath
+      : evidence.uploadedSignedCopyAbsPath;
+    if (!absPath) {
+      return renderNotFound(req, res, new Error("Uploaded signed copy not found."));
     }
-    const fileName =
-      evidence.signature?.uploadedSignedCopyFileName ||
-      `${evidence.stream?.title || "signed-document"}-signed-copy`;
-    if (evidence.signature?.uploadedSignedCopyContentType) {
-      res.type(evidence.signature.uploadedSignedCopyContentType);
+    const fileName = useCountersign
+      ? countersignature?.uploadedSignedCopyFileName ||
+        `${evidence.stream?.title || "signed-document"}-countersigned-copy`
+      : evidence.signature?.uploadedSignedCopyFileName ||
+        `${evidence.stream?.title || "signed-document"}-signed-copy`;
+    const contentType = useCountersign
+      ? countersignature?.uploadedSignedCopyContentType
+      : evidence.signature?.uploadedSignedCopyContentType;
+    if (contentType) {
+      res.type(contentType);
     }
     res.setHeader(
       "Content-Disposition",
       buildContentDisposition(req.query.download === "1" ? "attachment" : "inline", fileName)
     );
-    return res.sendFile(evidence.uploadedSignedCopyAbsPath);
+    return res.sendFile(absPath);
   } catch (err) {
-    return renderNotFound(req, res);
+    return renderNotFound(req, res, err);
   }
 });
 
-router.get("/mou/sign/:mouId/:version", requireMouEnabled, requireMouPermission, requireAgencyAdmin, (req, res) => {
+router.get("/mou/sign/:mouId/:version", requireMouEnabled, requireMouPermission, requireMoUSignAccess, (req, res) => {
   try {
     const out = mouService.getCurrentVersionOrLatest(req.params.mouId, req.params.version);
     if (!canSeeStream(req.authentikUser, out.stream)) {
@@ -805,48 +994,42 @@ router.get("/mou/sign/:mouId/:version", requireMouEnabled, requireMouPermission,
         username: req.authentikUser?.username || "",
       });
     }
-    const contentUrls = mouService.buildContentUrls(out.stream, out.targetVersion);
-    const currentAgency = agencyChoices[0] || null;
-    const currentAgencySignature = currentAgency?.currentSignature || null;
-    const signedEvidence =
-      currentAgency && currentAgencySignature
-        ? mouService.getAgencyEvidence({
-            mouId: out.stream.mouId,
-            agencyId: currentAgency.suffix,
-            version: out.targetVersion.version,
-          })
-        : null;
-    const signedEvidenceViewUrl =
-      currentAgency && currentAgencySignature
-        ? `/mou/agency/${encodeURIComponent(out.stream.mouId)}/${encodeURIComponent(currentAgency.suffix)}?version=${encodeURIComponent(out.targetVersion.version)}`
-        : "";
-    const signedEvidencePdfUrl =
-      currentAgency && currentAgencySignature
-        ? `/mou/agency/${encodeURIComponent(out.stream.mouId)}/${encodeURIComponent(currentAgency.suffix)}/pdf?version=${encodeURIComponent(out.targetVersion.version)}`
-        : "";
+    const signingAgency = resolveSigningAgencyFromChoices(
+      agencyChoices,
+      req.query.agencyId || req.query.agency
+    );
+    if (!signingAgency) {
+      return res.redirect(
+        `/mou?error=${encodeURIComponent(
+          "Open View / Sign from the MOU list for the specific agency you are signing for."
+        )}`
+      );
+    }
+    const pageUrls = buildMoUSignPageUrls(out.stream, out.targetVersion, signingAgency.suffix);
     res.render("mou_sign", {
       stream: out.stream,
       version: out.targetVersion,
       html: out.html,
       contentType: out.contentType,
-      fileUrl: contentUrls.fileUrl,
-      downloadUrl: contentUrls.downloadUrl,
-      signedEvidenceHtml: signedEvidence?.html || "",
-      signedEvidenceSignature: signedEvidence?.signature || null,
-      signedEvidenceViewUrl,
-      signedEvidenceDownloadUrl: signedEvidencePdfUrl,
+      fileUrl: pageUrls.contentUrls.fileUrl,
+      downloadUrl: pageUrls.contentUrls.downloadUrl,
+      signedEvidenceHtml: pageUrls.signedEvidence?.html || "",
+      signedEvidenceSignature: pageUrls.signedEvidence?.signature || null,
+      signedEvidenceViewUrl: pageUrls.signedEvidenceViewUrl,
+      signedEvidenceDownloadUrl: pageUrls.signedEvidencePdfUrl,
       fileName: out.fileName,
       scopeLabel: mouService.getScopeLabel(out.stream),
       agencyChoices,
+      signingAgency,
       error: req.query.error || "",
       success: req.query.success || "",
     });
   } catch (err) {
-    return renderNotFound(req, res);
+    return renderNotFound(req, res, err);
   }
 });
 
-router.post("/mou/sign/:mouId/:version", requireMouEnabled, requireMouPermission, requireAgencyAdmin, upload.single("signedCopyFile"), async (req, res) => {
+router.post("/mou/sign/:mouId/:version", requireMouEnabled, requireMouPermission, requireMoUSignAccess, upload.single("signedCopyFile"), async (req, res) => {
   try {
     const stream = mouService.getStreamById(req.params.mouId);
     const agencyChoices = resolveSignableAgencyChoices(req.authentikUser, stream);
@@ -863,6 +1046,7 @@ router.post("/mou/sign/:mouId/:version", requireMouEnabled, requireMouPermission
 
     const agency = mouService.getAgencyBySuffix(agencySuffix);
     const signerStatus = await resolveSignerStatus(req.authentikUser);
+    const signerEmail = await resolveSignerEmail(req.authentikUser);
     const result = mouService.signVersion({
       mouId: req.params.mouId,
       version: req.params.version,
@@ -875,6 +1059,7 @@ router.post("/mou/sign/:mouId/:version", requireMouEnabled, requireMouPermission
       customFieldValues: req.body?.customFieldValues,
       signatureDataUrl: req.body?.signatureDataUrl,
       uploadedSignedCopyFile: signMethod === "upload" ? req.file || null : null,
+      signerEmail,
       ...requestMeta(req),
     });
 
@@ -895,14 +1080,15 @@ router.post("/mou/sign/:mouId/:version", requireMouEnabled, requireMouPermission
     triggerSignedGlobalAdminNotification(req, result, signMethod);
 
     return res.redirect(
-      `/mou/sign/${encodeURIComponent(req.params.mouId)}/${encodeURIComponent(req.params.version)}?success=${encodeURIComponent(signMethod === "upload" ? "Signed document uploaded successfully." : "MOU signed successfully.")}`
+      `/mou/sign/${encodeURIComponent(req.params.mouId)}/${encodeURIComponent(req.params.version)}?agencyId=${encodeURIComponent(agencySuffix)}&success=${encodeURIComponent(signMethod === "upload" ? "Signed document uploaded successfully." : "MOU signed successfully.")}`
     );
   } catch (err) {
-    return toErrorRedirect(
-      res,
-      `/mou/sign/${encodeURIComponent(req.params.mouId)}/${encodeURIComponent(req.params.version)}`,
-      err
-    );
+    const agencyQuery = String(req.body?.agencySuffix || "").trim().toLowerCase();
+    let url = `/mou/sign/${encodeURIComponent(req.params.mouId)}/${encodeURIComponent(req.params.version)}`;
+    if (agencyQuery) {
+      url += `?agencyId=${encodeURIComponent(agencyQuery)}`;
+    }
+    return toErrorRedirect(res, url, err);
   }
 });
 
@@ -927,6 +1113,7 @@ router.post("/admin/mou/:mouId/signatures/upload/:agencyId", requireMouEnabled, 
 
     const agency = mouService.getAgencyBySuffix(agencySuffix);
     const signerStatus = await resolveSignerStatus(req.authentikUser);
+    const signerEmail = await resolveSignerEmail(req.authentikUser);
     const result = mouService.signVersion({
       mouId: req.params.mouId,
       version: currentVersion.version,
@@ -939,6 +1126,7 @@ router.post("/admin/mou/:mouId/signatures/upload/:agencyId", requireMouEnabled, 
       customFieldValues: req.body?.customFieldValues,
       signatureDataUrl: "",
       uploadedSignedCopyFile: req.file,
+      signerEmail,
       ...requestMeta(req),
     });
 
@@ -963,6 +1151,130 @@ router.post("/admin/mou/:mouId/signatures/upload/:agencyId", requireMouEnabled, 
     return toErrorRedirect(res, "/mou", err);
   }
 });
+
+router.get(
+  "/admin/mou/:mouId/countersign/:agencyId",
+  requireMouEnabled,
+  requireMouPermission,
+  requireGlobalAdmin,
+  (req, res) => {
+    try {
+      const stream = mouService.getStreamById(req.params.mouId);
+      const currentVersion = mouService.getCurrentVersion(stream);
+      if (!currentVersion) {
+        throw new Error("MOU version not found.");
+      }
+
+      const agencySuffix = String(req.params.agencyId || "").trim().toLowerCase();
+      const targetAgency = mouService
+        .getTargetAgenciesForStream(stream)
+        .find((agency) => String(agency?.suffix || "").trim().toLowerCase() === agencySuffix);
+      if (!targetAgency) {
+        throw new Error("This document is not assigned to the selected agency.");
+      }
+
+      const evidence = mouService.getAgencyEvidence({
+        mouId: req.params.mouId,
+        agencyId: agencySuffix,
+        version: currentVersion.version,
+      });
+      if (evidence.signature?.countersignature) {
+        return res.redirect(
+          `/mou/agency/${encodeURIComponent(req.params.mouId)}/${encodeURIComponent(agencySuffix)}?version=${encodeURIComponent(currentVersion.version)}&success=${encodeURIComponent("This agency document has already been countersigned.")}`
+        );
+      }
+
+      const agency = mouService.getAgencyBySuffix(agencySuffix);
+      const agencyName =
+        agency?.name || targetAgency?.name || agency?.groupPrefix || agencySuffix;
+
+      return res.render("mou_countersign", {
+        stream: evidence.stream,
+        version: evidence.version,
+        agencyId: agencySuffix,
+        agencyName,
+        html: evidence.html,
+        signature: evidence.signature,
+        customSignerFields: Array.isArray(currentVersion.customSignerFields)
+          ? currentVersion.customSignerFields
+          : [],
+        downloadUrl: `/mou/agency/${encodeURIComponent(req.params.mouId)}/${encodeURIComponent(agencySuffix)}/pdf?version=${encodeURIComponent(currentVersion.version)}`,
+        error: req.query.error || "",
+        success: req.query.success || "",
+      });
+    } catch (err) {
+      return toErrorRedirect(res, "/mou", err);
+    }
+  }
+);
+
+router.post(
+  "/admin/mou/:mouId/countersign/:agencyId",
+  requireMouEnabled,
+  requireMouPermission,
+  requireGlobalAdmin,
+  upload.single("signedCopyFile"),
+  async (req, res) => {
+    const agencySuffix = String(req.params.agencyId || "").trim().toLowerCase();
+    const countersignUrl = `/admin/mou/${encodeURIComponent(req.params.mouId)}/countersign/${encodeURIComponent(agencySuffix)}`;
+    try {
+      const stream = mouService.getStreamById(req.params.mouId);
+      const currentVersion = mouService.getCurrentVersion(stream);
+      if (!currentVersion) {
+        throw new Error("MOU version not found.");
+      }
+
+      const signMethod = String(req.body?.signMethod || "esign").trim().toLowerCase();
+      if (signMethod === "upload" && !req.file) {
+        throw new Error("Attach a PDF or image of the countersigned document.");
+      }
+
+      const signerStatus = await resolveSignerStatus(req.authentikUser);
+      const result = mouService.countersignVersion({
+        mouId: req.params.mouId,
+        version: currentVersion.version,
+        agencySuffix,
+        signerUserId: req.authentikUser?.uid || req.authentikUser?.username,
+        signerDisplayName:
+          req.body?.attestationText ||
+          req.authentikUser?.displayName ||
+          req.authentikUser?.username,
+        signerStatusAtSign: req.body?.signerRole || signerStatus || "Global Administrator",
+        attestationText: req.body?.attestationText,
+        customFieldValues: req.body?.customFieldValues,
+        signatureDataUrl: req.body?.signatureDataUrl,
+        uploadedSignedCopyFile: signMethod === "upload" ? req.file || null : null,
+        ...requestMeta(req),
+      });
+
+      auditRequest(req, {
+        action: "MOU_AGENCY_COUNTERSIGNED",
+        targetType: "mou",
+        targetId: String(result.stream.mouId),
+        agencySuffix,
+        details: {
+          mouId: result.stream.mouId,
+          version: result.version.version,
+          agencyId: agencySuffix,
+          signerDisplayName: result.signature?.countersignature?.signerDisplayName,
+          signMethod,
+        },
+      });
+
+      triggerCountersignedSignerNotification(req, result);
+
+      return res.redirect(
+        `/mou?success=${encodeURIComponent(
+          signMethod === "upload"
+            ? "Countersigned document uploaded successfully."
+            : "Document countersigned successfully."
+        )}`
+      );
+    } catch (err) {
+      return toErrorRedirect(res, countersignUrl, err);
+    }
+  }
+);
 
 router.get(
   "/admin/mou/agency-admins/:agencySuffix",
@@ -2292,6 +2604,9 @@ router.post(
         throw new Error("Attach a PDF or image of the signed document.");
       }
       const agency = mouService.getAgencyBySuffix(invite.agencyId);
+      const signerEmail =
+        normalizeAssignmentEmail(req.body?.signerEmail) ||
+        normalizeAssignmentEmail(invite.recipientEmail);
       const result = mouService.signVersion({
         mouId: stream.mouId,
         version: currentVersion.version,
@@ -2304,6 +2619,7 @@ router.post(
         customFieldValues: req.body?.customFieldValues,
         signatureDataUrl: req.body?.signatureDataUrl,
         uploadedSignedCopyFile: signMethod === "upload" ? req.file || null : null,
+        signerEmail,
         ...requestMeta(req),
       });
 
@@ -2327,9 +2643,6 @@ router.post(
         signMethod === "upload" ? "external_link_upload" : "external_link"
       );
 
-      const signerEmail =
-        normalizeAssignmentEmail(req.body?.signerEmail) ||
-        normalizeAssignmentEmail(invite.recipientEmail);
       if (signerEmail) {
         void mouScheduler
           .sendExternalSignedPdfEmail({

@@ -36,6 +36,7 @@ const path = require("path");
 const https = require("https");
 const axios = require("axios");
 const { getBool, getString } = require("./env");
+const { attachCookieStore, getSharedTakCookieStore } = require("./takHttpSession");
 
 // IMPORTANT: env.js reads from settingsStore first, then process.env.
 // We need the same behavior here, but ALSO need to support empty string
@@ -202,7 +203,69 @@ function getTakTlsAuth(options = {}) {
  *   timeout?: number;
  * }} [options] - allowInsecureServer: skip server cert verify (locate relay). baseURL/timeout: optional overrides (locate relay uses locate API origin, not Marti).
  */
-function buildTakAxios(options = {}) {
+function withDefaultTimeout(client, timeoutMs) {
+  if (typeof timeoutMs !== "number") return client;
+  const merge = (config) => {
+    const next = { ...(config || {}) };
+    if (typeof next.timeout !== "number") next.timeout = timeoutMs;
+    return next;
+  };
+  return {
+    get: (url, config) => client.get(url, merge(config)),
+    delete: (url, config) => client.delete(url, merge(config)),
+    head: (url, config) => client.head(url, merge(config)),
+    options: (url, config) => client.options(url, merge(config)),
+    post: (url, data, config) => client.post(url, data, merge(config)),
+    put: (url, data, config) => client.put(url, data, merge(config)),
+    patch: (url, data, config) => client.patch(url, data, merge(config)),
+    request: (config) => client.request(merge(config)),
+  };
+}
+
+function attachTakDebugInterceptors(client) {
+  const TAK_DEBUG = getBool("TAK_DEBUG", false);
+  if (!TAK_DEBUG || client.__takDebugAttached) return client;
+  client.__takDebugAttached = true;
+
+  const fullUrl = (config) => {
+    const base = config.baseURL || "";
+    const url = config.url || "";
+    return base.replace(/\/+$/, "") + "/" + String(url).replace(/^\/+/, "");
+  };
+
+  client.interceptors.request.use((config) => {
+    console.log(
+      "\n[TAK REQ]",
+      (config.method || "get").toUpperCase(),
+      fullUrl(config)
+    );
+    if (config.params) console.log("[TAK REQ params]", config.params);
+    if (config.data) console.log("[TAK REQ body]", config.data);
+    return config;
+  });
+
+  client.interceptors.response.use(
+    (res) => {
+      console.log("[TAK RES]", res.status, res.config?.url);
+      if (res.data && typeof res.data === "object" && !Array.isArray(res.data)) {
+        console.log("[TAK RES keys]", Object.keys(res.data).slice(0, 30));
+      }
+      return res;
+    },
+    (err) => {
+      if (err.response) {
+        console.error("[TAK ERR]", err.response.status, err.config?.url);
+        console.error("[TAK ERR body]", err.response.data);
+      } else {
+        console.error("[TAK NET ERR]", err.message);
+      }
+      return Promise.reject(err);
+    }
+  );
+  return client;
+}
+
+function createTakAxiosClient(options = {}) {
   const TAK_DEBUG = getBool("TAK_DEBUG", false);
 
   if (TAK_DEBUG) {
@@ -220,6 +283,7 @@ function buildTakAxios(options = {}) {
   const tlsAuth = getTakTlsAuth(options);
 
   const agentOptions = {
+    keepAlive: true,
     ca: tlsAuth.ca,
     rejectUnauthorized: tlsAuth.rejectUnauthorized !== false,
     checkServerIdentity: () => undefined,
@@ -238,50 +302,48 @@ function buildTakAxios(options = {}) {
     timeout: typeof options.timeout === "number" ? options.timeout : 5000,
   });
 
-  if (TAK_DEBUG) {
-    const fullUrl = (config) => {
-      const base = config.baseURL || "";
-      const url = config.url || "";
-      return base.replace(/\/+$/, "") + "/" + String(url).replace(/^\/+/, "");
-    };
-
-    client.interceptors.request.use((config) => {
-      console.log(
-        "\n[TAK REQ]",
-        (config.method || "get").toUpperCase(),
-        fullUrl(config)
-      );
-      if (config.params) console.log("[TAK REQ params]", config.params);
-      if (config.data) console.log("[TAK REQ body]", config.data);
-      return config;
-    });
-
-    client.interceptors.response.use(
-      (res) => {
-        console.log("[TAK RES]", res.status, res.config?.url);
-        if (res.data && typeof res.data === "object" && !Array.isArray(res.data)) {
-          console.log("[TAK RES keys]", Object.keys(res.data).slice(0, 30));
-        }
-        return res;
-      },
-      (err) => {
-        if (err.response) {
-          console.error("[TAK ERR]", err.response.status, err.config?.url);
-          console.error("[TAK ERR body]", err.response.data);
-        } else {
-          console.error("[TAK NET ERR]", err.message);
-        }
-        return Promise.reject(err);
-      }
-    );
+  const shareCookies = options.allowInsecureServer !== true;
+  if (shareCookies) {
+    attachCookieStore(client, getSharedTakCookieStore());
   }
 
+  attachTakDebugInterceptors(client);
   return client;
+}
+
+let _martiAxios = null;
+let _martiAxiosKey = "";
+
+function getDefaultMartiAxios() {
+  let key = "marti";
+  try {
+    key = `marti:${getTakBaseUrl()}`;
+  } catch (_) {
+    key = "marti";
+  }
+  if (_martiAxios && _martiAxiosKey === key) return _martiAxios;
+  _martiAxios = createTakAxiosClient();
+  _martiAxiosKey = key;
+  return _martiAxios;
+}
+
+function buildTakAxios(options = {}) {
+  const customBase = options.baseURL !== undefined;
+  const insecure = options.allowInsecureServer === true;
+  const client =
+    !customBase && !insecure
+      ? getDefaultMartiAxios()
+      : createTakAxiosClient(options);
+  return withDefaultTimeout(client, options.timeout);
 }
 
 /**
  * Generic "all certs" list.
  * GET /api/certadmin/cert
+ *
+ * Returns { ok, list, url }.
+ * - ok=true when any candidate returned HTTP success (including an empty catalog)
+ * - ok=false when every candidate failed (network/HTTP error)
  */
 async function getAllCerts(client, TAK_DEBUG) {
   const candidates = [
@@ -290,22 +352,98 @@ async function getAllCerts(client, TAK_DEBUG) {
     "/api/certadmin/cert/list",
   ];
 
+  const failures = [];
+
   for (const url of candidates) {
     try {
       const res = await client.get(url);
       const list = unwrapTakList(res.data);
       if (TAK_DEBUG) console.log(`[TAK CERT LIST] ${url} -> ${list.length}`);
-      if (list.length) return list;
+      // A successful response (even with 0 certs) is a valid answer on a fresh system.
+      return { ok: true, list, url };
     } catch (e) {
+      const detail = e.response?.status || e.message || String(e);
+      failures.push(`${url} (${detail})`);
       if (TAK_DEBUG) {
-        console.log(
-          `[TAK CERT LIST] ${url} not available (${e.response?.status || e.message})`
-        );
+        console.log(`[TAK CERT LIST] ${url} not available (${detail})`);
       }
     }
   }
 
-  return [];
+  console.warn(
+    `[TAK CERT LIST] Unable to list certificates; all candidates failed: ${failures.join("; ")}`
+  );
+  return { ok: false, list: [], url: null };
+}
+
+function isExpiredGeneric(cert) {
+  const status = toLowerTrim(cert?.status || cert?.state || cert?.certStatus);
+  if (status && status.includes("expir")) return true;
+
+  const exp =
+    cert?.expirationDate ||
+    cert?.expiration ||
+    cert?.expires ||
+    cert?.notAfter ||
+    cert?.validTo;
+  if (exp == null || exp === "") return false;
+  if (typeof exp === "number" && Number.isFinite(exp)) {
+    const ms = exp < 1e12 ? exp * 1000 : exp;
+    return ms <= Date.now();
+  }
+  const t = Date.parse(exp);
+  return Number.isFinite(t) && t <= Date.now();
+}
+
+function isActiveUnrevokedCert(cert) {
+  if (!cert) return false;
+  if (isRevokedGeneric(cert)) return false;
+  if (isExpiredGeneric(cert)) return false;
+  return true;
+}
+
+function buildActiveCertUsernameSet(allCerts) {
+  const set = new Set();
+  for (const c of Array.isArray(allCerts) ? allCerts : []) {
+    if (!isActiveUnrevokedCert(c)) continue;
+    const u = toLowerTrim(c?.creatorDn);
+    if (u) set.add(u);
+  }
+  return set;
+}
+
+let _certCatalogCache = { at: 0, result: null };
+const CERT_CATALOG_TTL_MS = 45_000;
+
+/**
+ * Usernames (lowercase) with at least one unrevoked, unexpired TAK cert.
+ * ok=false when TAK is off/bypassed or the cert catalog could not be listed
+ * (callers must not treat that as "no certs").
+ */
+async function getActiveCertUsernameSet() {
+  if (!isTakConfigured()) {
+    return { ok: false, usernames: new Set(), reason: "not_configured" };
+  }
+  if (isTakBypassed()) {
+    return { ok: false, usernames: new Set(), reason: "bypass" };
+  }
+
+  try {
+    const now = Date.now();
+    let catalog = _certCatalogCache.result;
+    if (!catalog || !catalog.ok || now - _certCatalogCache.at >= CERT_CATALOG_TTL_MS) {
+      const client = buildTakAxios();
+      const TAK_DEBUG = getBool("TAK_DEBUG", false);
+      catalog = await getAllCerts(client, TAK_DEBUG);
+      if (catalog.ok) _certCatalogCache = { at: now, result: catalog };
+    }
+    if (!catalog || !catalog.ok) {
+      return { ok: false, usernames: new Set(), reason: "list_failed" };
+    }
+    return { ok: true, usernames: buildActiveCertUsernameSet(catalog.list) };
+  } catch (e) {
+    return { ok: false, usernames: new Set(), reason: e?.message || "error" };
+  }
 }
 
 function isRevokedGeneric(cert) {
@@ -333,7 +471,8 @@ function isRevokedGeneric(cert) {
 
 async function verifyRevoked(client, ids, TAK_DEBUG) {
   // First attempt: verify using fields present in the generic /cert list
-  const after = await getAllCerts(client, TAK_DEBUG);
+  const afterResult = await getAllCerts(client, TAK_DEBUG);
+  const after = afterResult.ok ? afterResult.list : [];
   const byId = new Map(after.map((c) => [String(c?.id ?? "").trim(), c]));
 
   const pending = [];
@@ -468,8 +607,8 @@ async function revokeCertsForUsersBulk(usernames, options = {}) {
   }
 
   const client = buildTakAxios();
-  const allCerts = await getAllCerts(client, TAK_DEBUG);
-  if (!allCerts.length) {
+  const certCatalog = await getAllCerts(client, TAK_DEBUG);
+  if (!certCatalog.ok) {
     if (requireVerified) {
       throw new Error(
         "TAK: Unable to list certificates from /api/certadmin/cert; refusing to proceed."
@@ -484,6 +623,7 @@ async function revokeCertsForUsersBulk(usernames, options = {}) {
     };
   }
 
+  const allCerts = certCatalog.list;
   const byUsername = buildCertIdsByUsername(allCerts, list);
   const allIds = Array.from(
     new Set(Array.from(byUsername.values()).flatMap((ids) => ids))
@@ -553,8 +693,8 @@ async function revokeCertsForUser(username, options = {}) {
 
   const client = buildTakAxios();
 
-  const allCerts = await getAllCerts(client, TAK_DEBUG);
-  if (!allCerts.length) {
+  const certCatalog = await getAllCerts(client, TAK_DEBUG);
+  if (!certCatalog.ok) {
     if (requireVerified) {
       throw new Error(
         "TAK: Unable to list certificates from /api/certadmin/cert; refusing to proceed."
@@ -563,6 +703,7 @@ async function revokeCertsForUser(username, options = {}) {
     return { revoked: 0, attempted: 0, skipped: false, verified: false };
   }
 
+  const allCerts = certCatalog.list;
   const ids = certIdsForUsername(allCerts, u);
 
   if (TAK_DEBUG) {
@@ -604,4 +745,8 @@ module.exports = {
   buildTakAxios,
   getTakTlsAuth,
   getTakBaseUrl,
+  isExpiredGeneric,
+  isActiveUnrevokedCert,
+  buildActiveCertUsernameSet,
+  getActiveCertUsernameSet,
 };

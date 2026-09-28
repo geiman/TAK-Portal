@@ -18,10 +18,174 @@ function stripTakPrefix(name) {
   return n.toLowerCase().startsWith("tak_") ? n.slice(4) : n;
 }
 
+function uniqueRequestedGroupIds(body) {
+  const ids = [];
+  if (Array.isArray(body?.groupIds)) ids.push(...body.groupIds);
+  else if (body?.groupIds != null && body.groupIds !== "") ids.push(body.groupIds);
+  if (body?.groupId != null && body.groupId !== "") ids.push(body.groupId);
+  return [...new Set(ids.map((id) => String(id).trim()).filter(Boolean))];
+}
+
+function uniqueStrippedGroupNames(names) {
+  const seen = new Set();
+  const out = [];
+  for (const raw of Array.isArray(names) ? names : []) {
+    const stripped = stripTakPrefix(raw);
+    if (!stripped) continue;
+    const key = stripped.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(stripped);
+  }
+  return out;
+}
+
+function sameStrippedGroupSet(a, b) {
+  const left = uniqueStrippedGroupNames(a)
+    .map((n) => n.toLowerCase())
+    .sort();
+  const right = uniqueStrippedGroupNames(b)
+    .map((n) => n.toLowerCase())
+    .sort();
+  if (left.length !== right.length) return false;
+  return left.every((v, i) => v === right[i]);
+}
+
+function unwrapDataFeed(payload) {
+  if (!payload || typeof payload !== "object") return null;
+  if (payload.data && typeof payload.data === "object" && !Array.isArray(payload.data)) {
+    return payload.data;
+  }
+  return payload;
+}
+
+function dataFeedWritePayload(feed, filtergroup) {
+  const src = feed && typeof feed === "object" ? feed : {};
+  const payload = {
+    type: src.type || "Streaming",
+    name: src.name,
+    protocol: src.protocol || "tls",
+    auth: src.auth || "X_509",
+    port: src.port,
+    coreVersion: src.coreVersion,
+    coreVersion2TlsVersions: src.coreVersion2TlsVersions || "",
+    group: src.group || "",
+    iface: src.iface || "",
+    syncCacheRetentionSeconds:
+      src.syncCacheRetentionSeconds != null ? String(src.syncCacheRetentionSeconds) : "3600",
+    archive: src.archive === true,
+    anongroup: src.anongroup === true,
+    archiveOnly: src.archiveOnly === true,
+    sync: src.sync === true,
+    federated: src.federated !== false,
+    tag: Array.isArray(src.tag) ? src.tag : [],
+    filtergroup,
+  };
+  if (src.uuid) payload.uuid = src.uuid;
+  return payload;
+}
+
+/**
+ * Update a TAK streaming data feed's filtergroup to match Authentik group membership exactly.
+ * Writes the feed before Authentik so a TAK failure leaves membership unchanged.
+ */
+async function syncDataFeedFilterGroups({ dataFeedName, nextGroupNames }) {
+  if (!dataFeedName || !takSvc.isTakConfigured()) {
+    return { updated: false, skipped: true };
+  }
+
+  const takClient = takSvc.buildTakAxios({ timeout: DATAFEED_WRITE_TIMEOUT_MS });
+  const dfRes = await takClient.get(`/api/datafeeds/${encodeURIComponent(dataFeedName)}`, {
+    validateStatus: (status) => status === 200 || status === 404,
+  });
+  if (dfRes.status === 404) {
+    return {
+      updated: false,
+      skipped: true,
+      warning: `Data feed "${dataFeedName}" was not found on TAK Server, so filter groups were not updated.`,
+    };
+  }
+
+  const feed = unwrapDataFeed(dfRes.data);
+  if (!feed || !feed.name) {
+    throw new Error("Could not read the existing TAK data feed.");
+  }
+
+  const existing = feed.filtergroup || feed.filterGroup || feed.filterGroups || [];
+  const next = uniqueStrippedGroupNames(nextGroupNames);
+  if (sameStrippedGroupSet(existing, next)) {
+    return { updated: false, skipped: true, filterGroups: next };
+  }
+
+  const payload = dataFeedWritePayload(feed, next);
+  await takClient.put(`/api/datafeeds/${encodeURIComponent(dataFeedName)}`, payload);
+  return { updated: true, filterGroups: next };
+}
+
 function parseStoredDataFeedPort(raw) {
   if (raw == null || raw === "") return null;
   const n = typeof raw === "number" ? raw : parseInt(String(raw), 10);
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** TAK Server feed creation can exceed the default 5s Marti axios timeout (CoreConfig + listener). */
+const DATAFEED_WRITE_TIMEOUT_MS = 30000;
+const DATAFEED_ROLLBACK_POLL_MS = 2000;
+const DATAFEED_ROLLBACK_MAX_ATTEMPTS = 6;
+
+function sleepMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isDataFeedNameAlreadyExistsError(err) {
+  const parts = [];
+  const data = err?.response?.data;
+  if (typeof data === "string") parts.push(data);
+  else if (data && typeof data === "object") {
+    if (typeof data.message === "string") parts.push(data.message);
+    if (typeof data.error === "string") parts.push(data.error);
+  }
+  if (err?.message) parts.push(err.message);
+  return /input name already exists/i.test(parts.join(" "));
+}
+
+function formatDataFeedCreateError(err) {
+  if (isDataFeedNameAlreadyExistsError(err)) {
+    return (
+      "A data feed with this name already exists on TAK Server. " +
+      "Remove the existing feed on TAK Server (or choose a different integration title) and try again."
+    );
+  }
+  return toErrorPayload(err);
+}
+
+/**
+ * Delete a data feed if present. Retries with delay so rollback can catch feeds that
+ * materialize after a timed-out create request finishes on TAK Server.
+ */
+async function deleteDataFeedIfPresent(dataFeedName, options = {}) {
+  if (!dataFeedName || !takSvc.isTakConfigured()) return;
+
+  const timeout = options.timeout ?? DATAFEED_WRITE_TIMEOUT_MS;
+  const maxAttempts = options.maxAttempts ?? DATAFEED_ROLLBACK_MAX_ATTEMPTS;
+  const delayMs = options.delayMs ?? DATAFEED_ROLLBACK_POLL_MS;
+  const takClient = takSvc.buildTakAxios({ timeout });
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const probe = await takClient.get(
+        `/api/datafeeds/${encodeURIComponent(dataFeedName)}`,
+        { validateStatus: (status) => status === 200 || status === 404 }
+      );
+      if (probe.status === 404) return;
+
+      await takClient.delete(`/api/datafeeds/${encodeURIComponent(dataFeedName)}`);
+      return;
+    } catch (err) {
+      if (attempt >= maxAttempts) throw err;
+    }
+    await sleepMs(delayMs);
+  }
 }
 
 /**
@@ -30,10 +194,9 @@ function parseStoredDataFeedPort(raw) {
 async function rollbackIntegrationCreation({ userId, username, dataFeedName }) {
   const un = String(username || "").toLowerCase();
 
-  if (dataFeedName && takSvc.isTakConfigured()) {
+  if (dataFeedName) {
     try {
-      const takClient = takSvc.buildTakAxios();
-      await takClient.delete(`/api/datafeeds/${encodeURIComponent(dataFeedName)}`);
+      await deleteDataFeedIfPresent(dataFeedName);
     } catch (err) {
       console.warn(
         `[integrations] Rollback: could not delete data feed "${dataFeedName}" for "${un}":`,
@@ -71,10 +234,12 @@ async function rollbackIntegrationCreation({ userId, username, dataFeedName }) {
 router.get("/", async (req, res) => {
   try {
     const list = await users.findIntegrationUsers();
-    const allGroups = await groupsSvc.getAllGroups({ includeHidden: true });
-    const groupByPk = new Map(
-      (allGroups || []).map((g) => [String(g.pk), g])
-    );
+    const pks = [];
+    for (const u of list) {
+      for (const g of Array.isArray(u.groups) ? u.groups : []) pks.push(String(g));
+    }
+    const named = await require("../services/directoryRepo.service").getGroupsByPks(pks);
+    const groupByPk = new Map((named || []).map((g) => [String(g.pk), g]));
 
     const usersWithGroupNames = list.map((u) => {
       const groupPks = Array.isArray(u.groups) ? u.groups : [];
@@ -83,7 +248,10 @@ router.get("/", async (req, res) => {
           const name = groupByPk.get(String(pk))?.name;
           return name ? stripTakPrefix(name) : null;
         })
-        .filter(Boolean);
+        .filter(Boolean)
+        .sort((a, b) =>
+          String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" })
+        );
       const dataFeedName = u.attributes?.tak_data_feed_name || null;
       return {
         pk: u.pk,
@@ -145,16 +313,17 @@ router.get("/", async (req, res) => {
 
 /**
  * POST /api/integrations
- * Create a new integration user: username "nodered-{slug from title}", single group.
+ * Create a new integration user: username "nodered-{slug from title}", one or more groups.
  * Mounted with requirePermission("page.integrations") in server.js.
  */
 router.post("/", async (req, res) => {
   let createdUserId = null;
   let createdUsername = null;
   let createdDataFeedName = null;
+  let dataFeedCreateAttempted = false;
 
   try {
-    const { type, title, groupId, state, county, agencySuffix, skipDataFeed, protocol, authType, port, coreVersion, coreVersion2TlsVersions, multicastGroup, iface, syncCacheRetention, archive, anongroup, archiveOnly, sync, federated, tags, filterGroups } = req.body || {};
+    const { type, title, groupId, groupIds, state, county, agencySuffix, skipDataFeed, protocol, authType, port, coreVersion, coreVersion2TlsVersions, multicastGroup, iface, syncCacheRetention, archive, anongroup, archiveOnly, sync, federated, tags } = req.body || {};
     const authUser = req.authentikUser || null;
     const createdBy = authUser
       ? {
@@ -175,6 +344,7 @@ router.post("/", async (req, res) => {
         type: type || "global",
         title: titleStr,
         groupId,
+        groupIds,
         state: state ? String(state).trim() : undefined,
         county: county ? String(county).trim() : undefined,
         agencySuffix: agencySuffix ? String(agencySuffix).trim() : undefined,
@@ -192,7 +362,9 @@ router.post("/", async (req, res) => {
 
     if (!isSkipDataFeed && finalDataFeedName && takSvc.isTakConfigured()) {
       const payloadTags = tags ? tags.split(/[\n,]+/).map(t => t.trim()).filter(Boolean) : [];
-      const strippedGroups = Array.isArray(filterGroups) ? filterGroups.map(stripTakPrefix) : [];
+      const strippedGroups = uniqueStrippedGroupNames(
+        (Array.isArray(result?.groups) ? result.groups : []).map((g) => g?.name)
+      );
 
       const dataFeedPayload = {
         type: "Streaming",
@@ -214,9 +386,10 @@ router.post("/", async (req, res) => {
         filtergroup: strippedGroups,
       };
 
-      const takClient = takSvc.buildTakAxios();
-      await takClient.post("/api/datafeeds", dataFeedPayload);
       createdDataFeedName = finalDataFeedName;
+      dataFeedCreateAttempted = true;
+      const takClient = takSvc.buildTakAxios({ timeout: DATAFEED_WRITE_TIMEOUT_MS });
+      await takClient.post("/api/datafeeds", dataFeedPayload);
 
       try {
         if (result && result.user && result.user.pk) {
@@ -230,10 +403,10 @@ router.post("/", async (req, res) => {
       }
     }
 
-    const groupName =
-      Array.isArray(result?.groups) && result.groups[0]
-        ? result.groups[0].name
-        : "";
+    const groupNames = Array.isArray(result?.groups)
+      ? result.groups.map((g) => g?.name).filter(Boolean)
+      : [];
+    const groupLabel = groupNames.join(", ");
     auditSvc.logEvent({
       actor: authUser,
       request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
@@ -242,10 +415,11 @@ router.post("/", async (req, res) => {
       targetId: String(result?.user?.pk || ""),
       details: {
         username: result?.user?.username,
-        group: groupName,
+        group: groupLabel,
+        groups: groupNames,
         certBundleReady: true,
         summary: `Created integration user ${result?.user?.username || ""}${
-          groupName ? ` in group ${groupName}` : ""
+          groupLabel ? ` in group${groupNames.length > 1 ? "s" : ""} ${groupLabel}` : ""
         }. Client certificate bundle was prepared successfully.`,
       },
     });
@@ -281,7 +455,7 @@ router.post("/", async (req, res) => {
       }
     }
 
-    const baseError = toErrorPayload(err);
+    const baseError = dataFeedCreateAttempted ? formatDataFeedCreateError(err) : toErrorPayload(err);
     const message = rollbackError
       ? `${baseError} Rollback also failed: ${rollbackError}`
       : createdUserId
@@ -312,9 +486,33 @@ router.get("/:userId/certs/download", async (req, res) => {
     const safeName = String(username).replace(/[^a-z0-9-]/g, "");
     const includesP12 =
       !!(certPaths.p12Path && fs.existsSync(certPaths.p12Path));
-    const fileList = includesP12
-      ? `${safeName}.pem, ${safeName}.key, ${safeName}.p12`
-      : `${safeName}.pem, ${safeName}.key`;
+
+    let intermediateTrust = null;
+    let intermediateError = "";
+    try {
+      intermediateTrust = await takSshSvc.fetchTakIntermediateTruststoreP12FromRemote();
+    } catch (err) {
+      intermediateError = String(err?.message || err || "Intermediate truststore unavailable");
+      console.warn(
+        `[integrations] Intermediate truststore not included in cert zip for "${username}":`,
+        intermediateError
+      );
+    }
+    const intermediateFileName =
+      intermediateTrust && intermediateTrust.p12 && intermediateTrust.p12.length
+        ? String(intermediateTrust.fileName || "truststore-intermediate.p12")
+        : "";
+
+    const filesIncluded = includesP12 ? ["pem", "key", "p12"] : ["pem", "key"];
+    if (intermediateFileName) filesIncluded.push("intermediateTruststore");
+    const fileListParts = [
+      `${safeName}.pem`,
+      `${safeName}.key`,
+      ...(includesP12 ? [`${safeName}.p12`] : []),
+      ...(intermediateFileName ? [intermediateFileName] : []),
+    ];
+    const fileList = fileListParts.join(", ");
+
     auditSvc.logEvent({
       actor: req.authentikUser || null,
       request: {
@@ -329,7 +527,10 @@ router.get("/:userId/certs/download", async (req, res) => {
         username,
         displayName: String(user?.name || "").trim() || undefined,
         zipFileName: `${safeName}-certs.zip`,
-        filesIncluded: includesP12 ? ["pem", "key", "p12"] : ["pem", "key"],
+        filesIncluded,
+        intermediateTruststore: intermediateFileName || undefined,
+        intermediateTruststoreSource: intermediateTrust?.sourcePath || undefined,
+        intermediateTruststoreSkipped: intermediateFileName ? undefined : intermediateError || undefined,
         summary: `Downloaded integration certificate bundle for ${username} (${fileList} in zip).`,
       },
     });
@@ -353,6 +554,9 @@ router.get("/:userId/certs/download", async (req, res) => {
     if (certPaths.p12Path && fs.existsSync(certPaths.p12Path)) {
       archive.file(certPaths.p12Path, { name: `${safeName}.p12` });
     }
+    if (intermediateTrust?.p12?.length && intermediateFileName) {
+      archive.append(intermediateTrust.p12, { name: intermediateFileName });
+    }
     archive.finalize();
   } catch (err) {
     res.status(400).json({ error: toErrorPayload(err) });
@@ -361,21 +565,68 @@ router.get("/:userId/certs/download", async (req, res) => {
 
 /**
  * PUT /api/integrations/:userId/group
- * Set the integration user's group (replaces current). Only for nodered- users; bypasses action lock.
+ * Set the integration user's groups (replaces current). Only for nodered- users; bypasses action lock.
+ * If the integration has a TAK data feed, its filter groups are updated first so a TAK failure
+ * leaves Authentik membership unchanged.
  */
 router.put("/:userId/group", async (req, res) => {
   try {
     const userId = req.params.userId;
-    const { groupId } = req.body || {};
     const user = await users.getUserById(userId);
     const username = String(user?.username || "").toLowerCase();
     if (!username.startsWith("nodered-")) {
       return res.status(403).json({ error: "Not an integration user." });
     }
-    const groupIdStr = String(groupId || "").trim();
-    if (!groupIdStr) return res.status(400).json({ error: "groupId required." });
-    await users.setUserGroups(userId, [groupIdStr], { ignoreLocks: true });
+    const requestedIds = uniqueRequestedGroupIds(req.body || {});
+    if (!requestedIds.length) {
+      return res.status(400).json({ error: "At least one group is required." });
+    }
+
+    const selectedGroups = await require("../services/directoryRepo.service").getGroupsByPks(requestedIds);
+    if (selectedGroups.length !== requestedIds.length) {
+      throw new Error("Selected group not found.");
+    }
+    const groupNames = selectedGroups.map((g) => g.name).filter(Boolean);
+
+    const dataFeedName = String(user.attributes?.tak_data_feed_name || "").trim();
+    let dataFeedUpdated = false;
+    let dataFeedWarning = "";
+    if (dataFeedName) {
+      if (!takSvc.isTakConfigured()) {
+        dataFeedWarning =
+          "TAK Server is not configured, so the data feed filter groups were not updated.";
+      } else {
+        try {
+          const feedSync = await syncDataFeedFilterGroups({
+            dataFeedName,
+            nextGroupNames: groupNames,
+          });
+          dataFeedUpdated = !!feedSync.updated;
+          if (feedSync.warning) dataFeedWarning = feedSync.warning;
+        } catch (feedErr) {
+          return res.status(400).json({
+            error:
+              "Groups were not changed because updating the TAK data feed failed: " +
+              toErrorPayload(feedErr),
+          });
+        }
+      }
+    }
+
+    await users.setUserGroups(userId, requestedIds, { ignoreLocks: true });
+    try {
+      await users.updateUserAttributes(userId, {
+        tak_integration_group: groupNames.join(","),
+      });
+    } catch (attrErr) {
+      console.warn(
+        "Failed to update tak_integration_group after group change:",
+        attrErr?.message || attrErr
+      );
+    }
+
     const authUser = req.authentikUser || null;
+    const groupLabel = groupNames.join(", ") || requestedIds.join(", ");
     auditSvc.logEvent({
       actor: authUser,
       request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
@@ -384,11 +635,27 @@ router.put("/:userId/group", async (req, res) => {
       targetId: String(userId),
       details: {
         username: user?.username,
-        groupId: groupIdStr,
-        summary: `Changed integration user ${user?.username || userId} to Authentik group id ${groupIdStr}.`,
+        groupId: requestedIds[0],
+        groupIds: requestedIds,
+        groups: groupNames,
+        dataFeedName: dataFeedName || undefined,
+        dataFeedUpdated: dataFeedName ? dataFeedUpdated : undefined,
+        summary: `Changed integration user ${user?.username || userId} to Authentik group${
+          requestedIds.length > 1 ? "s" : ""
+        } ${groupLabel}.${
+          dataFeedUpdated
+            ? ` Updated data feed "${dataFeedName}" filter groups.`
+            : dataFeedName
+              ? " Data feed filter groups were not changed."
+              : ""
+        }`,
       },
     });
-    res.json({ success: true });
+    res.json({
+      success: true,
+      dataFeedUpdated,
+      dataFeedWarning: dataFeedWarning || undefined,
+    });
   } catch (err) {
     res.status(400).json({ error: toErrorPayload(err) });
   }
@@ -480,7 +747,7 @@ router.post("/:username/datafeed", async (req, res) => {
       return res.status(400).json({ error: "Integration already has an associated Data Feed." });
     }
 
-    const { protocol, authType, port, coreVersion, coreVersion2TlsVersions, multicastGroup, iface, syncCacheRetention, archive, anongroup, archiveOnly, sync, federated, tags, filterGroups } = req.body || {};
+    const { protocol, authType, port, coreVersion, coreVersion2TlsVersions, multicastGroup, iface, syncCacheRetention, archive, anongroup, archiveOnly, sync, federated, tags } = req.body || {};
 
     const titleForFeed = String(user.attributes?.integration_title || "").trim();
     if (!titleForFeed) {
@@ -502,7 +769,14 @@ router.post("/:username/datafeed", async (req, res) => {
     }
 
     const payloadTags = tags ? tags.split(/[\n,]+/).map(t => t.trim()).filter(Boolean) : [];
-    const strippedGroups = Array.isArray(filterGroups) ? filterGroups.map(stripTakPrefix) : [];
+    const named = await require("../services/directoryRepo.service").getGroupsByPks(
+      Array.isArray(user.groups) ? user.groups : []
+    );
+    const groupByPk = new Map((named || []).map((g) => [String(g.pk), g]));
+    const userGroupNames = (Array.isArray(user.groups) ? user.groups : [])
+      .map((id) => groupByPk.get(String(id))?.name)
+      .filter(Boolean);
+    const strippedGroups = uniqueStrippedGroupNames(userGroupNames);
     
     const dataFeedPayload = {
       type: "Streaming",
@@ -524,7 +798,7 @@ router.post("/:username/datafeed", async (req, res) => {
       filtergroup: strippedGroups
     };
 
-    const takClient = takSvc.buildTakAxios();
+    const takClient = takSvc.buildTakAxios({ timeout: DATAFEED_WRITE_TIMEOUT_MS });
     await takClient.post("/api/datafeeds", dataFeedPayload);
 
     await users.updateUserAttributes(user.pk, {
@@ -547,8 +821,7 @@ router.post("/:username/datafeed", async (req, res) => {
 
     res.json({ message: "Data Feed successfully created and bound to Integration." });
   } catch (err) {
-    const upstreamError = err?.response?.data?.message || err?.message || String(err);
-    res.status(500).json({ error: "TAK Server Error: " + upstreamError });
+    res.status(500).json({ error: "TAK Server Error: " + formatDataFeedCreateError(err) });
   }
 });
 

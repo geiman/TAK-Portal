@@ -52,9 +52,15 @@ function toErrorPayload(err) {
   return toSafeApiError(err);
 }
 
+function statusForError(err, fallback = 400) {
+  const s = Number(err?.status);
+  if (s === 403 || s === 404) return s;
+  return fallback;
+}
+
 router.get("/", (req, res) => {
   try {
-    const out = mutualAid.list();
+    const out = mutualAid.listForUser(req.authentikUser || null);
     res.json(out);
   } catch (err) {
     res.status(500).json({ error: toErrorPayload(err) });
@@ -63,6 +69,8 @@ router.get("/", (req, res) => {
 
 router.post("/", async (req, res) => {
   try {
+    const authUser = req.authentikUser || null;
+    const createdBy = mutualAid.buildCreatedByFromAuthUser(authUser);
     const out = await mutualAid.create({
       type: req.body?.type,
       title: req.body?.title,
@@ -70,11 +78,12 @@ router.post("/", async (req, res) => {
       expireAt: req.body?.expireAt,
       groupMode: req.body?.groupMode,
       existingGroupId: req.body?.existingGroupId,
-      password: req.body?.password,
+      createdBy,
+      authUser,
     });
 
     auditSvc.logEvent({
-      actor: req.authentikUser || null,
+      actor: authUser,
       request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
       action: "CREATE_MUTUAL_AID",
       targetType: "mutual_aid",
@@ -89,52 +98,69 @@ router.post("/", async (req, res) => {
         existingGroupId: out?.existingGroupId,
         groupName: out?.groupName,
         username: out?.username,
+        createdByRole: out?.createdBy?.role || null,
       },
     });
 
     res.json({ success: true, item: out });
   } catch (err) {
-    res.status(400).json({ error: toErrorPayload(err) });
+    res.status(statusForError(err)).json({ error: toErrorPayload(err) });
   }
 });
 
 router.post("/:id/additional-user", async (req, res) => {
   try {
-    const out = await mutualAid.createLinkedUser({
+    const authUser = req.authentikUser || null;
+    mutualAid.assertCanManage(authUser, req.params.id);
+    const items = await mutualAid.createLinkedUsers({
       parentId: req.params.id,
+      count: req.body?.count,
+      autoName: req.body?.autoName,
       title: req.body?.title,
       expireEnabled: req.body?.expireEnabled,
       expireAt: req.body?.expireAt,
-      password: req.body?.password,
+      authUser,
     });
+    const out = items[0] || null;
+    const usernames = items.map((it) => it?.username).filter(Boolean);
 
     auditSvc.logEvent({
-      actor: req.authentikUser || null,
+      actor: authUser,
       request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
       action: "CREATE_MUTUAL_AID_LINKED_USER",
       targetType: "mutual_aid",
       targetId: String(out?.title || out?.id || ""),
       details: {
-        summary: auditDetails.buildMutualAidSummary("CREATE_MUTUAL_AID_LINKED_USER", out),
+        summary:
+          items.length > 1
+            ? `Created ${items.length} additional one time users (${usernames.join(", ")}).`
+            : auditDetails.buildMutualAidSummary("CREATE_MUTUAL_AID_LINKED_USER", out),
         parentId: String(req.params.id),
+        count: items.length,
         type: out?.type,
         title: out?.title,
+        titles: items.map((it) => it?.title).filter(Boolean),
         groupId: out?.groupId,
         groupName: out?.groupName,
         groupMasterId: out?.groupMasterId,
         username: out?.username,
+        usernames,
+        createdByRole: out?.createdBy?.role || null,
       },
     });
 
-    res.json({ success: true, item: out });
+    res.json({ success: true, items, item: out });
   } catch (err) {
-    res.status(400).json({ error: toErrorPayload(err) });
+    res.status(statusForError(err)).json({ error: toErrorPayload(err) });
   }
 });
 
 router.patch("/:id", uploadMaLogo.single("logo"), async (req, res) => {
   try {
-    const before = mutualAid.list().find((x) => String(x?.id) === String(req.params.id)) || null;
+    const authUser = req.authentikUser || null;
+    mutualAid.assertCanEdit(authUser, req.params.id);
+    const before =
+      mutualAid.list().find((x) => String(x?.id) === String(req.params.id)) || null;
     const removeLogo =
       req.body?.removeLogo === true ||
       req.body?.removeLogo === "true" ||
@@ -150,7 +176,7 @@ router.patch("/:id", uploadMaLogo.single("logo"), async (req, res) => {
     });
 
     auditSvc.logEvent({
-      actor: req.authentikUser || null,
+      actor: authUser,
       request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
       action: "UPDATE_MUTUAL_AID",
       targetType: "mutual_aid",
@@ -184,17 +210,20 @@ router.patch("/:id", uploadMaLogo.single("logo"), async (req, res) => {
 
     res.json({ success: true, item: out });
   } catch (err) {
-    res.status(400).json({ error: toErrorPayload(err) });
+    res.status(statusForError(err)).json({ error: toErrorPayload(err) });
   }
 });
 
 router.delete("/:id", async (req, res) => {
   try {
-    const before = mutualAid.list().find((x) => String(x?.id) === String(req.params.id)) || null;
+    const authUser = req.authentikUser || null;
+    mutualAid.assertCanEdit(authUser, req.params.id);
+    const before =
+      mutualAid.list().find((x) => String(x?.id) === String(req.params.id)) || null;
     const out = await mutualAid.remove({ id: req.params.id });
 
     auditSvc.logEvent({
-      actor: req.authentikUser || null,
+      actor: authUser,
       request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
       action: "DELETE_MUTUAL_AID",
       targetType: "mutual_aid",
@@ -210,27 +239,77 @@ router.delete("/:id", async (req, res) => {
 
     res.json(out);
   } catch (err) {
-    res.status(400).json({ error: toErrorPayload(err) });
+    res.status(statusForError(err)).json({ error: toErrorPayload(err) });
+  }
+});
+
+router.get("/:id/admin-access", (req, res) => {
+  try {
+    const authUser = req.authentikUser || null;
+    const out = mutualAid.getAdminAccess(authUser, req.params.id);
+    res.json(out);
+  } catch (err) {
+    res.status(statusForError(err)).json({ error: toErrorPayload(err) });
+  }
+});
+
+router.put("/:id/admin-access", (req, res) => {
+  try {
+    const authUser = req.authentikUser || null;
+    const item = mutualAid.assertCanDelegate(authUser, req.params.id);
+    const raw = req.body?.agencySuffixes;
+    const out = mutualAid.setAdminAccess(authUser, req.params.id, raw);
+
+    const agencies = require("../services/agencies.service").load() || [];
+    const selectedNames = (out.delegatedAgencySuffixes || []).map((sfx) => {
+      const ag = agencies.find(
+        (a) => String(a?.suffix || "").trim().toLowerCase() === String(sfx)
+      );
+      return String(ag?.name || sfx);
+    });
+
+    auditSvc.logEvent({
+      actor: authUser,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "UPDATE_MUTUAL_AID_ADMIN_ACCESS",
+      targetType: "mutual_aid",
+      targetId: String(item?.title || req.params.id),
+      details: {
+        title: item?.title,
+        type: item?.type,
+        groupName: item?.groupName,
+        delegatedAgencySuffixes: out.delegatedAgencySuffixes,
+        selectedAgencyNames: selectedNames,
+        updatedIds: out.updatedIds,
+        summary: `Updated which agencies can manage mutual aid "${item?.title || req.params.id}" (${(out.delegatedAgencySuffixes || []).length} delegated).`,
+      },
+    });
+
+    res.json(out);
+  } catch (err) {
+    res.status(statusForError(err)).json({ error: toErrorPayload(err) });
   }
 });
 
 router.get("/:id/qr", async (req, res) => {
   try {
+    mutualAid.assertCanManage(req.authentikUser || null, req.params.id);
     const out = await mutualAid.getQr({ id: req.params.id });
     res.json(out);
   } catch (err) {
-    res.status(400).json({ error: toErrorPayload(err) });
+    res.status(statusForError(err)).json({ error: toErrorPayload(err) });
   }
 });
 
 router.get("/:id/qr/download", async (req, res) => {
   try {
+    mutualAid.assertCanManage(req.authentikUser || null, req.params.id);
     const out = await mutualAid.getQrDownload({ id: req.params.id });
     res.setHeader("Content-Type", "image/png");
     res.setHeader("Content-Disposition", `attachment; filename="${out.filename}"`);
     res.send(out.pngBuffer);
   } catch (err) {
-    res.status(400).send(toErrorPayload(err));
+    res.status(statusForError(err)).send(toErrorPayload(err));
   }
 });
 
@@ -251,6 +330,7 @@ router.post("/:id/packet/email", (req, res, next) => {
 }, async (req, res) => {
   try {
     const id = req.params.id;
+    mutualAid.assertCanManage(req.authentikUser || null, id);
     const toRaw = req.body?.to || req.body?.emails || "";
     const pdfBase64 = req.body?.pdfBase64 || "";
     const filename = req.body?.filename || req.file?.originalname || "deployment-packet.pdf";
@@ -337,7 +417,7 @@ Sent from TAK Portal.
 
     res.json({ success: true });
   } catch (err) {
-    res.status(400).json({ error: toErrorPayload(err) });
+    res.status(statusForError(err)).json({ error: toErrorPayload(err) });
   }
 });
 

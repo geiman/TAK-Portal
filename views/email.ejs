@@ -10,8 +10,8 @@
     emailMode: true
   }) %>
 
-  <div class="card">
-    <h2 style="margin-top:0;">Choose Recipients</h2>
+  <div class="card createFormCard">
+    <h2>Choose Recipients</h2>
 
     <%
       const settingsObj = (typeof settings !== "undefined" && settings) ? settings : {};
@@ -20,13 +20,14 @@
     %>
 
     <% if (!emailEnabled) { %>
-      <div class="alert error" style="margin-bottom:12px;">
+      <div class="alert error">
         Email is currently disabled. Configure SMTP and set EMAIL_ENABLED=true in Settings to use this page.
       </div>
     <% } %>
 
-    <label style="display:block; margin-bottom:6px;">Send to</label>
-    <div class="segmented" style="margin-bottom:14px;">
+    <div class="createForm">
+    <label>Send to
+    <div class="segmented">
       <button class="segBtn active" type="button" data-mode="agency"><%= (agencyOnlyEmailPage && !(typeof isMultiAgencyAdmin !== "undefined" && isMultiAgencyAdmin)) ? "Entire Agency" : "Agency" %></button>
       <% if (isGlobalAdmin) { %>
         <button class="segBtn" type="button" data-mode="agency_admins">Agency Admins</button>
@@ -38,10 +39,11 @@
         <button class="segBtn" type="button" data-mode="all_agency_admins" id="emailAllAgencyAdminsModeBtn">All Agency Admins</button>
       <% } %>
     </div>
+    </label>
 
     <% if (isGlobalAdmin || (agencyOnlyEmailPage && typeof isMultiAgencyAdmin !== "undefined" && isMultiAgencyAdmin)) { %>
     <!-- Agency: dropdown (global admins and multi-agency admins) -->
-    <div id="emailAgencyPane" style="margin-top:8px;">
+    <div id="emailAgencyPane">
       <label class="email-dropdown-label">Agencies</label>
       <div id="emailAgencyDropdown" class="email-dropdown filter-multiselect">
         <button type="button" class="btn filter-toggle email-dropdown-toggle" id="emailAgencyToggle">Select agencies ▾</button>
@@ -60,7 +62,7 @@
     <% } %>
 
     <!-- Groups: dropdown with checkboxes -->
-    <div id="emailGroupsPane" style="display:none; margin-top:8px;">
+    <div id="emailGroupsPane" style="display:none;">
       <label class="email-dropdown-label">Groups</label>
       <div id="emailGroupDropdown" class="email-dropdown filter-multiselect">
         <button type="button" class="btn filter-toggle email-dropdown-toggle" id="emailGroupToggle">Select groups ▾</button>
@@ -78,7 +80,7 @@
     </div>
 
     <!-- Users: dropdown with checkboxes -->
-    <div id="emailUsersPane" style="display:none; margin-top:8px;">
+    <div id="emailUsersPane" style="display:none;">
       <label class="email-dropdown-label">Users</label>
       <div id="emailUserDropdown" class="email-dropdown filter-multiselect">
         <button type="button" class="btn filter-toggle email-dropdown-toggle" id="emailUserToggle">Select users ▾</button>
@@ -96,7 +98,7 @@
     </div>
 
     <!-- All users (global admins only) -->
-    <div id="emailAllPane" style="display:none; margin-top:8px;">
+    <div id="emailAllPane" style="display:none;">
       <p>
         This will send an email to <strong>all users across all agencies</strong>.
       </p>
@@ -107,7 +109,7 @@
     </div>
 
     <!-- All agency admins (global admins only) -->
-    <div id="emailAllAgencyAdminsPane" style="display:none; margin-top:8px;">
+    <div id="emailAllAgencyAdminsPane" style="display:none;">
       <p>
         This will send an email to <strong>all users in any agency admin group</strong> across all agencies.
       </p>
@@ -116,17 +118,19 @@
         <span>I understand and want to email all agency admins.</span>
       </label>
     </div>
+    </div>
   </div>
 
-  <div class="card" style="margin-top:16px;">
-    <h2 style="margin-top:0;">Compose Message</h2>
+  <div class="card createFormCard">
+    <h2>Compose Message</h2>
 
+    <div class="createForm">
     <label>
       Subject
       <input id="emailSubject" placeholder="Subject" />
     </label>
 
-    <label style="margin-top:8px;">
+    <label>
       Message
       <textarea
         id="emailBody"
@@ -136,7 +140,7 @@
       ></textarea>
     </label>
 
-    <div class="row" style="margin-top:12px; align-items:center; justify-content:space-between;">
+    <div class="row createActionsRow" style="align-items:center; justify-content:space-between;">
       <span id="emailStatus" class="msg"></span>
       <div class="row" style="gap:8px;">
         <button class="btn" type="button" id="emailResetBtn">Reset</button>
@@ -144,6 +148,7 @@
           Send Email
         </button>
       </div>
+    </div>
     </div>
   </div>
 </main>
@@ -211,6 +216,30 @@
 .email-dropdown .filter-option span { flex: 1; min-width: 0; text-align: left; }
 .email-dropdown-actions { display: flex; gap: 10px; flex-shrink: 0; }
 .email-dropdown-actions .link-btn { padding: 4px 0; font-size: 12px; }
+
+@media (max-width: 990px) {
+  .email-dropdown.filter-multiselect {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+  }
+  .email-dropdown .filter-toggle,
+  .email-dropdown-toggle {
+    width: 100%;
+  }
+  .email-dropdown .filter-menu {
+    left: 0;
+    right: 0;
+    min-width: 0;
+    max-width: 100%;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .segmented .segBtn {
+    flex: 1 1 auto;
+    text-align: center;
+  }
+}
 .email-managed-chips {
   display: inline-flex;
   flex-wrap: wrap;
@@ -311,7 +340,8 @@
         emailAllAgencyAdminsPane.style.display =
           mode === "all_agency_admins" ? "block" : "none";
       }
-      if (mode === "users" && usersCache.length === 0) loadEmailUsers();
+      if (mode === "users") loadEmailUsers();
+      if (mode === "groups") loadEmailGroups();
       updateEmailDropdownLabels();
     }
 
@@ -402,20 +432,18 @@
 
     function renderEmailGroupList() {
       if (!emailGroupListInner) return;
-      const needle = String(emailGroupSearch.value || "").trim().toLowerCase();
-      const items = (groupsCache || [])
-        .slice()
-        .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")))
-        .filter((g) =>
-          !needle
-            ? true
-            : String(g.name || "").toLowerCase().includes(needle)
-        );
+      const needle = String(emailGroupSearch && emailGroupSearch.value || "").trim().toLowerCase();
+      const items = (groupsCache || []).filter((g) => {
+        if (!needle) return true;
+        const raw = String(g.name || "").toLowerCase();
+        const display = raw.replace(/^tak[_-]/i, "");
+        return raw.includes(needle) || display.includes(needle);
+      });
 
       emailGroupListInner.innerHTML =
         items
           .map((g) => {
-            const id = String(g.pk);
+            const id = String(g.pk || g.id || "");
             const checked = selectedGroupIdsSet.has(id) ? " checked" : "";
             const rawName = String(g.name || "");
             const displayName = rawName.replace(/^tak[_-]/i, "");
@@ -427,7 +455,9 @@
             `;
           })
           .join("") ||
-        `<div style="padding:10px; color: var(--muted);">No groups found.</div>`;
+        `<div style="padding:10px; color: var(--muted);">${
+          (groupsCache || []).length ? "No matching groups." : "No groups found."
+        }</div>`;
       updateEmailDropdownLabels();
     }
 
@@ -446,12 +476,14 @@
 
     async function loadEmailGroups() {
       try {
-        const groupsUrl = IS_GLOBAL_ADMIN
-          ? "/api/groups?includeMutualAid=1"
-          : "/api/groups";
-        const res = await fetch(groupsUrl);
+        const params = new URLSearchParams();
+        if (IS_GLOBAL_ADMIN) params.set("includeMutualAid", "1");
+        const qs = params.toString();
+        const res = await fetch("/api/groups" + (qs ? "?" + qs : ""));
         const out = await res.json();
-        groupsCache = res.ok && Array.isArray(out) ? out : [];
+        groupsCache = res.ok
+          ? (Array.isArray(out) ? out : (Array.isArray(out.groups) ? out.groups : []))
+          : [];
         renderEmailGroupList();
       } catch (e) {
         groupsCache = [];
@@ -461,20 +493,15 @@
 
     async function loadEmailUsers() {
       try {
-        usersCache = [];
-        let page = 1;
-        const pageSize = 500;
-        let hasNext = true;
-        while (hasNext) {
-          const res = await fetch(
-            `/api/users/search?q=&page=${page}&pageSize=${pageSize}`
-          );
-          const out = await res.json();
-          if (!res.ok || !Array.isArray(out.users)) break;
-          usersCache = usersCache.concat(out.users);
-          hasNext = !!out.hasNext;
-          page += 1;
-        }
+        const q = String(emailUserSearch && emailUserSearch.value || "").trim();
+        const params = new URLSearchParams({
+          q,
+          page: "1",
+          pageSize: "25",
+        });
+        const res = await fetch("/api/users/search?" + params.toString());
+        const out = await res.json();
+        usersCache = res.ok && Array.isArray(out.users) ? out.users : [];
         renderEmailUserList();
       } catch (e) {
         usersCache = [];
@@ -484,25 +511,7 @@
 
     function renderEmailUserList() {
       if (!emailUserListInner) return;
-      const needle = String(emailUserSearch.value || "").trim().toLowerCase();
-      const items = (usersCache || [])
-        .slice()
-        .sort((a, b) =>
-          String(a.name || a.username || "").localeCompare(
-            String(b.name || b.username || "")
-          )
-        )
-        .filter((u) => {
-          if (!needle) return true;
-          const name = String(u.name || "").toLowerCase();
-          const username = String(u.username || "").toLowerCase();
-          const email = String(u.email || "").toLowerCase();
-          return (
-            name.includes(needle) ||
-            username.includes(needle) ||
-            email.includes(needle)
-          );
-        });
+      const items = (usersCache || []).slice();
 
       emailUserListInner.innerHTML =
         items
@@ -527,7 +536,7 @@
           })
           .filter(Boolean)
           .join("") ||
-        `<div style="padding:10px; color: var(--muted);">No users found.</div>`;
+        `<div style="padding:10px; color: var(--muted);">Type to search users.</div>`;
       updateEmailDropdownLabels();
     }
 
@@ -727,7 +736,10 @@
       emailGroupSearch.addEventListener("input", renderEmailGroupList);
     }
     if (emailUserSearch) {
-      emailUserSearch.addEventListener("input", renderEmailUserList);
+      emailUserSearch.addEventListener("input", () => {
+        clearTimeout(window.__emailUserSearchTimer);
+        window.__emailUserSearchTimer = setTimeout(loadEmailUsers, 280);
+      });
     }
 
     // Keep selection in sync when checkboxes change (event delegation)
@@ -795,11 +807,8 @@
     }
     if (emailGroupSelectAll) {
       emailGroupSelectAll.onclick = () => {
-        const needle = String(emailGroupSearch.value || "").trim().toLowerCase();
-        const items = (groupsCache || [])
-          .filter((g) =>
-            !needle ? true : String(g.name || "").toLowerCase().includes(needle)
-          );
+        const items = groupsCache || [];
+        items.forEach((g) => selectedGroupIdsSet.add(String(g.pk)));
         items.forEach((g) => selectedGroupIdsSet.add(String(g.pk)));
         renderEmailGroupList();
       };
@@ -812,14 +821,7 @@
     }
     if (emailUserSelectAll) {
       emailUserSelectAll.onclick = () => {
-        const needle = String(emailUserSearch.value || "").trim().toLowerCase();
-        const items = (usersCache || []).filter((u) => {
-          if (!needle) return true;
-          const name = String(u.name || "").toLowerCase();
-          const username = String(u.username || "").toLowerCase();
-          const email = String(u.email || "").toLowerCase();
-          return name.includes(needle) || username.includes(needle) || email.includes(needle);
-        });
+        const items = usersCache || [];
         items.forEach((u) => {
           const username = String(u.username || "").trim();
           if (username) selectedUsernamesSet.add(username);
@@ -842,7 +844,7 @@
     }
 
     // Initial load
-    Promise.all([loadEmailAgencies(), loadEmailGroups()]).catch(() => {});
+    Promise.all([loadEmailAgencies()]).catch(() => {});
     setEmailMode("agency");
   })();
 </script>

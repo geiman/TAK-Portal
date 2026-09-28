@@ -3,6 +3,7 @@ const { getBool, getString } = require("./env");
 const accessSvc = require("./access.service");
 const { parseGroupList } = require("./authzRoles.service");
 const permsSvc = require("./permissions.service");
+const activeUserGate = require("./activeUserGate.service");
 
 /**
  * Optional Authentik-based access control with role levels.
@@ -25,6 +26,7 @@ const PUBLIC_PATHS = new Set([
   "/setup-my-device",
   "/request-access",
   "/request-access/confirmation",
+  "/api/system/health",
   // Token in query is the credential; session may be expired when saving high-res QR.
   "/api/qr/download",
   "/styles.css",
@@ -45,6 +47,12 @@ function attachPermissions(req, res, authUser, authEnabled) {
 }
 
 function portalAuthMiddleware(req, res, next) {
+  Promise.resolve()
+    .then(() => portalAuthMiddlewareAsync(req, res, next))
+    .catch((err) => next(err));
+}
+
+async function portalAuthMiddlewareAsync(req, res, next) {
   const authEnabled = getBool("PORTAL_AUTH_ENABLED", false);
   const method = String(req.method || "").toUpperCase();
 
@@ -73,7 +81,7 @@ function portalAuthMiddleware(req, res, next) {
     (method === "GET" &&
       /^\/request-access\/[a-f0-9]{32,64}\/(data|meta)$/i.test(normalizedPath)) ||
     (method === "POST" &&
-      /^\/request-access\/[a-f0-9]{32,64}\/(approve|reject)$/i.test(normalizedPath));
+      /^\/request-access\/[a-f0-9]{32,64}\/(approve|reject|create-agency)$/i.test(normalizedPath));
   const isPublicMouExternalSign =
     (method === "GET" &&
       /^\/request-access\/mou\/[a-f0-9]{32,64}$/i.test(normalizedPath)) ||
@@ -90,6 +98,8 @@ function portalAuthMiddleware(req, res, next) {
     method === "GET" &&
     normalizedPath.startsWith("/api/plugins/") &&
     normalizedPath.endsWith("/download");
+  const isAtakApkDownloadApi =
+    method === "GET" && normalizedPath === "/api/atak/download";
 
   // ============================================================
   // AUTH DISABLED => EVERYTHING WIDE OPEN + BOOTSTRAP ADMIN USER
@@ -206,7 +216,12 @@ function portalAuthMiddleware(req, res, next) {
         normalizedPath === "/api/mou/user-agreement/accept" ||
         normalizedPath === "/api/mou/user-agreement/decline" ||
         normalizedPath === "/plugins" ||
-        isPluginDownloadApi;
+        normalizedPath === "/map" ||
+        normalizedPath.startsWith("/map/") ||
+        normalizedPath === "/api/map" ||
+        normalizedPath.startsWith("/api/map/") ||
+        isPluginDownloadApi ||
+        isAtakApkDownloadApi;
       if (!isAllowedNonAdminPath) {
         return deny();
       }
@@ -220,6 +235,16 @@ function portalAuthMiddleware(req, res, next) {
     if (!permsSvc.canAccessPath(eff, normalizedPath, method)) {
       return deny();
     }
+  }
+
+  // Local directory disable: cheap cached check so open admin sessions die
+  // within TTL without a DB hit on every request.
+  const locallyActive = await activeUserGate.isLocalUserActive(username);
+  if (!locallyActive) {
+    if (normalizedPath.startsWith("/api/")) {
+      return res.status(403).json({ ok: false, error: "Account is disabled" });
+    }
+    return res.redirect("/logout");
   }
 
   const displayNameHeader =

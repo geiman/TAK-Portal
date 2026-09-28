@@ -121,6 +121,34 @@ function buildDeploymentOptionLabel(name, settings, keyMap) {
   return definition ? `${name} — ${definition}` : name;
 }
 
+function teamColorDisplayLabel(name, settings = {}) {
+  const n = String(name || "").trim();
+  if (!n) return "";
+  return buildDeploymentOptionLabel(n, settings, TEAM_DEPLOYMENT_SETTING_KEYS);
+}
+
+function roleDisplayLabel(name, settings = {}) {
+  const n = String(name || "").trim();
+  if (!n) return "";
+  return buildDeploymentOptionLabel(n, settings, ROLE_DEPLOYMENT_SETTING_KEYS);
+}
+
+function buildTeamColorLabelMap(settings = {}) {
+  const map = {};
+  for (const { value, label } of buildTeamSelectOptions(settings)) {
+    map[value] = label;
+  }
+  return map;
+}
+
+function buildRoleLabelMap(settings = {}) {
+  const map = {};
+  for (const { value, label } of buildRoleSelectOptions(settings)) {
+    map[value] = label;
+  }
+  return map;
+}
+
 function buildTeamSelectOptions(settings = {}) {
   return ALLOWED_TEAM_COLORS.map((name) => ({
     value: name,
@@ -157,8 +185,9 @@ function buildPreferencePackageFilename({ callsign, teamLabel, roleLabel }) {
   return `${parts.filter(Boolean).join("-") || "Pref-config"}.zip`;
 }
 
-function entryXml(key, value) {
-  return `    <entry key="${escapeXml(key)}" class="${JAVA_CLASS.string}">${escapeXml(value)}</entry>`;
+function entryXml(key, value, javaClass) {
+  const cls = javaClass || JAVA_CLASS.string;
+  return `    <entry key="${escapeXml(key)}" class="${cls}">${escapeXml(value)}</entry>`;
 }
 
 function buildConfigPrefXml(entries) {
@@ -166,17 +195,23 @@ function buildConfigPrefXml(entries) {
   const other = entries.filter((e) => !CIV_IDENTITY_KEYS.has(e.key));
   const blocks = [];
 
+  function renderEntries(list) {
+    return list
+      .map((e) => entryXml(e.key, e.value, e.javaClass || JAVA_CLASS.string))
+      .join("\n");
+  }
+
   if (civ.length) {
     blocks.push(
-      `  <preference version="1" name="com.atakmap.app_civ_preferences">\n${civ.map((e) => entryXml(e.key, e.value)).join("\n")}\n  </preference>`
+      `  <preference version="1" name="com.atakmap.app_civ_preferences">\n${renderEntries(civ)}\n  </preference>`
     );
     blocks.push(
-      `  <preference version="1" name="com.atakmap.app_preferences">\n${civ.map((e) => entryXml(e.key, e.value)).join("\n")}\n  </preference>`
+      `  <preference version="1" name="com.atakmap.app_preferences">\n${renderEntries(civ)}\n  </preference>`
     );
   }
   if (other.length) {
     blocks.push(
-      `  <preference version="1" name="com.atakmap.app_preferences">\n${other.map((e) => entryXml(e.key, e.value)).join("\n")}\n  </preference>`
+      `  <preference version="1" name="com.atakmap.app_preferences">\n${renderEntries(other)}\n  </preference>`
     );
   }
 
@@ -250,6 +285,34 @@ function buildPreferenceEntries({ callsign, teamLabel, roleLabel }) {
   const entries = [{ key: "locationCallsign", value: callsign }];
   if (teamLabel) entries.push({ key: "locationTeam", value: teamLabel });
   if (roleLabel) entries.push({ key: "atakRoleType", value: roleLabel });
+
+  // Plugin Update Server URL when TAK host is configured (same keys as enrollment).
+  try {
+    const qrSvc = require("./qr.service");
+    const host = qrSvc.getTakHost();
+    if (host) {
+      entries.push(
+        {
+          key: "appMgmtEnableUpdateServer",
+          value: "true",
+          javaClass: JAVA_CLASS.boolean,
+        },
+        {
+          key: "atakUpdateServerUrl",
+          value: `https://${host}:8443/update`,
+          javaClass: JAVA_CLASS.string,
+        },
+        {
+          key: "repoStartupSync",
+          value: "true",
+          javaClass: JAVA_CLASS.boolean,
+        }
+      );
+    }
+  } catch (_) {
+    /* ignore */
+  }
+
   return entries;
 }
 
@@ -291,6 +354,10 @@ async function buildPreferencePackageZip({ callsign, teamLabel, roleLabel }) {
 module.exports = {
   ALLOWED_TEAM_COLORS,
   ALLOWED_ATAK_ROLES,
+  teamColorDisplayLabel,
+  roleDisplayLabel,
+  buildTeamColorLabelMap,
+  buildRoleLabelMap,
   buildTeamSelectOptions,
   buildRoleSelectOptions,
   buildPreferencePackageZip,

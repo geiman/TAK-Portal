@@ -1,0 +1,342 @@
+<%
+  const _vals = (typeof agencyFieldValues === "object" && agencyFieldValues) ? agencyFieldValues : {};
+  const _includeColor = (typeof includeColor === "undefined") ? true : !!includeColor;
+  const _includeName = (typeof includeName === "undefined") ? true : !!includeName;
+  const _includeExtendedFields = (typeof includeExtendedFields === "undefined") ? true : !!includeExtendedFields;
+  const _fieldsRequired = (typeof fieldsRequired === "undefined") ? true : !!fieldsRequired;
+  const _reqAttr = _fieldsRequired ? "required" : "";
+  const _idPrefix = String(typeof idPrefix !== "undefined" ? idPrefix : "");
+  const _usernameReadOnly = !!(typeof usernameReadOnly !== "undefined" && usernameReadOnly);
+  const _typeOpts = Array.isArray(agencyTypeOptions) && agencyTypeOptions.length ? agencyTypeOptions : [];
+  const _regionOpts = Array.isArray(regionOptions) && regionOptions.length ? regionOptions : [];
+  const _regionLocks = Array.isArray(typeof regionCountyLocks !== "undefined" ? regionCountyLocks : null)
+    ? regionCountyLocks
+    : [];
+  const _placement = String(_vals.usernameTokenPlacement || "suffix").toLowerCase() === "prefix" ? "prefix" : "suffix";
+  const _selectedState = String(_vals.state || "").trim().toUpperCase();
+  const _selectedType = String(_vals.type || "").trim();
+  const _selectedColor = String(_vals.color || "").trim();
+  const _selectedRegionId = String(_vals.regionId || "").trim();
+  const _sfRaw = String(
+    _vals.stateFederalAgency != null ? _vals.stateFederalAgency : ""
+  )
+    .trim()
+    .toLowerCase();
+  const _stateFederalYes =
+    _sfRaw === "yes" || _sfRaw === "true" || _sfRaw === "1";
+  const _countyReqAttr = _fieldsRequired && !_stateFederalYes ? "required" : "";
+  const _states = [
+    "AL","AK","AZ","AR","CA","CO","CT","DC","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD",
+    "MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC",
+    "SD","TN","TX","UT","VT","VA","WA","WV","WI","WY"
+  ];
+  const _colors = [
+    "Blue","Dark Blue","Brown","Cyan","Green","Dark Green","Magenta","Maroon",
+    "Orange","Purple","Red","Teal","White","Yellow"
+  ];
+  const _colorLabels = (typeof teamColorLabels === "object" && teamColorLabels) ? teamColorLabels : {};
+  function _colorLabel(c) {
+    return String(_colorLabels[c] || c);
+  }
+  function _sel(cur, want) {
+    return String(cur || "") === String(want || "") ? "selected" : "";
+  }
+%>
+<style>
+.agencyCreateRow {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 10px;
+}
+.agencyCreateRow3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.agencyCreateRow4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.agencyCreateRow2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.agencyCreateRow label { min-width: 0; }
+.agencyCreateRow input,
+.agencyCreateRow select {
+  width: 100%;
+  box-sizing: border-box;
+}
+.agencyCreateOptionalHint {
+  font-weight: normal;
+  opacity: 0.8;
+}
+@media (max-width: 900px) {
+  .agencyCreateRow4,
+  .agencyCreateRow3,
+  .agencyCreateRow2 {
+    grid-template-columns: 1fr;
+  }
+}
+</style>
+
+<% if (_includeExtendedFields) { %>
+<div class="agencyCreateRow <%= _usernameReadOnly ? (_includeName ? 'agencyCreateRow2' : 'agencyCreateRow') : (_includeName ? 'agencyCreateRow4' : 'agencyCreateRow3') %>">
+  <% if (_includeName) { %>
+  <label>Agency Full Name
+    <input name="name" placeholder="Agency Name" <%= _reqAttr %>
+           value="<%= _vals.name || '' %>" />
+  </label>
+  <% } %>
+
+  <label>Agency Abbreviation / Short Name
+    <input name="groupPrefix" placeholder="(ex. HCSO, Hamilton Co SO, HCOEM, Hamilton Co OEM)" <%= _reqAttr %>
+           value="<%= _vals.groupPrefix || '' %>"
+           title="Letters, numbers, spaces, dashes, and underscores" />
+  </label>
+
+  <% if (!_usernameReadOnly) { %>
+  <label>Username Agency Identifier
+    <select name="usernameTokenPlacement" id="<%= _idPrefix %>usernameTokenPlacementSelect">
+      <option value="suffix" <%= _sel(_placement, "suffix") %>>Suffix - End Of Username (e.g. 1234abcd)</option>
+      <option value="prefix" <%= _sel(_placement, "prefix") %>>Prefix - Beginning Of Username (e.g. abcd1234)</option>
+    </select>
+  </label>
+
+  <label>
+    <span id="<%= _idPrefix %>usernameIdentifierLabelText"><%= _placement === "prefix" ? "Username Prefix" : "Username Suffix" %></span>
+    <input name="suffix" placeholder="(ex. abcd, hcoem, etc...)" <%= _reqAttr %>
+           value="<%= _vals.suffix || '' %>"
+           oninput="this.value = this.value.toLowerCase()" />
+  </label>
+  <% } %>
+</div>
+
+<div class="agencyCreateRow agencyCreateRow4">
+  <label>State
+    <select name="state" <%= _reqAttr %>>
+      <option value="" disabled <%= !_selectedState ? "selected" : "" %>>Select State</option>
+      <% _states.forEach(function (st) { %>
+        <option value="<%= st %>" <%= _sel(_selectedState, st) %>><%= st %></option>
+      <% }); %>
+      <option value="FED" <%= _sel(_selectedState, "FED") %>>USA</option>
+      <option value="FED" <%= _sel(_selectedState, "FED") %>>FED</option>
+      <option value="OTHER" <%= _sel(_selectedState, "OTHER") %>>OTHER</option>
+    </select>
+  </label>
+
+  <label>State/Federal Agency
+    <select
+      name="stateFederalAgency"
+      id="<%= _idPrefix %>stateFederalAgencySelect"
+      data-agency-create-fields-required="<%= _fieldsRequired ? "1" : "0" %>"
+    >
+      <option value="no" <%= !_stateFederalYes ? "selected" : "" %>>No</option>
+      <option value="yes" <%= _stateFederalYes ? "selected" : "" %>>Yes</option>
+    </select>
+  </label>
+
+  <label>
+    <span>County <span class="agencyCreateOptionalHint" data-county-optional-hint <%= _stateFederalYes ? "" : "hidden" %>>(optional)</span></span>
+    <input
+      name="county"
+      placeholder="(ex. Hamilton, Marion)"
+      <%= _countyReqAttr %>
+      value="<%= _vals.county || '' %>"
+      data-county-field="1"
+    />
+  </label>
+
+  <label>
+    <span>County Abbreviation <span class="agencyCreateOptionalHint" data-county-optional-hint <%= _stateFederalYes ? "" : "hidden" %>>(optional)</span></span>
+    <input
+      name="countyAbbrev"
+      placeholder="(ex. HM or HML)"
+      <%= _countyReqAttr %>
+      minlength="2"
+      value="<%= _vals.countyAbbrev || '' %>"
+      oninput="this.value = this.value.toUpperCase().replace(/[^A-Z0-9]/g, '')"
+      data-county-abbrev-field="1"
+    />
+  </label>
+</div>
+<% } else if (_includeName) { %>
+<div class="agencyCreateRow">
+  <label>Agency Full Name
+    <input name="name" placeholder="Agency Name" <%= _reqAttr %>
+           value="<%= _vals.name || '' %>" />
+  </label>
+</div>
+<% } %>
+
+<%
+  const _showRegion = _includeExtendedFields && _regionOpts.length > 0;
+  let _typeRowClass = "agencyCreateRow";
+  if (_includeColor && _showRegion) _typeRowClass += " agencyCreateRow3";
+  else if (_includeColor || _showRegion) _typeRowClass += " agencyCreateRow2";
+%>
+<div class="<%= _typeRowClass %>">
+  <label>Agency Type
+    <select name="type" <%= _reqAttr %>>
+      <option value="" disabled <%= !_selectedType ? "selected" : "" %>>Agency Type</option>
+      <% _typeOpts.forEach(function (t) { %>
+        <option value="<%= t %>" <%= _sel(_selectedType, t) %>><%= t %></option>
+      <% }); %>
+    </select>
+  </label>
+
+  <% if (_includeColor) { %>
+  <label>Agency Color
+    <select name="color" <%= _reqAttr %>>
+      <option value="" disabled <%= !_selectedColor ? "selected" : "" %>>Color</option>
+      <% _colors.forEach(function (c) { %>
+        <option value="<%= c %>" <%= _sel(_selectedColor, c) %>><%= _colorLabel(c) %></option>
+      <% }); %>
+    </select>
+  </label>
+  <% } %>
+
+  <% if (_showRegion) { %>
+  <label id="<%= _idPrefix %>regionFieldWrap">
+    <span>Region <span class="agencyCreateOptionalHint" id="<%= _idPrefix %>regionOptionalHint">(optional)</span></span>
+    <select name="regionId" id="<%= _idPrefix %>regionIdSelect">
+      <option value="" <%= !_selectedRegionId ? "selected" : "" %>>None</option>
+      <% _regionOpts.forEach(function (r) { %>
+        <option value="<%= r.id %>" <%= _sel(_selectedRegionId, r.id) %>><%= r.name %></option>
+      <% }); %>
+    </select>
+  </label>
+  <script type="application/json" id="<%= _idPrefix %>regionCountyLocksJson"><%- JSON.stringify(_regionLocks) %></script>
+  <% } %>
+</div>
+
+<% if (_includeExtendedFields) { %>
+<script>
+(function () {
+  function syncStateFederalAgencyFields(root) {
+    if (!root) return;
+    var select =
+      root.matches && root.matches('select[name="stateFederalAgency"]')
+        ? root
+        : root.querySelector
+          ? root.querySelector('select[name="stateFederalAgency"]')
+          : null;
+    if (!select) return;
+    var scope = select.closest("form") || select.parentElement;
+    if (!scope || !scope.querySelectorAll) return;
+    var isYes = String(select.value || "").toLowerCase() === "yes";
+    var formRequired = String(select.getAttribute("data-agency-create-fields-required") || "") === "1";
+    var countyRequired = formRequired && !isYes;
+    scope.querySelectorAll("[data-county-optional-hint]").forEach(function (el) {
+      el.hidden = !isYes;
+    });
+    scope.querySelectorAll("[data-county-field], [data-county-abbrev-field]").forEach(function (el) {
+      if (countyRequired) el.setAttribute("required", "required");
+      else el.removeAttribute("required");
+    });
+    if (typeof window.takSyncAgencyRegionLock === "function") {
+      window.takSyncAgencyRegionLock(scope);
+    }
+  }
+
+  window.takSyncStateFederalAgencyFields = syncStateFederalAgencyFields;
+
+  function parseLocks(prefix) {
+    var el = document.getElementById(String(prefix || "") + "regionCountyLocksJson");
+    if (!el) return [];
+    try {
+      var parsed = JSON.parse(el.textContent || "[]");
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function findLock(locks, state, county) {
+    var st = String(state || "").trim().toUpperCase();
+    var cn = String(county || "").trim().toLowerCase();
+    if (!st) return null;
+    var stateLock = null;
+    var countyLock = null;
+    for (var i = 0; i < locks.length; i++) {
+      var l = locks[i];
+      if (String(l.state || "").trim().toUpperCase() !== st) continue;
+      if (String(l.scope || "").toLowerCase() === "state" || (!l.county && String(l.scope || "") !== "county")) {
+        stateLock = l;
+        break;
+      }
+      if (cn && String(l.county || "").trim().toLowerCase() === cn) {
+        countyLock = l;
+      }
+    }
+    return stateLock || countyLock;
+  }
+
+  function syncAgencyRegionLock(scope) {
+    if (!scope || !scope.querySelector) return;
+    var regionSelect = scope.querySelector('select[name="regionId"], select[data-region-lock-select]');
+    if (!regionSelect) {
+      // When locked we remove name=regionId; still find by id suffix.
+      var maybe = scope.querySelector('select[id$="regionIdSelect"]');
+      regionSelect = maybe;
+    }
+    if (!regionSelect) return;
+    var idPrefix = String(regionSelect.id || "").replace(/regionIdSelect$/, "");
+    var locks = parseLocks(idPrefix);
+    var stateEl = scope.querySelector('select[name="state"]');
+    var countyEl = scope.querySelector('[data-county-field], input[name="county"]');
+    var hint = document.getElementById(idPrefix + "regionOptionalHint");
+    var lock = findLock(locks, stateEl && stateEl.value, countyEl && countyEl.value);
+
+    if (lock && lock.regionId) {
+      regionSelect.value = String(lock.regionId);
+      regionSelect.disabled = true;
+      regionSelect.removeAttribute("name");
+      regionSelect.setAttribute("data-region-lock-select", "1");
+      var hidden = scope.querySelector("input[data-region-lock-hidden]");
+      if (!hidden) {
+        hidden = document.createElement("input");
+        hidden.type = "hidden";
+        hidden.name = "regionId";
+        hidden.setAttribute("data-region-lock-hidden", "1");
+        regionSelect.parentNode.appendChild(hidden);
+      }
+      hidden.value = String(lock.regionId);
+      if (hint) {
+        hint.textContent =
+          lock.scope === "state" ? "(Assigned To State)" : "(Assigned To County)";
+      }
+    } else {
+      regionSelect.disabled = false;
+      regionSelect.setAttribute("name", "regionId");
+      regionSelect.removeAttribute("data-region-lock-select");
+      var clearHidden = scope.querySelector("input[data-region-lock-hidden]");
+      if (clearHidden) clearHidden.remove();
+      if (hint) hint.textContent = "(optional)";
+    }
+  }
+
+  window.takSyncAgencyRegionLock = syncAgencyRegionLock;
+
+  if (!window.__takStateFederalAgencyChangeBound) {
+    window.__takStateFederalAgencyChangeBound = true;
+    document.addEventListener("change", function (e) {
+      var t = e && e.target;
+      if (!t) return;
+      var name = String(t.name || "");
+      if (name === "stateFederalAgency") {
+        syncStateFederalAgencyFields(t);
+        return;
+      }
+      if (name === "state" || name === "county") {
+        var scope = t.closest("form") || t.parentElement;
+        syncAgencyRegionLock(scope);
+      }
+    });
+    document.addEventListener("input", function (e) {
+      var t = e && e.target;
+      if (!t || String(t.name || "") !== "county") return;
+      var scope = t.closest("form") || t.parentElement;
+      syncAgencyRegionLock(scope);
+    });
+  }
+
+  syncStateFederalAgencyFields(document.getElementById("<%= _idPrefix %>stateFederalAgencySelect"));
+  var regionScope =
+    (document.getElementById("<%= _idPrefix %>regionIdSelect") &&
+      document.getElementById("<%= _idPrefix %>regionIdSelect").closest("form")) ||
+    document;
+  syncAgencyRegionLock(regionScope);
+})();
+</script>
+<% } %>

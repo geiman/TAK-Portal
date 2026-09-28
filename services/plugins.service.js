@@ -19,6 +19,29 @@ const DATA_DIR = path.join(__dirname, "..", "data");
 const PLUGINS_DIR = path.join(DATA_DIR, "plugins");
 const MANIFEST_PATH = path.join(DATA_DIR, "plugin-manifest.json");
 
+function notifyPluginCatalogChanged(reason) {
+  try {
+    // Lazy require avoids circular dependency with pluginUpdateSync.service.
+    require("./pluginUpdateSync.service").notifyCatalogChanged(reason);
+  } catch (err) {
+    console.warn("[plugins.service] plugin sync notify failed:", err?.message || err);
+  }
+}
+
+/** Serialize plugin catalog mutations so back-to-back adds cannot drop entries. */
+let catalogMutex = Promise.resolve();
+function withCatalogLock(fn) {
+  const run = catalogMutex.then(
+    () => fn(),
+    () => fn()
+  );
+  catalogMutex = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
+
 const TAK_GOV_DEVICE_URL = "https://auth.tak.gov/auth/realms/TPC/protocol/openid-connect/auth/device";
 const TAK_GOV_TOKEN_URL = "https://auth.tak.gov/auth/realms/TPC/protocol/openid-connect/token";
 const TAK_GOV_CLIENT_ID = "tak-gov-eud";
@@ -168,69 +191,219 @@ function takGovHttp2Get(url, accessToken, options = {}) {
   });
 }
 
+/**
+ * Only clear the stored link on definitive refresh-token death.
+ * Do NOT match bare words like "session" / "expired" — those caused false unlinks.
+ */
 const TAK_GOV_SESSION_EXPIRED_MARKERS = [
   "session doesn't have required client",
-  "invalid_grant",
-  "refresh token",
-  "session",
-  "expired",
+  "invalid refresh token",
+  "refresh token is not active",
+  "refresh token expired",
+  "token is not active",
+  "offline user session not found",
 ];
 
-function isTakGovSessionExpiredError(message) {
-  const lower = String(message || "").toLowerCase();
-  return TAK_GOV_SESSION_EXPIRED_MARKERS.some((m) => lower.includes(m));
+function isTakGovSessionExpiredError(error, description) {
+  const err = String(error || "").toLowerCase();
+  const desc = String(description || "").toLowerCase();
+  const combined = `${err} ${desc}`.trim();
+  if (err === "invalid_grant") return true;
+  return TAK_GOV_SESSION_EXPIRED_MARKERS.some((m) => combined.includes(m));
+}
+
+/** In-memory access token cache (TAK.gov access tokens last ~3 minutes). */
+let takGovAccessTokenCache = { accessToken: null, expiresAt: 0 };
+/** Single-flight refresh so concurrent callers don't rotate/invalidate each other. */
+let takGovRefreshInFlight = null;
+let takGovKeepaliveTimer = null;
+const TAK_GOV_ACCESS_TOKEN_SKEW_MS = 30 * 1000;
+const TAK_GOV_KEEPALIVE_MS = 2 * 60 * 1000;
+
+function clearTakGovAccessTokenCache() {
+  takGovAccessTokenCache = { accessToken: null, expiresAt: 0 };
+}
+
+function stopTakGovKeepalive() {
+  if (takGovKeepaliveTimer) {
+    clearInterval(takGovKeepaliveTimer);
+    takGovKeepaliveTimer = null;
+  }
+}
+
+/**
+ * While the portal process is running, periodically refresh so SSO-bound refresh
+ * tokens (when offline_access is not honored) do not idle-expire overnight.
+ */
+function startTakGovKeepalive() {
+  if (takGovKeepaliveTimer) return;
+  takGovKeepaliveTimer = setInterval(() => {
+    try {
+      const manifest = loadManifest();
+      if (!manifest.takGovLink?.linked || !manifest.takGovLink?.refreshToken) {
+        stopTakGovKeepalive();
+        return;
+      }
+      getTakGovAccessToken().catch((err) => {
+        console.warn("[plugins.service] TAK.gov keepalive refresh failed:", err?.message || err);
+      });
+    } catch (err) {
+      console.warn("[plugins.service] TAK.gov keepalive tick failed:", err?.message || err);
+    }
+  }, TAK_GOV_KEEPALIVE_MS);
+  if (typeof takGovKeepaliveTimer.unref === "function") {
+    takGovKeepaliveTimer.unref();
+  }
+}
+
+function clearStoredTakGovLink(manifest, reason) {
+  const updated = {
+    ...manifest.takGovLink,
+    linked: false,
+    refreshToken: null,
+    linkCode: null,
+    linkCodeExpiry: null,
+    deviceCode: null,
+    deviceCodeExpiry: null,
+    interval: null,
+    verificationUri: null,
+    verificationUriComplete: null,
+    accessTokenExpiresAt: null,
+    lastRefreshAt: null,
+    lastUnlinkReason: String(reason || "").slice(0, 500) || undefined,
+    unlinkedAt: Date.now(),
+  };
+  clearTakGovAccessTokenCache();
+  stopTakGovKeepalive();
+  saveManifest({ ...manifest, takGovLink: updated });
+  return updated;
+}
+
+async function refreshTakGovAccessTokenOnce(refreshToken) {
+  const formBody = new URLSearchParams({
+    client_id: TAK_GOV_CLIENT_ID,
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+    // Re-assert offline_access so Keycloak keeps / re-issues a long-lived offline token when allowed.
+    scope: "openid offline_access email profile",
+  }).toString();
+  const { statusCode, data } = await takGovHttp2Post(TAK_GOV_TOKEN_URL, formBody);
+  return { statusCode, data };
 }
 
 /**
  * Get a new access_token using stored refresh_token (for TAK.gov eud_api calls).
- * If TAK.gov returns a session/refresh error (e.g. "Session doesn't have required client"),
- * we clear the stored link so the user can re-link.
+ * Caches the access token, serializes refresh, and only clears the link on definitive
+ * refresh-token invalidation (after one retry for rotation races).
  * @returns {Promise<{ success: boolean, access_token?: string, error?: string, sessionExpired?: boolean }>}
  */
 async function getTakGovAccessToken() {
-  const manifest = loadManifest();
-  const refreshToken = manifest.takGovLink?.refreshToken;
-  if (!refreshToken) {
-    return { success: false, error: "Not linked to TAK.gov. Link your account first." };
+  const now = Date.now();
+  if (
+    takGovAccessTokenCache.accessToken &&
+    takGovAccessTokenCache.expiresAt > now + TAK_GOV_ACCESS_TOKEN_SKEW_MS
+  ) {
+    return { success: true, access_token: takGovAccessTokenCache.accessToken };
   }
-  try {
-    const formBody = new URLSearchParams({
-      client_id: TAK_GOV_CLIENT_ID,
-      grant_type: "refresh_token",
-      refresh_token: refreshToken,
-    }).toString();
-    const { statusCode, data } = await takGovHttp2Post(TAK_GOV_TOKEN_URL, formBody);
-    if (statusCode !== 200 || !data.access_token) {
-      const msg = data.error_description || data.error || `Token exchange returned ${statusCode}`;
-      if (isTakGovSessionExpiredError(msg)) {
-        const updated = {
-          ...manifest.takGovLink,
-          linked: false,
-          refreshToken: null,
-          linkCode: null,
-          linkCodeExpiry: null,
-          deviceCode: null,
-          deviceCodeExpiry: null,
-          interval: null,
-          verificationUri: null,
-        };
-        saveManifest({ ...manifest, takGovLink: updated });
-        return {
-          success: false,
-          error: "Your TAK.gov session has expired. Please unlink and link your account again: click Unlink account, then Get Link Code → enter the code at TAK.gov → Link Account.",
-          sessionExpired: true,
-        };
+
+  if (takGovRefreshInFlight) {
+    return takGovRefreshInFlight;
+  }
+
+  takGovRefreshInFlight = (async () => {
+    try {
+      // Re-check cache after winning the lock (another waiter may have refreshed).
+      const cachedNow = Date.now();
+      if (
+        takGovAccessTokenCache.accessToken &&
+        takGovAccessTokenCache.expiresAt > cachedNow + TAK_GOV_ACCESS_TOKEN_SKEW_MS
+      ) {
+        return { success: true, access_token: takGovAccessTokenCache.accessToken };
       }
-      return { success: false, error: msg };
-    }
-    if (data.refresh_token) {
-      const updated = { ...manifest.takGovLink, refreshToken: data.refresh_token };
+
+      let manifest = loadManifest();
+      let refreshToken = manifest.takGovLink?.refreshToken;
+      if (!refreshToken) {
+        return { success: false, error: "Not linked to TAK.gov. Link your account first." };
+      }
+
+      let statusCode;
+      let data;
+      try {
+        ({ statusCode, data } = await refreshTakGovAccessTokenOnce(refreshToken));
+      } catch (err) {
+        // Transient network/HTTP2 errors must NOT unlink.
+        return { success: false, error: err?.message || "Failed to get access token." };
+      }
+
+      if (statusCode !== 200 || !data.access_token) {
+        const errCode = data?.error;
+        const errDesc = data?.error_description || data?.error || `Token exchange returned ${statusCode}`;
+        if (isTakGovSessionExpiredError(errCode, errDesc)) {
+          // Refresh-token rotation race: another request may have already saved a new token.
+          manifest = loadManifest();
+          const newest = manifest.takGovLink?.refreshToken;
+          if (newest && newest !== refreshToken) {
+            try {
+              ({ statusCode, data } = await refreshTakGovAccessTokenOnce(newest));
+              if (statusCode === 200 && data.access_token) {
+                refreshToken = newest;
+              } else {
+                const reason = `${errCode || "invalid_grant"}: ${errDesc}`;
+                console.warn("[plugins.service] Clearing TAK.gov link after refresh failure:", reason);
+                clearStoredTakGovLink(manifest, reason);
+                return {
+                  success: false,
+                  error:
+                    "Your TAK.gov session has expired. Please unlink and link your account again: click Unlink account, then Get Link Code → enter the code at TAK.gov → Link Account.",
+                  sessionExpired: true,
+                };
+              }
+            } catch (retryErr) {
+              return { success: false, error: retryErr?.message || "Failed to get access token." };
+            }
+          } else {
+            const reason = `${errCode || "invalid_grant"}: ${errDesc}`;
+            console.warn("[plugins.service] Clearing TAK.gov link after refresh failure:", reason);
+            clearStoredTakGovLink(manifest, reason);
+            return {
+              success: false,
+              error:
+                "Your TAK.gov session has expired. Please unlink and link your account again: click Unlink account, then Get Link Code → enter the code at TAK.gov → Link Account.",
+              sessionExpired: true,
+            };
+          }
+        } else {
+          return { success: false, error: errDesc };
+        }
+      }
+
+      const expiresInSec = Number(data.expires_in) > 0 ? Number(data.expires_in) : 180;
+      const expiresAt = Date.now() + expiresInSec * 1000;
+      takGovAccessTokenCache = { accessToken: data.access_token, expiresAt };
+
+      manifest = loadManifest();
+      const updated = {
+        ...manifest.takGovLink,
+        linked: true,
+        lastRefreshAt: Date.now(),
+        accessTokenExpiresAt: expiresAt,
+      };
+      if (data.refresh_token) {
+        updated.refreshToken = data.refresh_token;
+      }
+      if (data.refresh_expires_in != null) {
+        updated.refreshExpiresIn = Number(data.refresh_expires_in) || null;
+      }
       saveManifest({ ...manifest, takGovLink: updated });
+      startTakGovKeepalive();
+      return { success: true, access_token: data.access_token };
+    } finally {
+      takGovRefreshInFlight = null;
     }
-    return { success: true, access_token: data.access_token };
-  } catch (err) {
-    return { success: false, error: err?.message || "Failed to get access token." };
-  }
+  })();
+
+  return takGovRefreshInFlight;
 }
 
 const TAK_GOV_PLUGINS_URL = "https://tak.gov/eud_api/software/v1/plugins";
@@ -415,60 +588,63 @@ async function downloadTakGovPlugin(pluginItem) {
   try {
     const result = await takGovFetchStreamToFile(apkUrl, token.access_token, tempPath, { timeoutMs: 300000 });
     if (result.statusCode !== 200) {
+      try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (_) {}
       return { success: false, error: result.error || `TAK.gov returned ${result.statusCode} for plugin download.` };
     }
     const contentDisp = result.headers.get ? result.headers.get("content-disposition") : result.headers["content-disposition"];
     let filename = (typeof contentDisp === "string" && contentDisp.match(/filename[*]?=(?:UTF-8'')?["']?([^"'\s;]+)/i)?.[1]) || "plugin.apk";
     filename = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const destPath = path.join(PLUGINS_DIR, filename);
 
-    const manifest = loadManifest();
-    const packageName = pluginItem.package_name || null;
-    const incomingAtakVersion = getAtakVersionValue(pluginItem);
-    const incomingCompatKey = getAtakCompatibilityKey(incomingAtakVersion);
-    let preservedFavorite = false;
-    // Remove existing by package_name + ATAK compatibility target (update scenario) or by same filename.
-    // This allows side-by-side plugin variants for different ATAK versions (e.g. 5.6 and 5.7).
-    const existingByPkg = packageName
-      ? manifest.plugins.find((p) => {
-        if (p.package_name !== packageName) return false;
-        const existingCompatKey = getAtakCompatibilityKey(getAtakVersionValue(p));
-        if (!incomingCompatKey) return !existingCompatKey;
-        return existingCompatKey === incomingCompatKey;
-      })
-      : null;
-    const existingByFile = manifest.plugins.find((p) => p.filename === filename);
-    const existing = existingByPkg || existingByFile;
-    if (existing) {
-      preservedFavorite = existing.favorite === true;
-      try {
-        const oldPath = path.join(PLUGINS_DIR, existing.filename);
-        if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-      } catch (_) {}
-      manifest.plugins = manifest.plugins.filter((p) => p.id !== existing.id);
-    }
-    fs.renameSync(tempPath, destPath);
-    const stat = fs.statSync(destPath);
-    const id = nextPluginId(manifest.plugins);
-    const plugin = {
-      id,
-      name: pluginItem.display_name || pluginItem.package_name || path.basename(filename, path.extname(filename)) || filename,
-      description: pluginItem.description || null,
-      filename,
-      size: stat.size,
-      downloadedAt: new Date().toISOString(),
-      source: "tak.gov",
-      atakFlavor: pluginItem.product || null,
-      atakVersion: incomingAtakVersion,
-      package_name: packageName,
-      favorite: preservedFavorite,
-      version: pluginItem.version || null,
-      revision_code: pluginItem.revision_code != null ? pluginItem.revision_code : null,
-    };
-    manifest.plugins.push(plugin);
-    saveManifest(manifest);
-    return { success: true, plugin };
+    return withCatalogLock(() => {
+      const destPath = path.join(PLUGINS_DIR, filename);
+      const manifest = loadManifest();
+      const packageName = pluginItem.package_name || null;
+      const incomingAtakVersion = getAtakVersionValue(pluginItem);
+      const incomingCompatKey = getAtakCompatibilityKey(incomingAtakVersion);
+      let preservedFavorite = false;
+      const existingByPkg = packageName
+        ? manifest.plugins.find((p) => {
+          if (p.package_name !== packageName) return false;
+          const existingCompatKey = getAtakCompatibilityKey(getAtakVersionValue(p));
+          if (!incomingCompatKey) return !existingCompatKey;
+          return existingCompatKey === incomingCompatKey;
+        })
+        : null;
+      const existingByFile = manifest.plugins.find((p) => p.filename === filename);
+      const existing = existingByPkg || existingByFile;
+      if (existing) {
+        preservedFavorite = existing.favorite === true;
+        try {
+          const oldPath = path.join(PLUGINS_DIR, existing.filename);
+          if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+        } catch (_) {}
+        manifest.plugins = manifest.plugins.filter((p) => p.id !== existing.id);
+      }
+      fs.renameSync(tempPath, destPath);
+      const stat = fs.statSync(destPath);
+      const id = nextPluginId(manifest.plugins);
+      const plugin = {
+        id,
+        name: pluginItem.display_name || pluginItem.package_name || path.basename(filename, path.extname(filename)) || filename,
+        description: pluginItem.description || null,
+        filename,
+        size: stat.size,
+        downloadedAt: new Date().toISOString(),
+        source: "tak.gov",
+        atakFlavor: pluginItem.product || null,
+        atakVersion: incomingAtakVersion,
+        package_name: packageName,
+        favorite: preservedFavorite,
+        version: pluginItem.version || null,
+        revision_code: pluginItem.revision_code != null ? pluginItem.revision_code : null,
+      };
+      manifest.plugins.push(plugin);
+      saveManifest(manifest);
+      notifyPluginCatalogChanged("tak.gov-download");
+      return { success: true, plugin };
+    });
   } catch (err) {
+    try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (_) {}
     const msg = err?.message || "Download failed.";
     console.error("[plugins.service] downloadTakGovPlugin error:", msg, err?.code || "");
     return { success: false, error: msg };
@@ -577,8 +753,10 @@ async function getTakGovLinkState(generateNewCode = false) {
   }
 
   const hasValidCode = takGovLink.linkCode && takGovLink.linkCodeExpiry && Date.now() < takGovLink.linkCodeExpiry;
+  const isLinked = !!(takGovLink.linked && takGovLink.refreshToken);
+  if (isLinked) startTakGovKeepalive();
   return {
-    linked: !!takGovLink.linked,
+    linked: isLinked,
     linkCode: hasValidCode ? takGovLink.linkCode : null,
     linkCodeExpiry: takGovLink.linkCodeExpiry || null,
     verificationUri: takGovLink.verificationUri || "https://tak.gov/register-device",
@@ -612,6 +790,11 @@ async function linkTakGovAccount() {
 
     if (statusCode === 200 && data.access_token) {
       const refreshToken = data.refresh_token;
+      const expiresInSec = Number(data.expires_in) > 0 ? Number(data.expires_in) : 180;
+      const expiresAt = Date.now() + expiresInSec * 1000;
+      if (data.access_token) {
+        takGovAccessTokenCache = { accessToken: data.access_token, expiresAt };
+      }
       const updated = {
         ...takGovLink,
         linked: true,
@@ -622,8 +805,17 @@ async function linkTakGovAccount() {
         deviceCodeExpiry: null,
         interval: null,
         verificationUri: null,
+        verificationUriComplete: null,
+        linkedAt: Date.now(),
+        lastRefreshAt: Date.now(),
+        accessTokenExpiresAt: expiresAt,
+        refreshExpiresIn:
+          data.refresh_expires_in != null ? Number(data.refresh_expires_in) || null : null,
+        lastUnlinkReason: null,
+        unlinkedAt: null,
       };
       saveManifest({ ...manifest, takGovLink: updated });
+      startTakGovKeepalive();
       return { success: true, message: "TAK.gov account linked successfully." };
     }
 
@@ -648,18 +840,7 @@ async function linkTakGovAccount() {
  */
 function unlinkTakGovAccount() {
   const manifest = loadManifest();
-  const updated = {
-    ...manifest.takGovLink,
-    linked: false,
-    refreshToken: null,
-    linkCode: null,
-    linkCodeExpiry: null,
-    deviceCode: null,
-    deviceCodeExpiry: null,
-    interval: null,
-    verificationUri: null,
-  };
-  saveManifest({ ...manifest, takGovLink: updated });
+  clearStoredTakGovLink(manifest, "manual_unlink");
   return { success: true };
 }
 
@@ -695,63 +876,64 @@ function nextPluginId(plugins) {
  * Add a plugin from a file path (e.g. after upload or download).
  * @param {string} sourceFilePath - path to the APK or plugin file
  * @param {{ name?: string, source?: string, atakFlavor?: string, atakVersion?: string }} meta
- * @returns {{ success: boolean, plugin?: object, error?: string }}
+ * @returns {Promise<{ success: boolean, plugin?: object, error?: string }>}
  */
-function addPluginFromFile(sourceFilePath, meta = {}) {
-  ensurePluginsDir();
-  if (!fs.existsSync(sourceFilePath) || !fs.statSync(sourceFilePath).isFile()) {
-    return { success: false, error: "File not found or not a file." };
-  }
-  const manifest = loadManifest();
-  const baseName = path.basename(sourceFilePath);
-  const ext = path.extname(baseName);
-  const safeName = baseName.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const destFileName = safeName;
-  const destPath = path.join(PLUGINS_DIR, destFileName);
+async function addPluginFromFile(sourceFilePath, meta = {}) {
+  return withCatalogLock(() => {
+    ensurePluginsDir();
+    if (!fs.existsSync(sourceFilePath) || !fs.statSync(sourceFilePath).isFile()) {
+      return { success: false, error: "File not found or not a file." };
+    }
+    const manifest = loadManifest();
+    const baseName = path.basename(sourceFilePath);
+    const ext = path.extname(baseName);
+    const safeName = baseName.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const destFileName = safeName;
+    const destPath = path.join(PLUGINS_DIR, destFileName);
 
-  // If same filename exists, remove old file and manifest entry
-  const existing = manifest.plugins.find((p) => p.filename === destFileName);
-  if (existing) {
+    const existing = manifest.plugins.find((p) => p.filename === destFileName);
+    if (existing) {
+      try {
+        const oldPath = path.join(PLUGINS_DIR, existing.filename);
+        if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+      } catch (_) {}
+      manifest.plugins = manifest.plugins.filter((p) => p.id !== existing.id);
+    }
+
     try {
-      const oldPath = path.join(PLUGINS_DIR, existing.filename);
-      if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-    } catch (_) {}
-    manifest.plugins = manifest.plugins.filter((p) => p.id !== existing.id);
-  }
+      fs.copyFileSync(sourceFilePath, destPath);
+    } catch (err) {
+      return { success: false, error: err?.message || "Failed to copy file." };
+    }
 
-  try {
-    fs.copyFileSync(sourceFilePath, destPath);
-  } catch (err) {
-    return { success: false, error: err?.message || "Failed to copy file." };
-  }
-
-  const stat = fs.statSync(destPath);
-  const id = nextPluginId(manifest.plugins);
-  const plugin = {
-    id,
-    name: meta.name || path.basename(destFileName, ext) || destFileName,
-    filename: destFileName,
-    size: stat.size,
-    downloadedAt: new Date().toISOString(),
-    source: meta.source || "upload",
-    atakFlavor: meta.atakFlavor || null,
-    atakVersion: meta.atakVersion || null,
-    favorite: false,
-  };
-  manifest.plugins.push(plugin);
-  saveManifest(manifest);
-  return { success: true, plugin };
+    const stat = fs.statSync(destPath);
+    const id = nextPluginId(manifest.plugins);
+    const plugin = {
+      id,
+      name: meta.name || path.basename(destFileName, ext) || destFileName,
+      filename: destFileName,
+      size: stat.size,
+      downloadedAt: new Date().toISOString(),
+      source: meta.source || "upload",
+      atakFlavor: meta.atakFlavor || null,
+      atakVersion: meta.atakVersion || null,
+      favorite: false,
+    };
+    manifest.plugins.push(plugin);
+    saveManifest(manifest);
+    notifyPluginCatalogChanged("add-file");
+    return { success: true, plugin };
+  });
 }
 
 /**
  * Add a plugin from a URL (download and store).
  * @param {string} downloadUrl - URL to the plugin file (e.g. from TAK.gov or direct link)
- * @param {{ name?: string, source?: string, atakFlavor?: string, atakVersion?: string }} meta
+ * @param {{ name?: string, source?: string, atakFlavor?: string, atakVersion?: string, description?: string, package_name?: string, version?: string }} meta
  * @returns {Promise<{ success: boolean, plugin?: object, error?: string }>}
  */
 async function addPluginFromUrl(downloadUrl, meta = {}) {
   const axios = require("axios");
-  const manifest = loadManifest();
   ensurePluginsDir();
 
   let response;
@@ -760,7 +942,9 @@ async function addPluginFromUrl(downloadUrl, meta = {}) {
       responseType: "arraybuffer",
       timeout: 120000,
       maxContentLength: 500 * 1024 * 1024, // 500 MB
+      maxRedirects: 5,
       validateStatus: (status) => status === 200,
+      headers: { "User-Agent": USER_AGENT },
     });
   } catch (err) {
     const msg = err?.response?.status
@@ -784,61 +968,86 @@ async function addPluginFromUrl(downloadUrl, meta = {}) {
     } catch (_) {}
   }
   const safeName = baseName.replace(/[^a-zA-Z0-9._-]/g, "_") || "plugin.apk";
-  const destPath = path.join(PLUGINS_DIR, safeName);
 
-  const existing = manifest.plugins.find((p) => p.filename === safeName);
-  if (existing) {
+  return withCatalogLock(() => {
+    const destPath = path.join(PLUGINS_DIR, safeName);
+    const manifest = loadManifest();
+    const packageName = meta.package_name || null;
+    const incomingAtakVersion = meta.atakVersion || null;
+    const incomingCompatKey = getAtakCompatibilityKey(incomingAtakVersion);
+    let preservedFavorite = false;
+
+    const existingByPkg = packageName
+      ? manifest.plugins.find((p) => {
+        if (p.package_name !== packageName) return false;
+        const existingCompatKey = getAtakCompatibilityKey(getAtakVersionValue(p));
+        if (!incomingCompatKey) return !existingCompatKey;
+        return existingCompatKey === incomingCompatKey;
+      })
+      : null;
+    const existingByFile = manifest.plugins.find((p) => p.filename === safeName);
+    const existing = existingByPkg || existingByFile;
+    if (existing) {
+      preservedFavorite = existing.favorite === true;
+      try {
+        const oldPath = path.join(PLUGINS_DIR, existing.filename);
+        if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+      } catch (_) {}
+      manifest.plugins = manifest.plugins.filter((p) => p.id !== existing.id);
+    }
+
     try {
-      const oldPath = path.join(PLUGINS_DIR, existing.filename);
-      if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-    } catch (_) {}
-    manifest.plugins = manifest.plugins.filter((p) => p.id !== existing.id);
-  }
+      fs.writeFileSync(destPath, buffer);
+    } catch (err) {
+      return { success: false, error: err?.message || "Failed to write file." };
+    }
 
-  try {
-    fs.writeFileSync(destPath, buffer);
-  } catch (err) {
-    return { success: false, error: err?.message || "Failed to write file." };
-  }
-
-  const stat = fs.statSync(destPath);
-  const id = nextPluginId(manifest.plugins);
-  const plugin = {
-    id,
-    name: meta.name || path.basename(safeName, path.extname(safeName)) || safeName,
-    filename: safeName,
-    size: stat.size,
-    downloadedAt: new Date().toISOString(),
-    source: meta.source || "tak.gov",
-    atakFlavor: meta.atakFlavor || null,
-    atakVersion: meta.atakVersion || null,
-    favorite: false,
-  };
-  manifest.plugins.push(plugin);
-  saveManifest(manifest);
-  return { success: true, plugin };
+    const stat = fs.statSync(destPath);
+    const id = nextPluginId(manifest.plugins);
+    const plugin = {
+      id,
+      name: meta.name || path.basename(safeName, path.extname(safeName)) || safeName,
+      description: meta.description || null,
+      filename: safeName,
+      size: stat.size,
+      downloadedAt: new Date().toISOString(),
+      source: meta.source || "tak.gov",
+      atakFlavor: meta.atakFlavor || null,
+      atakVersion: incomingAtakVersion,
+      package_name: packageName,
+      version: meta.version || null,
+      favorite: preservedFavorite,
+    };
+    manifest.plugins.push(plugin);
+    saveManifest(manifest);
+    notifyPluginCatalogChanged("add-url");
+    return { success: true, plugin };
+  });
 }
 
 /**
  * Delete a plugin by id: remove from manifest and delete file.
  * @param {string} id - plugin id from manifest
- * @returns {{ success: boolean, error?: string }}
+ * @returns {Promise<{ success: boolean, error?: string }>}
  */
-function deletePlugin(id) {
-  const manifest = loadManifest();
-  const plugin = manifest.plugins.find((p) => p.id === id);
-  if (!plugin) {
-    return { success: false, error: "Plugin not found." };
-  }
-  const filePath = path.join(PLUGINS_DIR, plugin.filename);
-  try {
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-  } catch (err) {
-    console.warn("[plugins.service] Failed to delete file:", filePath, err?.message || err);
-  }
-  manifest.plugins = manifest.plugins.filter((p) => p.id !== id);
-  saveManifest(manifest);
-  return { success: true };
+async function deletePlugin(id) {
+  return withCatalogLock(() => {
+    const manifest = loadManifest();
+    const plugin = manifest.plugins.find((p) => p.id === id);
+    if (!plugin) {
+      return { success: false, error: "Plugin not found." };
+    }
+    const filePath = path.join(PLUGINS_DIR, plugin.filename);
+    try {
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    } catch (err) {
+      console.warn("[plugins.service] Failed to delete file:", filePath, err?.message || err);
+    }
+    manifest.plugins = manifest.plugins.filter((p) => p.id !== id);
+    saveManifest(manifest);
+    notifyPluginCatalogChanged("delete");
+    return { success: true };
+  });
 }
 
 /**
@@ -908,13 +1117,19 @@ async function updatePluginFromTakGov(id) {
 }
 
 /**
- * Compare two TAK.gov version/revision: true if remote is newer than current.
+ * Compare installed vs remote version: true if remote is newer.
+ * Uses leading semver (e.g. "1.6" from "1.6 (abc) - [5.8.0]").
  * @param {{ version?: string, revision_code?: number }} current
  * @param {{ version?: string, revision_code?: number }} remote
  */
 function isNewerVersion(current, remote) {
-  const cv = (current.version || "").trim();
-  const rv = (remote.version || "").trim();
+  function core(v) {
+    const s = String(v || "").trim().replace(/^v/i, "");
+    const m = s.match(/^(\d+(?:\.\d+)*)/);
+    return m ? m[1] : s;
+  }
+  const cv = core(current && current.version);
+  const rv = core(remote && remote.version);
   if (!rv) return false;
   if (!cv) return true;
   const cParts = cv.split(".").map((n) => parseInt(n, 10) || 0);
@@ -925,43 +1140,76 @@ function isNewerVersion(current, remote) {
     if (r > c) return true;
     if (r < c) return false;
   }
-  const cr = current.revision_code != null ? current.revision_code : 0;
-  const rr = remote.revision_code != null ? remote.revision_code : 0;
+  const cr = current && current.revision_code != null ? current.revision_code : 0;
+  const rr = remote && remote.revision_code != null ? remote.revision_code : 0;
   return rr > cr;
 }
 
 /**
- * Get which plugins have an update available from TAK.gov.
+ * Get which plugins have an update available (TAK.gov and/or TAKwerx).
  * @returns {Promise<Record<string, boolean>>} map of plugin id -> updateAvailable
  */
 async function getUpdateStatus() {
   const manifest = loadManifest();
-  const takGovPlugins = (manifest.plugins || []).filter((p) => p.source === "tak.gov" && p.package_name);
-  if (takGovPlugins.length === 0) return {};
-  const versions = new Set();
-  takGovPlugins.forEach((p) => {
-    const v = getAtakVersionValue(p) || "5.5.0";
-    versions.add(v);
-  });
-  const listByVersion = {};
-  for (const productVersion of versions) {
-    const result = await fetchTakGovPlugins("ATAK-CIV", productVersion);
-    listByVersion[productVersion] = result.success ? (result.plugins || []) : [];
-  }
+  const all = manifest.plugins || [];
   const out = {};
-  for (const p of takGovPlugins) {
-    const productVersion = getAtakVersionValue(p) || "5.5.0";
-    const list = listByVersion[productVersion] || [];
-    const remote = list.find((r) => r.package_name === p.package_name);
-    out[p.id] = !!remote && isNewerVersion(p, remote);
+
+  const takGovPlugins = all.filter((p) => p.source === "tak.gov" && p.package_name);
+  if (takGovPlugins.length > 0) {
+    const versions = new Set();
+    takGovPlugins.forEach((p) => {
+      versions.add(getAtakVersionValue(p) || "5.5.0");
+    });
+    const listByVersion = {};
+    for (const productVersion of versions) {
+      const result = await fetchTakGovPlugins("ATAK-CIV", productVersion);
+      listByVersion[productVersion] = result.success ? (result.plugins || []) : [];
+    }
+    for (const p of takGovPlugins) {
+      const productVersion = getAtakVersionValue(p) || "5.5.0";
+      const list = listByVersion[productVersion] || [];
+      const remote = list.find((r) => r.package_name === p.package_name);
+      out[p.id] = !!remote && isNewerVersion(p, remote);
+    }
   }
+
+  const takwerxPlugins = all.filter((p) => p.source === "takwerx" && p.package_name);
+  if (takwerxPlugins.length > 0) {
+    try {
+      const takwerxSvc = require("./takwerxPlugins.service");
+      const twStatus = await takwerxSvc.getUpdateStatusForInstalled(takwerxPlugins);
+      Object.assign(out, twStatus || {});
+    } catch (err) {
+      console.warn("[plugins.service] TAKwerx update status failed:", err?.message || err);
+    }
+  }
+
   return out;
+}
+
+/**
+ * Update an installed plugin from its source (TAK.gov or TAKwerx).
+ * @param {string} id
+ */
+async function updateInstalledPlugin(id) {
+  const manifest = loadManifest();
+  const plugin = manifest.plugins.find((p) => p.id === id);
+  if (!plugin) return { success: false, error: "Plugin not found." };
+  if (plugin.source === "tak.gov") {
+    return updatePluginFromTakGov(id);
+  }
+  if (plugin.source === "takwerx") {
+    const takwerxSvc = require("./takwerxPlugins.service");
+    return takwerxSvc.updateInstalledPlugin(plugin);
+  }
+  return { success: false, error: "This plugin source does not support automatic updates." };
 }
 
 module.exports = {
   PLUGINS_DIR,
   MANIFEST_PATH,
   ensurePluginsDir,
+  withCatalogLock,
   getTakGovLinkState,
   linkTakGovAccount,
   unlinkTakGovAccount,
@@ -977,5 +1225,19 @@ module.exports = {
   setPluginFavorite,
   updatePluginMetadata,
   updatePluginFromTakGov,
+  updateInstalledPlugin,
   getUpdateStatus,
+  isNewerVersion,
+  getAtakVersionValue,
+  getAtakCompatibilityKey,
 };
+
+// Resume keepalive after process restart if already linked.
+try {
+  const bootManifest = loadManifest();
+  if (bootManifest.takGovLink?.linked && bootManifest.takGovLink?.refreshToken) {
+    startTakGovKeepalive();
+  }
+} catch (_) {
+  /* ignore */
+}

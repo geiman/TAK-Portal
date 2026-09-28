@@ -7,6 +7,10 @@ const {
   buildPreferencePackageFilename,
   buildTeamSelectOptions,
   buildRoleSelectOptions,
+  buildTeamColorLabelMap,
+  buildRoleLabelMap,
+  teamColorDisplayLabel,
+  roleDisplayLabel,
 } = require("../services/preferencePackage.service");
 
 async function unzipBuffer(buffer) {
@@ -68,10 +72,34 @@ async function unzipBuffer(buffer) {
   assert.ok(darkBlue);
   assert.strictEqual(darkBlue.label, "Dark Blue — Law Enforcement");
 
+  const colorLabels = buildTeamColorLabelMap({
+    DP_COLOR_BLUE: "Aircraft",
+    DP_COLOR_DARK_BLUE: "Law Enforcement",
+    DP_COLOR_YELLOW: "  ",
+  });
+  assert.strictEqual(colorLabels.Blue, "Blue — Aircraft");
+  assert.strictEqual(colorLabels["Dark Blue"], "Dark Blue — Law Enforcement");
+  assert.strictEqual(colorLabels.Yellow, "Yellow");
+  assert.strictEqual(
+    teamColorDisplayLabel("Red", { DP_COLOR_RED: "Fire" }),
+    "Red — Fire"
+  );
+
   const roleOptions = buildRoleSelectOptions({ DP_ROLE_HQ: "Command Staff / Admin Support" });
   const hq = roleOptions.find((o) => o.value === "HQ");
   assert.ok(hq);
   assert.strictEqual(hq.label, "HQ — Command Staff / Admin Support");
+
+  const roleLabels = buildRoleLabelMap({
+    DP_ROLE_HQ: "Command Staff / Admin Support",
+    DP_ROLE_RTO: "  ",
+  });
+  assert.strictEqual(roleLabels.HQ, "HQ — Command Staff / Admin Support");
+  assert.strictEqual(roleLabels.RTO, "RTO");
+  assert.strictEqual(
+    roleDisplayLabel("Medic", { DP_ROLE_MEDIC: "Advanced Medical Capabilities" }),
+    "Medic — Advanced Medical Capabilities"
+  );
 
   const entries = await unzipBuffer(built.buffer);
   assert.ok(entries.has("MANIFEST/manifest.xml"));

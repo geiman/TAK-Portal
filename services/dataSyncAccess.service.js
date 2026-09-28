@@ -1,6 +1,7 @@
 /**
- * Access rules for Data Sync missions — single-group missions only;
- * agency admins scoped to agency-specific groups (not county/state extras).
+ * Access rules for Data Sync missions.
+ * A mission is listed when it has at least one channel and every channel is in
+ * the caller's scope. Agency admins stay limited to agency-specific groups.
  *
  * TAK Marti uses LDAP CN (no tak_ prefix). Authentik stores tak_<CN>.
  * All matching compares canonical keys after stripping tak_.
@@ -33,7 +34,10 @@ function isHiddenGlobalAdminGroupName(name) {
   const n = String(name || "").trim();
   if (!n) return true;
   if (n.startsWith("_")) return true;
-  return n.toLowerCase().startsWith("tak_");
+  const lower = n.toLowerCase();
+  if (lower.startsWith("tak_")) return true;
+  if (lower.startsWith("cn=")) return true;
+  return false;
 }
 
 function filterGlobalAdminGroupNames(names) {
@@ -76,7 +80,7 @@ function filterAuthentikGroupsForGlobalAdminDataSync(authUser, allGroups) {
  * Uses Authentik as source of truth; TAK CN display names (no tak_ prefix).
  */
 async function getGlobalAdminGroupDisplayNames(authUser) {
-  const authentikGroups = await groupsSvc.getAllGroups({});
+  const authentikGroups = await groupsSvc.getGroupsForAuthUser(authUser);
   const visible = filterAuthentikGroupsForGlobalAdminDataSync(authUser, authentikGroups);
   const out = [];
   const seen = new Set();
@@ -86,6 +90,7 @@ async function getGlobalAdminGroupDisplayNames(authUser) {
     if (!authentikName || isAuthentikAgencyAdminGroupName(authentikName)) continue;
     const display = takDisplayName(authentikName);
     if (!display || display.startsWith("_")) continue;
+    if (display.toLowerCase().startsWith("cn=")) continue;
     const key = canonicalGroupKey(display);
     if (!key || seen.has(key)) continue;
     seen.add(key);
@@ -188,8 +193,22 @@ function extractTakGroupNameList(payload) {
 }
 
 function extractMissionGroupNames(mission) {
-  const groups = mission && Array.isArray(mission.groups) ? mission.groups : [];
-  return groups.map(entryToGroupName).filter(Boolean);
+  if (!mission) return [];
+  let groups = mission.groups;
+  if (typeof groups === "string") {
+    groups = parsePackageGroupsField(groups);
+  }
+  if (!Array.isArray(groups)) return [];
+  const names = groups.map(entryToGroupName).filter(Boolean);
+  const out = [];
+  const seen = new Set();
+  for (const n of names) {
+    const key = canonicalGroupKey(n);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(n);
+  }
+  return out;
 }
 
 function missionSingleGroupName(mission) {
@@ -264,7 +283,7 @@ async function buildAgencyAllowedGroups(authUser) {
   const access = accessSvc.getAgencyAccess(authUser);
   if (access.isGlobalAdmin) return null;
 
-  const authentikGroups = await groupsSvc.getAllGroups({});
+  const authentikGroups = await groupsSvc.getGroupsForAuthUser(authUser);
   const allowedSuffixes = access.allowedAgencySuffixes || [];
   const agencies = agenciesSvc.load();
   const out = [];
@@ -275,8 +294,12 @@ async function buildAgencyAllowedGroups(authUser) {
     const agency = agencies.find((a) => accessSvc.normalizeSuffix(a?.suffix) === norm);
     if (!agency) continue;
     const gp = String(agency.groupPrefix || "").trim();
-    if (!gp) continue;
-    const filtered = accessSvc.filterAgencySpecificGroupsForDashboard(authentikGroups, gp);
+    const agencyName = String(agency.name || "").trim();
+    if (!agencyName && !gp) continue;
+    const filtered = accessSvc.filterAgencySpecificGroupsForDashboard(
+      authentikGroups,
+      agencyName || gp
+    );
     for (const g of filtered) {
       const authentikName = String(g?.name || "").trim();
       if (!authentikName) continue;
@@ -288,7 +311,7 @@ async function buildAgencyAllowedGroups(authUser) {
         takDisplayName: takDisplayName(authentikName),
         canonicalKey,
         agencySuffix: norm,
-        groupPrefix: gp.toUpperCase(),
+        groupPrefix: gp,
       });
     }
   }
@@ -348,7 +371,9 @@ async function resolveGroupsForUser(authUser, takPayload) {
     const beforeMaMerge = byKey.size;
     mergeMutualAidGroupNames(byKey, takByKey);
 
-    const groups = Array.from(byKey.values()).sort((a, b) => a.localeCompare(b));
+    const groups = Array.from(byKey.values())
+      .filter((n) => !String(n || "").trim().toLowerCase().startsWith("cn="))
+      .sort((a, b) => a.localeCompare(b));
     return {
       groups,
       debug: {
@@ -378,7 +403,9 @@ async function resolveGroupsForUser(authUser, takPayload) {
     });
   }
 
-  const groups = [...new Set(resolved)].sort((a, b) => a.localeCompare(b));
+  const groups = [...new Set(resolved)]
+    .filter((n) => !String(n || "").trim().toLowerCase().startsWith("cn="))
+    .sort((a, b) => a.localeCompare(b));
 
   return {
     groups,
@@ -394,13 +421,15 @@ async function resolveGroupsForUser(authUser, takPayload) {
   };
 }
 
+function missionVisibleForAccess(mission, allowedKeySet) {
+  const names = extractMissionGroupNames(mission);
+  if (!names.length) return false;
+  return names.every((g) => takGroupNameAllowed(g, allowedKeySet));
+}
+
 function filterMissionsForAccess(missions, allowedKeySet) {
   const list = Array.isArray(missions) ? missions : [];
-  return list.filter((m) => {
-    const g = missionSingleGroupName(m);
-    if (!g) return false;
-    return takGroupNameAllowed(g, allowedKeySet);
-  });
+  return list.filter((m) => missionVisibleForAccess(m, allowedKeySet));
 }
 
 function filterGroupsPayload(payload, allowedKeySet) {
@@ -466,8 +495,7 @@ async function assertMissionReadable(authUser, missionName, options = {}) {
   const allowedKeySet = await getAllowedCanonicalKeySet(authUser, options);
   const raw = await dataSyncSvc.getMission(missionName);
   const mission = unwrapMission(raw);
-  const g = missionSingleGroupName(mission);
-  if (!g || !takGroupNameAllowed(g, allowedKeySet)) {
+  if (!missionVisibleForAccess(mission, allowedKeySet)) {
     const err = new Error("Forbidden");
     err.code = "FORBIDDEN";
     throw err;
@@ -672,7 +700,16 @@ async function deleteMatchingFileSyncPackages(missionName, mission, allowedKeySe
   return deletedFiles;
 }
 
-async function permanentlyDeleteMissionForUser(authUser, missionName) {
+/**
+ * Permanently delete a Data Sync mission (same as Data Sync page delete):
+ * remove matching file-sync copies, delete the active mission, then remove
+ * the ARCHIVED_MISSION row TAK typically writes on delete.
+ *
+ * @param {string} missionName
+ * @param {{ allowedKeySet?: Set<string>|null }} [opts]
+ *   allowedKeySet null = unrestricted (system / global admin).
+ */
+async function permanentlyDeleteMission(missionName, opts = {}) {
   const name = String(missionName || "").trim();
   if (!name) {
     const err = new Error("Mission name is required.");
@@ -680,7 +717,10 @@ async function permanentlyDeleteMissionForUser(authUser, missionName) {
     throw err;
   }
 
-  const allowedKeySet = await getAllowedCanonicalKeySet(authUser);
+  const allowedKeySet = Object.prototype.hasOwnProperty.call(opts, "allowedKeySet")
+    ? opts.allowedKeySet
+    : null;
+
   let mission = null;
   let missionExisted = false;
 
@@ -688,22 +728,17 @@ async function permanentlyDeleteMissionForUser(authUser, missionName) {
     const raw = await dataSyncSvc.getMission(name);
     mission = unwrapMission(raw);
     missionExisted = !!mission;
-    const g = missionSingleGroupName(mission);
-    if (!g || !takGroupNameAllowed(g, allowedKeySet)) {
-      const err = new Error("Forbidden");
-      err.code = "FORBIDDEN";
-      throw err;
-    }
   } catch (err) {
     const status = err?.response?.status;
-    if (err?.code === "FORBIDDEN") throw err;
     if (status && status !== 404) throw err;
   }
 
   let deletedFiles = 0;
 
   // Remove any existing file-sync copies before deleting the active mission.
-  deletedFiles += await deleteMatchingFileSyncPackages(name, mission, allowedKeySet, { broad: true });
+  deletedFiles += await deleteMatchingFileSyncPackages(name, mission, allowedKeySet, {
+    broad: true,
+  });
 
   if (missionExisted) {
     try {
@@ -715,7 +750,9 @@ async function permanentlyDeleteMissionForUser(authUser, missionName) {
   }
 
   // TAK often writes a new ARCHIVED_MISSION file-sync row when a mission is deleted.
-  deletedFiles += await deleteMatchingFileSyncPackages(name, mission, allowedKeySet, { broad: true });
+  deletedFiles += await deleteMatchingFileSyncPackages(name, mission, allowedKeySet, {
+    broad: true,
+  });
 
   return {
     ok: true,
@@ -723,6 +760,33 @@ async function permanentlyDeleteMissionForUser(authUser, missionName) {
     deletedFiles,
     deletedMission: missionExisted,
   };
+}
+
+async function permanentlyDeleteMissionForUser(authUser, missionName) {
+  const name = String(missionName || "").trim();
+  if (!name) {
+    const err = new Error("Mission name is required.");
+    err.code = "INVALID_MISSION_NAME";
+    throw err;
+  }
+
+  const allowedKeySet = await getAllowedCanonicalKeySet(authUser);
+
+  try {
+    const raw = await dataSyncSvc.getMission(name);
+    const mission = unwrapMission(raw);
+    if (mission && !missionVisibleForAccess(mission, allowedKeySet)) {
+      const err = new Error("Forbidden");
+      err.code = "FORBIDDEN";
+      throw err;
+    }
+  } catch (err) {
+    const status = err?.response?.status;
+    if (err?.code === "FORBIDDEN") throw err;
+    if (status && status !== 404) throw err;
+  }
+
+  return permanentlyDeleteMission(name, { allowedKeySet });
 }
 
 async function buildAccessDebug(authUser) {
@@ -794,6 +858,7 @@ module.exports = {
   extractTakGroupNameList,
   extractMissionGroupNames,
   missionSingleGroupName,
+  missionVisibleForAccess,
   resolveAssignmentMetaForGroup,
   enrichMissionAssignmentMeta,
   enrichMissionListAssignmentMeta,
@@ -811,6 +876,7 @@ module.exports = {
   filterFileSyncPackagesForAccess,
   listFileSyncPackagesForUser,
   assertFileSyncPackageAllowed,
+  permanentlyDeleteMission,
   permanentlyDeleteMissionForUser,
   extractPackageGroupNames,
   assertSingleGroupBody,

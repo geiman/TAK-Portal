@@ -26,6 +26,7 @@ const https = require("https");
 const axios = require("axios");
 const { URL } = require("url");
 const { getBool, getString } = require("./env");
+const { attachCookieStore, getSharedTakCookieStore } = require("./takHttpSession");
 
 function resolvePathMaybe(p) {
   const v = String(p || "").trim();
@@ -100,6 +101,7 @@ function buildTakAxios() {
   const caPath = resolvePathMaybe(getString("TAK_CA_PATH", ""));
 
   const agentOptions = {
+    keepAlive: true,
     ca: caPath ? fs.readFileSync(caPath) : undefined,
     rejectUnauthorized: true,
     // keep previous behavior (skip hostname verification)
@@ -130,6 +132,8 @@ function buildTakAxios() {
     validateStatus: (s) => s >= 200 && s < 500,
   });
 
+  attachCookieStore(client, getSharedTakCookieStore());
+
   if (TAK_DEBUG) {
     client.interceptors.request.use((cfg) => {
       // eslint-disable-next-line no-console
@@ -144,6 +148,13 @@ function buildTakAxios() {
   }
 
   return client;
+}
+
+let _metricsAxios = null;
+
+function getMetricsAxios() {
+  if (!_metricsAxios) _metricsAxios = buildTakAxios();
+  return _metricsAxios;
 }
 
 /**
@@ -299,6 +310,10 @@ const SUBSCRIPTIONS_CACHE_TTL_MS = Math.max(
   1000,
   Number(process.env.TAK_SUBSCRIPTIONS_CACHE_TTL_MS ?? 15000)
 );
+const SUBSCRIPTIONS_FETCH_TIMEOUT_MS = Math.max(
+  10_000,
+  Number(process.env.TAK_SUBSCRIPTIONS_FETCH_TIMEOUT_MS ?? 30_000)
+);
 
 let _samplerStarted = false;
 let _sampleTimer = null;
@@ -308,6 +323,8 @@ let _metricsInFlight = null;
 let _subscriptionsCache = null;
 let _subscriptionsCacheTs = 0;
 let _subscriptionsInFlight = null;
+let _subscriptionsFullCache = null;
+let _subscriptionsFullCacheTs = 0;
 
 /** Each sample: { ts, disk, net, uptimeSeconds } */
 let _samples = [];
@@ -378,7 +395,7 @@ async function buildTakMetricsSnapshot() {
   const root = getHostRootFromTakUrl(base);
   const actuatorBase = root;
 
-  const client = buildTakAxios();
+  const client = getMetricsAxios();
 
   // Start background sampler (collects samples even if snapshot isn't called often)
   startSamplerIfNeeded({ client, actuatorBase });
@@ -497,12 +514,23 @@ function isTlsCallsignSubscription(item) {
   return isTlsCallsign(item && item.callsign);
 }
 
+/** Channel-patch bridge / rebroadcast ghosts on the webadmin stream. */
+function isChannelPatchBridgeSubscription(item) {
+  const cs = String(item && item.callsign || "").trim().toLowerCase();
+  const uid = String(item && (item.uid || item.clientUid) || "").trim().toLowerCase();
+  if (cs === "tak-portal") return true;
+  if (uid === "takportal-channel-patch-bridge") return true;
+  if (cs.includes(".takportal.") || uid.includes(".takportal.")) return true;
+  return false;
+}
+
 function isExcludedConnectedUserSubscription(item) {
   const username = item && item.username;
   return (
     isNoderedUsername(username) ||
     isFederationTokenUsername(username) ||
-    isTlsCallsignSubscription(item)
+    isTlsCallsignSubscription(item) ||
+    isChannelPatchBridgeSubscription(item)
   );
 }
 
@@ -525,6 +553,7 @@ function filterConnectedUserSubscriptions(list, options = {}) {
   return filterFederationSubscriptions(list).filter((item) => {
     if (isNoderedUsername(item && item.username)) return false;
     if (isTlsCallsignSubscription(item)) return false;
+    if (isChannelPatchBridgeSubscription(item)) return false;
     return subscriptionMatchesAgencyScope(authUser, item && item.username, agencyOnly);
   });
 }
@@ -534,12 +563,18 @@ function computeSubscriptionExclusionCounts(list, options = {}) {
   let noderedCount = 0;
   let federationCount = 0;
   let tlsCallsignCount = 0;
+  // Marti can retain stale/ghost sessions for the same integration (e.g. an old
+  // tls:24x row lingering after Node-RED reconnected as tls:25x). Track distinct
+  // integration usernames so the "Connected Integrations" stat isn't inflated by
+  // duplicate sessions, while still subtracting every nodered row from clients.
+  const noderedUsernames = new Set();
 
   for (const item of Array.isArray(list) ? list : []) {
     const username = item && item.username;
     if (isNoderedUsername(username)) {
       if (subscriptionMatchesAgencyScope(authUser, username, agencyOnly)) {
         noderedCount += 1;
+        noderedUsernames.add(String(username).trim().toLowerCase());
       }
     } else if (!agencyOnly && isFederationTokenUsername(username)) {
       federationCount += 1;
@@ -548,14 +583,19 @@ function computeSubscriptionExclusionCounts(list, options = {}) {
     }
   }
 
-  return { noderedCount, federationCount, tlsCallsignCount };
+  return {
+    noderedCount,
+    noderedDistinctCount: noderedUsernames.size,
+    federationCount,
+    tlsCallsignCount,
+  };
 }
 
 function applySubscriptionMetricsSplit(takMetricsBase, subscriptions, options = {}) {
   if (!takMetricsBase || !subscriptions) return takMetricsBase;
   const list = Array.isArray(subscriptions.data) ? subscriptions.data : [];
   const { authUser = null, agencyOnly = false } = options;
-  const { noderedCount, federationCount, tlsCallsignCount } =
+  const { noderedCount, noderedDistinctCount, federationCount, tlsCallsignCount } =
     computeSubscriptionExclusionCounts(list, options);
 
   // Agency dashboard: count only subscriptions whose username matches allowed agency suffixes (tail or prefix).
@@ -572,70 +612,267 @@ function applySubscriptionMetricsSplit(takMetricsBase, subscriptions, options = 
 
   const total =
     typeof takMetricsBase.connectedClients === "number" ? takMetricsBase.connectedClients : 0;
+  const splitCount = Math.max(0, total - noderedCount - federationCount - tlsCallsignCount);
+  const listCount = filterConnectedUserSubscriptions(list).length;
 
   return {
     ...takMetricsBase,
-    connectedClients: Math.max(0, total - noderedCount - federationCount - tlsCallsignCount),
-    connectedIntegrations: noderedCount,
+    // Prefer the human list when it is ahead of actuator numClients (new EUD
+    // already in subscriptions/all). Keep the split when numClients is higher.
+    connectedClients: Math.max(splitCount, listCount),
+    connectedIntegrations: noderedDistinctCount,
   };
 }
 
-async function fetchSubscriptionsAll() {
+function unwrapMartiList(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (payload && Array.isArray(payload.data)) return payload.data;
+  return null;
+}
+
+async function fetchMartiList(client, url, params, extra = {}) {
+  const res = await client.get(url, {
+    headers: {
+      Accept: "application/json",
+      "Accept-Encoding": "gzip, deflate",
+    },
+    params: params || undefined,
+    decompress: true,
+    timeout: extra.timeout || undefined,
+  });
+  if (res.status !== 200 || !res.data) return null;
+  return unwrapMartiList(res.data);
+}
+
+function cleanTakClientLabel(value) {
+  return String(value || "")
+    .trim()
+    .replace(/[:\-_\s]+$/g, "");
+}
+
+function parseTakvFields(raw) {
+  if (raw && typeof raw === "object") {
+    const attrs = raw._attributes || raw;
+    return {
+      takClient: cleanTakClientLabel(attrs.platform || attrs.device || ""),
+      version: String(attrs.version || "").trim(),
+    };
+  }
+  const s = String(raw || "").trim();
+  if (!s) return { takClient: "", version: "" };
+
+  const colon = s.lastIndexOf(":");
+  if (colon > 0) {
+    const left = s.slice(0, colon).trim();
+    const right = s.slice(colon + 1).trim();
+    if (!right || /\d+(?:\.\d+)+/.test(right)) {
+      return { takClient: cleanTakClientLabel(left), version: right };
+    }
+  }
+
+  const versionMatch = s.match(/(\d+(?:\.\d+)+.*)$/);
+  if (!versionMatch) return { takClient: cleanTakClientLabel(s), version: "" };
+  const version = String(versionMatch[1] || "").trim();
+  return {
+    takClient: cleanTakClientLabel(s.slice(0, Math.max(0, s.length - version.length))),
+    version,
+  };
+}
+
+/** Table/dashboard fields only — never keep Marti group vectors. */
+function normalizeConnectedClientRow(row) {
+  if (!row || typeof row !== "object") return null;
+  const uid = String(
+    row.clientUid || row.uid || row.subscriptionUid || row.deviceUid || ""
+  ).trim();
+  const parsed = parseTakvFields(row.takv);
+  const takClient = cleanTakClientLabel(row.takClient || row.platform || parsed.takClient || "");
+  const version = String(
+    row.version || row.takVersion || row.appVersion || row.clientVersion || parsed.version || ""
+  ).trim();
+  return {
+    username: String(row.username || "").trim(),
+    callsign: String(row.callsign || "").trim(),
+    takClient,
+    platform: takClient,
+    team: String(row.team || "").trim(),
+    role: String(row.role || "").trim(),
+    version,
+    clientUid: uid,
+    subscriptionUid: String(row.subscriptionUid || uid).trim(),
+    uid: String(row.uid || uid).trim(),
+    clientUuid: row.clientUuid != null ? String(row.clientUuid).trim() : "",
+    connectionUid: row.connectionUid != null ? String(row.connectionUid).trim() : "",
+    deviceUid: row.deviceUid != null ? String(row.deviceUid).trim() : "",
+  };
+}
+
+function cloneSubscriptionsResult(result) {
+  if (!result) return result;
+  return {
+    ...result,
+    data: Array.isArray(result.data) ? result.data.slice() : result.data,
+  };
+}
+
+/**
+ * One Marti `/api/subscriptions/all` GET. Slim rows are the 2.0.5 dashboard
+ * membership set (groups stripped). The raw list is kept only when a caller
+ * needs map/group vectors.
+ */
+async function fetchSubscriptionsBundle() {
   const takUrl = getString("TAK_URL", "");
   if (!String(takUrl || "").trim()) {
-    return { configured: false, data: [] };
+    return {
+      slim: { configured: false, data: [] },
+      full: { configured: false, data: [] },
+    };
   }
 
   const base = normalizeBase(takUrl);
-  const client = buildTakAxios();
-  const url = `${base}/api/subscriptions/all`;
-
-  try {
-    const res = await client.get(url, { headers: { Accept: "application/json" } });
-    if (res.status !== 200 || !res.data) return { configured: true, data: [] };
-    const list = Array.isArray(res.data.data) ? res.data.data : [];
-    return { configured: true, data: list };
-  } catch (err) {
-    throw err;
+  const client = getMetricsAxios();
+  const list = await fetchMartiList(client, `${base}/api/subscriptions/all`, undefined, {
+    timeout: SUBSCRIPTIONS_FETCH_TIMEOUT_MS,
+  });
+  const raw = Array.isArray(list) ? list : [];
+  const slimData = [];
+  for (let i = 0; i < raw.length; i++) {
+    const row = normalizeConnectedClientRow(raw[i]);
+    if (row) slimData.push(row);
   }
+  return {
+    slim: { configured: true, data: slimData },
+    full: { configured: true, data: raw },
+  };
 }
 
-async function getSubscriptionsAll() {
-  const now = Date.now();
-  if (_subscriptionsCache && now - _subscriptionsCacheTs <= SUBSCRIPTIONS_CACHE_TTL_MS) {
-    return { ..._subscriptionsCache };
-  }
+async function ensureSubscriptionsBundle(options = {}) {
+  const keepFull = options.keepFull !== false;
+  if (_subscriptionsInFlight) return _subscriptionsInFlight;
 
-  if (_subscriptionsInFlight) {
-    const snapshot = await _subscriptionsInFlight;
-    return snapshot ? { ...snapshot } : snapshot;
-  }
-
-  _subscriptionsInFlight = fetchSubscriptionsAll()
-    .then((result) => {
-      _subscriptionsCache = result;
-      _subscriptionsCacheTs = Date.now();
-      return result;
+  _subscriptionsInFlight = fetchSubscriptionsBundle()
+    .then((bundle) => {
+      const ts = Date.now();
+      _subscriptionsCache = bundle.slim;
+      _subscriptionsCacheTs = ts;
+      if (keepFull) {
+        _subscriptionsFullCache = bundle.full;
+        _subscriptionsFullCacheTs = ts;
+      }
+      return bundle;
     })
     .catch((err) => {
-      if (_subscriptionsCache) return _subscriptionsCache;
-      return {
+      if (_subscriptionsCache || _subscriptionsFullCache) {
+        return {
+          slim: _subscriptionsCache || { configured: true, data: [] },
+          full: _subscriptionsFullCache || { configured: true, data: [] },
+        };
+      }
+      const empty = {
         configured: true,
         data: [],
         error: err?.response?.data || err?.message || "Failed to fetch subscriptions",
       };
+      return { slim: empty, full: empty };
     })
     .finally(() => {
       _subscriptionsInFlight = null;
     });
 
-  const result = await _subscriptionsInFlight;
-  return result ? { ...result } : result;
+  return _subscriptionsInFlight;
+}
+
+/**
+ * Connected-client list for dashboard counts/table.
+ * Default: worker Postgres snapshot (refreshed ~15s). Memory is used only when
+ * it is at least as new as that snapshot.
+ * `{ live: true }` always hits TAK — used by the worker refresher.
+ */
+async function getSubscriptionsAll(options = {}) {
+  const live = options.live === true;
+  const now = Date.now();
+
+  if (!live) {
+    try {
+      const fromDash = await readDashboardSubscriptionsCache();
+      if (fromDash) {
+        const memoryFresh =
+          _subscriptionsCache &&
+          now - _subscriptionsCacheTs <= SUBSCRIPTIONS_CACHE_TTL_MS &&
+          (!fromDash.refreshedAt || _subscriptionsCacheTs >= fromDash.refreshedAt);
+        if (memoryFresh) {
+          return cloneSubscriptionsResult(_subscriptionsCache);
+        }
+        _subscriptionsCache = {
+          ...fromDash.cached,
+          data: fromDash.cached.data.slice(),
+        };
+        _subscriptionsCacheTs = fromDash.refreshedAt || Date.now();
+        return cloneSubscriptionsResult(_subscriptionsCache);
+      }
+    } catch (_) {
+      /* fall through to memory / live TAK */
+    }
+    if (_subscriptionsCache && now - _subscriptionsCacheTs <= SUBSCRIPTIONS_CACHE_TTL_MS) {
+      return cloneSubscriptionsResult(_subscriptionsCache);
+    }
+  }
+
+  const bundle = await ensureSubscriptionsBundle({ keepFull: options.keepFull !== false });
+  return cloneSubscriptionsResult(bundle && bundle.slim);
+}
+
+async function getSubscriptionsAllFull() {
+  const now = Date.now();
+  if (_subscriptionsFullCache && now - _subscriptionsFullCacheTs <= SUBSCRIPTIONS_CACHE_TTL_MS) {
+    return { ..._subscriptionsFullCache };
+  }
+  const bundle = await ensureSubscriptionsBundle({ keepFull: true });
+  const full = bundle && bundle.full;
+  return full ? { ...full } : { configured: true, data: [] };
+}
+
+async function readDashboardSubscriptionsCache() {
+  const dash = require("./takDashboardCache.service");
+  const snap = await dash.getDashboardTakSnapshot();
+  const cached = snap && snap.subscriptions;
+  if (!(cached && Array.isArray(cached.data))) return null;
+  const refreshedAt = snap.refreshedAt ? new Date(snap.refreshedAt).getTime() : 0;
+  return { cached, refreshedAt };
+}
+
+/** Dashboard/map client list only — drop Marti group payloads from the HTTP response. */
+function slimSubscriptionForClientList(item) {
+  if (!item || typeof item !== "object") return item;
+  return {
+    username: item.username,
+    callsign: item.callsign,
+    takClient: item.takClient,
+    platform: item.platform,
+    team: item.team,
+    role: item.role,
+    battery: item.battery,
+    version: item.version,
+    clientUid: item.clientUid,
+    subscriptionUid: item.subscriptionUid,
+    uid: item.uid,
+    clientUuid: item.clientUuid,
+    connectionUid: item.connectionUid,
+    deviceUid: item.deviceUid,
+  };
+}
+
+function slimSubscriptionsForClientList(list) {
+  return (Array.isArray(list) ? list : []).map(slimSubscriptionForClientList);
 }
 
 module.exports = {
   getTakMetricsSnapshot,
   getSubscriptionsAll,
+  getSubscriptionsAllFull,
+  slimSubscriptionsForClientList,
+  normalizeConnectedClientRow,
+  parseTakvFields,
   buildTakMtlsHttpsAgent,
   isFederationTokenUsername,
   isNoderedUsername,

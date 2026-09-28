@@ -4,7 +4,7 @@ const fs = require("fs");
 const crypto = require("crypto");
 const Jimp = require("jimp"); // Jimp 0.22.x
 const settingsSvc = require("./settings.service");
-const { addLogoToQrPng } = require("./qrLogoOverlay.service");
+const { addLogoToQrPng, logoCacheIdentity } = require("./qrLogoOverlay.service");
 
 // Prefer TAK_URL from settings.json, fall back to .env if needed
 function getTakUrl() {
@@ -77,58 +77,10 @@ function buildEnrollUrl({ username, token }) {
   );
 }
 
-function buildItakEnrollPayload({ username, token, registrationId }) {
-  const u = String(username || "").trim();
-  const t = String(token || "").trim();
-  const rid = String(registrationId || "").trim();
-  const host = getTakHost();
-  const port = getTakClientConnectionPort();
-
-  if (!u || !t || !rid || !host || !port) return null;
-
-  return JSON.stringify({
-    passphrase: "false",
-    type: "registration",
-    serverCredentials: {
-      connectionString: `${host}:${port}:ssl`,
-    },
-    userCredentials: {
-      username: u,
-      password: t,
-      registrationId: rid,
-    },
-  });
-}
-
-/**
- * Build Open TAK Tracker enrollment URL (enrollment + callsign/team/role in one).
- * Format: opentaktracker://enroll?host=SERVER&username=USER&token=TOKEN&callsign=CALLSIGN&team=TEAM&role=ROLE
- */
-function buildOttEnrollUrl({ host, username, token, callsign, teamLabel, roleLabel }) {
-  const h = String(host || "").trim();
-  const u = String(username || "").trim();
-  const t = String(token || "").trim();
-  if (!h || !u || !t) return null;
-
-  const c = String(callsign || "").trim();
-  const team = String(teamLabel || "").trim();
-  const r = String(roleLabel || "Team Member").trim();
-
-  const params = [
-    `host=${encodeURIComponent(h)}`,
-    `username=${encodeURIComponent(u)}`,
-    `token=${encodeURIComponent(t)}`,
-  ];
-  if (c) params.push(`callsign=${encodeURIComponent(c)}`);
-  if (team) params.push(`team=${encodeURIComponent(team)}`);
-  if (r) params.push(`role=${encodeURIComponent(r)}`);
-
-  return `opentaktracker://enroll?${params.join("&")}`;
-}
-
 /**
  * Build iTAK registration QR payload (plain-text JSON scanned by iTAK).
- * @see iTAK registration QR format: connectionString host:8089:ssl, user app-password token.
+ * @see iTAK registration QR format: connectionString host:PORT:ssl, user app-password token.
+ * PORT comes from TAK_CLIENT_CONNECTION_PORT (default 8089).
  */
 function buildItakEnrollPayload({ host, username, token, registrationId }) {
   const h = String(host || "").trim();
@@ -143,7 +95,7 @@ function buildItakEnrollPayload({ host, username, token, registrationId }) {
     passphrase: "false",
     type: "registration",
     serverCredentials: {
-      connectionString: `${h}:8089:ssl`,
+      connectionString: `${h}:${getTakClientConnectionPort()}:ssl`,
     },
     userCredentials: {
       username: u,
@@ -156,43 +108,117 @@ function buildItakEnrollPayload({ host, username, token, registrationId }) {
 }
 
 /**
- * Build ATAK device preference URL for callsign, team (color), and role.
- * Format: tak://com.atakmap.app/preference?key1=locationCallsign&type1=string&value1=...&key2=locationTeam&type2=string&value2=...&key3=atakRoleType&type3=string&value3=...
+ * Build ATAK device preference URL for callsign, team (color), role, and
+ * Plugin Update Server settings when TAK host is known.
+ * Format: tak://com.atakmap.app/preference?key1=...&type1=...&value1=...&key2=...
  */
 function buildPreferenceUrl({ callsign, teamLabel, roleLabel }) {
   const c = String(callsign || "").trim();
   const t = String(teamLabel || "").trim();
   const r = String(roleLabel || "Team Member").trim();
-  if (!c && !t && !r) return null;
 
-  const params = [];
-  if (c) params.push(`key1=locationCallsign&type1=string&value1=${encodeURIComponent(c)}`);
-  if (t) params.push(`key2=locationTeam&type2=string&value2=${encodeURIComponent(t)}`);
-  if (r) params.push(`key3=atakRoleType&type3=string&value3=${encodeURIComponent(r)}`);
-  if (!params.length) return null;
+  const entries = [];
+  if (c) entries.push({ key: "locationCallsign", type: "string", value: c });
+  if (t) entries.push({ key: "locationTeam", type: "string", value: t });
+  if (r) entries.push({ key: "atakRoleType", type: "string", value: r });
+
+  const host = getTakHost();
+  if (host) {
+    entries.push(
+      { key: "appMgmtEnableUpdateServer", type: "boolean", value: "true" },
+      {
+        key: "atakUpdateServerUrl",
+        type: "string",
+        value: `https://${host}:8443/update`,
+      },
+      { key: "repoStartupSync", type: "boolean", value: "true" }
+    );
+  }
+
+  if (!entries.length) return null;
+
+  const params = entries.map((entry, i) => {
+    const n = i + 1;
+    return (
+      `key${n}=${encodeURIComponent(entry.key)}` +
+      `&type${n}=${encodeURIComponent(entry.type)}` +
+      `&value${n}=${encodeURIComponent(entry.value)}`
+    );
+  });
 
   return `tak://com.atakmap.app/preference?${params.join("&")}`;
 }
 
-async function addLogoToPng(pngBuffer, options = {}) {
+const QR_PNG_CACHE_MAX = 250;
+/** @type {Map<string, Buffer>} */
+const qrPngCache = new Map();
+let _sans64BlackFont = null;
+
+function defaultBrandLogoPath() {
   const settings = settingsSvc.getSettings() || {};
   const logoUrl = settings.BRAND_LOGO_URL;
-  if (!logoUrl || typeof logoUrl !== "string") return pngBuffer;
+  if (!logoUrl || typeof logoUrl !== "string") return "";
+  const logoFsPath = path.join(__dirname, "..", "data", logoUrl.replace(/^\//, ""));
+  return fs.existsSync(logoFsPath) ? logoFsPath : "";
+}
 
-  const logoUrlPath = logoUrl.replace(/^\//, "");
-  const logoFsPath = path.join(__dirname, "..", "data", logoUrlPath);
-  if (!fs.existsSync(logoFsPath)) return pngBuffer;
+function qrPngCacheKey(content, options = {}) {
+  const width = Number(options.width) > 0 ? Number(options.width) : 512;
+  const margin = options.margin != null ? Number(options.margin) : 2;
+  const logoPath =
+    options.logoPath != null ? String(options.logoPath || "") : defaultBrandLogoPath();
+  const logoId = logoPath ? logoCacheIdentity(logoPath) || logoPath : "nologo";
+  const logoRatio = options.logoRatio != null ? String(options.logoRatio) : "";
+  const username = String(options.usernameLabel || "")
+    .trim()
+    .toUpperCase();
+  return crypto
+    .createHash("sha256")
+    .update(
+      [String(content || ""), width, margin, logoId, logoRatio, username].join("\0")
+    )
+    .digest("hex");
+}
 
+function displayQrCacheKey(content) {
+  return qrPngCacheKey(content, { width: 512, margin: 2 });
+}
+
+function getCachedQrPng(key) {
+  const hit = qrPngCache.get(key);
+  if (!hit) return null;
+  qrPngCache.delete(key);
+  qrPngCache.set(key, hit);
+  return hit;
+}
+
+function setCachedQrPng(key, buf) {
+  if (qrPngCache.has(key)) qrPngCache.delete(key);
+  qrPngCache.set(key, buf);
+  while (qrPngCache.size > QR_PNG_CACHE_MAX) {
+    const oldest = qrPngCache.keys().next().value;
+    qrPngCache.delete(oldest);
+  }
+}
+
+async function addLogoToPng(pngBuffer, options = {}) {
+  const logoFsPath = defaultBrandLogoPath();
+  if (!logoFsPath) return pngBuffer;
   return addLogoToQrPng(pngBuffer, logoFsPath, options);
+}
+
+async function getSans64BlackFont() {
+  if (!_sans64BlackFont) {
+    _sans64BlackFont = await Jimp.loadFont(Jimp.FONT_SANS_64_BLACK);
+  }
+  return _sans64BlackFont;
 }
 
 // Add username label underneath the QR image (for downloaded image only)
 async function addUsernameLabel(pngBuffer, username) {
   try {
     const qrImage = await Jimp.read(pngBuffer);
-
-    // Built-in font in Jimp 0.22.x
-    const font = await Jimp.loadFont(Jimp.FONT_SANS_64_BLACK);
+    const font = await getSans64BlackFont();
 
     // FORCE ALL CAPS
     const text = (String(username || "").trim() || "USER").toUpperCase();
@@ -233,37 +259,64 @@ async function addUsernameLabel(pngBuffer, username) {
   }
 }
 
-async function generateDisplayQrDataUrl(enrollUrl) {
-  const basePng = await QRCode.toBuffer(enrollUrl, {
+/**
+ * Generate a QR PNG with optional logo overlay and username label.
+ * Results are cached in-memory by content + size + logo identity.
+ */
+async function generateQrPngBuffer(content, options = {}) {
+  const text = String(content || "");
+  if (!text) return Buffer.alloc(0);
+  const width = Number(options.width) > 0 ? Number(options.width) : 512;
+  const margin = options.margin != null ? Number(options.margin) : 2;
+  const key = qrPngCacheKey(text, options);
+  const cached = getCachedQrPng(key);
+  if (cached) return cached;
+
+  const basePng = await QRCode.toBuffer(text, {
     errorCorrectionLevel: "H",
     type: "png",
-    width: 512, // Display size
-    margin: 2,
+    width,
+    margin,
     color: {
       dark: "#000000",
       light: "#FFFFFF",
     },
   });
 
-  const finalPng = await addLogoToPng(basePng);
-  return "data:image/png;base64," + finalPng.toString("base64");
+  const overlayOpts =
+    options.logoRatio != null ? { logoRatio: options.logoRatio } : {};
+  let finalPng = basePng;
+  if (options.logoPath) {
+    finalPng = await addLogoToQrPng(finalPng, options.logoPath, overlayOpts);
+  } else if (options.logoPath !== "") {
+    finalPng = await addLogoToPng(finalPng, overlayOpts);
+  }
+
+  if (options.usernameLabel) {
+    finalPng = await addUsernameLabel(finalPng, options.usernameLabel);
+  }
+
+  setCachedQrPng(key, finalPng);
+  return finalPng;
+}
+
+async function generateDisplayQrDataUrl(enrollUrl, options = {}) {
+  const content = String(enrollUrl || "");
+  if (!content) return "";
+  const buf = await generateQrPngBuffer(content, {
+    width: 512,
+    margin: 2,
+    ...options,
+  });
+  return "data:image/png;base64," + buf.toString("base64");
 }
 
 async function generateDownloadPng(enrollUrl, username) {
-  const pngBuffer = await QRCode.toBuffer(enrollUrl, {
-    errorCorrectionLevel: "H",
-    type: "png",
+  return generateQrPngBuffer(enrollUrl, {
     width: 1200,
     margin: 3,
-    color: {
-      dark: "#000000",
-      light: "#FFFFFF",
-    },
+    usernameLabel: username,
   });
-
-  let finalPng = await addLogoToPng(pngBuffer);
-  finalPng = await addUsernameLabel(finalPng, username);
-  return finalPng;
 }
 
 module.exports = {
@@ -272,9 +325,9 @@ module.exports = {
   getTakClientConnectionPort,
   buildEnrollUrl,
   buildItakEnrollPayload,
-  buildOttEnrollUrl,
-  buildItakEnrollPayload,
   buildPreferenceUrl,
   generateDisplayQrDataUrl,
   generateDownloadPng,
+  generateQrPngBuffer,
+  displayQrCacheKey,
 };

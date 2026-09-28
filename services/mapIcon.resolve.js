@@ -73,6 +73,17 @@ const BARE_CIVILIAN_AIR_PREFERRED_ICONS = {
   ],
 };
 
+/** CoT type → Default iconset path (survives iconset.xml re-vendor). */
+const COT_TYPE_ICON_OVERRIDES = {
+  // SPI target / spot point
+  "b-m-p-s-p-i": { iconsetUid: DEFAULT_ICONSET_UID, relPath: "Hunting/crosshair.png" },
+  // Sensor point location (cameras, fixed sensors) — not a targeting SPI
+  "b-m-p-s-p-loc": { iconsetUid: GENERIC_ICONS_UID, relPath: "Shapes/camera.png" },
+};
+
+/** Exact CoT types that must use filled 2525D milsym (not type2525b PNG outlines/flags). */
+const COT_TYPES_PREFER_MILSYM = new Set(["a-u-g"]);
+
 function cotTypeSegments(cotType) {
   return String(cotType || "")
     .trim()
@@ -93,6 +104,29 @@ function cotDomain(cotType) {
   if (segments.length >= 3 && segments[2] === "a") return "air";
   if (segments.length >= 3 && segments[2] === "g") return "ground";
   return "other";
+}
+
+function normalizeCotTypeKey(cotType) {
+  return String(cotType || "")
+    .trim()
+    .replace(/[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g, "-")
+    .toLowerCase();
+}
+
+/**
+ * Self-SA / presence that other TAK clients draw as a team-colored EUD dot.
+ * Includes ATAK a-*-G-U-C and CloudTAK browser SA (published as a-*-G-E-V-C).
+ */
+function isStandardGroundEudType(cotType) {
+  const t = normalizeCotTypeKey(cotType);
+  if (/^a-[a-z0-9]+-g-u-c(?:-|$)/.test(t)) return true;
+  // CloudTAK uses civilian-vehicle CoT for live users — never milsym/car frames.
+  if (/^a-[a-z0-9]+-g-e-v-c(?:-|$)/.test(t)) return true;
+  return false;
+}
+
+function isCotMappingIconPath(iconsetpath) {
+  return /^COT_MAPPING_/i.test(String(iconsetpath || "").trim());
 }
 
 function domainPriorityList(cotType, iconsetsByUid) {
@@ -380,9 +414,14 @@ function prefersMilSym2525C(iconsetpath) {
 
 function prefersMilSymIconPath(iconsetpath) {
   const raw = String(iconsetpath || "").trim();
-  if (/^COT_MAPPING_2525C\//i.test(raw)) return true;
+  // Explicit 2525 mapping paths (B or C) — not every CoT type string.
+  if (/^COT_MAPPING_2525[BC]\//i.test(raw)) return true;
   if (/^a-[a-z]-/i.test(raw) && raw.indexOf("/") === -1) return true;
   return false;
+}
+
+function prefersMilSymCotType(cotType) {
+  return COT_TYPES_PREFER_MILSYM.has(String(cotType || "").trim().toLowerCase());
 }
 
 function parseUserIcon(detail) {
@@ -412,18 +451,25 @@ function parseUserIcon(detail) {
 
 /**
  * Resolve bundled PNG icon (no 2525D fallback — caller adds milsym when needed).
+ * explicitOnly: custom usericon/path and type-overrides only (skip type2525b index).
  */
 function resolvePngIcon(
   { type, affiliation, detail, usericon },
-  { iconsetsByUid, typesByPrefix }
+  { iconsetsByUid, typesByPrefix },
+  options = {}
 ) {
+  const explicitOnly = !!options.explicitOnly;
   let ui = usericon || parseUserIcon(detail);
   let cotType = String(type || "").trim();
   let directPath = null;
 
+  const originalIsGroundEud = isStandardGroundEudType(cotType);
   const parsedPath = parseIconsetPath(ui.iconsetpath);
   if (parsedPath?.mode === "type") {
-    cotType = parsedPath.cotType || cotType;
+    // COT_MAPPING_2525B remaps must not turn a ground EUD into air/2525 art.
+    if (!originalIsGroundEud && !isStandardGroundEudType(parsedPath.cotType)) {
+      cotType = parsedPath.cotType || cotType;
+    }
   } else if (parsedPath?.mode === "path") {
     directPath = parsedPath;
   } else if (parsedPath?.mode === "usericon") {
@@ -432,6 +478,10 @@ function resolvePngIcon(
       name: parsedPath.iconName || ui.name,
       group: parsedPath.group || ui.group,
     };
+  }
+
+  if (directPath && originalIsGroundEud && /a-f-g\.png$/i.test(String(directPath.relPath || ""))) {
+    return null;
   }
 
   if (directPath) {
@@ -460,7 +510,12 @@ function resolvePngIcon(
     }
   }
 
-  if (parsedPath?.mode === "usericon" && (ui.name || ui.group)) {
+  if (
+    parsedPath?.mode === "usericon" &&
+    (ui.name || ui.group) &&
+    !isCotMappingIconPath(ui.iconsetpath) &&
+    !/a-f-g\.png$/i.test(String(ui.name || ""))
+  ) {
     for (const iconset of iconsetsByUid.values()) {
       const hit = resolveFromIconset(
         iconset,
@@ -477,9 +532,26 @@ function resolvePngIcon(
     }
   }
 
-  if (prefersMilSymIconPath(ui.iconsetpath)) {
+  if (prefersMilSymIconPath(ui.iconsetpath) || prefersMilSymCotType(cotType)) {
     return null;
   }
+
+  // Ground EUDs (a-*-G-U-C): ATAK shows a team dot. Never type-prefix or
+  // honor COT_MAPPING_2525* — those become aviation tombstones via milsym.
+  if (originalIsGroundEud || isStandardGroundEudType(cotType)) {
+    return null;
+  }
+
+  const typeOverride = COT_TYPE_ICON_OVERRIDES[String(cotType || "").trim().toLowerCase()];
+  if (typeOverride) {
+    const iconset = iconsetsByUid.get(typeOverride.iconsetUid);
+    if (iconset) {
+      const hit = buildIconResult(iconset, typeOverride.relPath, "type-override");
+      if (hit) return hit;
+    }
+  }
+
+  if (explicitOnly) return null;
 
   const globalTypeHit = findBestTypeMatch(cotType, typesByPrefix, iconsetsByUid);
   if (globalTypeHit) {
@@ -532,6 +604,8 @@ module.exports = {
   ICON_PATH_ALIASES,
   DOMAIN_ICONSET_PRIORITY,
   cotDomain,
+  isStandardGroundEudType,
+  normalizeCotTypeKey,
   domainPriorityList,
   findBestTypeMatch,
   pickBestFromEntries,
@@ -541,6 +615,7 @@ module.exports = {
   isIconsetUidToken,
   looksLikeIconsetPath,
   prefersMilSym2525C,
+  prefersMilSymCotType,
   prefersMilSymIconPath,
   resolvePngIcon,
   resolveRelativePath,

@@ -8,12 +8,252 @@ const groupsService = require("./groups.service");
 const templatesStore = require("./templates.service");
 const usersService = require("./users.service");
 const userRequestsService = require("./userRequests.service");
+const dataSyncSvc = require("./dataSync.service");
+const dataSyncAccess = require("./dataSyncAccess.service");
+const dataPackagesSvc = require("./dataPackages.service");
+const packageKind = require("./packageKind.service");
+const { isTakConfigured } = require("./tak.service");
+const { getBool } = require("./env");
 const { normalizeCountyName } = require("./countyNameRename.service");
 const { normalizeStateCode } = require("./stateCodeRename.service");
 
 function stripTakPrefix(name) {
   const n = String(name || "").trim();
   return n.toLowerCase().startsWith("tak_") ? n.slice(4) : n;
+}
+
+function canonicalGroupKey(name) {
+  return stripTakPrefix(name).toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function unwrapMissionList(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (payload && Array.isArray(payload.data)) return payload.data;
+  return [];
+}
+
+/**
+ * Map canonical group key → scope for every group that will be deleted
+ * (agency-specific, and county/state when this is the last agency in that geo).
+ */
+function collectDeletedGroupKeyScopes(plan) {
+  const keyToScope = new Map();
+  const buckets = [
+    ["agency", plan?.agencyGroups],
+    ["county", plan?.countyGroups],
+    ["state", plan?.stateGroups],
+  ];
+  for (const [scope, groups] of buckets) {
+    for (const group of Array.isArray(groups) ? groups : []) {
+      const key = canonicalGroupKey(group?.name);
+      if (key && !keyToScope.has(key)) keyToScope.set(key, scope);
+    }
+  }
+  return keyToScope;
+}
+
+function packageHash(record) {
+  return String(
+    record?.hash || record?.Hash || record?.sha256 || record?.uid || record?.id || ""
+  ).trim();
+}
+
+function packageFilename(record) {
+  return String(
+    record?.filename ||
+      record?.Filename ||
+      record?.name ||
+      record?.Name ||
+      record?.original_filename ||
+      ""
+  ).trim();
+}
+
+/**
+ * Active Data Sync missions whose single assigned group is among groups being deleted
+ * (agency, and county/state groups when those are included in the delete plan).
+ */
+async function findDataSyncMissionsForDeletedGroups(plan) {
+  if (getBool("TAK_BYPASS_ENABLED", false) || !isTakConfigured()) {
+    return [];
+  }
+
+  const keyToScope = collectDeletedGroupKeyScopes(plan);
+  if (!keyToScope.size) return [];
+
+  let raw;
+  try {
+    raw = await dataSyncSvc.listMissions();
+  } catch (err) {
+    console.warn(
+      "[agencyDelete] Failed to list Data Sync missions:",
+      err?.message || err
+    );
+    return [];
+  }
+
+  const matched = [];
+  const seen = new Set();
+  for (const mission of unwrapMissionList(raw)) {
+    const groupName = dataSyncAccess.missionSingleGroupName(mission);
+    if (!groupName) continue;
+    const scope = keyToScope.get(canonicalGroupKey(groupName));
+    if (!scope) continue;
+    const missionName = String(mission?.name || mission?.missionName || "").trim();
+    if (!missionName || seen.has(missionName.toLowerCase())) continue;
+    seen.add(missionName.toLowerCase());
+    matched.push({ name: missionName, groupName, scope, kind: "active" });
+  }
+  return matched;
+}
+
+/**
+ * Archived Data Sync file-sync rows tied to groups being deleted
+ * (covers leftovers from archive-only deletes).
+ */
+async function findArchivedDataSyncForDeletedGroups(plan) {
+  if (getBool("TAK_BYPASS_ENABLED", false) || !isTakConfigured()) {
+    return [];
+  }
+
+  const keyToScope = collectDeletedGroupKeyScopes(plan);
+  if (!keyToScope.size) return [];
+
+  let items = [];
+  try {
+    const data = await dataPackagesSvc.listDataPackages({});
+    items = Array.isArray(data?.items) ? data.items : [];
+  } catch (err) {
+    console.warn(
+      "[agencyDelete] Failed to list archived Data Sync packages:",
+      err?.message || err
+    );
+    return [];
+  }
+
+  const matched = [];
+  const seen = new Set();
+  for (const pkg of items) {
+    if (!packageKind.isDataSyncRecord(pkg)) continue;
+    const groups = dataSyncAccess.extractPackageGroupNames(pkg);
+    let scope = null;
+    let groupName = "";
+    for (const g of groups) {
+      const s = keyToScope.get(canonicalGroupKey(g));
+      if (s) {
+        scope = s;
+        groupName = g;
+        break;
+      }
+    }
+    if (!scope) continue;
+    const hash = packageHash(pkg);
+    if (!hash || seen.has(hash.toLowerCase())) continue;
+    seen.add(hash.toLowerCase());
+    matched.push({
+      hash,
+      filename: packageFilename(pkg),
+      groupName,
+      scope,
+      kind: "archived",
+    });
+  }
+  return matched;
+}
+
+function summarizeDataSyncMissionsByScope(missions, archivedPackages) {
+  const summary = { agency: 0, county: 0, state: 0, total: 0 };
+  const seenNames = new Set();
+
+  for (const mission of Array.isArray(missions) ? missions : []) {
+    const key = String(mission?.name || "").trim().toLowerCase();
+    if (key) seenNames.add(key);
+    if (mission?.scope === "agency") summary.agency += 1;
+    else if (mission?.scope === "county") summary.county += 1;
+    else if (mission?.scope === "state") summary.state += 1;
+    summary.total += 1;
+  }
+
+  for (const pkg of Array.isArray(archivedPackages) ? archivedPackages : []) {
+    const nameKey = String(pkg?.filename || "")
+      .trim()
+      .replace(/\.zip$/i, "")
+      .toLowerCase();
+    // Avoid double-counting an active mission that also has an archive row.
+    if (nameKey && seenNames.has(nameKey)) continue;
+    if (pkg?.scope === "agency") summary.agency += 1;
+    else if (pkg?.scope === "county") summary.county += 1;
+    else if (pkg?.scope === "state") summary.state += 1;
+    summary.total += 1;
+  }
+  return summary;
+}
+
+/**
+ * Permanently delete matching Data Sync missions (and leftover archives)
+ * before their groups are removed. Soft-fails so a TAK outage does not block
+ * agency delete.
+ */
+async function deleteDataSyncMissionsForPlan(plan) {
+  const missions = await findDataSyncMissionsForDeletedGroups(plan);
+  let deleted = 0;
+  let deletedArchived = 0;
+  const failures = [];
+
+  for (const mission of missions) {
+    try {
+      // Same path as Data Sync page "Delete" (not archive-only DELETE /missions/:name).
+      await dataSyncAccess.permanentlyDeleteMission(mission.name, {
+        allowedKeySet: null,
+      });
+      deleted += 1;
+    } catch (err) {
+      if (err?.code === "TAK_BYPASS" || err?.code === "TAK_NOT_CONFIGURED") {
+        break;
+      }
+      failures.push({
+        missionName: mission.name,
+        groupName: mission.groupName,
+        error: err?.message || String(err),
+      });
+      console.warn(
+        "[agencyDelete] Failed to permanently delete Data Sync mission",
+        mission.name,
+        err?.message || err
+      );
+    }
+  }
+
+  // Purge any leftover archived file-sync rows for those groups.
+  const archived = await findArchivedDataSyncForDeletedGroups(plan);
+  for (const pkg of archived) {
+    try {
+      await dataPackagesSvc.deleteDataPackage(pkg.hash);
+      deletedArchived += 1;
+    } catch (err) {
+      if (err?.code === "TAK_BYPASS" || err?.code === "TAK_NOT_CONFIGURED") {
+        break;
+      }
+      failures.push({
+        missionName: pkg.filename || pkg.hash,
+        groupName: pkg.groupName,
+        error: err?.message || String(err),
+      });
+      console.warn(
+        "[agencyDelete] Failed to delete archived Data Sync package",
+        pkg.hash,
+        err?.message || err
+      );
+    }
+  }
+
+  return {
+    attempted: missions.length + archived.length,
+    deleted,
+    deletedArchived,
+    failures,
+    missions,
+  };
 }
 
 function matchesAgencyGroup(group, agencyName) {
@@ -192,7 +432,13 @@ async function buildAgencyDeletePlan(agencyIndex) {
   if (!agencyName) throw new Error("Agency name is missing");
 
   const remainingAgencies = remainingAgenciesAfterDelete(agencies, idx);
-  const allGroups = await groupsService.getAllGroups({ includeHidden: true });
+  const r = await require("./directoryRepo.service").searchGroupsPaged({
+    agencyName: agencyName,
+    includeHidden: true,
+    page: 1,
+    pageSize: 500,
+  });
+  const allGroups = r.groups;
   const groupPlan = classifyGroupsForAgencyDelete(agency, allGroups, remainingAgencies);
   const suffix = String(agency.suffix || "").trim().toLowerCase();
   const allAgencyUsers = await usersService.listAllUsersByAgencyName(agencyName);
@@ -231,14 +477,25 @@ async function buildAgencyDeletePlan(agencyIndex) {
 
 async function getAgencyDeletePreview(agencyIndex) {
   const plan = await buildAgencyDeletePlan(agencyIndex);
+  const dataSyncMissions = await findDataSyncMissionsForDeletedGroups(plan);
+  const archivedDataSync = await findArchivedDataSyncForDeletedGroups(plan);
+  const dataSyncByScope = summarizeDataSyncMissionsByScope(
+    dataSyncMissions,
+    archivedDataSync
+  );
   return {
     agencyName: plan.agencyName,
     agencySuffix: plan.agencySuffix,
     userCount: plan.userCount,
     integrationCount: plan.integrationCount,
-    agencyGroupCount: plan.agencyGroupCount,
+    // Hide the Authentik agency admin group from the confirm UI (still deleted).
+    agencyGroupCount: Math.max(0, plan.agencyGroupCount - 1),
     countyGroupCount: plan.countyGroupCount,
     stateGroupCount: plan.stateGroupCount,
+    dataSyncMissionCount: dataSyncByScope.total,
+    agencyDataSyncMissionCount: dataSyncByScope.agency,
+    countyDataSyncMissionCount: dataSyncByScope.county,
+    stateDataSyncMissionCount: dataSyncByScope.state,
     templateCount: plan.templateCount,
     pendingRequestCount: plan.pendingRequestCount,
     willDeleteCountyGroups: plan.willDeleteCountyGroups,
@@ -331,6 +588,9 @@ async function deleteAgency(agencyIndex) {
   const userResult = await usersService.bulkDeleteUsersForAgency(plan.users);
   const integrationsDeleted = await deleteAgencyIntegrations(plan.agencyIntegrations);
 
+  // Delete Data Sync missions tied to groups that will be removed (before groups go away).
+  const dataSyncResult = await deleteDataSyncMissionsForPlan(plan);
+
   const groupsDeleted =
     (await deleteGroupsInPlan(plan.agencyGroups)) +
     (await deleteGroupsInPlan(plan.countyGroups)) +
@@ -352,6 +612,8 @@ async function deleteAgency(agencyIndex) {
     agencySuffix: plan.agencySuffix,
     usersDeleted: userResult.deletedIds.length,
     integrationsDeleted,
+    dataSyncMissionsDeleted: dataSyncResult.deleted,
+    dataSyncMissionsAttempted: dataSyncResult.attempted,
     agencyGroupsDeleted: plan.agencyGroups.length,
     countyGroupsDeleted: plan.countyGroups.length,
     stateGroupsDeleted: plan.stateGroups.length,

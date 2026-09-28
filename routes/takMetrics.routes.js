@@ -1,12 +1,15 @@
 const router = require("express").Router();
+const takDashboardCache = require("../services/takDashboardCache.service");
 const {
   getTakMetricsSnapshot,
   getSubscriptionsAll,
   applySubscriptionMetricsSplit,
   filterConnectedUserSubscriptions,
   filterFederationSubscriptions,
+  slimSubscriptionsForClientList,
 } = require("../services/takMetrics.service");
 const cotStream = require("../services/cotStream.service");
+const mapRender = require("../services/mapRender.service");
 const takGroupControl = require("../services/takGroupControl.service");
 const auditSvc = require("../services/auditLog.service");
 
@@ -31,15 +34,37 @@ function takRouteError(res, err) {
   return res.status(status).json({ error: message });
 }
 
+function pickBestLiveMarker(markers) {
+  const list = Array.isArray(markers) ? markers : [];
+  if (!list.length) return null;
+  if (list.length === 1) return list[0];
+  const eud = list.filter((m) => String(m?.origin || "").toLowerCase() === "eud");
+  const pool = eud.length ? eud : list;
+  pool.sort((a, b) => {
+    const ta = a?.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+    const tb = b?.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+    return tb - ta;
+  });
+  return pool[0];
+}
+
 router.get("/metrics", async (req, res) => {
   const user = requireTakAdmin(req, res);
   if (!user) return;
 
   try {
+    const isAgencyOnly = !!(user && user.isAgencyAdmin && !user.isGlobalAdmin);
+    const snap = await takDashboardCache.getDashboardTakSnapshot({
+      authUser: user,
+      agencyOnly: isAgencyOnly,
+    });
+    if (snap.takMetrics) {
+      res.set("Cache-Control", "no-store");
+      return res.json(snap.takMetrics);
+    }
     let metrics = await getTakMetricsSnapshot();
     try {
       const sub = await getSubscriptionsAll();
-      const isAgencyOnly = !!(user && user.isAgencyAdmin && !user.isGlobalAdmin);
       metrics = applySubscriptionMetricsSplit(metrics, sub, {
         authUser: user,
         agencyOnly: isAgencyOnly,
@@ -47,6 +72,7 @@ router.get("/metrics", async (req, res) => {
     } catch (_) {
       // leave metrics.connectedClients as-is if subscriptions fetch fails
     }
+    res.set("Cache-Control", "no-store");
     return res.json(metrics);
   } catch (err) {
     return res.status(500).json({
@@ -70,8 +96,11 @@ router.get("/subscriptions", async (req, res) => {
           })
         : filterFederationSubscriptions(result.data);
       cotStream.ensureBridgeStarted();
-      result.data = cotStream.enrichSubscriptionsWithLiveMarkerBattery(result.data);
+      result.data = slimSubscriptionsForClientList(
+        cotStream.enrichSubscriptionsWithLiveMarkerBattery(result.data)
+      );
     }
+    res.set("Cache-Control", "no-store");
     return res.json(result);
   } catch (err) {
     return res.status(500).json({
@@ -227,6 +256,101 @@ router.post("/clients/:clientId/send-data-sync-invite", async (req, res) => {
     });
 
     return res.json(out);
+  } catch (err) {
+    return takRouteError(res, err);
+  }
+});
+
+router.get("/clients/:clientId/live-marker", async (req, res) => {
+  const user = requireTakAdmin(req, res);
+  if (!user) return;
+
+  try {
+    cotStream.ensureBridgeStarted();
+    const clientId = String(req.params.clientId || "").trim();
+    const callsign = String(req.query.callsign || "").trim();
+    const username = String(req.query.username || "").trim();
+    if (!callsign && !username && !clientId) {
+      return res.status(400).json({
+        error: "Missing callsign, username, or client id",
+      });
+    }
+
+    let markers =
+      typeof cotStream.findMarkersForConnectedClient === "function"
+        ? cotStream.findMarkersForConnectedClient({
+            callsign,
+            username,
+            clientUid: clientId,
+          })
+        : cotStream.findMarkersByCallsign(callsign);
+
+    // Subscription callsign (e.g. HCSO-BUCK-K03) often differs from the
+    // Authentik/preference CoT callsign (e.g. HCSO-BUCK-3633). Only hit
+    // preference lookup when the cheap match misses.
+    if ((!markers || !markers.length) && clientId) {
+      try {
+        const preferenceCallsign = String(
+          (await takGroupControl.getCachedClientPreferenceCallsign(clientId, user)) || ""
+        ).trim();
+        if (preferenceCallsign) {
+          markers = cotStream.findMarkersForConnectedClient({
+            callsign,
+            username,
+            clientUid: clientId,
+            preferenceCallsign,
+          });
+        }
+      } catch (_) {
+        // Non-preference clients or Authentik misses — keep empty match.
+      }
+    }
+
+    const marker = pickBestLiveMarker(markers);
+    if (!marker) {
+      return res.json({
+        found: false,
+        marker: null,
+        feature: null,
+        iconManifest: [],
+      });
+    }
+
+    const lat = Number(marker.lat);
+    const lon = Number(marker.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      return res.json({
+        found: false,
+        marker: null,
+        feature: null,
+        iconManifest: [],
+      });
+    }
+
+    const feature = mapRender.toRenderedFeature(marker, { selectedUid: marker.uid });
+    const slim = mapRender.toSlimMarker(marker);
+    const iconManifest = [];
+    const mapImageId = feature.properties && feature.properties.iconId;
+    const apiIconId = feature.properties && feature.properties.apiIconId;
+    if (mapImageId && apiIconId) {
+      iconManifest.push({
+        mapImageId,
+        apiIconId,
+        color: feature.properties.color,
+        teamColor: marker.teamColor != null ? marker.teamColor : null,
+        iconSource: marker.iconSource || "",
+        origin: marker.origin || "",
+        type: marker.type || "",
+        affiliation: marker.affiliation || "other",
+      });
+    }
+
+    return res.json({
+      found: true,
+      marker: slim,
+      feature,
+      iconManifest,
+    });
   } catch (err) {
     return takRouteError(res, err);
   }

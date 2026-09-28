@@ -1,0 +1,1241 @@
+<%- include("partials/header") %>
+<%- include("partials/sidebar") %>
+
+<main class="main">
+  <h1>CloudTAK Plugin Marketplace</h1>
+
+  <div id="mpBanners"></div>
+
+  <div class="card" style="margin-top:16px;">
+    <div class="row mp-toolbar">
+      <label class="mp-search-label">Search
+        <input type="search" id="mpSearch" placeholder="Search Plugins…" />
+      </label>
+      <div class="row mp-toolbar-actions">
+        <button type="button" class="btn mp-filter-btn is-filter-on" id="mpFilterAll" data-mp-filter="all">All</button>
+        <button type="button" class="btn mp-filter-btn" id="mpFilterAvailable" data-mp-filter="available">Available</button>
+        <button type="button" class="btn mp-filter-btn" id="mpFilterNew" data-mp-filter="new">New</button>
+        <button type="button" class="btn mp-filter-btn" id="mpFilterInstalled" data-mp-filter="installed">Installed</button>
+        <button type="button" class="btn qr" id="mpUpdateAll" style="display:none;">Queue All Updates</button>
+      </div>
+    </div>
+    <div id="mpMsg" class="msg" style="margin-top:8px;"></div>
+    <div id="mpGrid" class="plugin-cards marketplace-grid"></div>
+    <div id="mpEmpty" class="muted" style="display:none;margin-top:16px;">No plugins match this filter.</div>
+  </div>
+
+  <div class="card" id="mpQueueCard" style="margin-top:16px;display:none;">
+    <div class="mp-jobs-header">
+      <div>
+        <h2 style="margin:0;">Queue</h2>
+        <div class="muted" style="margin-top:2px;font-size:0.85rem;">CloudTAK Rebuilds Once When You Deploy.</div>
+      </div>
+      <button type="button" class="btn success" id="mpDeployBtn">Deploy</button>
+    </div>
+    <ul id="mpQueueList" class="mp-queue-list"></ul>
+  </div>
+
+  <div class="card" id="mpJobsCard" style="margin-top:16px;display:none;">
+    <div class="mp-jobs-header">
+      <div>
+        <h2 style="margin:0;">Jobs</h2>
+        <div id="mpJobsMeta" class="muted" style="margin-top:2px;font-size:0.85rem;"></div>
+      </div>
+      <div class="mp-jobs-actions">
+        <button type="button" class="btn" id="mpJobsCopyBtn">Copy</button>
+        <button type="button" class="btn danger" id="mpJobsCancelBtn" disabled style="display:none;">Cancel Current Jobs</button>
+      </div>
+    </div>
+    <pre id="mpJobs" class="mp-job-log"></pre>
+  </div>
+</main>
+
+<div class="modalOverlay" id="mpUninstallModal" style="display:none;" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="mpUninstallTitle">
+    <div class="modalHeader">
+      <h2 id="mpUninstallTitle">Uninstall Plugin</h2>
+      <button type="button" class="btn" id="mpUninstallCancel">Close</button>
+    </div>
+    <div class="modalBody">
+      <p id="mpUninstallBody"></p>
+      <p class="muted">This is added to the deploy queue. CloudTAK rebuilds once when you click Deploy. After it finishes, open CloudTAK <strong>Settings → Refresh App</strong> so the plugin leaves the menu.</p>
+      <div class="row" style="gap:8px;margin-top:12px;">
+        <button type="button" class="btn danger" id="mpUninstallConfirm" disabled>Add To Queue</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modalOverlay" id="mpExtraConfigModal" style="display:none;" aria-hidden="true">
+  <div class="modal mp-extra-config-dialog" role="dialog" aria-modal="true" aria-labelledby="mpExtraConfigTitle">
+    <div class="modalHeader">
+      <h2 id="mpExtraConfigTitle">Additional Configuration Needed</h2>
+      <button type="button" class="btn" id="mpExtraConfigClose">Close</button>
+    </div>
+    <div class="modalBody">
+      <p id="mpExtraConfigLead" class="muted"></p>
+      <div id="mpExtraConfigBody" class="mp-extra-config-body"></div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .mp-toolbar {
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: flex-end;
+  }
+  .mp-search-label {
+    flex: 1;
+    min-width: 200px;
+  }
+  .mp-search-label input {
+    width: 100%;
+  }
+  .mp-toolbar-actions {
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .mp-filter-btn:not(.is-filter-on) {
+    background: transparent;
+    color: var(--text);
+    border-color: var(--line);
+    box-shadow: none;
+  }
+  .mp-filter-btn:not(.is-filter-on):hover {
+    background: var(--hover);
+  }
+  .marketplace-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 14px;
+    margin-top: 16px;
+  }
+  .plugin-cards .plugin-card {
+    background: var(--raised);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 220px;
+    box-shadow: var(--elevate);
+    transition: border-color 0.15s ease, transform 0.15s ease;
+  }
+  .plugin-cards .plugin-card:hover {
+    border-color: var(--glass-border);
+    transform: translateY(-1px);
+  }
+  .plugin-cards .plugin-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .plugin-cards .plugin-title-block {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .plugin-cards .plugin-name {
+    font-weight: 650;
+    font-size: 1rem;
+    line-height: 1.3;
+    min-width: 0;
+  }
+  .plugin-cards .plugin-repo-link {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--text);
+    text-decoration: none;
+    border-bottom: 1px solid var(--line);
+    width: fit-content;
+  }
+  .plugin-cards .plugin-repo-link:hover {
+    border-bottom-color: var(--text);
+  }
+  .plugin-cards .plugin-by {
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+  .plugin-cards .plugin-version-pill {
+    flex-shrink: 0;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: var(--hover-strong);
+    color: var(--muted);
+  }
+  .plugin-cards .plugin-version-pill.is-new {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    color: var(--text);
+  }
+  .plugin-cards .plugin-version-pill.is-installed {
+    background: color-mix(in srgb, var(--success) 22%, transparent);
+    color: var(--ok-text);
+  }
+  .plugin-cards .plugin-version-pill.is-error {
+    background: color-mix(in srgb, var(--danger, #c44) 22%, transparent);
+    color: var(--danger, #c44);
+  }
+  .plugin-cards .plugin-version-pill.is-progress {
+    background: color-mix(in srgb, #6b7280 22%, transparent);
+    color: var(--text);
+  }
+  .plugin-cards .plugin-desc {
+    font-size: 0.88rem;
+    line-height: 1.4;
+    color: var(--muted);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    min-height: 2.5em;
+  }
+  .plugin-cards .plugin-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+  .plugin-cards .plugin-meta a {
+    color: var(--text);
+    text-decoration: none;
+    border-bottom: 1px solid var(--line);
+  }
+  .plugin-cards .plugin-meta a:hover {
+    border-bottom-color: var(--text);
+  }
+  .plugin-cards .plugin-notes {
+    margin: 0;
+    font-size: 0.78rem;
+    line-height: 1.4;
+    color: var(--muted);
+  }
+  .plugin-cards .plugin-card-footer {
+    margin-top: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .plugin-cards .plugin-extra-config-btn {
+    width: 100%;
+    background: color-mix(in srgb, #c80 18%, transparent);
+    border-color: #c80;
+    color: var(--text);
+    white-space: normal;
+    line-height: 1.25;
+  }
+  .plugin-cards .plugin-extra-config-btn:hover {
+    background: color-mix(in srgb, #c80 28%, transparent);
+  }
+  .plugin-cards .plugin-extra-config-btn.is-complete {
+    background: color-mix(in srgb, var(--success, #15803d) 22%, transparent);
+    border-color: var(--success, #15803d);
+  }
+  .plugin-cards .plugin-extra-config-btn.is-complete:hover {
+    background: color-mix(in srgb, var(--success, #15803d) 32%, transparent);
+  }
+  .mp-caddy-deploy {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 4px;
+  }
+  .mp-caddy-deploy .muted {
+    margin: 0;
+  }
+  .mp-extra-config-dialog {
+    width: min(720px, 96vw);
+  }
+  .mp-extra-config-body {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-top: 8px;
+  }
+  .mp-extra-config-item {
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--bg);
+  }
+  .mp-extra-config-title {
+    font-weight: 650;
+    margin: 0 0 6px;
+  }
+  .mp-extra-config-text {
+    margin: 0;
+    font-size: 0.9rem;
+    line-height: 1.45;
+    color: var(--muted);
+  }
+  .mp-extra-config-steps {
+    margin: 8px 0 0;
+    padding-left: 1.2em;
+  }
+  .mp-extra-config-steps li {
+    margin-bottom: 0.4rem;
+    line-height: 1.4;
+  }
+  .mp-extra-config-snippet-wrap {
+    margin-top: 10px;
+  }
+  .mp-extra-config-snippet {
+    margin: 0;
+    padding: 0.65rem 0.8rem;
+    overflow-x: auto;
+    font-size: 0.78rem;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    background: color-mix(in srgb, var(--text) 6%, transparent);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+  }
+  .mp-extra-config-copy {
+    margin-top: 8px;
+  }
+  .plugin-cards .plugin-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding-top: 4px;
+  }
+  .plugin-cards .plugin-actions .btn {
+    flex: 1 1 auto;
+    min-width: 0;
+    text-align: center;
+  }
+  .mp-job-log {
+    max-height: min(70vh, 640px);
+    overflow: auto;
+    background: var(--panel, #111827);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  .mp-jobs-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+  .mp-jobs-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .mp-queue-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .mp-queue-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--bg);
+  }
+  .mp-queue-item-label {
+    font-weight: 600;
+  }
+  .mp-wait-btn,
+  .plugin-actions .btn:disabled,
+  .mp-toolbar-actions .btn:disabled,
+  .mp-queue-item .btn:disabled,
+  #mpDeployBtn:disabled {
+    background: #6b7280;
+    color: #f3f4f6;
+    cursor: not-allowed;
+    box-shadow: none;
+    filter: none;
+    opacity: 0.9;
+  }
+  .mp-wait-btn:hover,
+  .plugin-actions .btn:disabled:hover,
+  .mp-toolbar-actions .btn:disabled:hover,
+  .mp-queue-item .btn:disabled:hover,
+  #mpDeployBtn:disabled:hover {
+    filter: none;
+  }
+  .mp-wait-note {
+    width: 100%;
+    margin: 0;
+    font-size: 0.8rem;
+    line-height: 1.35;
+    color: var(--muted, #6b7280);
+  }
+  .mp-banner.wait {
+    border-color: #6b7280;
+    background: color-mix(in srgb, #6b7280 12%, transparent);
+  }
+  .mp-banner.warn { border-color: #c80; }
+  @media (max-width: 990px) {
+    .marketplace-grid { grid-template-columns: minmax(0, 1fr); }
+  }
+</style>
+
+<script>
+(function () {
+  var filter = "all";
+  var plugins = [];
+  var uninstallTarget = null;
+  var confirmArmed = false;
+  var jobLogFullText = "";
+  var jobLogPinned = true;
+  var jobLogKey = "";
+  var loadGen = 0;
+  var stagedJobs = [];
+  var activeJobs = [];
+  var jobBusy = false;
+  var jobPoll = null;
+  var WAIT_HINT = "Wait until the current job is complete and containers are recreated and running";
+
+  function titleCase(value) {
+    return String(value || "").replace(/(^|[^A-Za-z0-9])([a-z])/g, function (_all, pre, ch) {
+      return pre + ch.toUpperCase();
+    });
+  }
+
+  function $(id) { return document.getElementById(id); }
+  function setMsg(text, isError) {
+    var el = $("mpMsg");
+    el.textContent = text || "";
+    el.style.color = isError ? "#c44" : "";
+  }
+
+  function changeJobsBusy(jobs) {
+    return (jobs || []).some(function (j) {
+      return (j.status === "queued" || j.status === "running") &&
+        (j.kind === "install" || j.kind === "update" || j.kind === "uninstall" || j.kind === "update-all");
+    });
+  }
+
+  function extraActionsNormalized(p) {
+    return (Array.isArray(p.additionalActions) ? p.additionalActions : []).map(function (item) {
+      if (typeof item === "string") {
+        return { kind: "note", title: "", text: item, instructions: [], snippet: "" };
+      }
+      if (!item || typeof item !== "object") return null;
+      return {
+        kind: String(item.kind || "note"),
+        title: String(item.title || ""),
+        text: String(item.text || item.note || ""),
+        instructions: Array.isArray(item.instructions) ? item.instructions.map(String).filter(Boolean) : [],
+        snippet: String(item.snippet || "")
+      };
+    }).filter(function (a) { return a && (a.title || a.text || a.snippet || a.instructions.length); });
+  }
+
+  function extraActionSearchText(p) {
+    return extraActionsNormalized(p).map(function (a) {
+      return [a.title, a.text, a.instructions.join(" "), a.snippet].join(" ");
+    }).join(" ");
+  }
+
+  function closeExtraConfigModal() {
+    var overlay = $("mpExtraConfigModal");
+    if (!overlay) return;
+    overlay.style.display = "none";
+    overlay.setAttribute("aria-hidden", "true");
+  }
+
+  function copySnippetText(text, btn) {
+    var done = function (ok) {
+      if (!btn) return;
+      btn.textContent = ok ? "Copied" : "Copy Failed";
+      setTimeout(function () { btn.textContent = "Copy Snippet"; }, 1500);
+    };
+    var copy = (navigator.clipboard && navigator.clipboard.writeText)
+      ? navigator.clipboard.writeText(text)
+      : Promise.reject();
+    copy.then(function () { done(true); }).catch(function () {
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand("copy");
+        done(true);
+      } catch (e) {
+        done(false);
+      } finally {
+        document.body.removeChild(ta);
+      }
+    });
+  }
+
+  function extraActionItemEl(item) {
+    var section = document.createElement("section");
+    section.className = "mp-extra-config-item";
+    if (item.title) {
+      var titleEl = document.createElement("h3");
+      titleEl.className = "mp-extra-config-title";
+      titleEl.textContent = titleCase(item.title);
+      section.appendChild(titleEl);
+    }
+    if (item.text) {
+      var textEl = document.createElement("p");
+      textEl.className = "mp-extra-config-text";
+      textEl.textContent = item.text;
+      section.appendChild(textEl);
+    }
+    if (item.instructions.length) {
+      var ol = document.createElement("ol");
+      ol.className = "mp-extra-config-steps";
+      item.instructions.forEach(function (step) {
+        var stepLi = document.createElement("li");
+        stepLi.textContent = step;
+        ol.appendChild(stepLi);
+      });
+      section.appendChild(ol);
+    }
+    if (item.snippet) {
+      var wrap = document.createElement("div");
+      wrap.className = "mp-extra-config-snippet-wrap";
+      var pre = document.createElement("pre");
+      pre.className = "mp-extra-config-snippet";
+      pre.textContent = item.snippet;
+      wrap.appendChild(pre);
+      var copyBtn = document.createElement("button");
+      copyBtn.type = "button";
+      copyBtn.className = "btn mp-extra-config-copy";
+      copyBtn.textContent = "Copy Snippet";
+      copyBtn.addEventListener("click", function () {
+        copySnippetText(item.snippet, copyBtn);
+      });
+      wrap.appendChild(copyBtn);
+      section.appendChild(wrap);
+    }
+    return section;
+  }
+
+  function openExtraConfigModal(p) {
+    var overlay = $("mpExtraConfigModal");
+    var title = $("mpExtraConfigTitle");
+    var lead = $("mpExtraConfigLead");
+    var body = $("mpExtraConfigBody");
+    if (!overlay || !body) return;
+    var extras = extraActionsNormalized(p);
+    if (!extras.length) return;
+    var configTitle = p && p.extraConfigComplete ? "Additional Configuration Complete" : "Additional Configuration Needed";
+    title.textContent = configTitle;
+    if (p && p.name) title.textContent += " — " + p.name;
+    if (p && p.caddyOnHost && p.hasCaddyActions) {
+      lead.textContent = p.caddyPending
+        ? "Caddy is running on the CloudTAK host. Deploy To Caddy edits the site block that reverse-proxies CloudTAK, then reloads Caddy."
+        : "Caddy on the CloudTAK host already has these routes.";
+    } else {
+      lead.textContent = "Marketplace starts Docker services and sidecars. Use the steps below for anything that stays outside CloudTAK.";
+    }
+    body.innerHTML = "";
+    if (p && p.caddyOnHost && p.hasCaddyActions) body.appendChild(caddyDeployEl(p));
+    extras.forEach(function (item) { body.appendChild(extraActionItemEl(item)); });
+    overlay.style.display = "flex";
+    overlay.setAttribute("aria-hidden", "false");
+  }
+
+  function caddyDeployEl(p) {
+    var wrap = document.createElement("div");
+    wrap.className = "mp-caddy-deploy";
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn success";
+    btn.textContent = p.caddyPending ? "Deploy To Caddy" : "Deployed To Caddy";
+    btn.disabled = !p.caddyPending;
+    var note = document.createElement("p");
+    note.className = "muted";
+    btn.addEventListener("click", function () {
+      if (btn.disabled) return;
+      btn.disabled = true;
+      btn.textContent = "Deploying To Caddy…";
+      note.textContent = "";
+      note.style.color = "";
+      fetch("/api/cloudtak-marketplace/caddy/deploy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ pluginId: p.id })
+      }).then(function (r) {
+        return r.json().then(function (j) { return { ok: r.ok && j.ok, json: j }; });
+      }).then(function (out) {
+        if (!out.ok) {
+          btn.disabled = false;
+          btn.textContent = "Deploy To Caddy";
+          note.style.color = "#c44";
+          note.textContent = (out.json && (out.json.error || out.json.message)) || "Caddy update failed.";
+          return;
+        }
+        note.style.color = "";
+        note.textContent = (out.json && out.json.message) || "Updated Caddy.";
+        btn.textContent = "Deployed To Caddy";
+        setMsg(note.textContent);
+        loadAll().then(function () {
+          var fresh = plugins.filter(function (x) { return x.id === p.id; })[0];
+          if (fresh) openExtraConfigModal(fresh);
+        });
+      }).catch(function (err) {
+        btn.disabled = false;
+        btn.textContent = "Deploy To Caddy";
+        note.style.color = "#c44";
+        note.textContent = err.message || "Caddy update failed.";
+      });
+    });
+    wrap.appendChild(btn);
+    wrap.appendChild(note);
+    return wrap;
+  }
+
+  function originLabel(p) {
+    if (!p.installed) return "";
+    if (p.unknown) return "Not In Catalog";
+    if (p.origin === "marketplace") return "";
+    if (p.origin === "web_plugins") return "In WEB_PLUGINS Build Arg";
+    return "";
+  }
+
+  function matchesFilter(p) {
+    if (filter === "all") return true;
+    if (filter === "available") return !p.installed && !p.error;
+    if (filter === "new") return !!p.isNew && !p.installed && !p.error;
+    if (filter === "installed") return !!p.installed || !!p.error;
+    return true;
+  }
+
+  function renderBanners(status, snapshot) {
+    var html = "";
+    if (jobBusy) {
+      html += '<div class="mp-banner wait">' + WAIT_HINT + ".</div>";
+    }
+    if (status && status.worker && status.worker.ok === false) {
+      html += '<div class="mp-banner warn">Portal worker is not running. Catalog refresh and installs wait until the worker is up. This page will not rebuild CloudTAK itself.</div>';
+    }
+    if (status && status.ssh && !status.ssh.configured) {
+      html += '<div class="mp-banner warn">CloudTAK SSH is not configured. Open Server Settings → Additional Modules → CloudTAK Plugin Marketplace.</div>';
+    } else if (snapshot && snapshot.scanError) {
+      html += '<div class="mp-banner warn">' + String(snapshot.scanError).replace(/[<>&]/g, function (c) { return ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" })[c]; }) + "</div>";
+    } else if (snapshot && !snapshot.scannedAt) {
+      html += '<div class="mp-banner warn">Host has not been scanned yet. Turning the module on detects the CloudTAK path and queues a scan.</div>';
+    } else if (snapshot && snapshot.scanStale) {
+      html += '<div class="mp-banner warn">Host scan is stale or SSH failed. Showing the last good scan.</div>';
+    }
+    $("mpBanners").innerHTML = html;
+  }
+
+  function disabledAction(label, extraClass) {
+    return '<button type="button" class="btn mp-wait-btn' + (extraClass ? " " + extraClass : "") + '" disabled>' + label + "</button>";
+  }
+
+  function renderCards() {
+    var q = ($("mpSearch").value || "").trim().toLowerCase();
+    var list = plugins.filter(matchesFilter).filter(function (p) {
+      if (!q) return true;
+      return [p.name, p.description, p.maintainer, p.id, p.repo, extraActionSearchText(p)].join(" ").toLowerCase().indexOf(q) !== -1;
+    });
+    var grid = $("mpGrid");
+    grid.innerHTML = "";
+    $("mpEmpty").style.display = list.length ? "none" : "block";
+    if (!list.length) {
+      if (!plugins.length) {
+        $("mpEmpty").textContent = "Catalog has not loaded yet.";
+      } else if (filter === "available") {
+        $("mpEmpty").textContent = "No uninstalled catalog plugins.";
+      } else if (filter === "installed") {
+        $("mpEmpty").textContent = "No plugins found on the CloudTAK host yet.";
+      } else {
+        $("mpEmpty").textContent = "No plugins match this filter.";
+      }
+    }
+    list.forEach(function (p) {
+      var active = activeJobForPlugin(p);
+      var progress = progressLabel(active);
+      var pillClass = progress ? "plugin-version-pill is-progress" : (p.error ? "plugin-version-pill is-error" : (p.installed ? "plugin-version-pill is-installed" : (p.isNew ? "plugin-version-pill is-new" : "")));
+      var pillLabel = progress || (p.error ? "Error" : (p.installed ? "Installed" : (p.isNew ? "New" : "")));
+      var pill = pillClass ? '<span class="' + pillClass + '">' + pillLabel + "</span>" : "";
+      var staged = stagedForPlugin(p);
+      var actions = "";
+      var canReinstall = !!p.error && !p.unknown;
+      if (jobBusy) {
+        if (progress) {
+          actions = disabledAction(progress);
+        } else if (p.installed || p.unknown || p.error) {
+          if (canReinstall) actions += disabledAction("Reinstall");
+          else if (!p.unknown) actions += disabledAction("Update");
+          actions += disabledAction("Uninstall");
+        } else {
+          actions = disabledAction("Install");
+        }
+        if (!progress) actions += '<p class="mp-wait-note">' + WAIT_HINT + ".</p>";
+      } else if (p.unknown) {
+        if (staged && staged.kind === "uninstall") {
+          actions = '<button type="button" class="btn" data-unstage="' + encodeURIComponent(staged.id) + '">Queued</button>';
+        } else {
+          actions = '<button type="button" class="btn danger" data-uninstall="' + encodeURIComponent(p.id) + '">Uninstall</button>';
+        }
+      } else if (p.error) {
+        if (staged && (staged.kind === "install" || staged.kind === "update" || staged.kind === "uninstall")) {
+          actions += '<button type="button" class="btn" data-unstage="' + encodeURIComponent(staged.id) + '">Queued</button>';
+        } else {
+          if (canReinstall) {
+            actions += '<button type="button" class="btn qr" data-reinstall="' + encodeURIComponent(p.id) + '">Reinstall</button>';
+          }
+          actions += '<button type="button" class="btn danger" data-uninstall="' + encodeURIComponent(p.id) + '">Uninstall</button>';
+        }
+      } else if (p.installed) {
+        if (p.updateAvailable) {
+          if (staged && staged.kind === "update") {
+            actions += '<button type="button" class="btn" data-unstage="' + encodeURIComponent(staged.id) + '">Queued</button>';
+          } else if (!(staged && staged.kind === "uninstall")) {
+            actions += '<button type="button" class="btn qr" data-update="' + encodeURIComponent(p.id) + '">Update</button>';
+          }
+        }
+        if (staged && staged.kind === "uninstall") {
+          actions += '<button type="button" class="btn" data-unstage="' + encodeURIComponent(staged.id) + '">Queued</button>';
+        } else {
+          actions += '<button type="button" class="btn danger" data-uninstall="' + encodeURIComponent(p.id) + '">Uninstall</button>';
+        }
+      } else if (staged && staged.kind === "install") {
+        actions = '<button type="button" class="btn" data-unstage="' + encodeURIComponent(staged.id) + '">Queued</button>';
+      } else {
+        actions = '<button type="button" class="btn" data-install="' + encodeURIComponent(p.id) + '">Install</button>';
+      }
+      var extraActions = extraActionsNormalized(p);
+      var extraLabel = p.extraConfigComplete ? "Additional Configuration Complete" : "Additional Configuration Needed";
+      var extraClass = p.extraConfigComplete ? " is-complete" : "";
+      var extraConfigBtn = extraActions.length
+        ? '<button type="button" class="btn plugin-extra-config-btn' + extraClass + '" data-extra-config="' + encodeURIComponent(p.id) + '">' + extraLabel + "</button>"
+        : "";
+      var repoHref = "";
+      if (p.repo && /^https?:\/\//i.test(p.repo)) {
+        repoHref = p.repo.replace(/\.git$/i, "");
+      }
+      var note = String(p.notes || "")
+        .replace(/\s*After install:\s*CloudTAK Settings\s*→\s*Refresh App\.?/gi, "")
+        .replace(/^After install:\s*CloudTAK Settings\s*→\s*Refresh App\.?/i, "")
+        .trim();
+      var origin = originLabel(p);
+      var el = document.createElement("div");
+      el.className = "plugin-card";
+      el.innerHTML =
+        '<div class="plugin-card-header"><div class="plugin-title-block"><span class="plugin-name"></span></div>' + pill + "</div>" +
+        '<div class="plugin-desc"></div>' +
+        (origin ? '<div class="plugin-meta"></div>' : "") +
+        (note ? '<p class="plugin-notes"></p>' : "") +
+        '<div class="plugin-card-footer">' + extraConfigBtn +
+        '<div class="plugin-actions">' + actions + "</div></div>";
+      var titleBlock = el.querySelector(".plugin-title-block");
+      titleBlock.querySelector(".plugin-name").textContent = p.name;
+      var pillEl = el.querySelector(".plugin-version-pill");
+      if (pillEl && p.error && p.errorMessage) pillEl.title = p.errorMessage;
+      if (repoHref) {
+        var link = document.createElement("a");
+        link.className = "plugin-repo-link";
+        link.href = repoHref;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = "View Original Repository";
+        titleBlock.appendChild(link);
+      }
+      if (p.maintainer) {
+        var by = document.createElement("div");
+        by.className = "plugin-by";
+        by.textContent = "Plugin By: " + p.maintainer;
+        titleBlock.appendChild(by);
+      }
+      el.querySelector(".plugin-desc").textContent = p.description || "";
+      var meta = el.querySelector(".plugin-meta");
+      if (meta && origin) {
+        var originEl = document.createElement("span");
+        originEl.textContent = origin;
+        meta.appendChild(originEl);
+      }
+      if (note) el.querySelector(".plugin-notes").textContent = note;
+      grid.appendChild(el);
+    });
+    var hasUpdates = plugins.some(function (p) { return p.installed && p.updateAvailable && !p.unknown && !p.error; });
+    var canUpdateAll = !jobBusy && plugins.some(function (p) {
+      if (!(p.installed && p.updateAvailable) || p.unknown || p.error) return false;
+      var s = stagedForPlugin(p);
+      return !s || s.kind !== "update";
+    });
+    $("mpUpdateAll").style.display = hasUpdates ? "" : "none";
+    $("mpUpdateAll").disabled = jobBusy || !canUpdateAll;
+    $("mpUpdateAll").title = jobBusy ? WAIT_HINT : "";
+  }
+
+  function jobMatchesPlugin(j, p) {
+    if (p.id && j.pluginId === p.id) return true;
+    if (p.dest && j.extra && j.extra.dest === p.dest) return true;
+    var ids = j.extra && Array.isArray(j.extra.pluginIds) ? j.extra.pluginIds : [];
+    return !!(p.id && ids.indexOf(p.id) >= 0);
+  }
+
+  function stagedForPlugin(p) {
+    return stagedJobs.filter(function (j) { return jobMatchesPlugin(j, p); })[0] || null;
+  }
+
+  function activeJobForPlugin(p) {
+    return activeJobs.filter(function (j) { return jobMatchesPlugin(j, p); })[0] || null;
+  }
+
+  function progressLabel(job) {
+    if (!job) return "";
+    return job.kind === "uninstall" ? "Uninstall In Progress" : "Install In Progress";
+  }
+
+  function queueLabel(j) {
+    var verb = j.kind === "uninstall" ? "Uninstall" : (j.kind === "update" ? "Update" : "Install");
+    if (j.extra && j.extra.reinstall) verb = "Reinstall";
+    var p = plugins.filter(function (x) {
+      return (j.pluginId && x.id === j.pluginId) || (j.extra && j.extra.dest && x.dest === j.extra.dest);
+    })[0];
+    return verb + " " + ((p && p.name) || j.pluginId || (j.extra && j.extra.dest) || "plugin");
+  }
+
+  function renderQueue(jobs) {
+    stagedJobs = (jobs || []).filter(function (j) { return j.status === "staged"; });
+    activeJobs = (jobs || []).filter(function (j) {
+      return (j.status === "queued" || j.status === "running") &&
+        (j.kind === "install" || j.kind === "update" || j.kind === "uninstall" || j.kind === "update-all");
+    });
+    var card = $("mpQueueCard");
+    var list = $("mpQueueList");
+    var deploy = $("mpDeployBtn");
+    if (!stagedJobs.length) {
+      if (card) card.style.display = "none";
+      if (list) list.innerHTML = "";
+      return;
+    }
+    if (card) card.style.display = "";
+    if (deploy) {
+      deploy.disabled = jobBusy;
+      deploy.title = jobBusy ? WAIT_HINT : "";
+      deploy.textContent = jobBusy
+        ? "Waiting For Rebuild"
+        : (stagedJobs.length === 1 ? "Deploy" : "Deploy (" + stagedJobs.length + ")");
+    }
+    if (!list) return;
+    list.innerHTML = "";
+    stagedJobs.forEach(function (j) {
+      var li = document.createElement("li");
+      li.className = "mp-queue-item";
+      if (jobBusy) {
+        li.innerHTML = '<span class="mp-queue-item-label"></span><button type="button" class="btn mp-wait-btn" disabled>Waiting For Rebuild</button>';
+      } else {
+        li.innerHTML = '<span class="mp-queue-item-label"></span><button type="button" class="btn" data-unstage="' + encodeURIComponent(j.id) + '">Remove</button>';
+      }
+      li.querySelector(".mp-queue-item-label").textContent = queueLabel(j);
+      list.appendChild(li);
+    });
+  }
+
+  function shortJobError(message) {
+    var lines = String(message || "").split(/\r?\n/).map(function (s) {
+      return s.replace(/\s+/g, " ").trim();
+    }).filter(Boolean);
+    if (!lines.length) return "";
+    function clip(s) { return s.length > 220 ? s.slice(0, 217) + "..." : s; }
+    var interesting = /failed to solve|invalid compose|ERROR:|exit code|✖\s+\d+\s+problems|EACCES|permission denied|Could not|not found|Refusing /i;
+    var i;
+    for (i = lines.length - 1; i >= 0; i--) {
+      var line = lines[i].replace(/^#\d+\s+/, "").replace(/^(?:=>\s*)+/, "");
+      if (line.length > 400) continue;
+      if (/^Dockerfile:\d+$/.test(line) || /^-{3,}$/.test(line)) continue;
+      if (interesting.test(line)) return clip(line);
+    }
+    for (i = lines.length - 1; i >= 0; i--) {
+      if (lines[i].length > 240) continue;
+      if (/^#\d+\b/.test(lines[i]) || /^(?:=>\s*)+/.test(lines[i]) || /^Dockerfile:/.test(lines[i]) || /^-{3,}$/.test(lines[i])) continue;
+      return clip(lines[i]);
+    }
+    return clip(lines[lines.length - 1]);
+  }
+
+  function displayLogLine(l) {
+    var s = String(l || "").replace(/^\d{4}-\d{2}-\d{2}T[0-9:.]+Z\s+/, "");
+    if (!s || /^(UNINSTALL_OK|REBUILD_OK|INSTALL_OK)$/.test(s) || s.indexOf("INSTALL_SHA ") === 0) return "";
+    if (/^\$\s*bash\s+-lc/.test(s) || /^--progress is a global compose flag/.test(s)) return "";
+    if (/^(?:remote: )?(?:Counting|Compressing|Receiving) objects:/.test(s) && !/,\s*done\./.test(s)) return "";
+    if (/^Resolving deltas:/.test(s) && !/,\s*done\./.test(s)) return "";
+    if (/^\[+\]\s*up\s+\d+\/\d+/.test(s)) return "";
+    if (/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏✔✖]\s+Container\s+/.test(s)) return "";
+    var m = s.match(/^#\d+\s+(\[[^\]]+\])\s+(.*)$/);
+    if (m) s = " => " + m[1] + " " + m[2];
+    else if (/^#\d+\s+DONE\s+/.test(s) || /^#\d+\s+CACHED$/.test(s)) return "";
+    else {
+      m = s.match(/^#\d+\s+\d+(?:\.\d+)?\s+(.*)$/);
+      if (m) s = " => => # " + m[1];
+      else {
+        m = s.match(/^#\d+\s+(.*)$/);
+        if (m) s = " => => # " + m[1];
+      }
+    }
+    m = s.match(/^Image\s+(.+)\s+Building$/);
+    if (m) return "[+] Building " + m[1];
+    var t = s.replace(/^\s*(=>\s*)+/, "").replace(/^#\s*/, "").trim();
+    if (/^dist\/(?:assets\/|\.vite\/)/.test(t) || /\/dist\/(?:assets\/|\.vite\/)/.test(t)) return "";
+    if (/\bkB\b/.test(t) && /gzip:/i.test(t)) return "";
+    if (/Unexpected any\. Specify a different type/.test(t)) return "";
+    if (/^\d+:\d+\s+warning\b/.test(t)) return "";
+    if (/^\/home\/etl\//.test(t)) return "";
+    if (/^✖ \d+ problems/.test(t)) return "";
+    return s;
+  }
+
+  function jobLines(j) {
+    var out = [];
+    (Array.isArray(j.log) ? j.log : []).forEach(function (entry) {
+      var text = String(entry || "");
+      if (text.length > 240 && (text.indexOf("\n") >= 0 || /^(FAILED |Rebuild failed:)/.test(text))) {
+        var prefix = text.indexOf("Rebuild failed:") === 0 ? "Rebuild failed: " : (text.indexOf("FAILED ") === 0 ? "FAILED " : "");
+        var short = shortJobError(text.replace(/^(FAILED |Rebuild failed:)\s*/, ""));
+        if (short) out.push(prefix + short);
+        return;
+      }
+      text.split(/\r?\n/).forEach(function (part) {
+        var shown = displayLogLine(part);
+        if (shown) out.push(shown);
+      });
+    });
+    return out;
+  }
+
+  function jobLabel(j) {
+    var err = j.error ? shortJobError(j.error) : "";
+    return (j.status || "") + (j.kind ? " · " + j.kind : "") + (j.pluginId ? " " + j.pluginId : "") + (err ? " — " + err : "");
+  }
+
+  function renderJobs(jobs, allJobs) {
+    var list = jobs || [];
+    var card = $("mpJobsCard");
+    var el = $("mpJobs");
+    var meta = $("mpJobsMeta");
+    var key = list.map(function (j) { return j.id; }).join(",");
+    if (key !== jobLogKey) {
+      jobLogKey = key;
+      jobLogPinned = true;
+      jobLogFullText = "";
+      if (el) el.textContent = "";
+    }
+    if (!list.length) {
+      if (card) card.style.display = "none";
+      if (el) el.textContent = "";
+      if (meta) meta.textContent = "";
+      jobLogFullText = "";
+      if ($("mpJobsCancelBtn")) {
+        $("mpJobsCancelBtn").disabled = true;
+        $("mpJobsCancelBtn").style.display = "none";
+      }
+      return;
+    }
+    if (card) card.style.display = "";
+    if (meta) {
+      var finished = list.filter(function (j) { return j.status === "complete"; });
+      var failed = list.filter(function (j) { return j.status === "failed" || j.status === "cancelled"; });
+      var still = list.some(function (j) { return j.status === "queued" || j.status === "running"; });
+      var head = list.map(jobLabel).join("  |  ");
+      if (!still && finished.length && !failed.length) {
+        meta.textContent = "Done. " + finished.length + " job" + (finished.length === 1 ? "" : "s") + " finished. " + head;
+      } else {
+        meta.textContent = head;
+      }
+    }
+    var lines = [];
+    list.forEach(function (j, i) {
+      if (list.length > 1) {
+        if (i) lines.push("");
+        lines.push("# " + jobLabel(j));
+      }
+      lines = lines.concat(jobLines(j));
+    });
+    var text = lines.join("\n");
+    jobLogFullText = text;
+    if (el) {
+      el.textContent = text;
+      if (jobLogPinned) el.scrollTop = el.scrollHeight;
+    }
+    var cancelBtn = $("mpJobsCancelBtn");
+    if (cancelBtn) {
+      var canCancel = (allJobs || jobs || []).some(function (j) {
+        return j.status === "queued" || j.status === "running";
+      });
+      cancelBtn.disabled = !canCancel;
+      cancelBtn.style.display = canCancel ? "" : "none";
+    }
+  }
+
+  function copyJobLog() {
+    var text = jobLogFullText || ($("mpJobs") && $("mpJobs").textContent) || "";
+    var btn = $("mpJobsCopyBtn");
+    var done = function (ok) {
+      if (!btn) return;
+      btn.textContent = ok ? "Copied!" : "Copy failed";
+      window.setTimeout(function () { btn.textContent = "Copy"; }, 1600);
+    };
+    if (!text.trim()) {
+      done(false);
+      return;
+    }
+    var copy = (navigator.clipboard && navigator.clipboard.writeText)
+      ? navigator.clipboard.writeText(text)
+      : Promise.reject();
+    copy.then(function () { done(true); }).catch(function () {
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand("copy");
+        done(true);
+      } catch (e) {
+        done(false);
+      } finally {
+        document.body.removeChild(ta);
+      }
+    });
+  }
+
+  function postJob(body) {
+    return fetch("/api/cloudtak-marketplace/jobs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(body)
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok && j.ok, json: j }; }); });
+  }
+
+  function loadAll() {
+    var gen = ++loadGen;
+    return Promise.all([
+      fetch("/api/cloudtak-marketplace/plugins", { headers: { Accept: "application/json" } }).then(function (r) { return r.json(); }),
+      fetch("/api/cloudtak-marketplace/status", { headers: { Accept: "application/json" } }).then(function (r) { return r.json(); })
+    ]).then(function (pair) {
+      if (gen !== loadGen) return;
+      var snap = pair[0];
+      var status = pair[1];
+      plugins = (snap && snap.plugins) || [];
+      jobBusy = !!(status && (status.busy || changeJobsBusy(status.jobs)));
+      if (jobBusy && $("mpUninstallModal")) {
+        $("mpUninstallModal").style.display = "none";
+        uninstallTarget = null;
+      }
+      renderBanners(status, snap);
+      renderQueue(status && status.jobs);
+      renderCards();
+      var logJobs = status && Array.isArray(status.logJobs)
+        ? status.logJobs
+        : (status && status.jobs || []).filter(function (j) { return j.status !== "staged"; }).slice(0, 12);
+      renderJobs(logJobs, status && status.jobs);
+      document.querySelectorAll("[data-mp-filter]").forEach(function (btn) {
+        btn.classList.toggle("is-filter-on", btn.getAttribute("data-mp-filter") === filter);
+      });
+      if (jobBusy) {
+        if (!jobPoll) jobPoll = setInterval(loadAll, 2000);
+      } else if (jobPoll) {
+        clearInterval(jobPoll);
+        jobPoll = null;
+      }
+    }).catch(function (err) {
+      if (jobPoll) return;
+      setMsg(err.message || "Failed to load marketplace", true);
+    });
+  }
+
+  document.querySelectorAll("[data-mp-filter]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      filter = btn.getAttribute("data-mp-filter");
+      renderCards();
+      document.querySelectorAll("[data-mp-filter]").forEach(function (b) {
+        b.classList.toggle("is-filter-on", b.getAttribute("data-mp-filter") === filter);
+      });
+    });
+  });
+  $("mpSearch").addEventListener("input", renderCards);
+  $("mpUpdateAll").addEventListener("click", function () {
+    if (jobBusy || $("mpUpdateAll").disabled) return;
+    postJob({ kind: "update-all" }).then(function (out) {
+      var n = out && out.json && out.json.count;
+      setMsg(n ? ("Queued " + n + " update" + (n === 1 ? "" : "s") + ". Click Deploy when ready.") : "No updates to queue.");
+      loadAll();
+    });
+  });
+  $("mpDeployBtn").addEventListener("click", function () {
+    if (jobBusy || $("mpDeployBtn").disabled) return;
+    fetch("/api/cloudtak-marketplace/jobs/deploy", { method: "POST", headers: { Accept: "application/json" } })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok && j.ok, json: j }; }); })
+      .then(function (out) {
+        if (!out.ok) {
+          setMsg((out.json && out.json.error) || "Deploy failed", true);
+          return;
+        }
+        setMsg("Deploy started. CloudTAK will rebuild once.");
+        jobLogKey = "";
+        jobLogFullText = "";
+        jobLogPinned = true;
+        if ($("mpJobs")) $("mpJobs").textContent = "";
+        if ($("mpJobsMeta")) $("mpJobsMeta").textContent = "Starting…";
+        if ($("mpJobsCard")) $("mpJobsCard").style.display = "";
+        loadAll();
+      });
+  });
+  $("mpJobsCopyBtn").addEventListener("click", copyJobLog);
+  $("mpJobsCancelBtn").addEventListener("click", function () {
+    var btn = $("mpJobsCancelBtn");
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    fetch("/api/cloudtak-marketplace/jobs/cancel", {
+      method: "POST",
+      headers: { Accept: "application/json" }
+    })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok && j.ok, json: j }; }); })
+      .then(function (out) {
+        if (!out.ok) {
+          setMsg((out.json && out.json.error) || "Cancel failed", true);
+          loadAll();
+          return;
+        }
+        var n = out.json && out.json.count;
+        setMsg(n ? ("Cancelled " + n + " job" + (n === 1 ? "" : "s") + ".") : "Cancelled.");
+        loadAll();
+      })
+      .catch(function (err) {
+        setMsg(err.message || "Cancel failed", true);
+        loadAll();
+      });
+  });
+  $("mpJobs").addEventListener("scroll", function () {
+    var el = $("mpJobs");
+    jobLogPinned = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+  });
+  function unstage(jobId) {
+    return fetch("/api/cloudtak-marketplace/jobs/unstage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ jobId: jobId })
+    }).then(function (r) { return r.json(); }).then(function () { loadAll(); });
+  }
+
+  $("mpGrid").addEventListener("click", function (e) {
+    var extraBtn = e.target && e.target.closest ? e.target.closest("[data-extra-config]") : null;
+    if (extraBtn && $("mpGrid").contains(extraBtn)) {
+      var extraId = decodeURIComponent(extraBtn.getAttribute("data-extra-config") || "");
+      var extraPlugin = plugins.filter(function (x) { return x.id === extraId; })[0];
+      if (extraPlugin) openExtraConfigModal(extraPlugin);
+      return;
+    }
+    if (jobBusy) {
+      setMsg(WAIT_HINT + ".", true);
+      return;
+    }
+    var unstageBtn = e.target && e.target.closest ? e.target.closest("[data-unstage]") : null;
+    if (unstageBtn && $("mpGrid").contains(unstageBtn)) {
+      unstage(decodeURIComponent(unstageBtn.getAttribute("data-unstage") || ""));
+      return;
+    }
+    var t = e.target && e.target.closest ? e.target.closest("[data-install],[data-update],[data-uninstall],[data-reinstall]") : null;
+    if (!t) return;
+    var id = decodeURIComponent(t.getAttribute("data-install") || t.getAttribute("data-update") || t.getAttribute("data-uninstall") || t.getAttribute("data-reinstall") || "");
+    if (t.hasAttribute("data-install")) {
+      postJob({ kind: "install", pluginId: id }).then(function () { setMsg("Added to queue."); loadAll(); });
+      return;
+    }
+    if (t.hasAttribute("data-reinstall")) {
+      var rp = plugins.filter(function (x) { return x.id === id; })[0];
+      postJob({ kind: "install", pluginId: id, dest: rp && rp.dest, reinstall: true }).then(function () { setMsg("Reinstall added to queue."); loadAll(); });
+      return;
+    }
+    if (t.hasAttribute("data-update")) {
+      postJob({ kind: "update", pluginId: id }).then(function () { setMsg("Added to queue."); loadAll(); });
+      return;
+    }
+    var p = plugins.filter(function (x) { return x.id === id; })[0];
+    uninstallTarget = p;
+    confirmArmed = false;
+    $("mpUninstallConfirm").disabled = false;
+    $("mpUninstallConfirm").textContent = "Add To Queue";
+    $("mpUninstallBody").textContent = "Remove " + (p && p.name || id) + " from " + (p && p.dest || id) + " (web folder" + (p && p.layout && p.layout.routes ? " and owned route files" : "") + "). Plugin Docker services, leftover images, and runtime files are also removed." + (p && p.unknown ? " This plugin is not in the marketplace catalog." : "");
+    $("mpUninstallModal").style.display = "flex";
+    $("mpUninstallModal").setAttribute("aria-hidden", "false");
+  });
+  $("mpQueueList").addEventListener("click", function (e) {
+    if (jobBusy) {
+      setMsg(WAIT_HINT + ".", true);
+      return;
+    }
+    var btn = e.target && e.target.closest ? e.target.closest("[data-unstage]") : null;
+    if (!btn) return;
+    unstage(decodeURIComponent(btn.getAttribute("data-unstage") || ""));
+  });
+  $("mpUninstallCancel").addEventListener("click", function () {
+    $("mpUninstallModal").style.display = "none";
+    uninstallTarget = null;
+  });
+  function extraConfigOverlayOpen() {
+    var overlay = $("mpExtraConfigModal");
+    return !!(overlay && overlay.style.display !== "none");
+  }
+  $("mpExtraConfigClose").addEventListener("click", closeExtraConfigModal);
+  $("mpExtraConfigModal").addEventListener("click", function (e) {
+    if (e.target === $("mpExtraConfigModal")) closeExtraConfigModal();
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && extraConfigOverlayOpen()) closeExtraConfigModal();
+  });
+  $("mpUninstallConfirm").addEventListener("click", function () {
+    if (jobBusy) {
+      setMsg(WAIT_HINT + ".", true);
+      $("mpUninstallModal").style.display = "none";
+      return;
+    }
+    if (!uninstallTarget) return;
+    if (!confirmArmed) {
+      confirmArmed = true;
+      $("mpUninstallConfirm").textContent = "Click Again To Add To Queue";
+      return;
+    }
+    postJob({
+      kind: "uninstall",
+      pluginId: uninstallTarget.unknown ? null : uninstallTarget.id,
+      dest: uninstallTarget.dest
+    }).then(function () {
+      setMsg("Uninstall added to queue.");
+      $("mpUninstallModal").style.display = "none";
+      $("mpUninstallConfirm").textContent = "Add To Queue";
+      confirmArmed = false;
+      loadAll();
+    });
+  });
+
+  loadAll();
+  Promise.all([
+    fetch("/api/cloudtak-marketplace/jobs/clear-idle", { method: "POST", headers: { Accept: "application/json" } }).catch(function () {}),
+    fetch("/api/cloudtak-marketplace/catalog/refresh", { method: "POST", headers: { Accept: "application/json" } }).catch(function () {}),
+    fetch("/api/cloudtak-marketplace/caddy", { headers: { Accept: "application/json" } }).catch(function () {})
+  ]).then(function () { return loadAll(); });
+})();
+</script>
