@@ -7,7 +7,7 @@ const groupsService = require("./groups.service");
 const { normalizeCountyName } = require("./countyNameRename.service");
 
 const ALLOWED_STATES = new Set([
-  "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID",
+  "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DC", "DE", "FL", "GA", "HI", "ID",
   "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS",
   "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK",
   "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV",
@@ -95,7 +95,22 @@ async function renameStateTakGroups(oldState, newState) {
     return { groupsRenamed: 0 };
   }
 
-  const allGroups = await groupsService.getAllGroups({ includeHidden: true });
+  const repo = require("./directoryRepo.service");
+  const byDetail = await repo.searchGroupsPaged({
+    createdTypeDetail: oldS,
+    includeHidden: true,
+    page: 1,
+    pageSize: 500,
+  });
+  const byQ = await repo.searchGroupsPaged({
+    q: oldS,
+    includeHidden: true,
+    page: 1,
+    pageSize: 500,
+  });
+  const merged = new Map();
+  for (const g of [...byDetail.groups, ...byQ.groups]) merged.set(String(g.pk), g);
+  const allGroups = [...merged.values()];
   let groupsRenamed = 0;
 
   for (const g of Array.isArray(allGroups) ? allGroups : []) {
@@ -126,6 +141,7 @@ async function renameStateTakGroups(oldState, newState) {
 
     await groupsService.patchGroupNameAndCn(gid, finalName, {
       skipActionLock: true,
+      bulk: true,
       attributes: {
         created_type: nextAttrs.created_type,
         created_type_detail: nextAttrs.created_type_detail,

@@ -12,7 +12,6 @@ const auditSvc = require("../services/auditLog.service");
 const accessSvc = require("../services/access.service");
 const agenciesSvc = require("../services/agencies.service");
 const { getBool } = require("../services/env");
-const api = require("../services/authentik");
 
 const router = express.Router();
 const PERMISSION_UI_ORDER = [
@@ -20,17 +19,16 @@ const PERMISSION_UI_ORDER = [
   "page.users",
   "page.groups",
   "page.templates",
-  "page.audit_log",
+  "page.agencies",
   "page.data_package",
   "page.data_sync",
   "page.email",
+  "page.integrations",
+  "page.mou",
+  "page.settings",
+  "page.channel_patch",
   "page.locate",
   "page.mutual_aid",
-  "page.agencies",
-  "page.integrations",
-  "page.plugin_manager",
-  "page.access_control",
-  "page.settings",
 ];
 
 async function loadGroupNamesForUserId(userId) {
@@ -50,9 +48,9 @@ async function loadGroupNamesForUserId(userId) {
 
 function resolveDefaultManagedSuffixesForUser(user) {
   const attrs = user?.attributes || {};
-  const abbr = String(attrs.agency_abbreviation || "").trim().toUpperCase();
+  const abbr = String(attrs.agency_abbreviation || "").trim().toLowerCase();
   const agency = (agenciesSvc.load() || []).find(
-    (a) => String(a?.groupPrefix || "").trim().toUpperCase() === abbr
+    (a) => String(a?.groupPrefix || "").trim().toLowerCase() === abbr
   );
   const sfx = agency ? String(agency.suffix || "").trim().toLowerCase() : "";
   return sfx ? [sfx] : [];
@@ -80,14 +78,17 @@ async function assertCanAssignManagedAgencies(actor, suffixes) {
 }
 
 router.get("/registry", (req, res) => {
-  const flat = registry.listAllPermissionMeta().slice().sort((a, b) => {
-    const ai = PERMISSION_UI_ORDER.indexOf(a.id);
-    const bi = PERMISSION_UI_ORDER.indexOf(b.id);
-    const aa = ai === -1 ? Number.MAX_SAFE_INTEGER : ai;
-    const bb = bi === -1 ? Number.MAX_SAFE_INTEGER : bi;
-    if (aa !== bb) return aa - bb;
-    return String(a.label || a.id).localeCompare(String(b.label || b.id));
-  });
+  const flat = registry
+    .listAllPermissionMeta()
+    .filter((m) => m.editorVisible !== false)
+    .sort((a, b) => {
+      const ai = PERMISSION_UI_ORDER.indexOf(a.id);
+      const bi = PERMISSION_UI_ORDER.indexOf(b.id);
+      const aa = ai === -1 ? Number.MAX_SAFE_INTEGER : ai;
+      const bb = bi === -1 ? Number.MAX_SAFE_INTEGER : bi;
+      if (aa !== bb) return aa - bb;
+      return String(a.label || a.id).localeCompare(String(b.label || b.id));
+    });
   const bySection = new Map();
   for (const m of flat) {
     const s = m.section || "other";
@@ -141,11 +142,9 @@ router.post("/user-role/:userId", express.json({ limit: "1mb" }), async (req, re
       }
     }
 
-    const allGroups = await groupsSvc.getAllGroups({ includeHidden: true });
     const delta = await accessSvc.syncPortalRoleGroups(userId, {
       role: desiredRole,
       managedAgencySuffixes,
-      allGroups,
     });
 
     permsSvc.saveOverridesForUser(String(target.username || "").trim().toLowerCase(), {
@@ -228,11 +227,9 @@ router.put("/managed-agencies/:userId", express.json({ limit: "1mb" }), async (r
       return res.status(400).json({ error: "Select at least one managed agency." });
     }
 
-    const allGroups = await groupsSvc.getAllGroups({ includeHidden: true });
     const delta = await accessSvc.syncPortalRoleGroups(userId, {
       role: "agency_admin",
       managedAgencySuffixes,
-      allGroups,
     });
 
     const { groupNames } = await loadGroupNamesForUserId(userId);
@@ -266,10 +263,9 @@ router.get("/effective", async (req, res) => {
       return res.status(400).json({ error: "Missing ?user= (Authentik username)" });
     }
 
-    const r = await api.get("/core/users/", { params: { username: raw } });
-    const row = (r.data && r.data.results) ? r.data.results[0] : null;
+    const row = await usersSvc.getUserById(raw);
     if (!row) {
-      return res.status(404).json({ error: "User not found in Authentik" });
+      return res.status(404).json({ error: "User not found" });
     }
 
     const { user, groupNames } = await loadGroupNamesForUserId(row.pk);

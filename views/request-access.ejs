@@ -12,10 +12,19 @@
         grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 14px;
       }
-      @media (max-width: 640px) {
+      @media (max-width: 990px) {
         .requestAccessContactRow {
           grid-template-columns: 1fr;
         }
+      }
+      #otherWrap {
+        display: grid;
+        gap: 12px;
+      }
+      #otherWrap > label {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
       }
     </style>
 
@@ -87,6 +96,7 @@
     const brandedPortalTitle =
       typeof portalTitle !== "undefined" && portalTitle ? portalTitle : "TAK Portal";
     const usernamePrefixLabel = String((settings && settings.USERNAME_PREFIX_LABEL) || "").trim() || "Badge Number / Username";
+    const requireAllDetailsForNewAgency = !!requireAllAgencyDetails;
   %>
   <h1>Request <%= brandedPortalTitle %> Access</h1>
 
@@ -153,6 +163,7 @@
             list.sort((a,b) => String(a?.name||'').localeCompare(String(b?.name||'')));
             const selected = (form && form.agencySuffix) ? String(form.agencySuffix) : '';
           %>
+          <option value="" disabled <%= !selected ? 'selected' : '' %>>Select Your Agency</option>
           <% list.forEach(a => { %>
             <option value="<%= a.suffix %>" <%= (selected && selected === a.suffix) ? 'selected' : '' %>>
               <%= a.name %> (<%= a.groupPrefix %>)
@@ -168,9 +179,30 @@
             value="<%= (form && form.otherAgency) ? form.otherAgency : '' %>" />
         </label>
 
-        <label>Reason for requesting access
+        <%- include("partials/agency-create-fields", {
+          agencyTypeOptions: typeof agencyTypeOptions !== "undefined" ? agencyTypeOptions : [],
+          regionOptions: typeof regionOptions !== "undefined" ? regionOptions : [],
+          regionCountyLocks: typeof regionCountyLocks !== "undefined" ? regionCountyLocks : [],
+          includeColor: false,
+          includeName: false,
+          includeExtendedFields: requireAllDetailsForNewAgency,
+          fieldsRequired: requireAllDetailsForNewAgency,
+          idPrefix: "requestAccess_",
+          agencyFieldValues: {
+            groupPrefix: (form && form.groupPrefix) ? form.groupPrefix : "",
+            usernameTokenPlacement: (form && form.usernameTokenPlacement) ? form.usernameTokenPlacement : "suffix",
+            suffix: (form && form.suffix) ? form.suffix : "",
+            state: (form && form.state) ? form.state : "",
+            county: (form && form.county) ? form.county : "",
+            countyAbbrev: (form && form.countyAbbrev) ? form.countyAbbrev : "",
+            type: (form && form.type) ? form.type : "",
+            stateFederalAgency: (form && form.stateFederalAgency) ? form.stateFederalAgency : "no"
+          }
+        }) %>
+
+        <label>Reason For Requesting Access
           <textarea name="otherReason" id="otherReason"
-            rows="4" style="width: 100%; box-sizing: border-box;"><%= (form && form.otherReason) ? form.otherReason : '' %></textarea>
+            rows="4" style="width: 100%; box-sizing: border-box;" required><%= (form && form.otherReason) ? form.otherReason : '' %></textarea>
         </label>
       </div>
 
@@ -200,15 +232,57 @@
   const wrap = document.getElementById('otherWrap');
   const otherAgency = document.getElementById('otherAgency');
   const otherReason = document.getElementById('otherReason');
+  const placementSelect = document.getElementById('requestAccess_usernameTokenPlacementSelect');
+  const placementLabel = document.getElementById('requestAccess_usernameIdentifierLabelText');
+  const requireAllAgencyDetails = <%= requireAllDetailsForNewAgency ? "true" : "false" %>;
+
+  function syncPlacementLabel() {
+    if (!placementSelect || !placementLabel) return;
+    const isPrefix = String(placementSelect.value || 'suffix').toLowerCase() === 'prefix';
+    placementLabel.textContent = isPrefix ? 'Username Prefix' : 'Username Suffix';
+  }
+
+  function setOtherRequired(isOther) {
+    if (otherAgency) otherAgency.required = !!isOther;
+    if (otherReason) otherReason.required = !!isOther;
+    if (!wrap) return;
+
+    const typeSelect = wrap.querySelector('select[name="type"]');
+    if (typeSelect) typeSelect.required = !!isOther;
+
+    if (!requireAllAgencyDetails) return;
+
+    const fields = wrap.querySelectorAll('input[name], select[name]');
+    fields.forEach((el) => {
+      const name = String(el.getAttribute('name') || '');
+      if (name === 'otherAgency' || name === 'otherReason' || name === 'usernameTokenPlacement' || name === 'type') {
+        return;
+      }
+      if (name === 'county' || name === 'countyAbbrev' || name === 'stateFederalAgency') {
+        return;
+      }
+      if (name === 'groupPrefix' || name === 'suffix' || name === 'state') {
+        el.required = !!isOther;
+      }
+    });
+    const sf = wrap.querySelector('select[name="stateFederalAgency"]');
+    if (sf) {
+      sf.setAttribute('data-agency-create-fields-required', isOther ? '1' : '0');
+      if (typeof window.takSyncStateFederalAgencyFields === 'function') {
+        window.takSyncStateFederalAgencyFields(sf);
+      }
+    }
+  }
 
   function update() {
     const isOther = sel && sel.value === '__other__';
-    if (wrap) wrap.style.display = isOther ? 'block' : 'none';
-    if (otherAgency) otherAgency.required = !!isOther;
-    if (otherReason) otherReason.required = !!isOther;
+    if (wrap) wrap.style.display = isOther ? 'grid' : 'none';
+    setOtherRequired(isOther);
   }
 
   if (sel) sel.addEventListener('change', update);
+  if (placementSelect) placementSelect.addEventListener('change', syncPlacementLabel);
+  syncPlacementLabel();
   update();
 })();
 </script>

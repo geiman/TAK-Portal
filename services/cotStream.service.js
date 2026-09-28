@@ -11,18 +11,43 @@ const mapMeta = require("./mapMeta.service");
 const mapIcon = require("./mapIcon.service");
 const mapRender = require("./mapRender.service");
 const shapeDecor = require("../public/shapeDecorFilter.js");
+const cotStale = require("./cotStale.util");
 
 const STALE_SWEEP_MS = 5000;
-/** Keep markers on the map this long after their CoT stale time before removing. */
-const STALE_GRACE_MS = 30000;
 const RECONNECT_MIN_MS = 2000;
 const RECONNECT_MAX_MS = 30000;
 const SSE_BATCH_MS = 400;
 
 /** @type {Map<string, object>} */
 const markers = new Map();
+/**
+ * Bounded raw CoT cache (not on the hot marker object).
+ * Lazy/on-demand for GET /cot-raw — avoids deep-cloning full XML trees per update.
+ */
+const COT_RAW_CACHE_MAX = Math.max(50, getInt("MAP_COT_RAW_CACHE_MAX", 500));
+/** @type {Map<string, object>} */
+const cotRawByUid = new Map();
 /** @type {Set<(line: string) => void>} */
 const subscribers = new Set();
+/** @type {Set<(payload: { marker: object, cot: object }) => void>} */
+const cotProcessedListeners = new Set();
+
+function rememberCotRaw(uid, raw) {
+  const id = String(uid || "").trim();
+  if (!id || raw == null) return;
+  if (cotRawByUid.has(id)) cotRawByUid.delete(id);
+  cotRawByUid.set(id, raw);
+  while (cotRawByUid.size > COT_RAW_CACHE_MAX) {
+    const oldest = cotRawByUid.keys().next().value;
+    if (oldest == null) break;
+    cotRawByUid.delete(oldest);
+  }
+}
+
+function forgetCotRaw(uid) {
+  const id = String(uid || "").trim();
+  if (id) cotRawByUid.delete(id);
+}
 
 const bridgeState = {
   connected: false,
@@ -42,12 +67,80 @@ let batchTimer = null;
 let markerRevision = 1;
 /** @type {Map<string, object>} uid -> GeoJSON feature for live shape overlays */
 const liveShapeFeatures = new Map();
+/** @type {Map<string, object>} uid -> GeoJSON Feature for SPI FOV / sensor footprints */
+const liveOverlayFeatures = new Map();
 /** @type {Promise<typeof import("@tak-ps/node-cot")>|null} */
 let nodeCotPromise = null;
+let takLogNoiseFilterInstalled = false;
+let cotParseHardened = false;
 
 function loadNodeCot() {
   if (!nodeCotPromise) nodeCotPromise = import("@tak-ps/node-cot");
   return nodeCotPromise;
+}
+
+/**
+ * @tak-ps/node-tak console.error("Error parsing", err, data.toString()) dumps the
+ * whole TCP chunk when a single CoT fails validation (e.g. hae=""). That looks
+ * like every CoT is being logged. Suppress that library noise.
+ */
+function installTakLogNoiseFilter() {
+  if (takLogNoiseFilterInstalled) return;
+  takLogNoiseFilterInstalled = true;
+
+  // node-cot prints every CoT JSON when this env var is truthy.
+  if (process.env.DEBUG_COTS) delete process.env.DEBUG_COTS;
+
+  const origError = console.error.bind(console);
+  const origWarn = console.warn.bind(console);
+
+  function isTakParseNoise(args) {
+    const first = args[0];
+    if (typeof first !== "string") return false;
+    if (first.startsWith("Error parsing")) return true;
+    if (first.startsWith("Warning: must be number")) return true;
+    if (/^ok - .+ @ (connect|secure):/.test(first)) return true;
+    return false;
+  }
+
+  console.error = (...args) => {
+    if (isTakParseNoise(args)) return;
+    origError(...args);
+  };
+  console.warn = (...args) => {
+    if (isTakParseNoise(args)) return;
+    origWarn(...args);
+  };
+}
+
+/** Coerce empty point numeric attrs so node-cot validation does not reject them. */
+function sanitizeCotXmlPointAttrs(raw) {
+  return String(raw ?? "")
+    .replace(/\b(hae|ce|le)="\s*"/gi, '$1="9999999.0"')
+    .replace(/\b(hae|ce|le)='\s*'/gi, "$1='9999999.0'");
+}
+
+/**
+ * Patch shared CoTParser.from_xml (peer dep of node-tak) before connecting.
+ * Prevents empty hae/ce/le from failing parse and triggering chunk dumps.
+ */
+async function hardenCotXmlParse() {
+  if (cotParseHardened) return;
+  const mod = await loadNodeCot();
+  const CoTParser = mod?.CoTParser;
+  if (!CoTParser || typeof CoTParser.from_xml !== "function") return;
+  if (CoTParser.from_xml.__takPortalHardened) {
+    cotParseHardened = true;
+    return;
+  }
+
+  const orig = CoTParser.from_xml.bind(CoTParser);
+  function fromXmlHardened(raw, opts) {
+    return orig(sanitizeCotXmlPointAttrs(raw), opts);
+  }
+  fromXmlHardened.__takPortalHardened = true;
+  CoTParser.from_xml = fromXmlHardened;
+  cotParseHardened = true;
 }
 
 function hasShapeDetail(cot) {
@@ -58,6 +151,11 @@ function hasShapeDetail(cot) {
 function isShapeDrawingCotType(type) {
   const t = String(type || "").toLowerCase();
   return t.startsWith("u-d-") || t.startsWith("u-r-") || t.startsWith("b-m-r");
+}
+
+function isSpiCotType(type) {
+  const t = String(type || "").trim().toLowerCase();
+  return t.startsWith("b-m-p-s-p-i") || t.startsWith("b-m-p-s-p-loc");
 }
 
 function isShapeChildUid(uid, shapeUids) {
@@ -135,6 +233,7 @@ function purgeShapeDecorMarkers(notify = true) {
     const marker = markers.get(uid);
     if (!marker || !markerIsShapeDecor(marker)) continue;
     markers.delete(uid);
+    forgetCotRaw(uid);
     removed = true;
     if (notify) queueMarkerRemove(uid);
     else bumpMarkerRevision();
@@ -152,20 +251,113 @@ async function trackLiveShapeFeature(cot, marker) {
     const uid = String(feat?.id || marker.uid || "");
     const geomType = String(feat?.geometry?.type || "");
     if (!uid || (geomType !== "Polygon" && geomType !== "LineString")) return;
+    feat.properties = Object.assign({}, feat.properties, {
+      uid,
+      stale: marker.stale || null,
+    });
     liveShapeFeatures.set(uid, feat);
     purgeShapeDecorMarkers(true);
   } catch (_) {}
 }
 
+function parseSpiOverlayFeature(cot, marker) {
+  if (!cot || !marker || !isSpiCotType(marker.type)) return null;
+  const cached = cotRawByUid.get(String(marker.uid || ""));
+  const detail = cot?.raw?.event?.detail || cached?.event?.detail;
+  const poly = detail?.shape?.polyline;
+  if (!poly) return null;
+
+  const attrs = poly._attributes || poly || {};
+  const verts = poly.vertex;
+  const list = Array.isArray(verts) ? verts : verts ? [verts] : [];
+  const coords = [];
+  for (const v of list) {
+    const a = v?._attributes || v || {};
+    const lat = Number(a.lat);
+    const lon = Number(a.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    coords.push([lon, lat]);
+  }
+  if (coords.length < 2) return null;
+
+  const closedAttr = attrs.closed;
+  const closed =
+    closedAttr === true ||
+    String(closedAttr || "").toLowerCase() === "true" ||
+    coords.length >= 3;
+
+  let geometry;
+  if (closed) {
+    const ring = coords.slice();
+    const first = ring[0];
+    const last = ring[ring.length - 1];
+    if (!first || !last || first[0] !== last[0] || first[1] !== last[1]) {
+      ring.push([first[0], first[1]]);
+    }
+    if (ring.length < 4) return null;
+    geometry = { type: "Polygon", coordinates: [ring] };
+  } else {
+    geometry = { type: "LineString", coordinates: coords };
+  }
+
+  // SPI view box: white outline + light white fill (ignore CoT colors).
+  const stroke = "#ffffff";
+  const fill = "#ffffff";
+
+  return {
+    type: "Feature",
+    id: String(marker.uid),
+    geometry,
+    properties: {
+      uid: String(marker.uid),
+      callsign: marker.callsign || "",
+      cotType: marker.type || "",
+      kind: "spi-fov",
+      channelKeys: mapRender.markerChannelKeys(marker).join(","),
+      stale: marker.stale || null,
+      stroke,
+      fill,
+      "fill-opacity": 0.1,
+      "stroke-opacity": 0.9,
+      "stroke-width": 2,
+    },
+  };
+}
+
+function trackSpiOverlayFeature(cot, marker) {
+  if (!marker?.uid || !isSpiCotType(marker.type)) return;
+  const feat = parseSpiOverlayFeature(cot, marker);
+  if (!feat) {
+    if (liveOverlayFeatures.has(marker.uid)) {
+      liveOverlayFeatures.delete(marker.uid);
+      queueShapeRemove(marker.uid);
+    }
+    return;
+  }
+  liveOverlayFeatures.set(marker.uid, feat);
+  queueShapeUpdate(feat);
+}
+
 function forgetLiveShape(uid) {
   const id = String(uid || "").trim();
   if (!id) return;
-  liveShapeFeatures.delete(id);
+  const hadShape = liveShapeFeatures.delete(id);
+  const hadOverlay = liveOverlayFeatures.delete(id);
+  if (hadShape || hadOverlay) queueShapeRemove(id);
+}
+
+function getLiveOverlayGeoJson() {
+  return {
+    type: "FeatureCollection",
+    features: Array.from(liveOverlayFeatures.values()),
+  };
 }
 
 const pendingBroadcast = {
   updates: new Map(),
   removes: new Set(),
+  shapeUpdates: new Map(),
+  shapeRemoves: new Set(),
   groupsCatalog: false,
 };
 
@@ -187,12 +379,24 @@ function flushBroadcastBatch() {
   batchTimer = null;
   const updates = Array.from(pendingBroadcast.updates.values());
   const removes = Array.from(pendingBroadcast.removes);
+  const shapeUpdates = Array.from(pendingBroadcast.shapeUpdates.values());
+  const shapeRemoves = Array.from(pendingBroadcast.shapeRemoves);
   const includeGroups = pendingBroadcast.groupsCatalog;
   pendingBroadcast.updates.clear();
   pendingBroadcast.removes.clear();
+  pendingBroadcast.shapeUpdates.clear();
+  pendingBroadcast.shapeRemoves.clear();
   pendingBroadcast.groupsCatalog = false;
 
-  if (!updates.length && !removes.length && !includeGroups) return;
+  if (
+    !updates.length &&
+    !removes.length &&
+    !shapeUpdates.length &&
+    !shapeRemoves.length &&
+    !includeGroups
+  ) {
+    return;
+  }
 
   const payload = {
     type: "batch",
@@ -201,6 +405,8 @@ function flushBroadcastBatch() {
     updates,
     removes,
   };
+  if (shapeUpdates.length) payload.shapeUpdates = shapeUpdates;
+  if (shapeRemoves.length) payload.shapeRemoves = shapeRemoves;
   if (includeGroups) {
     payload.groupsCatalog = mapMeta.buildGroupsCatalogWithCounts(getMarkerList());
   }
@@ -221,6 +427,25 @@ function queueMarkerRemove(uid) {
   bumpMarkerRevision();
   pendingBroadcast.updates.delete(id);
   pendingBroadcast.removes.add(id);
+  forgetLiveShape(id);
+  scheduleBatchFlush();
+}
+
+function queueShapeUpdate(feature) {
+  const uid = String(feature?.properties?.uid || feature?.id || "").trim();
+  if (!uid || !feature) return;
+  bumpMarkerRevision();
+  pendingBroadcast.shapeRemoves.delete(uid);
+  pendingBroadcast.shapeUpdates.set(uid, feature);
+  scheduleBatchFlush();
+}
+
+function queueShapeRemove(uid) {
+  const id = String(uid || "").trim();
+  if (!id) return;
+  bumpMarkerRevision();
+  pendingBroadcast.shapeUpdates.delete(id);
+  pendingBroadcast.shapeRemoves.add(id);
   scheduleBatchFlush();
 }
 
@@ -242,11 +467,7 @@ function getStreamEndpoint() {
 }
 
 function isMarkerExpired(marker, now = Date.now()) {
-  if (marker?.stale) {
-    const t = Date.parse(marker.stale);
-    if (Number.isFinite(t) && now > t + STALE_GRACE_MS) return true;
-  }
-  return false;
+  return cotStale.isMarkerExpired(marker, now);
 }
 
 function isFeedOriginMarker(marker) {
@@ -255,13 +476,30 @@ function isFeedOriginMarker(marker) {
 
 function parseMarkerFromCoT(cot) {
   try {
-    const uid = cot.uid();
-    if (!uid) return null;
     const attrs = cot.raw?.event?._attributes || {};
     const point = cot.raw?.event?.point?._attributes;
     if (!point) return null;
 
-    const [lon, lat] = cot.position();
+    let uid = "";
+    try {
+      uid = String(cot.uid?.() || "").trim();
+    } catch (_) {}
+    if (!uid) uid = String(attrs.uid || "").trim();
+    if (!uid) return null;
+
+    let lat;
+    let lon;
+    try {
+      const pos = cot.position?.();
+      if (Array.isArray(pos) && pos.length >= 2) {
+        lon = Number(pos[0]);
+        lat = Number(pos[1]);
+      }
+    } catch (_) {}
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      lat = Number(point.lat);
+      lon = Number(point.lon);
+    }
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
     if (lat === 0 && lon === 0) return null;
 
@@ -273,12 +511,19 @@ function parseMarkerFromCoT(cot) {
       const contact = cot.raw?.event?.detail?.contact?._attributes;
       if (contact?.callsign) callsign = String(contact.callsign);
     }
+    callsign = mapMeta.sanitizeCallsign(callsign);
 
     const detail = cot.raw?.event?.detail || {};
-    const type = String(attrs.type || cot.type() || "");
+    let type = String(attrs.type || "").trim();
+    if (!type) {
+      try {
+        type = String(cot.type?.() || "").trim();
+      } catch (_) {}
+    }
     const team = mapMeta.parseTeamName(detail) || null;
     const role = mapMeta.parseTeamRole(detail);
     const platform = mapMeta.parseTakPlatform(detail);
+    const version = mapMeta.parseTakVersion(detail);
     const battery = mapMeta.parseBatteryPercent(detail);
     const { course, speed } = mapMeta.parseCourseAndSpeed(detail, point);
 
@@ -298,6 +543,7 @@ function parseMarkerFromCoT(cot) {
       team,
       role,
       platform,
+      version,
       battery,
       teamColor: mapMeta.parseTeamColor(detail),
       affiliation: mapMeta.parseAffiliationFromType(type),
@@ -306,11 +552,8 @@ function parseMarkerFromCoT(cot) {
       updatedAt: new Date().toISOString(),
     };
 
-    try {
-      base.cotRaw = JSON.parse(JSON.stringify(cot.raw));
-    } catch (_) {
-      base.cotRaw = cot.raw || null;
-    }
+    // Keep raw off the slim marker; cache separately for /cot-raw (no deep clone).
+    if (cot.raw) rememberCotRaw(base.uid, cot.raw);
 
     base.relatedUids = mapMeta.parseRelatedUids(detail);
     base.cotRouteGroups = mapMeta.parseGroupsFromCoTDetail(detail);
@@ -325,7 +568,7 @@ function parseMarkerFromCoT(cot) {
     base.iconGroup = usericon.group || null;
     base.iconName = usericon.name || null;
 
-    const icon = mapIcon.resolveIcon({
+    const icon = mapIcon.resolveExplicitIcon({
       type: base.type,
       affiliation: base.affiliation,
       usericon,
@@ -344,6 +587,7 @@ function parseMarkerFromCoT(cot) {
 function removeMarker(uid, notify = true) {
   if (!markers.has(uid)) return;
   markers.delete(uid);
+  forgetCotRaw(uid);
   if (notify) queueMarkerRemove(uid);
   else bumpMarkerRevision();
 }
@@ -353,12 +597,16 @@ function tryRemoveMarker(uid, notify = true) {
   if (!id) return;
   const existing = markers.get(id);
   if (existing && isFeedOriginMarker(existing)) return;
+  // TAK Aware / TAK Server send t-x-d-d on client disconnect. Keep last SA
+  // until the CoT stale timestamp (then darken / sweep).
+  if (existing && cotStale.shouldKeepUntilStale(existing)) return;
   removeMarker(id, notify);
 }
 
 function handleDeleteCot(cot) {
   const uid = String(cot.uid?.() || cot.raw?.event?._attributes?.uid || "").trim();
-  if (uid) {
+  const existing = uid ? markers.get(uid) : null;
+  if (uid && !cotStale.shouldKeepUntilStale(existing)) {
     forgetLiveShape(uid);
     tryRemoveMarker(uid);
   }
@@ -367,15 +615,23 @@ function handleDeleteCot(cot) {
   const linkList = Array.isArray(links) ? links : links ? [links] : [];
   for (const link of linkList) {
     const linkUid = String(link?._attributes?.uid || link?.uid || "").trim();
-    if (linkUid) {
-      forgetLiveShape(linkUid);
-      tryRemoveMarker(linkUid);
-    }
+    if (!linkUid) continue;
+    const linked = markers.get(linkUid);
+    if (cotStale.shouldKeepUntilStale(linked)) continue;
+    forgetLiveShape(linkUid);
+    tryRemoveMarker(linkUid);
   }
 }
 
+function isLocatorDropMarker(marker) {
+  const uid = String(marker?.uid || "");
+  if (/takportal\.locator\.[^.]+\.drop\./i.test(uid)) return true;
+  const type = String(marker?.type || "").trim().toLowerCase();
+  return type === "a-u-g" && / - \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/i.test(uid);
+}
+
 function enrichMarkerIconAsync(marker) {
-  if (!marker || marker.iconId) return;
+  if (!marker) return;
   void mapIcon
     .resolveIconAsync({
       type: marker.type,
@@ -387,12 +643,13 @@ function enrichMarkerIconAsync(marker) {
       },
     })
     .then((icon) => {
-      if (!icon) return;
       const current = markers.get(marker.uid);
       if (!current) return;
-      if (current.iconId) return;
-      current.iconId = icon.iconId;
-      current.iconSource = icon.source;
+      const nextId = icon?.iconId || null;
+      const nextSource = icon?.source || null;
+      if (current.iconId === nextId && current.iconSource === nextSource) return;
+      current.iconId = nextId;
+      current.iconSource = nextSource;
       current.updatedAt = new Date().toISOString();
       queueMarkerUpdate(current);
     })
@@ -400,7 +657,18 @@ function enrichMarkerIconAsync(marker) {
 }
 
 function handleCot(cot) {
-  const type = String(cot.type?.() || cot.raw?.event?._attributes?.type || "").trim();
+  // Ignore CoT we injected (channel-patch rebroadcasts / bridge identity).
+  // Otherwise TAK echoes update this connection as a ghost duplicate of the EUD.
+  const detail = cot?.raw?.event?.detail;
+  if (detail && (detail.__takportal_patch || detail.__takportal_bridge || detail.__takportal_drop)) {
+    return;
+  }
+
+  let type = "";
+  try {
+    type = String(cot.type?.() || "").trim();
+  } catch (_) {}
+  if (!type) type = String(cot.raw?.event?._attributes?.type || "").trim();
   if (type === "t-x-d-d") {
     handleDeleteCot(cot);
     return;
@@ -409,6 +677,16 @@ function handleCot(cot) {
 
   const marker = parseMarkerFromCoT(cot);
   if (!marker) return;
+  // Mission drop pins are not live SA — skip stream copies so each ping
+  // does not appear as another unit on the live map (mission overlay owns them).
+  if (isLocatorDropMarker(marker)) {
+    return;
+  }
+
+  const existing = markers.get(marker.uid);
+  if (cotStale.shouldIgnoreIncomingSa(existing, marker)) {
+    return;
+  }
 
   if (isShapeDrawingCotType(marker.type) && hasShapeDetail(cot)) {
     void trackLiveShapeFeature(cot, marker);
@@ -424,6 +702,73 @@ function handleCot(cot) {
   markers.set(marker.uid, marker);
   if (!marker.iconId) enrichMarkerIconAsync(marker);
   queueMarkerUpdate(marker);
+  if (isSpiCotType(marker.type) && hasShapeDetail(cot)) {
+    trackSpiOverlayFeature(cot, marker);
+  }
+
+  notifyCotProcessed({ marker, cot });
+}
+
+function notifyCotProcessed(payload) {
+  if (!cotProcessedListeners.size) return;
+  for (const fn of cotProcessedListeners) {
+    try {
+      fn(payload);
+    } catch (err) {
+      console.error(
+        "[map-cot] onCotProcessed listener error:",
+        err?.message || err
+      );
+    }
+  }
+}
+
+function onCotProcessed(fn) {
+  if (typeof fn !== "function") return () => {};
+  cotProcessedListeners.add(fn);
+  return () => {
+    cotProcessedListeners.delete(fn);
+  };
+}
+
+/**
+ * Write CoT(s) on the existing webadmin TLS stream.
+ * Accepts CoT instances (or anything node-tak write accepts).
+ * @returns {Promise<boolean>} true if queued, false if bridge unavailable
+ */
+async function writeCot(cotOrList, opts = {}) {
+  ensureBridgeStarted();
+  if (!takConn || typeof takConn.write !== "function") return false;
+  const list = Array.isArray(cotOrList) ? cotOrList : [cotOrList];
+  const cots = list.filter(Boolean);
+  if (!cots.length) return false;
+  try {
+    await takConn.write(cots, opts);
+    return true;
+  } catch (err) {
+    console.error("[map-cot] writeCot failed:", err?.message || err);
+    return false;
+  }
+}
+
+/**
+ * Apply a CoT event to the in-memory map store (SSE). TAK does not echo
+ * events back to the connection that wrote them, so injected locators must
+ * be ingested here or they never appear on the portal live map.
+ */
+function ingestCot(cot) {
+  if (!cot) return false;
+  try {
+    handleCot(cot);
+    return true;
+  } catch (err) {
+    console.error("[map-cot] ingestCot failed:", err?.message || err);
+    return false;
+  }
+}
+
+function isBridgeConnected() {
+  return !!(bridgeState.connected && takConn);
 }
 
 function broadcast(obj) {
@@ -441,11 +786,22 @@ function sweepStaleMarkers(notify = true) {
   for (const [uid, marker] of markers) {
     if (isMarkerExpired(marker, now)) {
       markers.delete(uid);
+      forgetCotRaw(uid);
       removed = true;
       if (notify) {
         queueMarkerRemove(uid);
+      } else {
+        liveShapeFeatures.delete(uid);
+        liveOverlayFeatures.delete(uid);
       }
     }
+  }
+  for (const [uid, feat] of liveShapeFeatures) {
+    const stale = feat?.properties?.stale || null;
+    if (!isMarkerExpired({ stale }, now)) continue;
+    removed = true;
+    if (notify) forgetLiveShape(uid);
+    else liveShapeFeatures.delete(uid);
   }
   if (removed && !notify) bumpMarkerRevision();
 }
@@ -453,7 +809,7 @@ function sweepStaleMarkers(notify = true) {
 async function refreshAllMarkerIcons() {
   if (!mapIcon.getStatus().ready) return;
   for (const marker of markers.values()) {
-    let icon = mapIcon.resolveIcon({
+    const icon = await mapIcon.resolveIconAsync({
       type: marker.type,
       affiliation: marker.affiliation,
       usericon: {
@@ -462,17 +818,6 @@ async function refreshAllMarkerIcons() {
         name: marker.iconName || "",
       },
     });
-    if (!icon) {
-      icon = await mapIcon.resolveIconAsync({
-        type: marker.type,
-        affiliation: marker.affiliation,
-        usericon: {
-          iconsetpath: marker.iconsetpath || "",
-          group: marker.iconGroup || "",
-          name: marker.iconName || "",
-        },
-      });
-    }
     const nextId = icon?.iconId || null;
     const nextSource = icon?.source || null;
     if (marker.iconId === nextId && marker.iconSource === nextSource) continue;
@@ -508,6 +853,9 @@ function getStateSnapshot(options = {}) {
   };
   if (options.includeGroupsCatalog !== false) {
     snapshot.groupsCatalog = mapMeta.buildGroupsCatalogWithCounts(markerList);
+  }
+  if (options.includeLiveShapes !== false) {
+    snapshot.liveShapes = getLiveOverlayGeoJson();
   }
   return snapshot;
 }
@@ -578,6 +926,9 @@ async function connectBridge() {
   clearConnection();
 
   try {
+    installTakLogNoiseFilter();
+    await hardenCotXmlParse();
+
     const authRaw = getTakTlsAuth({ allowInsecureServer: true });
     const auth = {
       cert:
@@ -664,6 +1015,13 @@ function subscribe(sendFn) {
         state: getStateSnapshot({ includeGroupsCatalog: false }),
       })}\n\n`
     );
+    sendFn(
+      `data: ${JSON.stringify({
+        type: "shapes",
+        shapes: getLiveOverlayGeoJson(),
+        at: new Date().toISOString(),
+      })}\n\n`
+    );
   } catch (_) {}
 
   return () => {
@@ -688,6 +1046,13 @@ function refreshAllMarkerGroups() {
     if (originChanged) marker.origin = nextOrigin;
     marker.updatedAt = new Date().toISOString();
     queueMarkerUpdate(marker);
+    if (isSpiCotType(marker.type) && liveOverlayFeatures.has(marker.uid)) {
+      const overlay = liveOverlayFeatures.get(marker.uid);
+      if (overlay?.properties) {
+        overlay.properties.channelKeys = mapRender.markerChannelKeys(marker).join(",");
+        queueShapeUpdate(overlay);
+      }
+    }
     changed = true;
   }
   if (changed) queueGroupsCatalogRefresh();
@@ -700,9 +1065,32 @@ function getMarkerByUid(uid) {
 }
 
 function getMarkerRawCot(uid) {
-  const marker = getMarkerByUid(uid);
+  const id = String(uid || "").trim();
+  if (!id) return null;
+  // Prefer bounded cache; fall back to legacy field if present on older markers.
+  if (cotRawByUid.has(id)) {
+    const raw = cotRawByUid.get(id);
+    // Touch LRU so a copied marker is not the next eviction.
+    cotRawByUid.delete(id);
+    cotRawByUid.set(id, raw);
+    return raw;
+  }
+  const marker = getMarkerByUid(id);
   if (!marker || marker.cotRaw == null) return null;
   return marker.cotRaw;
+}
+
+function getBridgeMemoryStats() {
+  return {
+    markerCount: markers.size,
+    cotRawCacheCount: cotRawByUid.size,
+    cotRawCacheMax: COT_RAW_CACHE_MAX,
+    liveShapeCount: liveShapeFeatures.size,
+    liveOverlayCount: liveOverlayFeatures.size,
+    subscriberCount: subscribers.size,
+    markerRevision,
+    rss: typeof process.memoryUsage === "function" ? process.memoryUsage().rss : null,
+  };
 }
 
 function findMarkersByCallsign(callsign) {
@@ -711,6 +1099,92 @@ function findMarkersByCallsign(callsign) {
   return getMarkerList().filter(
     (m) => String(m?.callsign || "").trim().toLowerCase() === q
   );
+}
+
+/**
+ * Badge / unit number tokens from usernames like "3633hs" → "3633".
+ * Used when Marti subscription callsign differs from the live CoT callsign.
+ */
+function collectIdentityTokens(...names) {
+  const tokens = new Set();
+  for (const raw of names) {
+    const s = String(raw || "")
+      .trim()
+      .toLowerCase();
+    if (!s) continue;
+    for (const m of s.match(/\d{3,}/g) || []) tokens.add(m);
+  }
+  return tokens;
+}
+
+function callsignMatchesIdentityToken(callsign, token) {
+  const cs = String(callsign || "")
+    .trim()
+    .toLowerCase();
+  const t = String(token || "")
+    .trim()
+    .toLowerCase();
+  if (!cs || !t) return false;
+  if (cs === t) return true;
+  if (cs.endsWith("-" + t) || cs.endsWith("_" + t)) return true;
+  const parts = cs.split(/[-_./\s]+/).filter(Boolean);
+  return parts.length > 0 && parts[parts.length - 1] === t;
+}
+
+/**
+ * Resolve live map markers for a connected dashboard client.
+ * Subscription callsign often differs from the CoT callsign / device uid,
+ * so match by uid, callsign, username, preference callsign, and badge tokens.
+ */
+function findMarkersForConnectedClient(options = {}) {
+  const callsign = String(options.callsign || "")
+    .trim()
+    .toLowerCase();
+  const username = String(options.username || "")
+    .trim()
+    .toLowerCase();
+  const preferenceCallsign = String(options.preferenceCallsign || "")
+    .trim()
+    .toLowerCase();
+  const clientUid = String(options.clientUid || options.uid || "")
+    .trim()
+    .toLowerCase();
+
+  const nameKeys = new Set();
+  if (callsign) nameKeys.add(callsign);
+  if (username) nameKeys.add(username);
+  if (preferenceCallsign) nameKeys.add(preferenceCallsign);
+
+  const tokens = collectIdentityTokens(username, callsign, preferenceCallsign);
+
+  const list = getMarkerList();
+  const matches = [];
+  const seen = new Set();
+  for (const m of list) {
+    const cs = String(m?.callsign || "")
+      .trim()
+      .toLowerCase();
+    const mid = String(m?.uid || "")
+      .trim()
+      .toLowerCase();
+    let hit = false;
+    if (clientUid && mid && mid === clientUid) hit = true;
+    else if (cs && nameKeys.has(cs)) hit = true;
+    else if (cs && tokens.size) {
+      for (const t of tokens) {
+        if (callsignMatchesIdentityToken(cs, t)) {
+          hit = true;
+          break;
+        }
+      }
+    }
+    if (!hit) continue;
+    const key = mid || cs || String(matches.length);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    matches.push(m);
+  }
+  return matches;
 }
 
 function formatBatteryPercentLabel(value) {
@@ -736,7 +1210,21 @@ function buildLiveMarkerBatteryIndex(markerList) {
   return { byCallsign, byUid };
 }
 
-function resolveSubscriptionBattery(sub, index) {
+function buildLiveMarkerVersionIndex(markerList) {
+  const byCallsign = new Map();
+  const byUid = new Map();
+  for (const marker of Array.isArray(markerList) ? markerList : []) {
+    const label = mapMeta.formatTakVersionLabel(marker?.version);
+    if (!label) continue;
+    const callsign = String(marker?.callsign || "").trim().toLowerCase();
+    if (callsign && !byCallsign.has(callsign)) byCallsign.set(callsign, label);
+    const uid = String(marker?.uid || "").trim().toLowerCase();
+    if (uid) byUid.set(uid, label);
+  }
+  return { byCallsign, byUid };
+}
+
+function lookupSubscriptionIndex(sub, index) {
   const uidFields = [
     sub?.uid,
     sub?.clientUid,
@@ -755,12 +1243,48 @@ function resolveSubscriptionBattery(sub, index) {
   return null;
 }
 
-/** Join live CoT marker battery onto Marti subscription rows for dashboard. */
+function resolveSubscriptionBattery(sub, index) {
+  return lookupSubscriptionIndex(sub, index);
+}
+
+function stringifyVersionCandidate(raw) {
+  if (raw == null) return "";
+  if (typeof raw === "object") {
+    const attrs = raw._attributes || raw;
+    return mapMeta.formatTakVersionLabel(attrs.version || attrs.appVersion) || "";
+  }
+  return mapMeta.formatTakVersionLabel(raw) || "";
+}
+
+function pickMartiClientVersion(sub) {
+  const candidates = [
+    sub?.takVersion,
+    sub?.appVersion,
+    sub?.clientVersion,
+    sub?.version,
+    sub?.takv,
+  ];
+  for (const raw of candidates) {
+    const s = stringifyVersionCandidate(raw);
+    if (!s) continue;
+    return s;
+  }
+  return null;
+}
+
+function resolveSubscriptionVersion(sub, index) {
+  return lookupSubscriptionIndex(sub, index) || pickMartiClientVersion(sub);
+}
+
+/** Join live CoT marker battery/version onto Marti subscription rows for dashboard. */
 function enrichSubscriptionsWithLiveMarkerBattery(list) {
-  const index = buildLiveMarkerBatteryIndex(getMarkerList());
+  const markers = getMarkerList();
+  const batteryIndex = buildLiveMarkerBatteryIndex(markers);
+  const versionIndex = buildLiveMarkerVersionIndex(markers);
   return (Array.isArray(list) ? list : []).map((sub) => ({
     ...sub,
-    battery: resolveSubscriptionBattery(sub, index),
+    battery: resolveSubscriptionBattery(sub, batteryIndex),
+    version: resolveSubscriptionVersion(sub, versionIndex),
   }));
 }
 
@@ -773,13 +1297,23 @@ module.exports = {
   getMarkerList,
   getMarkerByUid,
   getMarkerRawCot,
+  getBridgeMemoryStats,
   findMarkersByCallsign,
+  findMarkersForConnectedClient,
   getMarkersSlimList,
   getMarkersGeoJson,
+  getLiveOverlayGeoJson,
+  parseSpiOverlayFeature,
   getMarkerRevision,
   subscribe,
   ensureBridgeStarted,
   refreshAllMarkerIcons,
   refreshAllMarkerGroups,
   enrichSubscriptionsWithLiveMarkerBattery,
+  onCotProcessed,
+  writeCot,
+  ingestCot,
+  isBridgeConnected,
+  shouldKeepUntilStale: cotStale.shouldKeepUntilStale,
+  shouldIgnoreIncomingSa: cotStale.shouldIgnoreIncomingSa,
 };

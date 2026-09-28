@@ -1,21 +1,87 @@
 services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: tak-portal-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: takportal
+      # 1.4.9 / InfraTAK run `docker compose up` with a .env that has no password.
+      # Official Postgres refuses to init on a blank value; :-default keeps that path working.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-takportal}
+      POSTGRES_DB: takportal
+    volumes:
+      # PG 18+ official image stores data at /var/lib/postgresql (PGDATA=/var/lib/postgresql/18/docker).
+      - tak_portal_pg:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U takportal -d takportal"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    # PG 15+ logs checkpoints at LOG by default (every ~5 min plus shutdown).
+    # Keep ERROR/FATAL; drop routine checkpoint and statement duration noise.
+    command:
+      - postgres
+      - -c
+      - log_checkpoints=off
+      - -c
+      - log_min_duration_statement=-1
+      - -c
+      - log_autovacuum_min_duration=-1
+      - -c
+      - log_error_verbosity=terse
+    # Localhost only — not the LAN/internet. 47193 is an unused high port (not 5432/5433).
+    # Connection: host 127.0.0.1, port 47193 (or POSTGRES_HOST_PORT), database/user takportal,
+    # password from POSTGRES_PASSWORD (default takportal).
+    # Remote operators: SSH tunnel `ssh -L 47193:127.0.0.1:47193 user@tak-host` then DBeaver to localhost:47193.
+    # To disable host access, delete this ports block (containers still reach postgres:5432 on the compose network).
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-47193}:5432"
+
   tak-portal:
     build: .
     container_name: tak-portal
     restart: unless-stopped
-
-    # Load environment from your .env file in the repo root
-    env_file:
-      - .env
-
-    # Expose the web UI. If WEB_UI_PORT isn't set, default to 3000.
+    env_file: .env
+    environment:
+      PROCESS_ROLE: web
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-takportal}
+      DATABASE_URL: postgres://takportal:${POSTGRES_PASSWORD:-takportal}@postgres:5432/takportal
     ports:
       - "${WEB_UI_PORT:-3000}:${WEB_UI_PORT:-3000}"
-
-    # Persist the /data folder where mutual-aid.json and other data live
     volumes:
       - tak_portal_data:/usr/src/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["sh", "-c", "node scripts/ensure-map-built.mjs && exec node --use-system-ca server.js"]
+
+  tak-portal-worker:
+    build: .
+    container_name: tak-portal-worker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PROCESS_ROLE: worker
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-takportal}
+      DATABASE_URL: postgres://takportal:${POSTGRES_PASSWORD:-takportal}@postgres:5432/takportal
+    volumes:
+      - tak_portal_data:/usr/src/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["node", "--use-system-ca", "worker.js"]
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"const {Pool}=require('pg');const p=new Pool({connectionString:process.env.DATABASE_URL,max:1});p.query('SELECT 1').then(()=>p.end()).then(()=>process.exit(0)).catch(async()=>{try{await p.end()}catch(e){}process.exit(1)})\"",
+        ]
+      interval: 15s
+      timeout: 8s
+      retries: 10
+      start_period: 30s
 
 volumes:
   tak_portal_data:
-    # Named volume so data survives container rebuilds & 'docker compose down'
+  tak_portal_pg:

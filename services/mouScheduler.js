@@ -1,9 +1,9 @@
-const authentik = require("./authentik");
 const accessSvc = require("./access.service");
 const emailSvc = require("./email.service");
 const mouService = require("./mouService");
 const auditSvc = require("./auditLog.service");
 const usersSvc = require("./users.service");
+const directoryRepo = require("./directoryRepo.service");
 const {
   renderTemplate,
   htmlToText,
@@ -54,130 +54,21 @@ function parseConfiguredGroupNames(raw) {
 async function resolveGroupByName(groupName) {
   const name = String(groupName || "").trim();
   if (!name) return null;
-
-  try {
-    const groupResp = await authentik.get(
-      `/core/groups/?name=${encodeURIComponent(name)}`
-    );
-    const results = Array.isArray(groupResp.data?.results)
-      ? groupResp.data.results
-      : [];
-    const exact = results.find(
-      (group) =>
-        String(group?.name || "").trim().toLowerCase() === name.toLowerCase()
-    );
-    if (exact) return exact;
-  } catch (err) {
-    console.warn(
-      "[mou-scheduler] group lookup by name failed:",
-      name,
-      err?.message || err
-    );
-  }
-
-  try {
-    const searchResp = await authentik.get(
-      `/core/groups/?search=${encodeURIComponent(name)}`
-    );
-    const results = Array.isArray(searchResp.data?.results)
-      ? searchResp.data.results
-      : [];
-    return (
-      results.find(
-        (group) =>
-          String(group?.name || "").trim().toLowerCase() === name.toLowerCase()
-      ) || null
-    );
-  } catch (err) {
-    console.warn(
-      "[mou-scheduler] group search lookup failed:",
-      name,
-      err?.message || err
-    );
-    return null;
-  }
+  return directoryRepo.getGroupById(name);
 }
 
 async function getUsersInGroupByPk(groupPk) {
   const gid = String(groupPk || "").trim();
   if (!gid) return [];
-
   const users = [];
-  const pageSize = 200;
   let page = 1;
-  let url =
-    `/core/users/?page=${page}&page_size=${pageSize}` +
-    `&groups_by_pk=${encodeURIComponent(gid)}` +
-    "&include_groups=false&include_roles=false";
-
-  while (url) {
-    const resp = await authentik.get(url);
-    const data = resp.data || {};
-    users.push(...(Array.isArray(data.results) ? data.results : []));
-
-    const pagination = data.pagination || {};
-    if (pagination && pagination.next) {
-      page = pagination.next;
-      url =
-        `/core/users/?page=${page}&page_size=${pageSize}` +
-        `&groups_by_pk=${encodeURIComponent(gid)}` +
-        "&include_groups=false&include_roles=false";
-    } else if (data.next) {
-      url = data.next.replace(/^.*\/api\/v3/, "");
-    } else {
-      url = null;
-    }
-  }
-
-  return users;
-}
-
-async function fetchUsersFromGroupMembershipList(group) {
-  const groupPk = String(group?.pk || group?.id || "").trim();
-  if (!groupPk) return [];
-
-  let memberRefs = Array.isArray(group?.users) ? group.users : [];
-  if (!memberRefs.length) {
-    try {
-      const detailResp = await authentik.get(`/core/groups/${encodeURIComponent(groupPk)}/`);
-      const detail = detailResp.data || {};
-      memberRefs = Array.isArray(detail.users) ? detail.users : [];
-    } catch (err) {
-      console.warn(
-        "[mou-scheduler] group detail lookup failed:",
-        groupPk,
-        err?.message || err
-      );
-      return [];
-    }
-  }
-
-  const memberPks = Array.from(
-    new Set(
-      memberRefs
-        .map((entry) => {
-          if (entry && typeof entry === "object") {
-            return String(entry.pk || entry.id || "").trim();
-          }
-          return String(entry || "").trim();
-        })
-        .filter(Boolean)
-    )
-  );
-  if (!memberPks.length) return [];
-
-  const users = [];
-  for (const memberPk of memberPks) {
-    try {
-      const userResp = await authentik.get(`/core/users/${encodeURIComponent(memberPk)}/`);
-      if (userResp?.data) users.push(userResp.data);
-    } catch (err) {
-      console.warn(
-        "[mou-scheduler] group member user lookup failed:",
-        memberPk,
-        err?.message || err
-      );
-    }
+  let hasNext = true;
+  while (hasNext) {
+    const r = await directoryRepo.getGroupMembersPaged(gid, { page, pageSize: 200 });
+    users.push(...(r.users || []));
+    hasNext = !!r.hasNext;
+    page += 1;
+    if (page > 500) break;
   }
   return users;
 }
@@ -189,9 +80,6 @@ async function getUsersForConfiguredGroup(groupName) {
   }
 
   let users = await getUsersInGroupByPk(group.pk);
-  if (!users.length) {
-    users = await fetchUsersFromGroupMembershipList(group);
-  }
 
   return {
     groupName,
@@ -359,7 +247,7 @@ async function listAgencyAdminUsersForAssign(agency) {
     .sort((a, b) => String(a.name || a.username).localeCompare(String(b.name || b.username)));
 }
 
-async function sendGlobalAdminEmail({ subject, html, text }) {
+async function sendGlobalAdminEmail({ subject, html, text, attachments }) {
   const lookup = await getGlobalAdminRecipientLookup();
   if (!lookup.configuredGroupNames.length) {
     return {
@@ -405,6 +293,7 @@ async function sendGlobalAdminEmail({ subject, html, text }) {
     subject,
     html,
     text,
+    attachments: Array.isArray(attachments) ? attachments : undefined,
   });
 }
 
@@ -677,10 +566,35 @@ async function sendSignedNotificationToGlobalAdmins({
     takPortalBlock,
   });
   const text = htmlToText(html);
+
+  let attachments;
+  try {
+    const pdfExport = await mouService.getSignedPdfExport({
+      mouId: stream?.mouId,
+      agencyId: signature?.agencyId,
+      version: version?.version,
+    });
+    if (pdfExport?.buffer?.length) {
+      attachments = [
+        {
+          filename: pdfExport.fileName,
+          content: pdfExport.buffer,
+          contentType: pdfExport.contentType || "application/pdf",
+        },
+      ];
+    }
+  } catch (pdfErr) {
+    console.warn(
+      "[mou-scheduler] signed PDF attachment unavailable for global admin notification:",
+      pdfErr?.message || pdfErr
+    );
+  }
+
   const result = await sendGlobalAdminEmail({
     subject: `TAK Portal Document Signed - ${stream?.title || "Document"} (v${version?.version || ""})`,
     html,
     text,
+    attachments,
   });
 
   if (result.sent) {
@@ -734,6 +648,195 @@ async function sendSignedNotificationToGlobalAdmins({
   }
 
   return result;
+}
+
+async function lookupAuthentikUserEmail(userIdOrUsername) {
+  const key = String(userIdOrUsername || "").trim();
+  if (!key) return "";
+
+  try {
+    const user = await usersSvc.getUserById(key);
+    const email = String(user?.email || "").trim();
+    if (email) return email;
+  } catch {
+    // Not a user pk; fall through to username lookup.
+  }
+
+  try {
+    const byName = await directoryRepo.getUserByUsername(key);
+    return String(byName?.email || "").trim();
+  } catch (err) {
+    console.warn(
+      "[mou-scheduler] signer email lookup failed:",
+      key,
+      err?.message || err
+    );
+    return "";
+  }
+}
+
+async function resolveOriginalSignerEmail({ stream, signature, version }) {
+  const stored = String(signature?.signerEmail || "").trim();
+  if (stored) return stored;
+
+  const fromUser = await lookupAuthentikUserEmail(signature?.signerUserId);
+  if (fromUser) return fromUser;
+
+  const usedInvite = mouService.getUsedSignInviteForAgency({
+    mouId: stream?.mouId,
+    agencyId: signature?.agencyId,
+    version: version?.version,
+  });
+  const inviteEmail = String(usedInvite?.recipientEmail || "").trim();
+  if (inviteEmail) return inviteEmail;
+
+  const assignedEmail = String(
+    mouService.getAgencySigningAssignedAdminEmail(stream, signature?.agencyId) ||
+      ""
+  ).trim();
+  if (assignedEmail) return assignedEmail;
+
+  return "";
+}
+
+async function sendCountersignedNotificationToSigner({
+  stream,
+  version,
+  signature,
+  agency,
+}) {
+  if (!shouldSendMouEmails()) {
+    return { sent: false, skipped: true, reason: "MOU emails are disabled." };
+  }
+
+  const countersignature = signature?.countersignature;
+  if (!countersignature) {
+    return {
+      sent: false,
+      skipped: true,
+      reason: "No countersignature found on the agency document.",
+    };
+  }
+
+  const recipient = await resolveOriginalSignerEmail({
+    stream,
+    signature,
+    version,
+  });
+  if (!recipient) {
+    return {
+      sent: false,
+      skipped: true,
+      reason: "Could not resolve an email address for the original signer.",
+    };
+  }
+
+  const baseUrl = getPortalBaseUrl();
+  const takPortalBlock = buildMouPortalBlock(baseUrl);
+  const agencyName =
+    signature?.agencyNameAtSign ||
+    agency?.name ||
+    agency?.groupPrefix ||
+    signature?.agencyId ||
+    "";
+  const html = renderTemplate("mou_document_countersigned.html", {
+    mouTitle: stream?.title || "",
+    version: version?.version || "",
+    agencyName,
+    signerDisplayName:
+      signature?.attestationText || signature?.signerDisplayName || "Signer",
+    countersignerDisplayName:
+      countersignature?.attestationText ||
+      countersignature?.signerDisplayName ||
+      "Global Administrator",
+    countersignerRole:
+      countersignature?.signerStatusAtSign || "Global Administrator",
+    countersignedAt: countersignature?.signedAt || "",
+    takPortalBlock,
+  });
+  const text = htmlToText(html);
+
+  let attachments;
+  try {
+    const pdfExport = await mouService.getSignedPdfExport({
+      mouId: stream?.mouId,
+      agencyId: signature?.agencyId,
+      version: version?.version,
+    });
+    if (pdfExport?.buffer?.length) {
+      attachments = [
+        {
+          filename: pdfExport.fileName,
+          content: pdfExport.buffer,
+          contentType: pdfExport.contentType || "application/pdf",
+        },
+      ];
+    }
+  } catch (pdfErr) {
+    console.warn(
+      "[mou-scheduler] countersigned PDF attachment unavailable:",
+      pdfErr?.message || pdfErr
+    );
+  }
+
+  const result = await emailSvc.sendMail({
+    to: recipient,
+    subject: `Document Countersigned - ${stream?.title || "Document"} (v${version?.version || ""})`,
+    html,
+    text,
+    attachments,
+  });
+
+  if (result.sent) {
+    auditSvc.logEvent({
+      actor: null,
+      action: "MOU_COUNTERSIGNED_NOTIFICATION_SENT",
+      targetType: "mou",
+      targetId: String(stream?.mouId || ""),
+      agencySuffix: String(signature?.agencyId || "").trim().toLowerCase() || null,
+      details: {
+        mouId: stream?.mouId || "",
+        version: version?.version || null,
+        agencyName,
+        recipient,
+        countersignerDisplayName:
+          countersignature?.attestationText ||
+          countersignature?.signerDisplayName ||
+          "",
+      },
+    });
+  } else if (result.skipped) {
+    auditSvc.logEvent({
+      actor: null,
+      action: "MOU_COUNTERSIGNED_NOTIFICATION_SKIPPED",
+      targetType: "mou",
+      targetId: String(stream?.mouId || ""),
+      agencySuffix: String(signature?.agencyId || "").trim().toLowerCase() || null,
+      details: {
+        mouId: stream?.mouId || "",
+        version: version?.version || null,
+        agencyName,
+        reason: result.reason || "Notification skipped.",
+      },
+    });
+  } else {
+    auditSvc.logEvent({
+      actor: null,
+      action: "MOU_EMAIL_FAILURE",
+      targetType: "mou",
+      targetId: String(stream?.mouId || ""),
+      agencySuffix: String(signature?.agencyId || "").trim().toLowerCase() || null,
+      details: {
+        mouId: stream?.mouId || "",
+        version: version?.version || null,
+        agencyName,
+        recipient,
+        error: result.error || "Failed to send countersigned notification.",
+      },
+    });
+  }
+
+  return { ...result, recipient };
 }
 
 function shouldSendReminder(row) {
@@ -901,6 +1004,7 @@ module.exports = {
   sendExternalSignInviteEmail,
   sendExternalSignedPdfEmail,
   sendSignedNotificationToGlobalAdmins,
+  sendCountersignedNotificationToSigner,
   listAgencyAdminUsersForAssign,
   runReminderSweep,
   startScheduler,

@@ -1,7 +1,7 @@
-const fs = require("fs");
-const path = require("path");
+const pgCache = require("./pgCache");
+const templatesStore = require("./templates.service");
 
-const FILE = path.join(__dirname, "../data/agencies.json");
+const FILE = null;
 
 const DOMAIN_PART = /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 
@@ -44,9 +44,7 @@ function emailDomainInAgencyList(email, storedDomains) {
 }
 
 function load() {
-  return fs.existsSync(FILE)
-    ? JSON.parse(fs.readFileSync(FILE, "utf8"))
-    : [];
+  return Array.isArray(pgCache.caches.agencies) ? pgCache.caches.agencies : [];
 }
 
 function isAgencyActive(agency) {
@@ -85,6 +83,119 @@ function assertAgencyActiveBySuffix(suffix, agencies) {
   return ag;
 }
 
+/** Trim only — preserve case and internal spaces for agency short names. */
+function normalizeGroupPrefix(raw) {
+  return String(raw || "").trim();
+}
+
+const GROUP_PREFIX_ALLOWED = /^[A-Za-z0-9 _-]+$/;
+
+/**
+ * Validate agency abbreviation / short name charset.
+ * @returns {string|null} error message or null if valid
+ */
+function validateGroupPrefix(raw) {
+  const gp = normalizeGroupPrefix(raw);
+  if (!gp) return "Agency abbreviation / short name is required";
+  if (!GROUP_PREFIX_ALLOWED.test(gp)) {
+    return "Agency abbreviation / short name can only contain letters, numbers, spaces, dashes, and underscores";
+  }
+  return null;
+}
+
+function groupPrefixKey(raw) {
+  return normalizeGroupPrefix(raw).toLowerCase();
+}
+
+function agencyNameKey(raw) {
+  return String(raw || "").trim().toLowerCase();
+}
+
+/**
+ * Case-insensitive uniqueness check for groupPrefix.
+ * @returns {string|null} error message or null if unique
+ */
+function assertUniqueGroupPrefix(agencies, groupPrefix, excludeIndex) {
+  const key = groupPrefixKey(groupPrefix);
+  if (!key) return "Agency abbreviation / short name is required";
+  const list = Array.isArray(agencies) ? agencies : load();
+  const exclude = Number.isInteger(excludeIndex) ? excludeIndex : -1;
+  for (let i = 0; i < list.length; i++) {
+    if (i === exclude) continue;
+    if (groupPrefixKey(list[i]?.groupPrefix) === key) {
+      return "Agency abbreviation / short name already exists";
+    }
+  }
+  return null;
+}
+
+/**
+ * Case-insensitive uniqueness check for agency full name.
+ * @returns {string|null} error message or null if unique
+ */
+function assertUniqueAgencyName(agencies, name, excludeIndex) {
+  const key = agencyNameKey(name);
+  if (!key) return "Name is required";
+  const list = Array.isArray(agencies) ? agencies : load();
+  const exclude = Number.isInteger(excludeIndex) ? excludeIndex : -1;
+  for (let i = 0; i < list.length; i++) {
+    if (i === exclude) continue;
+    if (agencyNameKey(list[i]?.name) === key) {
+      return "Agency name already exists";
+    }
+  }
+  return null;
+}
+
+function getGroupAttributes(group) {
+  return group && typeof group === "object" && group.attributes && typeof group.attributes === "object"
+    ? group.attributes
+    : {};
+}
+
+/** True when group attrs mark ownership by this agency's full name. */
+function isAgencyOwnedGroup(group, agency) {
+  const name = String(agency?.name || "").trim();
+  if (!name) return false;
+  const attrs = getGroupAttributes(group);
+  const createdType = String(attrs.created_type || "").trim().toLowerCase();
+  if (createdType !== "agency") return false;
+  const detail = String(attrs.created_type_detail || "").trim();
+  return detail.toLowerCase() === name.toLowerCase();
+}
+
+/**
+ * Resolve agency from group attributes (created_type + created_type_detail).
+ * Falls back to longest groupPrefix name match for legacy groups.
+ */
+function findAgencyForGroup(group, agencies) {
+  const list = Array.isArray(agencies) ? agencies : load();
+  const attrs = getGroupAttributes(group);
+  const createdType = String(attrs.created_type || "").trim().toLowerCase();
+  const detail = String(attrs.created_type_detail || "").trim();
+
+  if (createdType === "agency" && detail) {
+    const detailLower = detail.toLowerCase();
+    const byName = list.find(
+      (a) => String(a?.name || "").trim().toLowerCase() === detailLower
+    );
+    if (byName) return byName;
+
+    // Legacy: created_type_detail may have been the abbreviation only
+    const byPrefix = list.find(
+      (a) => groupPrefixKey(a?.groupPrefix) === detailLower
+    );
+    if (byPrefix) return byPrefix;
+  }
+
+  const nameWithoutTak = String(group?.name || "").trim();
+  const stripped = nameWithoutTak.toLowerCase().startsWith("tak_")
+    ? nameWithoutTak.slice(4)
+    : nameWithoutTak;
+  return findAgencyForGroupName(stripped, list);
+}
+
+/** Legacy name-prefix match (longest groupPrefix first). */
 function findAgencyForGroupName(nameWithoutTak, agencies) {
   const upper = String(nameWithoutTak || "").trim().toUpperCase();
   if (!upper) return null;
@@ -92,7 +203,7 @@ function findAgencyForGroupName(nameWithoutTak, agencies) {
   const prefixes = list
     .map((a) => ({
       agency: a,
-      prefix: String(a?.groupPrefix || "").trim().toUpperCase(),
+      prefix: normalizeGroupPrefix(a?.groupPrefix).toUpperCase(),
     }))
     .filter((x) => x.prefix)
     .sort((a, b) => b.prefix.length - a.prefix.length);
@@ -108,8 +219,37 @@ function findAgencyForGroupName(nameWithoutTak, agencies) {
   return null;
 }
 
+function agencyHasDefaultTemplate(agencySuffix) {
+  return !!templatesStore.getDefaultTemplateForAgency(agencySuffix);
+}
+
+function assertAgencyCanEnableAutoApprove(agency) {
+  if (!agencyHasDefaultTemplate(agency?.suffix)) {
+    throw new Error(
+      "Set a default template for this agency on the Templates page before enabling auto-approve."
+    );
+  }
+}
+
+function syncAutoApproveForAgencySuffix(suffix) {
+  const sfx = String(suffix || "").trim().toLowerCase();
+  if (!sfx) return false;
+  if (agencyHasDefaultTemplate(sfx)) return false;
+  const agencies = load();
+  let changed = false;
+  for (const a of agencies) {
+    if (String(a?.suffix || "").trim().toLowerCase() !== sfx) continue;
+    if (a.autoApproveRequests === true) {
+      a.autoApproveRequests = false;
+      changed = true;
+    }
+  }
+  if (changed) save(agencies);
+  return changed;
+}
+
 function save(data) {
-  fs.writeFileSync(FILE, JSON.stringify(data, null, 2));
+  pgCache.replaceAgencies(Array.isArray(data) ? data : []);
   try {
     const dashboardStatsCache = require("./dashboardStatsCache.service");
     dashboardStatsCache.refreshAfterAgenciesChanged();
@@ -133,5 +273,16 @@ module.exports = {
   filterPublicEnrollmentAgencies,
   findAgencyBySuffix,
   assertAgencyActiveBySuffix,
+  normalizeGroupPrefix,
+  validateGroupPrefix,
+  groupPrefixKey,
+  agencyNameKey,
+  assertUniqueGroupPrefix,
+  assertUniqueAgencyName,
+  isAgencyOwnedGroup,
+  findAgencyForGroup,
   findAgencyForGroupName,
+  agencyHasDefaultTemplate,
+  assertAgencyCanEnableAutoApprove,
+  syncAutoApproveForAgencySuffix,
 };

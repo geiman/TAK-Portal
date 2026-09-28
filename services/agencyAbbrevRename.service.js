@@ -3,7 +3,7 @@
  * Scoped by agency full name — not by shared abbreviation or username suffix.
  */
 
-const api = require("./authentik");
+const directoryRepo = require("./directoryRepo.service");
 const { getString } = require("./env");
 const agenciesStore = require("./agencies.service");
 const templatesStore = require("./templates.service");
@@ -12,7 +12,7 @@ const accessSvc = require("./access.service");
 const usersService = require("./users.service");
 
 function getAgencyAdminGroupName(agency) {
-  const abbr = String(agency?.groupPrefix || "").trim().toUpperCase();
+  const abbr = agenciesStore.normalizeGroupPrefix(agency?.groupPrefix);
   const countyAbbrev = String(agency?.countyAbbrev || "").trim().toUpperCase();
   if (!abbr) return null;
   if (countyAbbrev) {
@@ -28,30 +28,12 @@ function isAgencyAdminGroupName(name) {
 async function getGroupByNameUnfiltered(groupName) {
   const name = String(groupName || "").trim();
   if (!name) return null;
-
-  try {
-    const res = await api.get(`/core/groups/?name=${encodeURIComponent(name)}`);
-    const results = Array.isArray(res?.data?.results) ? res.data.results : [];
-    const exact = results.find(
-      (g) => String(g?.name || "").trim().toLowerCase() === name.toLowerCase()
-    );
-    if (exact) return exact;
-  } catch (_) {
-    // fall through
-  }
-
-  const res2 = await api.get(`/core/groups/?search=${encodeURIComponent(name)}`);
-  const results2 = Array.isArray(res2?.data?.results) ? res2.data.results : [];
-  return (
-    results2.find(
-      (g) => String(g?.name || "").trim().toLowerCase() === name.toLowerCase()
-    ) || null
-  );
+  return directoryRepo.getGroupById(name);
 }
 
 async function ensureAgencyAdminGroupExists(agency) {
   const name = getAgencyAdminGroupName(agency);
-  if (!name) throw new Error("Agency abbreviation (groupPrefix) is required");
+  if (!name) throw new Error("Agency abbreviation / short name is required");
 
   const attributes = {
     created_at: new Date().toISOString(),
@@ -67,113 +49,43 @@ async function ensureAgencyAdminGroupExists(agency) {
     const msg = String(err?.response?.data?.detail || err?.response?.data || err?.message || "");
     const lower = msg.toLowerCase();
     if (lower.includes("already") || lower.includes("exists") || lower.includes("unique")) {
-      return { created: false, name };
+      const existing = await getGroupByNameUnfiltered(name);
+      if (existing && agenciesStore.isAgencyOwnedGroup(existing, agency)) {
+        return { created: false, name };
+      }
+      throw new Error(
+        `Authentik group "${name}" already exists and is not owned by this agency`
+      );
     }
     throw err;
   }
 }
 
 function validateNewGroupPrefix(raw) {
-  const gp = String(raw || "").trim().toUpperCase();
-  if (!gp) return "Agency abbreviation is required";
-  if (!/^[A-Z0-9_-]+$/.test(gp)) {
-    return "Agency abbreviation can only contain letters, numbers, dashes, and underscores";
-  }
-  return null;
+  return agenciesStore.validateGroupPrefix(raw);
 }
 
 async function updateUsersAgencyAbbreviation(agencyName, newAbbrev) {
   const name = String(agencyName || "").trim();
-  const abbr = String(newAbbrev || "").trim().toUpperCase();
+  const abbr = agenciesStore.normalizeGroupPrefix(newAbbrev);
   if (!name || !abbr) return { matched: 0, updated: 0 };
 
-  const hiddenPrefixes = String(getString("USERS_HIDDEN_PREFIXES", "") || "")
-    .split(",")
-    .map((p) => String(p || "").trim().toLowerCase())
-    .filter(Boolean);
-
-  const folderRaw = String(getString("AUTHENTIK_USER_PATH", "") || "").trim();
-
-  let page = 1;
-  let hasNext = true;
-  let matched = 0;
-  let updated = 0;
-
-  while (hasNext) {
-    const params = {
-      page,
-      page_size: 200,
-      include_groups: "false",
-      include_roles: "false",
-      attributes: JSON.stringify({ agency_name: name }),
-    };
-
-    if (hiddenPrefixes.length) {
-      params.type = ["external", "internal"];
-    }
-
-    if (folderRaw) {
-      params.path_startswith = folderRaw.replace(/^\/+|\/+$/g, "");
-    }
-
-    const res = await api.get("/core/users/", { params });
-    const data = res?.data || {};
-    let rows = Array.isArray(data.results) ? data.results : [];
-
-    if (hiddenPrefixes.length) {
-      rows = rows.filter((u) => {
-        const username = String(u?.username || "").trim().toLowerCase();
-        return !hiddenPrefixes.some((p) => username.startsWith(p));
-      });
-    }
-
-    for (const u of rows) {
-      const attrs = u?.attributes && typeof u.attributes === "object" ? u.attributes : {};
-      const agencyNameAttr = String(attrs.agency_name || "").trim();
-      if (agencyNameAttr !== name) continue;
-
-      matched += 1;
-      const currentAbbr = String(
-        attrs.agency_abbreviation ||
-          attrs.agencyAbbreviation ||
-          attrs.agencyAbbr ||
-          attrs.agencyabbr ||
-          ""
-      )
-        .trim()
-        .toUpperCase();
-
-      if (currentAbbr === abbr) continue;
-
-      const userId = String(u?.pk ?? u?.id ?? "").trim();
-      if (!userId) continue;
-
-      await api.patch(`/core/users/${userId}/`, {
-        attributes: {
-          ...attrs,
-          agency_abbreviation: abbr,
-        },
-      });
-      updated += 1;
-    }
-
-    const pagination = data.pagination || {};
-    if (pagination && pagination.next) {
-      page = pagination.next;
-      hasNext = true;
-    } else if (data.next) {
-      page += 1;
-      hasNext = true;
-    } else {
-      hasNext = false;
-    }
+  const directoryRepo = require("./directoryRepo.service");
+  const authentikOutbox = require("./authentikOutbox.service");
+  const rows = await directoryRepo.updateUsersAgencyAbbreviationColumn(name, abbr);
+  for (const row of rows) {
+    if (!row.authentik_pk) continue;
+    await authentikOutbox.enqueue({
+      kind: "patch_user",
+      entityType: "user",
+      entityId: row.id,
+      authentikPk: row.authentik_pk,
+      username: row.username,
+      payload: { authentikPk: row.authentik_pk, patch: { attributes: row.attributes } },
+    });
   }
-
-  if (updated > 0) {
-    usersService.invalidateUsersCache();
-  }
-
-  return { matched, updated };
+  if (rows.length) usersService.invalidateUsersCache();
+  return { matched: rows.length, updated: rows.length };
 }
 
 async function renameAgencyAdminGroup(agencyOld, agencyNew) {
@@ -192,6 +104,7 @@ async function renameAgencyAdminGroup(agencyOld, agencyNew) {
     const detail = String(agencyNew?.name || "").trim();
     await groupsService.patchGroupNameAndCn(g.pk, desiredName, {
       skipActionLock: true,
+      bulk: true,
       attributes: {
         created_type: "Agency",
         created_type_detail: detail || null,
@@ -211,7 +124,13 @@ async function renameAgencyAdminGroup(agencyOld, agencyNew) {
 
 async function renameAgencyTakGroups(agencyName, oldPrefix, newPrefix) {
   const targetName = String(agencyName || "").trim();
-  const allGroups = await groupsService.getAllGroups({ includeHidden: true });
+  const r = await require("./directoryRepo.service").searchGroupsPaged({
+    createdTypeDetail: targetName,
+    includeHidden: true,
+    page: 1,
+    pageSize: 500,
+  });
+  const allGroups = r.groups;
 
   const candidates = (Array.isArray(allGroups) ? allGroups : []).filter((g) => {
     const gn = String(g?.name || "").trim();
@@ -244,6 +163,7 @@ async function renameAgencyTakGroups(agencyName, oldPrefix, newPrefix) {
       g?.attributes && typeof g.attributes === "object" ? g.attributes : {};
     await groupsService.patchGroupNameAndCn(gid, newGroupName, {
       skipActionLock: true,
+      bulk: true,
       attributes: {
         created_type: attrs.created_type,
         created_type_detail: targetName,
@@ -297,7 +217,7 @@ function updateAgencyTemplatesGroupNames(agencySuffix, oldPrefix, newPrefix, gro
 
 /**
  * @param {number} agencyIndex - index in agencies.json
- * @param {string} newGroupPrefix - new abbreviation (uppercased)
+ * @param {string} newGroupPrefix - new abbreviation / short name (exact casing preserved)
  */
 async function renameAgencyGroupPrefix(agencyIndex, newGroupPrefix) {
   const idx = Number(agencyIndex);
@@ -309,9 +229,12 @@ async function renameAgencyGroupPrefix(agencyIndex, newGroupPrefix) {
   const err = validateNewGroupPrefix(newGroupPrefix);
   if (err) throw new Error(err);
 
+  const newPrefix = agenciesStore.normalizeGroupPrefix(newGroupPrefix);
+  const dup = agenciesStore.assertUniqueGroupPrefix(agencies, newPrefix, idx);
+  if (dup) throw new Error(dup);
+
   const agency = agencies[idx];
-  const oldPrefix = String(agency.groupPrefix || "").trim().toUpperCase();
-  const newPrefix = String(newGroupPrefix || "").trim().toUpperCase();
+  const oldPrefix = agenciesStore.normalizeGroupPrefix(agency.groupPrefix);
 
   if (oldPrefix === newPrefix) {
     return {

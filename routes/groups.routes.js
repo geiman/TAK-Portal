@@ -9,8 +9,23 @@ const auditDetails = require("../services/auditDetails.service");
 const { getString } = require("../services/env");
 const { toSafeApiError } = require("../services/apiErrorPayload.service");
 const mutualAidStore = require("../services/mutualAid.store");
+const channelPatchStore = require("../services/channelPatch.store");
+const channelPatchAccess = require("../services/channelPatchAccess.service");
 
 const MUTUAL_AID_GROUP_PREFIX = "ma -";
+
+async function annotateGroupsWithScopedPatchPeers(authUser, groupsList) {
+  try {
+    const enabled = channelPatchStore.listEnabled();
+    if (!enabled.length) return Array.isArray(groupsList) ? groupsList : [];
+    const access = accessSvc.getAgencyAccess(authUser);
+    const allowed = await channelPatchAccess.resolveAllowedChannelKeySet(authUser);
+    const patches = channelPatchAccess.filterPatchesForAccess(access, enabled, allowed);
+    return channelPatchStore.annotateGroupsWithPatchPeers(groupsList, patches);
+  } catch (_) {
+    return Array.isArray(groupsList) ? groupsList : [];
+  }
+}
 
 function ensureTakPrefix(name) {
   const n = String(name || "").trim();
@@ -58,7 +73,44 @@ router.get("/", async (req, res) => {
       includeMutualAid,
     });
 
-    res.json(filtered);
+    const payload = await annotateGroupsWithScopedPatchPeers(authUser, filtered);
+
+    res.json(payload);
+  } catch (err) {
+    res.status(500).json({ error: toErrorPayload(err) });
+  }
+});
+
+router.get("/search", async (req, res) => {
+  try {
+    const authUser = req.authentikUser || null;
+    const access = accessSvc.getAgencyAccess(authUser);
+    const q = String(req.query.q || "").trim();
+    const scope = String(req.query.scope || "all").trim().toLowerCase();
+    const detail = String(req.query.detail || "").trim();
+    const page = parseInt(req.query.page, 10) || 1;
+    const pageSize = parseInt(req.query.pageSize, 10) || 25;
+    const includeMutualAid =
+      access.isGlobalAdmin && String(req.query.includeMutualAid || "") === "1";
+
+    const out = await groups.searchGroupsForAuthUser(authUser, {
+      q,
+      scope,
+      detail,
+      page,
+      pageSize,
+      includeMutualAid,
+    });
+    const groupsList = Array.isArray(out.groups) ? out.groups : [];
+    const payload = await annotateGroupsWithScopedPatchPeers(authUser, groupsList);
+    res.json({
+      groups: payload,
+      total: Number(out.total || 0),
+      page: Number(out.page || page),
+      pageSize: Number(out.pageSize || pageSize),
+      hasNext: !!out.hasNext,
+      hasPrev: !!out.hasPrev,
+    });
   } catch (err) {
     res.status(500).json({ error: toErrorPayload(err) });
   }
@@ -154,6 +206,18 @@ function filterGroupsVisibleToUser(authUser, all, options = {}) {
   return filtered;
 }
 
+/** Whether this group appears (or can be managed) on the Groups page for the user. */
+function isGroupVisibleOnGroupsPage(authUser, group) {
+  if (!group) return false;
+  const access = accessSvc.getAgencyAccess(authUser);
+  if (access.isGlobalAdmin) return true;
+  const pk = String(group.pk ?? group.id ?? "").trim();
+  if (!pk) return false;
+  return filterGroupsVisibleToUser(authUser, [group]).some(
+    (g) => String(g?.pk ?? g?.id ?? "").trim() === pk
+  );
+}
+
 router.get("/export-csv", async (req, res) => {
   try {
     const authUser = req.authentikUser || null;
@@ -166,21 +230,47 @@ router.get("/export-csv", async (req, res) => {
       return res.status(403).json({ error: "Forbidden" });
     }
 
-    const all = await groups.getGroupsForAuthUser(authUser, { forceRefresh: false });
-    let visible = filterGroupsVisibleToUser(authUser, all);
-
-    visible.sort((a, b) => {
-      const an = stripTakPrefix(String(a?.name || "")).toLowerCase();
-      const bn = stripTakPrefix(String(b?.name || "")).toLowerCase();
-      return an.localeCompare(bn, undefined, { numeric: true, sensitivity: "base" });
-    });
-
     const agencyAbbreviations = await resolveAgencyAbbreviationsForScopedExport(authUser, access);
-    const exportRows = await groups.collectGroupsExportRows(visible, {
-      authUser,
-      agencyAbbreviations,
-    });
-    const csv = groups.buildGroupsExportCsv(exportRows);
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="tak-portal-groups-${stamp}.csv"`
+    );
+
+    let page = 1;
+    let hasNext = true;
+    let wroteHeader = false;
+    let groupCount = 0;
+    while (hasNext) {
+      const out = await groups.searchGroupsForAuthUser(authUser, {
+        q: "",
+        scope: "all",
+        page,
+        pageSize: 200,
+        includeMutualAid: access.isGlobalAdmin,
+      });
+      let visible = Array.isArray(out.groups) ? out.groups : [];
+      visible = filterGroupsVisibleToUser(authUser, visible);
+      const exportRows = await groups.collectGroupsExportRows(visible, {
+        authUser,
+        agencyAbbreviations,
+      });
+      const csv = groups.buildGroupsExportCsv(exportRows);
+      const lines = String(csv || "").split(/\r?\n/);
+      if (!wroteHeader) {
+        res.write(lines[0] ? `${lines[0]}\n` : "");
+        wroteHeader = true;
+      }
+      for (let i = 1; i < lines.length; i++) {
+        if (!lines[i]) continue;
+        res.write(`${lines[i]}\n`);
+      }
+      groupCount += visible.length;
+      hasNext = !!out.hasNext;
+      page += 1;
+      if (page > 500) break;
+    }
 
     auditSvc.logEvent({
       actor: authUser,
@@ -189,18 +279,12 @@ router.get("/export-csv", async (req, res) => {
       targetType: "group",
       targetId: "bulk",
       details: {
-        groupCount: visible.length,
+        groupCount,
         scope: access.isGlobalAdmin ? "global" : "agency",
       },
     });
 
-    const stamp = new Date().toISOString().slice(0, 10);
-    res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="tak-portal-groups-${stamp}.csv"`
-    );
-    return res.send(csv);
+    return res.end();
   } catch (err) {
     return res.status(500).json({ error: toErrorPayload(err) });
   }
@@ -230,6 +314,32 @@ router.post("/", async (req, res) => {
 
     const allAgencies = agencies.load();
 
+    const description = String(req.body?.description || "").trim() || null;
+
+    const rawGroupType = String(req.body?.groupType || "").trim();
+    const groupType =
+      rawGroupType === "Agency" ||
+      rawGroupType === "County" ||
+      rawGroupType === "Region" ||
+      rawGroupType === "State" ||
+      rawGroupType === "Global"
+        ? rawGroupType
+        : "Global";
+
+    const groupTypeDetail = String(req.body?.groupTypeDetail || "").trim() || null;
+
+    let matchedAgency = null;
+    if (groupType === "Agency" && groupTypeDetail) {
+      const detailLower = groupTypeDetail.toLowerCase();
+      matchedAgency =
+        allAgencies.find(
+          (a) => String(a?.name || "").trim().toLowerCase() === detailLower
+        ) || null;
+    }
+    if (!matchedAgency) {
+      matchedAgency = agencies.findAgencyForGroupName(nameWithoutTak, allAgencies);
+    }
+
     if (!access.isGlobalAdmin) {
       const allowedSuffixes = access.allowedAgencySuffixes || [];
       if (!allowedSuffixes.length) {
@@ -238,29 +348,21 @@ router.post("/", async (req, res) => {
           .json({ error: "You do not have permission to create groups." });
       }
 
-      const allowedPrefixes = allAgencies
+      const managedNames = allAgencies
         .filter((a) =>
-          allowedSuffixes.includes(
-            String(a.suffix || "").trim().toLowerCase()
-          )
+          allowedSuffixes.includes(String(a.suffix || "").trim().toLowerCase())
         )
-        .map((a) => String(a.groupPrefix || "").trim().toUpperCase())
+        .map((a) => String(a.name || "").trim())
         .filter(Boolean);
 
-      const upperName = nameWithoutTak.toUpperCase();
-      const canCreateForAny = allowedPrefixes.some((prefix) => {
-        // Allow:
-        // PREFIX <space>
-        // PREFIX-...
-        // PREFIX -...
-        return (
-          upperName.startsWith(prefix + " ") ||
-          upperName.startsWith(prefix + "-") ||
-          upperName.startsWith(prefix + " -")
+      const detailOk =
+        groupType === "Agency" &&
+        groupTypeDetail &&
+        managedNames.some(
+          (n) => n.toLowerCase() === groupTypeDetail.toLowerCase()
         );
-      });
 
-      if (!canCreateForAny) {
+      if (!detailOk) {
         return res.status(403).json({
           error:
             "You may only create agency-specific groups for your own agency.",
@@ -268,25 +370,22 @@ router.post("/", async (req, res) => {
       }
     }
 
-    const matchedAgency = agencies.findAgencyForGroupName(nameWithoutTak, allAgencies);
     if (matchedAgency && !agencies.isAgencyActive(matchedAgency)) {
       return res.status(403).json({
         error: `Agency "${matchedAgency.name || matchedAgency.suffix}" is disabled. Enable the agency before creating groups for it.`,
       });
     }
 
-    const description = String(req.body?.description || "").trim() || null;
-
-    const rawGroupType = String(req.body?.groupType || "").trim();
-    const groupType =
-      rawGroupType === "Agency" ||
-      rawGroupType === "County" ||
-      rawGroupType === "State" ||
-      rawGroupType === "Global"
-        ? rawGroupType
-        : "Global";
-
-    const groupTypeDetail = String(req.body?.groupTypeDetail || "").trim() || null;
+    // Global groups cannot use the mutual-aid reserved "MA -" prefix
+    if (groupType === "Global") {
+      const lower = String(nameWithoutTak || "").toLowerCase();
+      if (lower.startsWith(MUTUAL_AID_GROUP_PREFIX)) {
+        return res.status(400).json({
+          error:
+            'Global groups cannot start with "MA -". Create mutual aid groups from the Mutual Aid page.',
+        });
+      }
+    }
 
     const createdBy = authUser
       ? {
@@ -791,19 +890,8 @@ router.get("/mass-jobs/:jobId", (req, res) => {
   });
 });
 
-function getGroupPrefixFromName(groupName) {
-  const n = String(groupName || "").trim();
-  const withoutTak = n.toLowerCase().startsWith("tak_") ? n.slice(4) : n;
-  const spaceIdx = withoutTak.toUpperCase().indexOf(" ");
-  if (spaceIdx <= 0) return "";
-  return withoutTak.slice(0, spaceIdx).trim().toUpperCase();
-}
-
-function isGroupOwnedByAgency(groupName, agency) {
-  const prefix = getGroupPrefixFromName(groupName);
-  if (!prefix) return false;
-  const gp = String(agency?.groupPrefix || "").trim().toUpperCase();
-  return prefix === gp;
+function isGroupOwnedByAgency(group, agency) {
+  return agencies.isAgencyOwnedGroup(group, agency);
 }
 
 // Which agencies' admins can access this group (inverse of agency access-groups).
@@ -825,15 +913,16 @@ router.get("/:groupId/admin-access", async (req, res) => {
     }
 
     const groupName = String(group?.name || "").trim();
+
     const allAgencies = agencies.load();
     const agenciesOut = allAgencies.map((a, idx) => {
       const ids = Array.isArray(a.allowedAdminGroupIds) ? a.allowedAdminGroupIds : [];
       const hasExplicit = ids.map((id) => String(id).trim()).includes(groupId);
-      const implicitAccess = isGroupOwnedByAgency(groupName, a);
+      const implicitAccess = isGroupOwnedByAgency(group, a);
       return {
         id: idx,
         name: String(a.name || "").trim(),
-        groupPrefix: String(a.groupPrefix || "").trim().toUpperCase(),
+        groupPrefix: agencies.normalizeGroupPrefix(a.groupPrefix),
         suffix: String(a.suffix || "").trim().toLowerCase(),
         hasAccess: hasExplicit,
         implicitAccess,
@@ -861,13 +950,14 @@ router.put("/:groupId/admin-access", async (req, res) => {
     const groupId = String(req.params.groupId || "").trim();
     if (!groupId) return res.status(400).json({ error: "Group id is required" });
 
-    let groupName = "";
+    let group;
     try {
-      const g = await groups.getGroupById(groupId);
-      groupName = String(g?.name || "").trim();
+      group = await groups.getGroupById(groupId);
     } catch (_) {
       return res.status(404).json({ error: "Group not found" });
     }
+
+    const groupName = String(group?.name || "").trim();
 
     const raw = req.body?.agencyIds;
     const selected = new Set(
@@ -881,7 +971,7 @@ router.put("/:groupId/admin-access", async (req, res) => {
 
     for (let idx = 0; idx < allAgencies.length; idx++) {
       const agency = allAgencies[idx];
-      if (isGroupOwnedByAgency(groupName, agency)) continue;
+      if (isGroupOwnedByAgency(group, agency)) continue;
 
       let ids = Array.isArray(agency.allowedAdminGroupIds)
         ? agency.allowedAdminGroupIds.map((id) => String(id).trim()).filter(Boolean)
@@ -935,6 +1025,7 @@ router.get("/:groupId/members", async (req, res) => {
     const groupId = req.params.groupId;
     const page = parseInt(req.query.page, 10) || 1;
     const pageSize = parseInt(req.query.pageSize, 10) || 100;
+    const q = String(req.query.q || "").trim();
     const group = await groups.getGroupById(groupId);
     const authUser = req.authentikUser || null;
     const access = accessSvc.getAgencyAccess(authUser);
@@ -973,6 +1064,7 @@ router.get("/:groupId/members", async (req, res) => {
       agencyAbbreviations,
       page,
       pageSize,
+      q,
     });
     const users = Array.isArray(members?.users) ? members.users : [];
 
@@ -999,6 +1091,7 @@ router.get("/:groupId/members", async (req, res) => {
       pageSize: Number(members?.pageSize || pageSize),
       hasNext: !!members?.hasNext,
       hasPrev: !!members?.hasPrev,
+      visibleOnGroupsPage: isGroupVisibleOnGroupsPage(authUser, group),
     });
   } catch (err) {
     res.status(400).json({ error: toErrorPayload(err) });

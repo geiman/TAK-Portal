@@ -115,30 +115,58 @@ function resolveIcon({ type, affiliation, detail, usericon }) {
   );
 }
 
-async function resolveIconAsync({ type, affiliation, detail, usericon }) {
-  const png = mapIconResolve.resolvePngIcon(
+function resolveExplicitIcon({ type, affiliation, detail, usericon }) {
+  return mapIconResolve.resolvePngIcon(
     { type, affiliation, detail, usericon },
-    registry()
+    registry(),
+    { explicitOnly: true }
   );
-  if (png) return png;
+}
+
+/** Live map: custom usericon/path first; 2525D milsym only when CoT asks for it. */
+async function resolveIconAsync({ type, affiliation, detail, usericon }) {
+  const explicit = resolveExplicitIcon({ type, affiliation, detail, usericon });
+  if (explicit) return explicit;
 
   const ui = usericon || mapIconResolve.parseUserIcon(detail);
   const parsedPath = mapIconResolve.parseIconsetPath(ui.iconsetpath);
   let cotType = String(type || "").trim();
-  if (parsedPath?.mode === "type") {
+  if (
+    parsedPath?.mode === "type" &&
+    !mapIconResolve.isStandardGroundEudType(cotType) &&
+    !mapIconResolve.isStandardGroundEudType(parsedPath.cotType)
+  ) {
     cotType = parsedPath.cotType || cotType;
   }
 
-  const milId = await mapMilSym.cotTypeTo2525DIconId(cotType);
-  if (milId) {
-    return {
-      iconId: milId,
-      iconsetUid: null,
-      relPath: null,
-      source: "milsym",
-    };
+  // Team-dot presence (ATAK G-U-C / CloudTAK G-E-V-C). Never milsym/car frames.
+  if (
+    mapIconResolve.isStandardGroundEudType(type) ||
+    mapIconResolve.isStandardGroundEudType(cotType)
+  ) {
+    return null;
   }
-  return null;
+
+  // Only invent 2525D when the CoT explicitly requests 2525 mapping (or prefer-list).
+  const wantMilsym =
+    mapIconResolve.prefersMilSymIconPath(ui.iconsetpath) ||
+    mapIconResolve.prefersMilSymCotType(cotType);
+  if (wantMilsym) {
+    const milId = await mapMilSym.cotTypeTo2525DIconId(cotType);
+    if (milId) {
+      return {
+        iconId: milId,
+        iconsetUid: null,
+        relPath: null,
+        source: "milsym",
+      };
+    }
+  }
+
+  return mapIconResolve.resolvePngIcon(
+    { type, affiliation, detail, usericon },
+    registry()
+  );
 }
 
 function explainIconResolution({ type, affiliation, detail, usericon, origin }) {
@@ -193,15 +221,14 @@ async function explainIconResolutionAsync({
   const milId = convertable ? await mapMilSym.cotTypeTo2525DIconId(cotType) : null;
   const sidc2525b = convertable ? await mapMilSym.cotTypeTo2525B(cotType) : null;
 
-  if (!base.resolved) {
-    const asyncResolved = await resolveIconAsync({ type, affiliation, detail, usericon });
-    if (asyncResolved) {
-      base.resolved = {
-        ...asyncResolved,
-        fileExists: mapMilSym.isMilSymIconId(asyncResolved.iconId),
-        filePath: null,
-      };
-    }
+  const asyncResolved = await resolveIconAsync({ type, affiliation, detail, usericon });
+  if (asyncResolved) {
+    const filePath = asyncResolved.iconId ? getIconFilePath(asyncResolved.iconId) : null;
+    base.resolved = {
+      ...asyncResolved,
+      fileExists: !!filePath || mapMilSym.isMilSymIconId(asyncResolved.iconId),
+      filePath: filePath || null,
+    };
   }
 
   base.milsym = {
@@ -382,6 +409,7 @@ function listIconsets() {
 module.exports = {
   ensureIconsets,
   resolveIcon,
+  resolveExplicitIcon,
   resolveIconAsync,
   explainIconResolution,
   explainIconResolutionAsync,

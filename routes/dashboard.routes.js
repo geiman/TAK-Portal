@@ -1,18 +1,31 @@
 const router = require("express").Router();
 const dashboardStatsCache = require("../services/dashboardStatsCache.service");
 const takDashboardCache = require("../services/takDashboardCache.service");
-const {
-  getSubscriptionsAll,
-  applySubscriptionMetricsSplit,
-} = require("../services/takMetrics.service");
 const mutualAidService = require("../services/mutualAid.service");
 const bookmarksService = require("../services/bookmarks.service");
 const agenciesStore = require("../services/agencies.service");
+const templatesStore = require("../services/templates.service");
 const accessSvc = require("../services/access.service");
 const mouService = require("../services/mouService");
-const { hasAcceptedAgreementForSession } = require("../services/userAgreementSession.service");
+const mapPageAssets = require("../services/mapPageAssets.service");
+const mapBasemapsConfig = require("../config/mapBasemaps");
 
 const userRequestsSvc = require("../services/userRequests.service");
+const channelPatchStore = require("../services/channelPatch.store");
+const channelPatchAccess = require("../services/channelPatchAccess.service");
+const { hasAcceptedAgreementForSession } = require("../services/userAgreementSession.service");
+
+function mapRenderLocals(req) {
+  const mapUserKey = String(
+    req.authentikUser?.uid || req.authentikUser?.username || "anonymous"
+  ).replace(/[^a-zA-Z0-9._-]/g, "_");
+  const settings = require("../services/settings.service").getSettings() || {};
+  return {
+    ...mapPageAssets.getRenderLocals(),
+    mapStorageUserKey: mapUserKey,
+    defaultMapSource: mapBasemapsConfig.getDefaultMapSource(settings),
+  };
+}
 
 function agreementLocalsForRequest(req) {
   const currentAgreement = mouService.getCurrentUserAgreement().current;
@@ -27,6 +40,26 @@ function agreementLocalsForRequest(req) {
   };
 }
 
+function countTemplatesForAuthUser(user) {
+  return templatesStore.countVisibleToUser({
+    isGlobalAdmin: !!(user && user.isGlobalAdmin),
+    allowedAgencySuffixes: user && user.allowedAgencySuffixes,
+  });
+}
+
+async function countActiveChannelPatches(authUser) {
+  try {
+    const enabled = channelPatchStore.listEnabled();
+    if (!enabled.length) return 0;
+    const access = accessSvc.getAgencyAccess(authUser);
+    const allowed = await channelPatchAccess.resolveAllowedChannelKeySet(authUser);
+    return channelPatchAccess.filterPatchesForAccess(access, enabled, allowed).length;
+  } catch (e) {
+    console.error("[DASHBOARD] Channel patch stats failed:", e?.message || e);
+    return 0;
+  }
+}
+
 router.get("/", async (req, res) => {
   const user = req.authentikUser;
   const isAdmin = !!(user && (user.isGlobalAdmin || user.isAgencyAdmin));
@@ -37,9 +70,15 @@ router.get("/", async (req, res) => {
   try {
     const isAgencyOnly = !!(user && user.isAgencyAdmin && !user.isGlobalAdmin);
     const bookmarks = bookmarksService.loadBookmarks();
-    let { takMetrics } = takDashboardCache.getDashboardTakSnapshot();
+    const takSnap = await takDashboardCache.getDashboardTakSnapshot({
+      authUser: req.authentikUser,
+      agencyOnly: isAgencyOnly,
+    });
+    let { takMetrics } = takSnap;
+    const takStatView = takSnap.view || takDashboardCache.viewFields(takMetrics);
 
     const pendingUserRequestsCount = userRequestsSvc.countRequestsForUser(req.authentikUser);
+    const activeChannelPatchesCount = await countActiveChannelPatches(req.authentikUser);
     const pendingMouDocumentsCount =
       user?.isAgencyAdmin && mouService.isEnabled()
         ? mouService
@@ -54,7 +93,7 @@ router.get("/", async (req, res) => {
     let activeEventCount = 0;
     try {
       const nowMs = Date.now();
-      const items = mutualAidService.list();
+      const items = mutualAidService.listForUser(req.authentikUser || null);
       for (const it of items) {
         const t = String(it.type || "").trim().toUpperCase();
         const enabled = !!it.expireEnabled;
@@ -89,7 +128,8 @@ router.get("/", async (req, res) => {
       stats = {
         totalUsers: agencySnap.stats?.totalUsers ?? 0,
         totalGroups: agencySnap.stats?.totalGroups ?? 0,
-        totalAgencies: isMultiAgencyDashboard ? managed.length : 0,
+        totalAgencies: managed.length,
+        totalTemplates: countTemplatesForAuthUser(req.authentikUser),
         totalIntegrations: 0,
       };
       charts = {
@@ -103,16 +143,16 @@ router.get("/", async (req, res) => {
       if (managed.length === 1 && managed[0].color) {
         templateChartColor = managed[0].color;
       }
-    } else {
-      let snap = dashboardStatsCache.getDashboardStatsSnapshot();
+            } else {
+      let snap = await dashboardStatsCache.getDashboardStatsSnapshot();
       if (!snap.refreshedAt) {
-        await dashboardStatsCache.refreshNow();
-        snap = dashboardStatsCache.getDashboardStatsSnapshot();
+        snap = await dashboardStatsCache.refreshNow();
       }
       stats = {
         totalUsers: snap.stats?.totalUsers ?? 0,
         totalGroups: snap.stats?.totalGroups ?? 0,
         totalAgencies: snap.stats?.totalAgencies ?? 0,
+        totalTemplates: countTemplatesForAuthUser(req.authentikUser),
         totalIntegrations: snap.stats?.totalIntegrations ?? 0,
       };
       charts = snap.charts || {
@@ -154,18 +194,6 @@ router.get("/", async (req, res) => {
       }
     }
 
-    if (isAgencyOnly && takMetrics) {
-      try {
-        const sub = await getSubscriptionsAll();
-        takMetrics = applySubscriptionMetricsSplit(takMetrics, sub, {
-          authUser: req.authentikUser,
-          agencyOnly: true,
-        });
-      } catch (e) {
-        console.warn("[DASHBOARD] Agency TAK metrics adjustment failed:", e?.message || e);
-      }
-    }
-
     const viewModel = {
       stats,
       mutualAid: {
@@ -177,12 +205,15 @@ router.get("/", async (req, res) => {
       typeColors,
       bookmarks,
       takMetrics,
+      takStatView,
       pendingUserRequestsCount,
       pendingMouDocumentsCount,
+      activeChannelPatchesCount,
       isAgencyDashboard,
       isMultiAgencyDashboard,
       agencyDisplayName,
       templateChartColor,
+      ...mapRenderLocals(req),
       ...agreementLocalsForRequest(req),
     };
 
@@ -191,8 +222,12 @@ router.get("/", async (req, res) => {
     console.error("[DASHBOARD] failed:", err?.message || err);
 
     const bookmarks = bookmarksService.loadBookmarks();
-    const { takMetrics: cachedTak } = takDashboardCache.getDashboardTakSnapshot();
     const isAgencyOnly = !!(user && user.isAgencyAdmin && !user.isGlobalAdmin);
+    const errTakSnap = await takDashboardCache.getDashboardTakSnapshot({
+      authUser: req.authentikUser,
+      agencyOnly: isAgencyOnly,
+    });
+    const cachedTak = errTakSnap.takMetrics;
     const allowedSuffixes = Array.isArray(user?.allowedAgencySuffixes)
       ? user.allowedAgencySuffixes
       : [];
@@ -201,6 +236,7 @@ router.get("/", async (req, res) => {
         totalUsers: 0,
         totalGroups: 0,
         totalAgencies: 0,
+        totalTemplates: 0,
         totalIntegrations: 0,
       },
       mutualAid: {
@@ -219,7 +255,9 @@ router.get("/", async (req, res) => {
       typeColors: {},
       bookmarks,
       takMetrics: cachedTak,
+      takStatView: errTakSnap.view || takDashboardCache.viewFields(cachedTak),
       pendingUserRequestsCount: userRequestsSvc.countRequestsForUser(req.authentikUser),
+      activeChannelPatchesCount: 0,
       pendingMouDocumentsCount:
         user?.isAgencyAdmin && mouService.isEnabled()
           ? mouService
@@ -235,6 +273,7 @@ router.get("/", async (req, res) => {
       agencyDisplayName: isAgencyOnly ? "Agency Dashboard" : null,
       templateChartColor: null,
       error: err?.response?.data || err?.message || "Failed to load dashboard",
+      ...mapRenderLocals(req),
       ...agreementLocalsForRequest(req),
     };
 

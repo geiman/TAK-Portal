@@ -10,10 +10,12 @@ const agenciesSvc = require("../services/agencies.service");
 const userRequestsSvc = require("../services/userRequests.service");
 const qrSvc = require("../services/qr.service");
 const tokensSvc = require("../services/authentikTokens.service");
+const enrollmentPkg = require("../services/enrollmentPackage.service");
 const { getString, getBool } = require("../services/env");
 const auditSvc = require("../services/auditLog.service");
 const { toSafeApiError } = require("../services/apiErrorPayload.service");
 const mutualAidStore = require("../services/mutualAid.store");
+const userLoginStatus = require("../services/userLoginStatus.service");
 
 // Cache resolved Global Admin group PKs (from PORTAL_AUTH_REQUIRED_GROUP)
 // so we can cheaply hide global-admin users from agency-admin views.
@@ -45,9 +47,18 @@ async function getAllHiddenGroupsNameLowerToPk() {
 
   if (cacheValid) return _agencyAdminGroupsNameLowerToPkCache.map;
 
-  const allGroups = await groupsSvc.getAllGroups({ includeHidden: true });
+  const accessSvc = require("../services/access.service");
+  const directoryRepo = require("../services/directoryRepo.service");
+  const agencies = agenciesSvc.load() || [];
+  const names = [];
+  for (const ag of agencies) {
+    for (const n of accessSvc.getAllAgencyAdminGroupNames(ag) || []) {
+      if (n) names.push(n);
+    }
+  }
+  const groups = await directoryRepo.getGroupsByNames(names);
   const nameLowerToPk = new Map(
-    (Array.isArray(allGroups) ? allGroups : []).map((g) => [
+    (Array.isArray(groups) ? groups : []).map((g) => [
       String(g?.name || "").trim().toLowerCase(),
       String(g?.pk ?? g?.id ?? "").trim() || null,
     ])
@@ -74,9 +85,10 @@ async function resolveGroupLabels(groupIds) {
     .map((id) => String(id || "").trim())
     .filter(Boolean);
   if (!ids.length) return { ids: [], names: [] };
-  const allGroups = await groupsSvc.getAllGroups({ includeHidden: true });
+  const directoryRepo = require("../services/directoryRepo.service");
+  const groups = await directoryRepo.getGroupsByPks(ids);
   const byPk = new Map(
-    (Array.isArray(allGroups) ? allGroups : []).map((g) => [
+    (Array.isArray(groups) ? groups : []).map((g) => [
       String(g?.pk),
       String(g?.name || "").trim(),
     ])
@@ -100,10 +112,10 @@ async function getGlobalAdminGroupPks() {
     return _globalAdminGroupPkCache.pks.slice();
   }
 
-  // Resolve group names -> PKs (including hidden groups).
-  const allGroups = await groupsSvc.getAllGroups({ includeHidden: true });
+  const directoryRepo = require("../services/directoryRepo.service");
+  const found = await directoryRepo.getGroupsByNames(namesLower);
   const byNameLower = new Map(
-    (Array.isArray(allGroups) ? allGroups : []).map((g) => [
+    (Array.isArray(found) ? found : []).map((g) => [
       String(g?.name || "").trim().toLowerCase(),
       String(g?.pk),
     ])
@@ -117,299 +129,6 @@ async function getGlobalAdminGroupPks() {
 
   _globalAdminGroupPkCache = { key, loadedAt: now, pks };
   return pks.slice();
-}
-
-function resolveAgencyRecordBySuffix(suffix, agencies) {
-  const normalized = String(suffix || "").trim().toLowerCase();
-  if (!normalized) return null;
-  return (
-    (Array.isArray(agencies) ? agencies : []).find(
-      (a) => String(a?.suffix || "").trim().toLowerCase() === normalized
-    ) || null
-  );
-}
-
-function buildAgencySearchConfig(suffix, agency) {
-  if (!agency) return null;
-  const agencyName = String(agency.name || "").trim();
-  if (!agencyName) return null;
-  return {
-    suffix: String(suffix || "").trim().toLowerCase(),
-    name: agencyName,
-    abbreviation: String(agency.groupPrefix || "").trim(),
-  };
-}
-
-function normalizeQForAgencyDelegatedSearch(qVal, cfg) {
-  const qLower = String(qVal || "").trim().toLowerCase();
-  const tokens = [
-    String(cfg?.suffix || "").trim().toLowerCase(),
-    String(cfg?.abbreviation || "").trim().toLowerCase(),
-    String(cfg?.name || "").trim().toLowerCase(),
-  ].filter(Boolean);
-  return qLower && tokens.includes(qLower) ? "" : qVal;
-}
-
-function userIsGlobalAdminUser(user, globalAdminSet) {
-  const groups = Array.isArray(user?.groups) ? user.groups.map(String) : [];
-  return groups.some((gid) => globalAdminSet.has(gid));
-}
-
-async function loadGroupNameByPkForRoleSort(sortKey) {
-  if (sortKey !== "role") return new Map();
-  const allGroups = await groupsSvc.getAllGroups({ includeHidden: true });
-  return new Map(
-    (Array.isArray(allGroups) ? allGroups : []).map((g) => [
-      String(g.pk),
-      String(g.name || "").toLowerCase(),
-    ])
-  );
-}
-
-function createUserSortHelpers(sortKey, sortDir, groupNameByPk, globalAdminSet) {
-  function getAgencyAbbr(user) {
-    const attrs = user?.attributes || {};
-    const raw =
-      attrs.agency_abbreviation ||
-      attrs.agencyAbbreviation ||
-      attrs.agencyAbbr ||
-      attrs.agencyabbr ||
-      "";
-    return String(raw || "").trim().toLowerCase();
-  }
-
-  function computeRole(user) {
-    const groups = Array.isArray(user?.groups) ? user.groups.map(String) : [];
-    if (groups.some((g) => globalAdminSet.has(g))) return "0-global";
-    for (const gid of groups) {
-      const name = groupNameByPk.get(gid);
-      if (name && name.endsWith("-agencyadmin")) return "1-agency";
-    }
-    return "2-user";
-  }
-
-  function getSortValue(user) {
-    if (!user) return "";
-    if (sortKey === "username") return String(user.username || "").toLowerCase();
-    if (sortKey === "agency") return getAgencyAbbr(user);
-    if (sortKey === "name") return String(user.name || "").toLowerCase();
-    if (sortKey === "email") return String(user.email || "").toLowerCase();
-    if (sortKey === "status") return user.is_active ? "enabled" : "disabled";
-    if (sortKey === "role") {
-      return computeRole(user) + "-" + String(user.name || "").toLowerCase();
-    }
-    return String(user.name || "").toLowerCase();
-  }
-
-  function compareUsers(a, b) {
-    const av = getSortValue(a);
-    const bv = getSortValue(b);
-    let cmp = String(av).localeCompare(String(bv), undefined, {
-      numeric: true,
-      sensitivity: "base",
-    });
-    if (cmp === 0 && sortKey === "agency") {
-      cmp = String(a?.name || "")
-        .toLowerCase()
-        .localeCompare(String(b?.name || "").toLowerCase(), undefined, {
-          numeric: true,
-          sensitivity: "base",
-        });
-    }
-    return sortDir === "desc" ? -cmp : cmp;
-  }
-
-  return { compareUsers };
-}
-
-/**
- * Multi-agency admin fast path: merge Authentik attribute-filtered pages per
- * managed agency (same as single-agency delegated search, combined).
- */
-async function delegatedMultiAgencyUsersSearch({
-  allowedSuffixes,
-  qVal,
-  requestedPage,
-  pageSize,
-  sortKey,
-  sortDir,
-  requestedCurrentTemplate,
-  requestedTemplateAgencySuffix,
-  globalAdminGroupPks,
-  globalAdminSet,
-}) {
-  const agencies = agenciesSvc.load();
-  let configs = (Array.isArray(allowedSuffixes) ? allowedSuffixes : [])
-    .map((sfx) =>
-      buildAgencySearchConfig(sfx, resolveAgencyRecordBySuffix(sfx, agencies))
-    )
-    .filter(Boolean);
-
-  if (requestedTemplateAgencySuffix) {
-    const wanted = String(requestedTemplateAgencySuffix).trim().toLowerCase();
-    configs = configs.filter((c) => c.suffix === wanted);
-  }
-
-  if (!configs.length) {
-    throw new Error("No managed agencies available for delegated search");
-  }
-
-  const searchBase = {
-    sortKey,
-    sortDir,
-    includeRoles: false,
-    currentTemplate: requestedCurrentTemplate,
-  };
-
-  const totalEntries = await Promise.all(
-    configs.map(async (cfg) => {
-      const qForAuthentik = normalizeQForAgencyDelegatedSearch(qVal, cfg);
-      const totalAgencyRes = await users.searchUsersByAgencyNamePaged({
-        agencyName: cfg.name,
-        q: qForAuthentik,
-        page: 1,
-        pageSize: 1,
-        includeGroups: false,
-        ...searchBase,
-      });
-      let total = Number(totalAgencyRes?.total || 0);
-      if (globalAdminGroupPks.length && total > 0) {
-        const globalRes = await users.searchUsersByAgencyNamePaged({
-          agencyName: cfg.name,
-          q: qForAuthentik,
-          page: 1,
-          pageSize: 1,
-          groupsByPk: globalAdminGroupPks,
-          includeGroups: false,
-          ...searchBase,
-        });
-        total = Math.max(0, total - Number(globalRes?.total || 0));
-      }
-      return total;
-    })
-  );
-
-  const totalVisible = totalEntries.reduce((sum, n) => sum + n, 0);
-  if (totalVisible === 0) {
-    throw new Error("Delegated multi-agency filter returned no results");
-  }
-
-  const groupNameByPk = await loadGroupNameByPkForRoleSort(sortKey);
-  const { compareUsers } = createUserSortHelpers(
-    sortKey,
-    sortDir,
-    groupNameByPk,
-    globalAdminSet
-  );
-
-  const currentPageRequested = requestedPage < 1 ? 1 : requestedPage;
-  const totalPages = Math.max(1, Math.ceil(totalVisible / pageSize));
-  const page = Math.min(currentPageRequested, totalPages);
-  const startFiltered = (page - 1) * pageSize;
-  const endFilteredExclusive = startFiltered + pageSize;
-
-  const cursors = configs.map((cfg) => ({
-    cfg,
-    qForAuthentik: normalizeQForAgencyDelegatedSearch(qVal, cfg),
-    page: 1,
-    rows: [],
-    idx: 0,
-    done: false,
-    loading: null,
-  }));
-
-  async function loadNextBatch(cursor) {
-    if (cursor.done) return;
-    if (cursor.loading) {
-      await cursor.loading;
-      return;
-    }
-    cursor.loading = (async () => {
-      while (!cursor.done) {
-        const res = await users.searchUsersByAgencyNamePaged({
-          agencyName: cursor.cfg.name,
-          q: cursor.qForAuthentik,
-          page: cursor.page,
-          pageSize: Math.max(pageSize, 50),
-          includeGroups: true,
-          ...searchBase,
-        });
-        cursor.page += 1;
-        const batch = (Array.isArray(res?.users) ? res.users : []).filter(
-          (u) => !userIsGlobalAdminUser(u, globalAdminSet)
-        );
-        if (batch.length) {
-          cursor.rows = batch;
-          cursor.idx = 0;
-          return;
-        }
-        if (!res?.hasNext) {
-          cursor.done = true;
-          return;
-        }
-      }
-    })();
-    try {
-      await cursor.loading;
-    } finally {
-      cursor.loading = null;
-    }
-  }
-
-  async function peekCursor(cursor) {
-    if (cursor.idx >= cursor.rows.length && !cursor.done) {
-      await loadNextBatch(cursor);
-    }
-    if (cursor.idx >= cursor.rows.length) return null;
-    return cursor.rows[cursor.idx];
-  }
-
-  async function takeCursor(cursor) {
-    const user = await peekCursor(cursor);
-    if (!user) return null;
-    cursor.idx += 1;
-    return user;
-  }
-
-  let filteredIndex = 0;
-  const returned = [];
-  const seenPk = new Set();
-
-  while (filteredIndex < endFilteredExclusive) {
-    let bestCursor = null;
-    let bestUser = null;
-
-    for (const cursor of cursors) {
-      const candidate = await peekCursor(cursor);
-      if (!candidate) continue;
-      if (!bestUser || compareUsers(candidate, bestUser) < 0) {
-        bestUser = candidate;
-        bestCursor = cursor;
-      }
-    }
-
-    if (!bestCursor || !bestUser) break;
-
-    const picked = await takeCursor(bestCursor);
-    if (!picked) break;
-    const pk = String(picked?.pk ?? picked?.id ?? picked?.username ?? "");
-    if (pk && seenPk.has(pk)) continue;
-    if (pk) seenPk.add(pk);
-
-    if (filteredIndex >= startFiltered && filteredIndex < endFilteredExclusive) {
-      returned.push(picked);
-    }
-    filteredIndex += 1;
-  }
-
-  return {
-    users: returned,
-    total: totalVisible,
-    page,
-    pageSize,
-    hasNext: page < totalPages,
-    hasPrev: page > 1,
-  };
 }
 
 // -------------------- CSV import progress (in-memory) --------------------
@@ -437,9 +156,6 @@ router.get("/meta", async (req, res) => {
     }
 
     const dynamic = users.getTemplatesForAgency(agencySuffix);
-    const allGroups = await groupsSvc.getAllGroups({});
-    let groups = accessSvc.filterGroupsForUser(authUser, allGroups);
-
     const templates = [
       // index 0 = Manual, as the EJS expects
       {
@@ -457,32 +173,9 @@ router.get("/meta", async (req, res) => {
         isDefault: t.isDefault,
       })),
     ];
-    groups.sort((a, b) => {
-      const an = String(a?.name || "").toLowerCase();
-      const bn = String(b?.name || "").toLowerCase();
-      return an.localeCompare(bn, undefined, { numeric: true, sensitivity: "base" });
-    });
-
-    // Apply hidden prefix filtering (final pass)
-    const hiddenRaw = String(getString("GROUPS_HIDDEN_PREFIXES", "") || "");
-    const hiddenPrefixes = hiddenRaw
-      .split(",")
-      .map(p => String(p || "").trim().toLowerCase())
-      .filter(Boolean);
-
-    if (hiddenPrefixes.length) {
-      groups = groups.filter(g => {
-        const raw = String(g?.name || "").trim().toLowerCase();
-        const withoutTak = raw.startsWith("tak_") ? raw.slice(4) : raw;
-
-        return !hiddenPrefixes.some(prefix =>
-          raw.startsWith(prefix) || withoutTak.startsWith(prefix)
-        );
-      });
-    }
 
     res.json({
-      groups,
+      groups: [],
       templates,
       mutualAidCreatedGroupNames: mutualAidStore.getCreatedGroupNames(),
       mutualAidCreatedGroupIds: Array.from(mutualAidStore.getCreatedGroupIdSet()),
@@ -507,7 +200,7 @@ router.get("/group-lookup", async (req, res) => {
 
     // Global admins can resolve any group name (including hidden).
     // Agency admins may ONLY resolve their own computed AgencyAdmin group(s)
-    // so the Manage Users UI can:
+    // so the Users page can:
     //  - show the friendly group name in "Current Groups"
     //  - compute the Role column (User/Admin)
     // without exposing arbitrary hidden groups.
@@ -534,13 +227,7 @@ router.get("/group-lookup", async (req, res) => {
       }
     }
 
-    // Bypass GROUPS_HIDDEN_PREFIXES by requesting all groups (including hidden).
-    // groups.service.getAllGroups supports includeHidden=true.
-    const allGroups = await groupsSvc.getAllGroups({ includeHidden: true });
-    const target = name.toLowerCase();
-    const found = (Array.isArray(allGroups) ? allGroups : []).find(
-      (g) => String(g?.name || "").trim().toLowerCase() === target
-    );
+    const found = await require("../services/directoryRepo.service").getGroupById(name);
 
     if (!found) {
       return res.status(404).json({ error: "Group not found" });
@@ -556,7 +243,7 @@ router.get("/group-lookup", async (req, res) => {
 router.get("/groups", async (req, res) => {
   try {
     const authUser = req.authentikUser || null;
-    const all = await groupsSvc.getAllGroups({});
+    const all = await groupsSvc.getGroupsForAuthUser(authUser);
     const filtered = accessSvc.filterGroupsForUser(authUser, all);
     res.json(filtered);
   } catch (err) {
@@ -565,7 +252,7 @@ router.get("/groups", async (req, res) => {
 });
 
 // All Authentik groups, including those normally hidden from the portal UI (e.g. authentik-*).
-// Restricted to global admins, used by the Manage Users page to resolve AgencyAdmin roles.
+// Restricted to global admins, used by the Users page to resolve AgencyAdmin roles.
 router.get("/all-groups-hidden", async (req, res) => {
   try {
     const authUser = req.authentikUser || null;
@@ -573,7 +260,18 @@ router.get("/all-groups-hidden", async (req, res) => {
     if (!access.isGlobalAdmin) {
       return res.status(403).json({ error: "Forbidden" });
     }
-    const all = await groupsSvc.getAllGroups({ includeHidden: true });
+    const agencies = agenciesSvc.load() || [];
+    const names = [];
+    for (const a of agencies) {
+      for (const n of accessSvc.getAllAgencyAdminGroupNames(a) || []) {
+        if (n) names.push(n);
+      }
+    }
+    const rawAdmin = String(getString("PORTAL_AUTH_REQUIRED_GROUP", "") || "");
+    for (const n of rawAdmin.split(/[;,]/)) {
+      if (n.trim()) names.push(n.trim());
+    }
+    const all = await require("../services/directoryRepo.service").getGroupsByNames(names);
     res.json(Array.isArray(all) ? all : []);
   } catch (err) {
     res.status(500).json({ error: toErrorPayload(err) });
@@ -597,8 +295,11 @@ router.get("/agency-admin-group-ids", async (req, res) => {
     const abbreviationsRaw = String(req.query.abbreviations || "");
     const abbreviations = abbreviationsRaw
       .split(",")
-      .map(s => String(s || "").trim().toUpperCase())
+      .map((s) => String(s || "").trim())
       .filter(Boolean);
+    const abbreviationKeys = new Set(
+      abbreviations.map((s) => s.toLowerCase())
+    );
 
     if (!abbreviations.length) {
       return res.status(400).json({ error: "abbreviations is required" });
@@ -618,8 +319,8 @@ router.get("/agency-admin-group-ids", async (req, res) => {
       if (!access.isGlobalAdmin) {
         if (!sfx || !allowedSuffixes.includes(sfx)) return false;
       }
-      const gp = String(a?.groupPrefix || "").trim().toUpperCase();
-      return gp && abbreviations.includes(gp);
+      const gp = String(a?.groupPrefix || "").trim();
+      return gp && abbreviationKeys.has(gp.toLowerCase());
     });
 
     // Build expected Authentik group names for those agencies.
@@ -627,23 +328,24 @@ router.get("/agency-admin-group-ids", async (req, res) => {
     // - computed name using county abbreviation if present
     // - legacy county-less name as fallback
     const expectedNameLowerToAbbrs = new Map(); // nameLower -> Set<ABBR>
-    const addExpected = (groupName, abbrUpper) => {
+    const addExpected = (groupName, abbrKey) => {
       const n = String(groupName || "").trim();
       const lower = n.toLowerCase();
-      if (!n || !abbrUpper) return;
+      if (!n || !abbrKey) return;
       if (!expectedNameLowerToAbbrs.has(lower)) expectedNameLowerToAbbrs.set(lower, new Set());
-      expectedNameLowerToAbbrs.get(lower).add(abbrUpper);
+      expectedNameLowerToAbbrs.get(lower).add(abbrKey);
     };
 
     for (const a of matchingAgencies) {
-      const abbrUpper = String(a?.groupPrefix || "").trim().toUpperCase();
-      if (!abbrUpper) continue;
+      const abbrExact = String(a?.groupPrefix || "").trim();
+      if (!abbrExact) continue;
+      const abbrKey = abbrExact.toLowerCase();
 
       const computed = accessSvc.getAgencyAdminGroupName(a);
-      addExpected(computed, abbrUpper);
+      addExpected(computed, abbrKey);
 
       // Legacy fallback: authentik-<ABBR>-AgencyAdmin
-      addExpected(`authentik-${abbrUpper}-AgencyAdmin`, abbrUpper);
+      addExpected(`authentik-${abbrExact}-AgencyAdmin`, abbrKey);
     }
 
     const nameLowerToPk = await getAllHiddenGroupsNameLowerToPk();
@@ -654,9 +356,12 @@ router.get("/agency-admin-group-ids", async (req, res) => {
     for (const [nameLower, abbrSet] of expectedNameLowerToAbbrs.entries()) {
       const pk = nameLowerToPk.get(nameLower);
       if (!pk) continue;
-      for (const abbrUpper of abbrSet) {
-        if (!Array.isArray(out[abbrUpper])) out[abbrUpper] = [];
-        out[abbrUpper].push(pk);
+      for (const abbrKey of abbrSet) {
+        for (const orig of abbreviations) {
+          if (orig.toLowerCase() !== abbrKey) continue;
+          if (!Array.isArray(out[orig])) out[orig] = [];
+          out[orig].push(pk);
+        }
       }
     }
 
@@ -1003,616 +708,87 @@ router.get("/import-csv/status/:jobId", (req, res) => {
 });
 
 /**
- * FIXED: /search
- *
- * - Global admins: unchanged (still use users.searchUsersPaged -> Authentik pagination).
- * - Non-global agency admins with one managed agency: Authentik attribute
- *   filter via `searchUsersByAgencyNamePaged` (attributes.agency_name).
- * - Multi-agency admins: same attribute-filtered delegated path per managed
- *   agency, merged server-side (no full `findUsers` scan unless fallback).
- * - Legacy fallback: in-memory paging over findUsers + isUserInAllowedAgencies.
+ * GET /search
+ * Postgres COUNT + LIMIT/OFFSET for the current filters (agency, template, q).
+ * `total` is the matching row count, not the dashboard-wide user total.
  */
 router.get("/search", async (req, res) => {
   try {
-    const q = req.query.q || "";
+    const q = String(req.query.q || "").trim();
     const requestedPage = parseInt(req.query.page, 10) || 1;
     const pageSize = parseInt(req.query.pageSize, 10) || 50;
-
     const sortKey = String(req.query.sortKey || "name");
-    const sortDir = String(req.query.sortDir || "asc").toLowerCase() === "desc"
-      ? "desc"
-      : "asc";
+    const sortDir =
+      String(req.query.sortDir || "asc").toLowerCase() === "desc" ? "desc" : "asc";
 
     const authUser = req.authentikUser || null;
     const access = accessSvc.getAgencyAccess(authUser);
+    const empty = {
+      users: [],
+      total: 0,
+      page: 1,
+      pageSize,
+      hasNext: false,
+      hasPrev: false,
+    };
 
-    // ---------------- AUTHENTIK-DELEGATED FAST PATH ----------------
-    // Major win: let Authentik do ordering + pagination server-side
-    // (instead of fetching all users into Node and sorting/paging in-memory).
-    const qVal = String(q || "").trim();
-    const requestedGlobalAgencySuffix = String(req.query.agencySuffix || "")
+    const requestedAgencySuffix = String(req.query.agencySuffix || "")
       .trim()
       .toLowerCase();
     const requestedCurrentTemplate = String(req.query.currentTemplate || "").trim();
     const requestedTemplateAgencySuffix = String(req.query.templateAgencySuffix || "")
       .trim()
       .toLowerCase();
-    // Authentik can order by the underlying user fields, but our UI's "name"
-    // sort uses a last-name-first derived value (see `lastNameForSort()` in
-    // users-manage.ejs). For empty search we allow delegation (page order is
-    // less confusing); for non-empty search we restrict delegation to avoid
-    // "looks wrong" paging/sorting issues.
-    const sortableKeysForAuthentikEmptyQ = new Set(["username", "name", "email", "status"]);
-    // When q is non-empty, we still delegate to Authentik to avoid loading + sorting
-    // large user sets in Node. Ordering for "name" uses Authentik's `name`
-    // field, which is close to the UI's last-name derived sorting.
-    const sortableKeysForAuthentikWithQ = new Set(["username", "name", "email", "status"]);
-    const sortableKeysForAuthentik = qVal ? sortableKeysForAuthentikWithQ : sortableKeysForAuthentikEmptyQ;
+    const allowedSuffixes = (
+      Array.isArray(access.allowedAgencySuffixes) ? access.allowedAgencySuffixes : []
+    )
+      .map((s) => String(s || "").trim().toLowerCase())
+      .filter(Boolean);
 
-    // If global admin is filtering by agency, we must not delegate to
-    // Authentik's pagination because it doesn't apply that attribute filter.
-    if (
-      access.isGlobalAdmin &&
-      !requestedGlobalAgencySuffix &&
-      !requestedTemplateAgencySuffix &&
-      sortableKeysForAuthentik.has(sortKey)
-    ) {
-      try {
-        const delegated = await users.searchUsersPaged({
-          q: qVal,
-          page: requestedPage,
-          pageSize,
-          sortKey,
-          sortDir,
-          currentTemplate: requestedCurrentTemplate,
-        });
-        return res.json(delegated);
-      } catch (e) {
-        // Fall back to the legacy in-memory implementation below.
-      }
-    }
-
-    // Global-admin delegated fast path when filtering by a specific agency.
-    // This avoids loading/sorting all users in-memory for large datasets.
-    if (access.isGlobalAdmin && requestedGlobalAgencySuffix && sortableKeysForAuthentik.has(sortKey)) {
-      try {
-        const agencies = require("../services/agencies.service").load();
-        const agencyForSuffix = (Array.isArray(agencies) ? agencies : []).find(
-          (a) =>
-            String(a?.suffix || "")
-              .trim()
-              .toLowerCase() === String(requestedGlobalAgencySuffix).trim().toLowerCase()
-        );
-        const agencyNameToDelegate = agencyForSuffix
-          ? String(agencyForSuffix.name || "").trim()
-          : "";
-        if (
-          requestedTemplateAgencySuffix &&
-          requestedTemplateAgencySuffix !== requestedGlobalAgencySuffix
-        ) {
-          return res.json({
-            users: [],
-            total: 0,
-            page: 1,
-            pageSize,
-            hasNext: false,
-            hasPrev: false,
-          });
-        }
-
-        if (agencyNameToDelegate) {
-          const delegatedByAgency = await users.searchUsersByAgencyNamePaged({
-            agencyName: agencyNameToDelegate,
-            q: qVal,
-            page: requestedPage,
-            pageSize,
-            sortKey,
-            sortDir,
-            includeRoles: false,
-            includeGroups: true,
-            currentTemplate: requestedCurrentTemplate,
-          });
-          return res.json(delegatedByAgency);
-        }
-      } catch (e) {
-        // Fall back to the legacy in-memory implementation below.
-      }
-    }
-
-    // Agency-admin delegated fast path:
-    // - Empty search box (to preserve semantics)
-    // - Supported sorts (to safely delegate ordering)
-    // - Filter by Authentik user attribute `attributes.agency_abbreviation`
-    //   (set on user creation and generally present on older users too)
-    if (!access.isGlobalAdmin && access.isAgencyAdmin && sortableKeysForAuthentik.has(sortKey)) {
-      const allowedSuffixes = Array.isArray(access.allowedAgencySuffixes)
-        ? access.allowedAgencySuffixes.map((s) => String(s || "").trim().toLowerCase()).filter(Boolean)
-        : [];
-
-      const requestedAgencySuffix = String(req.query.agencySuffix || "")
-        .trim()
-        .toLowerCase();
-
-      const agencySuffixToDelegate =
-        (requestedAgencySuffix && allowedSuffixes.includes(requestedAgencySuffix))
-          ? requestedAgencySuffix
-          : (allowedSuffixes.length === 1 ? allowedSuffixes[0] : "");
-
-      if (agencySuffixToDelegate) {
-        if (requestedTemplateAgencySuffix && requestedTemplateAgencySuffix !== agencySuffixToDelegate) {
-          return res.json({
-            users: [],
-            total: 0,
-            page: 1,
-            pageSize,
-            hasNext: false,
-            hasPrev: false,
-          });
-        }
-        try {
-          const currentPageRequested = requestedPage < 1 ? 1 : requestedPage;
-
-          const agencies = require("../services/agencies.service").load();
-          const agencyForSuffix = (Array.isArray(agencies) ? agencies : []).find(
-            a =>
-              String(a?.suffix || "")
-                .trim()
-                .toLowerCase() === String(agencySuffixToDelegate).trim().toLowerCase()
-          );
-          const agencyAbbreviationToDelegate = agencyForSuffix
-            ? String(agencyForSuffix.groupPrefix || "").trim()
-            : "";
-          const agencyNameToDelegate = agencyForSuffix
-            ? String(agencyForSuffix.name || "").trim()
-            : "";
-
-          if (!agencyNameToDelegate) {
-            throw new Error("Could not map agency suffix to agency name");
-          }
-
-          // Search semantics in the legacy path include matching the user's
-          // agency abbreviation. Authentik's `search` does not search user
-          // attributes, so typing an exact agency token (suffix/groupPrefix/name)
-          // would otherwise return 0 even though the legacy path would match.
-          //
-          // If the search string equals an agency token exactly, treat it as
-          // "empty field search" so attribute filtering still returns the full
-          // agency slice.
-          const qLower = String(qVal || "").trim().toLowerCase();
-          const agencyTokensLower = [
-            String(agencySuffixToDelegate || "").trim().toLowerCase(),
-            String(agencyAbbreviationToDelegate || "").trim().toLowerCase(),
-            String(agencyNameToDelegate || "").trim().toLowerCase(),
-          ].filter(Boolean);
-          const qForAuthentik = (qLower && agencyTokensLower.includes(qLower)) ? "" : qVal;
-
-          const globalAdminGroupPks = await getGlobalAdminGroupPks();
-          const globalAdminSet = new Set(globalAdminGroupPks.map(String));
-
-          // Total across the agency set (includes global admins).
-          const tTotalAgencyAllStart = Date.now();
-          const totalAgencyAllRes = await users.searchUsersByAgencyNamePaged({
-            agencyName: agencyNameToDelegate,
-            q: qForAuthentik,
-            page: 1,
-            pageSize: 1,
-            sortKey,
-            sortDir,
-            includeRoles: false,
-            currentTemplate: requestedCurrentTemplate,
-          });
-          const tTotalAgencyAllMs = Date.now() - tTotalAgencyAllStart;
-
-          const totalAgencyAll = Number(totalAgencyAllRes?.total || 0);
-          // Safety: if Authentik returns 0 for the attribute-filtered query,
-          // the portal attributes might not exist on existing users.
-          // Fall back to the legacy username-suffix filtering to avoid omissions.
-          if (totalAgencyAll === 0) {
-            throw new Error("Delegated agency filter returned no results; falling back");
-          }
-
-          // If total differs from a username-suffix search, our `attributes.agency_abbreviation`
-          // filter is likely under-matching (e.g., older users missing the attribute).
-          // In that case, fall back to the legacy in-memory paging for correctness.
-          // Only run the extra check when the attribute-filtered total is
-          // suspiciously small for the requested page size.
-          // Skip when a specific agency is selected — totalApprox across all
-          // managed agencies would always exceed a single-agency slice.
-          if (!qVal && totalAgencyAll <= pageSize && !requestedAgencySuffix) {
-            // Validate against full user visibility (Authentik attributes, then username tail).
-            const allMatching = await users.findUsers({ q: "", forceRefresh: false });
-            const visibleApprox = (Array.isArray(allMatching) ? allMatching : []).filter(
-              (u) => accessSvc.isUserInAllowedAgencies(authUser, u)
-            );
-            const totalApprox = visibleApprox.length;
-
-            if (totalApprox > totalAgencyAll) {
-              throw new Error("Delegated agency filter under-matched; falling back");
-            }
-          }
-
-          let totalVisible = totalAgencyAll;
-
-          // Exact exclusion count: global admins in this agency.
-          let globalAdminsCount = 0;
-          if (globalAdminGroupPks.length) {
-            const tGlobalStart = Date.now();
-            const totalGlobalAdminsRes = await users.searchUsersByAgencyNamePaged({
-              agencyName: agencyNameToDelegate,
-              q: qForAuthentik,
-              page: 1,
-              pageSize: 1,
-              sortKey,
-              sortDir,
-              groupsByPk: globalAdminGroupPks,
-              includeRoles: false,
-              currentTemplate: requestedCurrentTemplate,
-            });
-            const tGlobalMs = Date.now() - tGlobalStart;
-
-            globalAdminsCount = Number(totalGlobalAdminsRes?.total || 0);
-            totalVisible = Math.max(0, totalVisible - globalAdminsCount);
-
-          }
-
-          const totalPages = Math.max(1, Math.ceil(totalVisible / pageSize));
-          const page = Math.min(currentPageRequested, totalPages);
-
-          // If there are no global admins in this agency slice, we can avoid the
-          // "fill while skipping" loop entirely and just return Authentik's
-          // server-side page directly.
-          if (globalAdminsCount === 0) {
-            const tPageResStart = Date.now();
-            const pageRes = await users.searchUsersByAgencyNamePaged({
-              agencyName: agencyNameToDelegate,
-              q: qForAuthentik,
-              page,
-              pageSize,
-              sortKey,
-              sortDir,
-              includeRoles: false,
-              includeGroups: true,
-              currentTemplate: requestedCurrentTemplate,
-            });
-            const tPageResMs = Date.now() - tPageResStart;
-
-            return res.json({
-              users: Array.isArray(pageRes?.users) ? pageRes.users : [],
-              total: totalVisible,
-              page: Number(pageRes?.page || page),
-              pageSize,
-              hasNext: !!pageRes?.hasNext,
-              hasPrev: !!pageRes?.hasPrev,
-            });
-          }
-
-          const startFiltered = (page - 1) * pageSize;
-          const endFilteredExclusive = startFiltered + pageSize;
-
-          // Fill the requested page, skipping global-admin users in order.
-          const internalPageSize = Math.max(pageSize * 4, 100);
-          let unfilteredPage = 1;
-          let filteredIndex = 0; // counts non-global-admin users only
-          const returned = [];
-          let fillIters = 0;
-
-          while (returned.length < pageSize) {
-            fillIters++;
-            const pageRes = await users.searchUsersByAgencyNamePaged({
-              agencyName: agencyNameToDelegate,
-              q: qForAuthentik,
-              page: unfilteredPage,
-              pageSize: internalPageSize,
-              sortKey,
-              sortDir,
-              includeRoles: false,
-              currentTemplate: requestedCurrentTemplate,
-            });
-
-            const rows = Array.isArray(pageRes?.users) ? pageRes.users : [];
-            if (!rows.length) break;
-
-            for (const u of rows) {
-              const uGroups = Array.isArray(u?.groups) ? u.groups.map(String) : [];
-              const isGlobal = uGroups.some((gid) => globalAdminSet.has(gid));
-              if (isGlobal) continue;
-
-              if (filteredIndex >= startFiltered && filteredIndex < endFilteredExclusive) {
-                returned.push(u);
-              }
-              filteredIndex += 1;
-
-              if (returned.length >= pageSize) break;
-            }
-
-            if (!pageRes?.hasNext) break;
-            unfilteredPage += 1;
-          }
-
-          return res.json({
-            users: returned,
-            total: totalVisible,
-            page,
-            pageSize,
-            hasNext: page < totalPages,
-            hasPrev: page > 1,
-          });
-        } catch (e) {
-          // Fall back to the legacy in-memory implementation below.
-        }
-      } else if (allowedSuffixes.length > 1) {
-        try {
-          if (
-            requestedTemplateAgencySuffix &&
-            !allowedSuffixes.includes(requestedTemplateAgencySuffix)
-          ) {
-            return res.json({
-              users: [],
-              total: 0,
-              page: 1,
-              pageSize,
-              hasNext: false,
-              hasPrev: false,
-            });
-          }
-
-          const globalAdminGroupPks = await getGlobalAdminGroupPks();
-          const globalAdminSet = new Set(globalAdminGroupPks.map(String));
-
-          const merged = await delegatedMultiAgencyUsersSearch({
-            allowedSuffixes,
-            qVal,
-            requestedPage,
-            pageSize,
-            sortKey,
-            sortDir,
-            requestedCurrentTemplate,
-            requestedTemplateAgencySuffix,
-            globalAdminGroupPks,
-            globalAdminSet,
-          });
-
-          return res.json(merged);
-        } catch (e) {
-          // Fall back to the legacy in-memory implementation below.
-        }
-      }
-    }
-
-    // ----- ROLE + SORT HELPERS -----
-    // Cache resolved Global Admin group PKs so we don't have to re-fetch all
-    // groups on every page load.
-    const globalAdminGroupPks = await getGlobalAdminGroupPks();
-    const globalAdminSet = new Set(globalAdminGroupPks.map(String));
-
-    // Only needed when sorting by "role" so we can detect "*-AgencyAdmin"
-    // groups by name.
-    let groupNameByPk = new Map();
-    if (sortKey === "role") {
-      const allGroups = await groupsSvc.getAllGroups({ includeHidden: true });
-      const groupList = Array.isArray(allGroups) ? allGroups : [];
-      groupNameByPk = new Map(
-        groupList.map((g) => [String(g.pk), String(g.name || "").toLowerCase()])
-      );
-    }
-
-    function computeRole(user) {
-      const groups = Array.isArray(user?.groups)
-        ? user.groups.map(String)
-        : [];
-
-      if (groups.some(g => globalAdminSet.has(g))) {
-        return "0-global";
-      }
-
-      for (const gid of groups) {
-        const name = groupNameByPk.get(gid);
-        if (name && name.endsWith("-agencyadmin")) {
-          return "1-agency";
-        }
-      }
-
-      return "2-user";
-    }
-
-    function getAgencyAbbr(user) {
-      const attrs = user?.attributes || {};
-      const raw = attrs.agency_abbreviation || attrs.agencyAbbreviation || attrs.agencyAbbr || attrs.agencyabbr || "";
-      return String(raw || "").trim().toLowerCase();
-    }
-
-    function getSortValue(user) {
-      if (!user) return "";
-
-      if (sortKey === "username") return String(user.username || "").toLowerCase();
-      if (sortKey === "agency") return getAgencyAbbr(user);
-      if (sortKey === "name") return String(user.name || "").toLowerCase();
-      if (sortKey === "email") return String(user.email || "").toLowerCase();
-      if (sortKey === "status") return user.is_active ? "enabled" : "disabled";
-      if (sortKey === "role") return computeRole(user) + "-" + String(user.name || "").toLowerCase();
-
-      return String(user.name || "").toLowerCase();
-    }
-
-    function applySort(arr) {
-      arr.sort((a, b) => {
-        const av = getSortValue(a);
-        const bv = getSortValue(b);
-
-        let cmp = String(av).localeCompare(String(bv), undefined, {
-          numeric: true,
-          sensitivity: "base"
-        });
-
-        // When sorting by agency, tiebreak by name (not username)
-        if (cmp === 0 && sortKey === "agency") {
-          const aName = String(a?.name || "").toLowerCase();
-          const bName = String(b?.name || "").toLowerCase();
-          cmp = aName.localeCompare(bName, undefined, { numeric: true, sensitivity: "base" });
-        }
-
-        return sortDir === "desc" ? -cmp : cmp;
-      });
-    }
-
-
-    // ---------------- GLOBAL ADMINS ----------------
+    let agencySuffixes;
     if (access.isGlobalAdmin) {
-
-      const currentPageRequested = requestedPage < 1 ? 1 : requestedPage;
-
-      // Get ALL matching users (not paged)
-      const allMatching = await users.findUsers({ q, forceRefresh: false });
-
-      let visible = Array.isArray(allMatching) ? allMatching.slice() : [];
-
-      // Optional: filter to a single agency slice for global admins.
-      // UI sends `agencySuffix` from /api/agencies (value is suffix).
-      if (requestedGlobalAgencySuffix) {
-        const agencies = require("../services/agencies.service").load();
-        const agencyForSuffix = (Array.isArray(agencies) ? agencies : []).find(
-          (a) =>
-            String(a?.suffix || "")
-              .trim()
-              .toLowerCase() === String(requestedGlobalAgencySuffix).trim().toLowerCase()
-        );
-
-        const agencyAbbreviationToMatch = agencyForSuffix
-          ? String(agencyForSuffix.groupPrefix || "").trim().toLowerCase()
-          : "";
-
-        visible = agencyAbbreviationToMatch
-          ? visible.filter((u) => getAgencyAbbr(u) === agencyAbbreviationToMatch)
-          : [];
+      agencySuffixes = requestedAgencySuffix ? [requestedAgencySuffix] : undefined;
+    } else if (access.isAgencyAdmin) {
+      if (!allowedSuffixes.length) return res.json(empty);
+      if (requestedAgencySuffix) {
+        if (!allowedSuffixes.includes(requestedAgencySuffix)) {
+          return res.status(403).json({ error: "You do not have access to that agency." });
+        }
+        agencySuffixes = [requestedAgencySuffix];
+      } else {
+        agencySuffixes = allowedSuffixes;
       }
-
-      if (requestedTemplateAgencySuffix) {
-        visible = visible.filter(
-          (u) =>
-            String((u?.attributes || {}).agency || "")
-              .trim()
-              .toLowerCase() === requestedTemplateAgencySuffix
-        );
-      }
-      if (requestedCurrentTemplate) {
-        const wanted = requestedCurrentTemplate.toLowerCase();
-        visible = visible.filter(
-          (u) => String((u?.attributes || {}).current_template || "").trim().toLowerCase() === wanted
-        );
-      }
-
-      // Sort entire dataset BEFORE pagination
-      applySort(visible);
-
-      const total = visible.length;
-
-      if (total === 0) {
-        return res.json({
-          users: [],
-          total: 0,
-          page: 1,
-          pageSize,
-          hasNext: false,
-          hasPrev: false,
-        });
-      }
-
-      const totalPages = Math.max(1, Math.ceil(total / pageSize));
-      const page = Math.min(currentPageRequested, totalPages);
-
-      const start = (page - 1) * pageSize;
-      const end = start + pageSize;
-      const pageItems = visible.slice(start, end);
-
-      return res.json({
-        users: pageItems,
-        total,
-        page,
-        pageSize,
-        hasNext: page < totalPages,
-        hasPrev: page > 1,
-      });
-    }
-
-    // ---------------- AGENCY ADMINS ----------------
-
-    const currentPageRequested = requestedPage < 1 ? 1 : requestedPage;
-
-    const allMatching = await users.findUsers({ q, forceRefresh: false });
-
-    let visible = allMatching.filter((u) =>
-      accessSvc.isUserInAllowedAgencies(authUser, u)
-    );
-
-    if (requestedGlobalAgencySuffix) {
-      const agencies = require("../services/agencies.service").load();
-      const agencyForSuffix = (Array.isArray(agencies) ? agencies : []).find(
-        (a) =>
-          String(a?.suffix || "")
-            .trim()
-            .toLowerCase() === String(requestedGlobalAgencySuffix).trim().toLowerCase()
-      );
-      const agencyAbbreviationToMatch = agencyForSuffix
-        ? String(agencyForSuffix.groupPrefix || "").trim().toLowerCase()
-        : "";
-      visible = agencyAbbreviationToMatch
-        ? visible.filter((u) => getAgencyAbbr(u) === agencyAbbreviationToMatch)
-        : [];
+    } else {
+      return res.status(403).json({ error: "Forbidden" });
     }
 
     if (requestedTemplateAgencySuffix) {
-      visible = visible.filter(
-        (u) =>
-          String((u?.attributes || {}).agency || "")
-            .trim()
-            .toLowerCase() === requestedTemplateAgencySuffix
-      );
-    }
-    if (requestedCurrentTemplate) {
-      const wanted = requestedCurrentTemplate.toLowerCase();
-      visible = visible.filter(
-        (u) => String((u?.attributes || {}).current_template || "").trim().toLowerCase() === wanted
-      );
+      if (
+        Array.isArray(agencySuffixes) &&
+        !agencySuffixes.includes(requestedTemplateAgencySuffix)
+      ) {
+        return res.json(empty);
+      }
+      agencySuffixes = [requestedTemplateAgencySuffix];
     }
 
-    if (access.isAgencyAdmin && globalAdminSet.size) {
-      visible = visible.filter((u) => {
-        const gs = Array.isArray(u?.groups) ? u.groups.map(String) : [];
-        return !gs.some((gid) => globalAdminSet.has(gid));
-      });
+    let excludeGroupPks = [];
+    if (!access.isGlobalAdmin && access.isAgencyAdmin) {
+      excludeGroupPks = await getGlobalAdminGroupPks();
     }
 
-    applySort(visible);
-
-    const total = visible.length;
-
-    if (total === 0) {
-      return res.json({
-        users: [],
-        total: 0,
-        page: 1,
-        pageSize,
-        hasNext: false,
-        hasPrev: false,
-      });
-    }
-
-    const totalPages = Math.max(1, Math.ceil(total / pageSize));
-    const page = Math.min(currentPageRequested, totalPages);
-
-    const start = (page - 1) * pageSize;
-    const end = start + pageSize;
-    const pageItems = visible.slice(start, end);
-
-    return res.json({
-      users: pageItems,
-      total,
-      page,
+    const out = await users.searchUsersPaged({
+      q,
+      page: requestedPage,
       pageSize,
-      hasNext: page < totalPages,
-      hasPrev: page > 1,
+      sortKey,
+      sortDir,
+      currentTemplate: requestedCurrentTemplate,
+      agencySuffixes,
+      excludeGroupPks,
+      includeLoginStatus: true,
     });
-
+    return res.json(out);
   } catch (err) {
     res.status(500).json({ error: toErrorPayload(err) });
   }
@@ -1632,6 +808,50 @@ router.get("/roles/backfill-status", async (req, res) => {
   }
 });
 
+router.get("/roles/backfill-preview.csv", async (req, res) => {
+  try {
+    const authUser = req.authentikUser || null;
+    const access = accessSvc.getAgencyAccess(authUser);
+    if (!access.isGlobalAdmin) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const rows = await users.getMissingUserRolePreviewRows();
+    const csvEscape = (v) => {
+      const s = String(v == null ? "" : v);
+      return `"${s.replace(/"/g, '""')}"`;
+    };
+    const header = [
+      "username",
+      "display_name",
+      "user_id",
+      "agency_suffix",
+      "current_role",
+      "new_role",
+      "action",
+    ].join(",");
+    const body = rows.map((r) => ([
+      csvEscape(r.username),
+      csvEscape(r.displayName),
+      csvEscape(r.userId),
+      csvEscape(r.agencySuffix),
+      csvEscape(r.currentRole),
+      csvEscape(r.newRole),
+      csvEscape(r.action),
+    ].join(","))).join("\n");
+    const csv = `${header}\n${body}\n`;
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="user-role-backfill-preview-${Date.now()}.csv"`
+    );
+    return res.send(csv);
+  } catch (err) {
+    return res.status(400).json({ error: toErrorPayload(err) });
+  }
+});
+
 router.get("/export-csv", async (req, res) => {
   try {
     const authUser = req.authentikUser || null;
@@ -1647,33 +867,7 @@ router.get("/export-csv", async (req, res) => {
     const globalAdminGroupPks = await getGlobalAdminGroupPks();
     const globalAdminSet = new Set(globalAdminGroupPks.map(String));
 
-    const allGroups = await groupsSvc.getAllGroups({ includeHidden: true });
-    const groupNameByPk = new Map(
-      (Array.isArray(allGroups) ? allGroups : []).map((g) => [
-        String(g.pk),
-        String(g.name || "").trim(),
-      ])
-    );
-
-    let visible = await users.findUsers({ q: "", forceRefresh: false });
-
-    if (!access.isGlobalAdmin) {
-      visible = visible.filter((u) => accessSvc.isUserInAllowedAgencies(authUser, u));
-      if (globalAdminSet.size) {
-        visible = visible.filter((u) => {
-          const gs = Array.isArray(u?.groups) ? u.groups.map(String) : [];
-          return !gs.some((gid) => globalAdminSet.has(gid));
-        });
-      }
-    }
-
-    visible.sort((a, b) =>
-      String(a?.username || "").localeCompare(String(b?.username || ""), undefined, {
-        numeric: true,
-        sensitivity: "base",
-      })
-    );
-
+    const directoryRepo = require("../services/directoryRepo.service");
     const agencies = require("../services/agencies.service").load();
     const agencyNameByAbbr = new Map();
     for (const agency of Array.isArray(agencies) ? agencies : []) {
@@ -1682,11 +876,62 @@ router.get("/export-csv", async (req, res) => {
       agencyNameByAbbr.set(abbr, String(agency?.name || "").trim());
     }
 
-    const csv = users.buildUsersExportCsv(visible, {
-      groupNameByPk,
-      globalAdminGroupPks,
-      agencyNameByAbbr,
-    });
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="tak-portal-users-${stamp}.csv"`
+    );
+
+    let page = 1;
+    let hasNext = true;
+    let wroteHeader = false;
+    let rowCount = 0;
+    const searchOpts = {
+      pageSize: 200,
+      includeGroups: true,
+      sortKey: "username",
+      sortDir: "asc",
+    };
+    if (!access.isGlobalAdmin) {
+      searchOpts.agencySuffixes = access.allowedAgencySuffixes || [];
+      searchOpts.excludeGroupPks = [...globalAdminSet];
+    }
+
+    while (hasNext) {
+      const r = await directoryRepo.searchUsersPaged({ ...searchOpts, page });
+      const batch = Array.isArray(r.users) ? r.users : [];
+      const groupPks = [];
+      for (const u of batch) {
+        for (const g of Array.isArray(u.groups) ? u.groups : []) groupPks.push(String(g));
+      }
+      const namedGroups = await directoryRepo.getGroupsByPks(groupPks);
+      const groupNameByPk = new Map(
+        (Array.isArray(namedGroups) ? namedGroups : []).map((g) => [
+          String(g.pk),
+          String(g.name || "").trim(),
+        ])
+      );
+      const annotated = userLoginStatus.annotateUsersLoginStatus(batch);
+      const csv = users.buildUsersExportCsv(annotated, {
+        groupNameByPk,
+        globalAdminGroupPks,
+        agencyNameByAbbr,
+      });
+      const lines = String(csv || "").split(/\r?\n/);
+      if (!wroteHeader) {
+        res.write(lines[0] ? `${lines[0]}\n` : "");
+        wroteHeader = true;
+      }
+      for (let i = 1; i < lines.length; i++) {
+        if (!lines[i]) continue;
+        res.write(`${lines[i]}\n`);
+        rowCount += 1;
+      }
+      hasNext = !!r.hasNext;
+      page += 1;
+      if (page > 500) break;
+    }
 
     auditSvc.logEvent({
       actor: authUser,
@@ -1695,18 +940,12 @@ router.get("/export-csv", async (req, res) => {
       targetType: "user",
       targetId: "bulk",
       details: {
-        rowCount: visible.length,
+        rowCount,
         scope: access.isGlobalAdmin ? "global" : "agency",
       },
     });
 
-    const stamp = new Date().toISOString().slice(0, 10);
-    res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="tak-portal-users-${stamp}.csv"`
-    );
-    return res.send(csv);
+    return res.end();
   } catch (err) {
     return res.status(500).json({ error: toErrorPayload(err) });
   }
@@ -1750,9 +989,9 @@ router.get("/:userId", async (req, res) => {
 
 function resolveDefaultManagedSuffixesForUser(user) {
   const attrs = user?.attributes || {};
-  const abbr = String(attrs.agency_abbreviation || "").trim().toUpperCase();
+  const abbr = String(attrs.agency_abbreviation || "").trim().toLowerCase();
   const agency = (agenciesSvc.load() || []).find(
-    (a) => String(a?.groupPrefix || "").trim().toUpperCase() === abbr
+    (a) => String(a?.groupPrefix || "").trim().toLowerCase() === abbr
   );
   const sfx = agency ? String(agency.suffix || "").trim().toLowerCase() : "";
   return sfx ? [sfx] : [];
@@ -1822,11 +1061,9 @@ router.post("/:userId/portal-role", express.json({ limit: "1mb" }), async (req, 
       }
     }
 
-    const allGroups = await groupsSvc.getAllGroups({ includeHidden: true });
     const delta = await accessSvc.syncPortalRoleGroups(userId, {
       role: desiredRole,
       managedAgencySuffixes,
-      allGroups,
     });
 
     const { user: updatedUser, groupNames } = await loadGroupNamesForUserId(userId);
@@ -2142,13 +1379,13 @@ router.put("/:userId/groups", async (req, res) => {
       : [];
     const beforeLabels = await resolveGroupLabels(beforeIds);
     const preserveMutualAidGroups = !!req.body?.preserveMutualAidGroups;
-    await users.setUserGroups(req.params.userId, groupIds, {
+    const writtenIds = await users.setUserGroups(req.params.userId, groupIds, {
       ...(hasCurrentTemplate ? { currentTemplate } : {}),
       ...(preserveMutualAidGroups ? { preserveMutualAidGroups: true } : {}),
     });
-    const user = await users.getUserById(req.params.userId).catch(() => null);
-    const appliedGroupIds = Array.isArray(user?.groups)
-      ? user.groups.map(String)
+    // Prefer the IDs we actually wrote — Authentik read-after-write can lag.
+    const appliedGroupIds = Array.isArray(writtenIds)
+      ? writtenIds.map(String)
       : groupIds.map(String);
     const afterLabels = await resolveGroupLabels(appliedGroupIds);
 
@@ -2159,7 +1396,7 @@ router.put("/:userId/groups", async (req, res) => {
       targetType: "user",
       targetId: String(req.params.userId),
       details: {
-        username: user?.username ?? beforeUser?.username ?? null,
+        username: beforeUser?.username ?? null,
         beforeGroupIds: beforeLabels.ids,
         beforeGroupNames: beforeLabels.names,
         afterGroupIds: afterLabels.ids,
@@ -2186,13 +1423,13 @@ router.post("/:userId/groups", async (req, res) => {
       : [];
     const beforeLabels = await resolveGroupLabels(beforeIds);
     const preserveMutualAidGroups = !!req.body?.preserveMutualAidGroups;
-    await users.setUserGroups(req.params.userId, groupIds, {
+    const writtenIds = await users.setUserGroups(req.params.userId, groupIds, {
       ...(hasCurrentTemplate ? { currentTemplate } : {}),
       ...(preserveMutualAidGroups ? { preserveMutualAidGroups: true } : {}),
     });
-    const user = await users.getUserById(req.params.userId).catch(() => null);
-    const appliedGroupIds = Array.isArray(user?.groups)
-      ? user.groups.map(String)
+    // Prefer the IDs we actually wrote — Authentik read-after-write can lag.
+    const appliedGroupIds = Array.isArray(writtenIds)
+      ? writtenIds.map(String)
       : groupIds.map(String);
     const afterLabels = await resolveGroupLabels(appliedGroupIds);
     auditSvc.logEvent({
@@ -2202,7 +1439,7 @@ router.post("/:userId/groups", async (req, res) => {
       targetType: "user",
       targetId: String(req.params.userId),
       details: {
-        username: user?.username ?? beforeUser?.username ?? null,
+        username: beforeUser?.username ?? null,
         beforeGroupIds: beforeLabels.ids,
         beforeGroupNames: beforeLabels.names,
         afterGroupIds: afterLabels.ids,
@@ -2446,16 +1683,9 @@ router.post("/preference-qr", async (req, res) => {
       return res.status(403).json({ ok: false, error: "You do not have access to that user." });
     }
 
-    const pref = users.getPreferenceDataForUser(targetUser);
-    const preferenceUrl = qrSvc.buildPreferenceUrl({
-      callsign: pref.callsign,
-      teamLabel: pref.teamLabel,
-      roleLabel: pref.roleLabel,
-    });
-
-    let qrCode = null;
-    if (preferenceUrl) {
-      qrCode = await qrSvc.generateDisplayQrDataUrl(preferenceUrl);
+    const prefQr = await users.buildPreferenceQrForUser(targetUser);
+    if (!prefQr) {
+      return res.status(404).json({ ok: false, error: "User not found" });
     }
 
     auditSvc.logEvent({
@@ -2465,27 +1695,91 @@ router.post("/preference-qr", async (req, res) => {
       targetType: "user",
       targetId: String(userId),
       details: {
-        username: String(targetUser.username || "").trim(),
-        callsign: pref.callsign || null,
-        teamLabel: pref.teamLabel || null,
-        roleLabel: pref.roleLabel || null,
+        username: prefQr.username,
+        callsign: prefQr.callsign || null,
+        teamLabel: prefQr.teamLabel || null,
+        roleLabel: prefQr.roleLabel || null,
       },
     });
 
     return res.json({
       ok: true,
-      username: String(targetUser.username || "").trim(),
-      callsign: pref.callsign,
-      teamLabel: pref.teamLabel,
-      roleLabel: pref.roleLabel,
-      preferenceUrl: preferenceUrl || "",
-      qrCode,
+      ...prefQr,
     });
   } catch (err) {
     console.error("[users] Failed to create preference QR:", err?.message || err);
     return res.status(500).json({
       ok: false,
       error: err?.message || "Failed to generate preference QR",
+    });
+  }
+});
+
+// Enrollment data package ZIP for a specific user (admin-only; requires privileged SSH)
+router.post("/data-package", async (req, res) => {
+  try {
+    const authUser = req.authentikUser || null;
+    const access = accessSvc.getAgencyAccess(authUser);
+    if (!authUser || (!access.isGlobalAdmin && !access.isAgencyAdmin)) {
+      return res.status(403).json({ ok: false, error: "Admin access required" });
+    }
+
+    if (!enrollmentPkg.isDataPackageAvailable()) {
+      return res.status(403).json({
+        ok: false,
+        error:
+          "Data Package is not available. Enable it in Supported TAK Clients after SSH Generate Key + Handshake succeeds with sudo (privileged) access.",
+      });
+    }
+
+    const userId = String(req.body?.userId || req.body?.pk || "").trim();
+    if (!userId) {
+      return res.status(400).json({ ok: false, error: "Missing userId" });
+    }
+
+    const targetUser = await users.getUserById(userId).catch(() => null);
+    if (!targetUser || targetUser.pk == null) {
+      return res.status(404).json({ ok: false, error: "User not found" });
+    }
+
+    if (!access.isGlobalAdmin && !accessSvc.isUserInAllowedAgencies(authUser, targetUser)) {
+      return res.status(403).json({ ok: false, error: "You do not have access to that user." });
+    }
+
+    const prefs = users.getPreferenceDataForUser(targetUser);
+    const username = String(targetUser.username || "").trim();
+    const built = await enrollmentPkg.buildEnrollmentPackageZip({
+      username,
+      callsign: prefs.callsign,
+      teamLabel: prefs.teamLabel,
+      roleLabel: prefs.roleLabel,
+    });
+
+    auditSvc.logEvent({
+      actor: authUser,
+      request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+      action: "GENERATE_ENROLLMENT_DATA_PACKAGE",
+      targetType: "user",
+      targetId: String(userId),
+      details: {
+        username,
+        packageName: built.packageName,
+        summary: "Admin downloaded a TAK enrollment data package for a user.",
+      },
+    });
+
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${built.packageName}"`
+    );
+    return res.send(built.buffer);
+  } catch (err) {
+    console.error("[users] Failed to build data package:", err?.message || err);
+    const status = Number(err?.status) || 500;
+    return res.status(status).json({
+      ok: false,
+      error: err?.message || "Failed to build data package",
     });
   }
 });

@@ -4,10 +4,10 @@
 <main class="main">
   <h1>Integrations</h1>
 
-  <div class="card">
+  <div class="card createFormCard">
     <h2>Create Integration</h2>
 
-    <form id="createForm" autocomplete="off">
+    <form id="createForm" class="createForm" autocomplete="off">
       <div class="row">
         <label>Integration Type
           <select id="integrationType" name="type" style="min-width: 160px;">
@@ -40,12 +40,6 @@
           <input type="text" id="integrationTitle" name="title" placeholder="e.g. Weather API" style="width: 100%;" required />
         </label>
 
-        <label style="min-width: 200px;">Group
-          <select name="groupId" id="groupSelect" style="min-width: 160px;" required>
-            <option value="">Select a group</option>
-          </select>
-        </label>
-        
         <label style="min-width: 250px;">Make Streaming Data Feed?
           <select name="makeDataFeed" id="makeDataFeed" style="min-width: 100px;">
             <option value="yes">Yes</option>
@@ -53,11 +47,26 @@
           </select>
         </label>
 
-        <label>&nbsp;
-          <button class="btn" type="submit">Create Integration</button>
+      </div>
+      <div id="createManualGroupsWrap">
+        <label>
+          Groups
+          <div class="groupFilterRow">
+            <input id="createGroupFilter" placeholder="Search groups..." />
+            <div class="groupFilterActions">
+              <button class="btn" id="createSelectAllBtn" type="button">Select All</button>
+              <button class="btn" id="createClearAllBtn" type="button">Clear All</button>
+            </div>
+          </div>
+          <div id="createGroupsBox" class="groupsBox">
+            <div id="createGroupsInner" class="groupsInner"></div>
+          </div>
         </label>
       </div>
-      <div id="createMsg" class="msg"></div>
+      <div class="createActionsRow" style="display:flex; align-items:center; gap:10px; flex-wrap: wrap;">
+        <div id="createMsg" class="msg"></div>
+        <button class="btn success createIntegrationSubmitBtn" type="submit">Create New Integration</button>
+      </div>
     </form>
   </div>
 
@@ -72,11 +81,20 @@
 
     <div id="tableMsg" class="msg"></div>
 
-    <table class="table" id="integrationsTable">
+    <div class="pagination" id="integrationsPagination" style="display:none;">
+      <button class="btn pagination-first-last" type="button" id="integrationsFirstBtn">First</button>
+      <button class="btn" type="button" id="integrationsPrevBtn">Previous</button>
+      <span id="integrationsPageInfo"></span>
+      <button class="btn" type="button" id="integrationsNextBtn">Next</button>
+      <button class="btn pagination-first-last" type="button" id="integrationsLastBtn">Last</button>
+    </div>
+
+    <div class="listCardTableWrap" style="overflow-x: auto;">
+    <table class="table listCardTable integrations-table" id="integrationsTable">
       <thead>
         <tr>
           <th data-sort="username" data-type="text">Username</th>
-          <th data-sort="group" data-type="text">Group</th>
+          <th data-sort="group" data-type="text">Groups</th>
           <th data-sort="dataFeed" data-type="text">Data Feed</th>
           <th data-sort="port" data-type="number">Port</th>
           <th data-sort="status" data-type="text">Status</th>
@@ -85,6 +103,7 @@
       </thead>
       <tbody id="tbody"></tbody>
     </table>
+    </div>
   </div>
 </main>
 
@@ -97,16 +116,19 @@
     </div>
     <div class="modalBody">
       <div class="card" style="margin: 0;">
-        <h2 style="margin-top: 0;">Edit Group Assignment</h2>
-        <div class="row">
-          <label style="flex: 1; min-width: 0;">Integration (read-only)
-            <input type="text" id="editIntegrationUsername" readonly style="width: 100%;" />
-          </label>
-        </div>
-        <div class="row" style="margin-top: 12px;">
-          <label style="min-width: 200px;">Group
-            <select id="editGroupSelect" style="min-width: 200px;"></select>
-          </label>
+        <h2 style="margin-top: 0;">Edit Group Assignments</h2>
+        <div class="editUserGroupsSection" style="margin-top: 12px;">
+          <h3 style="margin: 0 0 8px;">Groups</h3>
+          <div class="groupFilterRow">
+            <input id="editGroupFilter" placeholder="Search groups..." />
+            <div class="groupFilterActions">
+              <button class="btn" id="editSelectAllBtn" type="button">Select All</button>
+              <button class="btn" id="editClearAllBtn" type="button">Clear All</button>
+            </div>
+          </div>
+          <div class="groupsBox" id="editGroupsBox">
+            <div class="groupsInner" id="editGroupsInner"></div>
+          </div>
         </div>
         <div class="row" style="margin-top: 16px; align-items: center;">
           <button class="btn success" id="editIntegrationSaveBtn" type="button">Save Changes</button>
@@ -209,13 +231,6 @@
               </select>
             </label>
           </div>
-
-          <div style="margin-top: 16px;">
-            <label style="display: block; margin-bottom: 8px; font-weight: bold;">Filter Groups</label>
-            <div id="filterGroupsCheckboxList" style="max-height: 150px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 4px; padding: 8px;">
-              <!-- Checkboxes populate here -->
-            </div>
-          </div>
           
            <div class="row" style="margin-top: 12px;">
              <label style="flex: 1; min-width: 200px;">Sync
@@ -251,12 +266,24 @@
   const agencySelect = document.getElementById("agencySelect");
   const countySelect = document.getElementById("countySelect");
   const stateSelect = document.getElementById("stateSelect");
-  const groupSelect = document.getElementById("groupSelect");
+  const createGroupsBox = document.getElementById("createGroupsBox");
+  const createGroupsInner = document.getElementById("createGroupsInner");
+  const createGroupFilter = document.getElementById("createGroupFilter");
+  const createSelectAllBtn = document.getElementById("createSelectAllBtn");
+  const createClearAllBtn = document.getElementById("createClearAllBtn");
   const createMsg = document.getElementById("createMsg");
   const tableMsg = document.getElementById("tableMsg");
   const tbody = document.getElementById("tbody");
   const integrationsTable = document.getElementById("integrationsTable");
   const integrationFilter = document.getElementById("integrationFilter");
+  const INTEGRATIONS_PAGE_SIZE = 25;
+  let integrationsPage = 1;
+  const integrationsPagination = document.getElementById("integrationsPagination");
+  const integrationsFirstBtn = document.getElementById("integrationsFirstBtn");
+  const integrationsPrevBtn = document.getElementById("integrationsPrevBtn");
+  const integrationsNextBtn = document.getElementById("integrationsNextBtn");
+  const integrationsLastBtn = document.getElementById("integrationsLastBtn");
+  const integrationsPageInfo = document.getElementById("integrationsPageInfo");
   const integrationTitleInput = document.getElementById("integrationTitle");
   const makeDataFeedSelect = document.getElementById("makeDataFeed");
 
@@ -287,13 +314,12 @@
   const dataFeedModalOverlay = document.getElementById("dataFeedModalOverlay");
   const dataFeedCloseBtn = document.getElementById("dataFeedCloseBtn");
   const dataFeedForm = document.getElementById("dataFeedForm");
-  const filterGroupsCheckboxList = document.getElementById("filterGroupsCheckboxList");
 
   let agenciesCache = [];
   let groupsCache = [];
   let usersCache = [];
   let connectedUsernamesSet = new Set();
-  let sortState = { key: "group", dir: 1 }; // default: Group asc
+  let sortState = { key: "username", dir: 1 };
 
   function stripTakPrefix(name) {
     if (name == null || name === undefined) return "";
@@ -367,7 +393,7 @@
     agencySelect.innerHTML =
       "<option value=\"\">Select Agency</option>" +
       prefixList.map(function (a) {
-        const prefix = String(a.groupPrefix || "").trim().toUpperCase();
+        const prefix = String(a.groupPrefix || "").trim();
         const label = (a.name || "") + " (" + prefix + ")";
         return "<option value=\"" + esc(prefix) + "\">" + esc(label) + "</option>";
       }).join("");
@@ -389,19 +415,62 @@
       countyList.map(function (c) { return "<option value=\"" + esc(c) + "\">" + esc(c) + "</option>"; }).join("");
   }
 
+  let createPickedGroupIds = new Set();
+  let editPickedGroupIds = new Set();
+
+  function sortedGroupsCache() {
+    return groupsCache.slice().sort(function (a, b) {
+      var an = stripTakPrefix(a.name) || a.name || "";
+      var bn = stripTakPrefix(b.name) || b.name || "";
+      return String(an).localeCompare(String(bn), undefined, { numeric: true, sensitivity: "base" });
+    });
+  }
+
+  function groupMatchesFilter(g, needle) {
+    if (!needle) return true;
+    var raw = String(g.name || "").toLowerCase();
+    var display = stripTakPrefix(g.name).toLowerCase();
+    return raw.indexOf(needle) !== -1 || display.indexOf(needle) !== -1;
+  }
+
+  function renderGroupsPicker(innerEl, filterInput, pickedSet) {
+    if (!innerEl) return;
+    var needle = String(filterInput && filterInput.value || "").trim().toLowerCase();
+    var filtered = sortedGroupsCache().filter(function (g) {
+      return groupMatchesFilter(g, needle);
+    });
+    if (!filtered.length) {
+      innerEl.innerHTML = groupsCache.length
+        ? "<p class=\"muted\" style=\"margin:0;padding:8px;\">No groups match your search.</p>"
+        : "<p class=\"muted\" style=\"margin:0;padding:8px;\">No groups loaded</p>";
+      return;
+    }
+    innerEl.innerHTML = filtered.map(function (g) {
+      var id = String(g.pk || g.id || "");
+      var name = stripTakPrefix(g.name) || id;
+      var checked = pickedSet.has(id) ? "checked" : "";
+      return "<label class=\"groupItem\">" +
+        "<input type=\"checkbox\" value=\"" + esc(id) + "\" " + checked + " />" +
+        "<span>" + esc(name) + "</span>" +
+        "</label>";
+    }).join("");
+  }
+
+  function renderCreateGroups() {
+    renderGroupsPicker(createGroupsInner, createGroupFilter, createPickedGroupIds);
+  }
+
+  function renderEditGroups() {
+    renderGroupsPicker(editGroupsInner, editGroupFilter, editPickedGroupIds);
+  }
+
   async function loadGroups() {
     const res = await fetch("/api/groups");
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Failed to load groups");
-    groupsCache = Array.isArray(data) ? data : (data.groups || []);
-    var optionsHtml =
-      "<option value=\"\">Select a group</option>" +
-      groupsCache.map(function (g) {
-        var displayName = stripTakPrefix(g.name) || g.pk;
-        return "<option value=\"" + esc(g.pk) + "\">" + esc(displayName) + "</option>";
-      }).join("");
-    groupSelect.innerHTML = optionsHtml;
-    if (editGroupSelect) editGroupSelect.innerHTML = optionsHtml;
+    groupsCache = Array.isArray(data) ? data : (Array.isArray(data.groups) ? data.groups : []);
+    renderCreateGroups();
+    renderEditGroups();
   }
 
   function renderIntegrations() {
@@ -454,18 +523,34 @@
           } else {
             cmp = String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: "base" });
           }
+          if (cmp === 0) {
+            cmp = aUsername.toLowerCase().localeCompare(bUsername.toLowerCase(), undefined, { numeric: true, sensitivity: "base" });
+          }
           if (cmp === 0) return aWrap.idx - bWrap.idx; // stable
           return cmp * dir;
         })
         .map(function (x) { return x.item; });
     }
 
-    if (rows.length === 0) {
-      tbody.innerHTML = "<tr><td colspan=\"6\">" + (needle ? "No integrations match your search." : "No integration users found.") + "</td></tr>";
+    var total = rows.length;
+    var totalPages = Math.max(1, Math.ceil(total / INTEGRATIONS_PAGE_SIZE));
+    if (integrationsPage > totalPages) integrationsPage = totalPages;
+    if (integrationsPage < 1) integrationsPage = 1;
+    var pageRows = total > INTEGRATIONS_PAGE_SIZE
+      ? rows.slice((integrationsPage - 1) * INTEGRATIONS_PAGE_SIZE, integrationsPage * INTEGRATIONS_PAGE_SIZE)
+      : rows;
+    if (integrationsPagination) integrationsPagination.style.display = total > INTEGRATIONS_PAGE_SIZE ? "flex" : "none";
+    if (integrationsPageInfo) integrationsPageInfo.textContent = "Page " + integrationsPage + " of " + totalPages;
+    if (integrationsFirstBtn) integrationsFirstBtn.disabled = integrationsPage <= 1;
+    if (integrationsPrevBtn) integrationsPrevBtn.disabled = integrationsPage <= 1;
+    if (integrationsNextBtn) integrationsNextBtn.disabled = integrationsPage >= totalPages;
+    if (integrationsLastBtn) integrationsLastBtn.disabled = integrationsPage >= totalPages;
+
+    if (total === 0) {
+      tbody.innerHTML = "<tr class=\"emptyStateRow\"><td colspan=\"6\">" + (needle ? "No integrations match your search." : "No integration users found.") + "</td></tr>";
     } else {
-      tbody.innerHTML = rows.map(function (u) {
+      tbody.innerHTML = pageRows.map(function (u) {
         var groupDisplay = (u.groupNames || []).join(", ") || "—";
-        var currentGroupPk = (u.groups && u.groups[0]) ? String(u.groups[0]) : "";
         var username = String(u.username || "").trim();
         var isConnected = connectedUsernamesSet.has(username);
         var statusPill = isConnected
@@ -476,7 +561,7 @@
         if (u.dataFeedName) {
           dataFeedButtonHtml = "<button class=\"btn success\" type=\"button\" data-action=\"data-feed\" data-mode=\"view\" data-username=\"" + esc(u.username) + "\">DF Enabled</button>";
         } else {
-          dataFeedButtonHtml = "<button class=\"btn danger\" type=\"button\" data-action=\"data-feed\" data-mode=\"create\" data-username=\"" + esc(u.username) + "\" data-grouppk=\"" + esc(currentGroupPk) + "\" data-integration-title=\"" + esc(u.integrationTitle || "") + "\">No DF</button>";
+          dataFeedButtonHtml = "<button class=\"btn danger\" type=\"button\" data-action=\"data-feed\" data-mode=\"create\" data-username=\"" + esc(u.username) + "\" data-integration-title=\"" + esc(u.integrationTitle || "") + "\">No DF</button>";
         }
 
         var portCell = "";
@@ -487,14 +572,14 @@
         var rowStatusClass = isConnected ? "row-status-connected" : "row-status-disconnected";
 
         return "<tr class=\"" + rowStatusClass + "\">" +
-          "<td>" + esc(u.username) + "</td>" +
-          "<td>" + esc(groupDisplay) + "</td>" +
-          "<td>" + dataFeedButtonHtml + "</td>" +
-          "<td>" + portCell + "</td>" +
-          "<td>" + statusPill + "</td>" +
-          "<td><div class=\"row\" style=\"gap:8px; flex-wrap:wrap;\">" +
+          "<td class=\"cardTitleCell\"><div class=\"cardTitleText\">" + esc(u.username) + "</div></td>" +
+          "<td class=\"intGroupCell\" data-label=\"Groups\">" + esc(groupDisplay) + "</td>" +
+          "<td class=\"intFeedCell\" data-label=\"Data Feed\">" + dataFeedButtonHtml + "</td>" +
+          "<td class=\"intPortCell\" data-label=\"Port\">" + portCell + "</td>" +
+          "<td class=\"intStatusCell\" data-label=\"Status\">" + statusPill + "</td>" +
+          "<td class=\"cardActionsCell\"><div class=\"row cardActionsRow\" style=\"gap:8px; flex-wrap:wrap;\">" +
           "<button class=\"btn success\" type=\"button\" data-action=\"download-certs\" data-pk=\"" + esc(u.pk) + "\" data-username=\"" + esc(u.username) + "\">Download Certs</button>" +
-          "<button class=\"btn\" type=\"button\" data-action=\"edit\" data-pk=\"" + esc(u.pk) + "\" data-username=\"" + esc(u.username) + "\" data-group=\"" + esc(currentGroupPk) + "\">Edit Group</button>" +
+          "<button class=\"btn\" type=\"button\" data-action=\"edit\" data-pk=\"" + esc(u.pk) + "\" data-username=\"" + esc(u.username) + "\" data-integration-title=\"" + esc(u.integrationTitle || "") + "\">Edit Groups</button>" +
           "<button class=\"btn danger\" type=\"button\" data-action=\"delete\" data-pk=\"" + esc(u.pk) + "\" data-username=\"" + esc(u.username) + "\">Delete</button>" +
           "</div></td>" +
           "</tr>";
@@ -546,12 +631,56 @@
       if (!silent) {
         setTableMsg(err.message || "Failed to load integrations", false);
         usersCache = [];
-        tbody.innerHTML = "";
+        integrationsPage = 1;
+        renderIntegrations();
       }
     }
   }
 
-  if (integrationFilter) integrationFilter.addEventListener("input", renderIntegrations);
+  if (integrationFilter) integrationFilter.addEventListener("input", function () {
+    integrationsPage = 1;
+    renderIntegrations();
+  });
+
+  if (integrationsFirstBtn) {
+    integrationsFirstBtn.onclick = function () {
+      if (integrationsPage <= 1) return;
+      integrationsPage = 1;
+      renderIntegrations();
+    };
+  }
+  if (integrationsPrevBtn) {
+    integrationsPrevBtn.onclick = function () {
+      if (integrationsPage <= 1) return;
+      integrationsPage -= 1;
+      renderIntegrations();
+    };
+  }
+  if (integrationsNextBtn) {
+    integrationsNextBtn.onclick = function () {
+      integrationsPage += 1;
+      renderIntegrations();
+    };
+  }
+  if (integrationsLastBtn) {
+    integrationsLastBtn.onclick = function () {
+      var needle = String(integrationFilter ? integrationFilter.value : "").trim().toLowerCase();
+      var list = needle
+        ? usersCache.filter(function (u) {
+            var username = String(u.username || "").toLowerCase();
+            var name = String(u.name || "").toLowerCase();
+            var groupNames = (u.groupNames || []).join(" ").toLowerCase();
+            return username.indexOf(needle) !== -1 ||
+              name.indexOf(needle) !== -1 ||
+              groupNames.indexOf(needle) !== -1;
+          })
+        : usersCache;
+      var totalPages = Math.max(1, Math.ceil((list || []).length / INTEGRATIONS_PAGE_SIZE));
+      if (integrationsPage >= totalPages) return;
+      integrationsPage = totalPages;
+      renderIntegrations();
+    };
+  }
 
   if (integrationsTable) {
     integrationsTable.querySelectorAll("thead th[data-sort]").forEach(function (th) {
@@ -571,8 +700,12 @@
 
   var editIntegrationOverlay = document.getElementById("editIntegrationOverlay");
   var editIntegrationCloseBtn = document.getElementById("editIntegrationCloseBtn");
-  var editIntegrationUsername = document.getElementById("editIntegrationUsername");
-  var editGroupSelect = document.getElementById("editGroupSelect");
+  var editIntegrationTitle = document.getElementById("editIntegrationTitle");
+  var editGroupsBox = document.getElementById("editGroupsBox");
+  var editGroupsInner = document.getElementById("editGroupsInner");
+  var editGroupFilter = document.getElementById("editGroupFilter");
+  var editSelectAllBtn = document.getElementById("editSelectAllBtn");
+  var editClearAllBtn = document.getElementById("editClearAllBtn");
   var editIntegrationSaveBtn = document.getElementById("editIntegrationSaveBtn");
   var editIntegrationMsg = document.getElementById("editIntegrationMsg");
 
@@ -583,16 +716,17 @@
     editIntegrationMsg.style.color = ok ? "" : "var(--error, #c00)";
   }
 
-  function openEditModal(pk, username, currentGroupPk) {
+  function openEditModal(pk, username, title) {
     editCurrentPk = pk;
-    editIntegrationUsername.value = username || "";
-    editGroupSelect.innerHTML =
-      "<option value=\"\">Select a group</option>" +
-      groupsCache.map(function (g) {
-        var displayName = stripTakPrefix(g.name) || g.pk;
-        return "<option value=\"" + esc(g.pk) + "\">" + esc(displayName) + "</option>";
-      }).join("");
-    editGroupSelect.value = currentGroupPk || "";
+    var user = usersCache.find(function (u) { return String(u.pk) === String(pk); });
+    var heading = String((user && user.username) || username || title || "").trim();
+    if (editIntegrationTitle) {
+      editIntegrationTitle.textContent = heading ? ("Edit Integration - " + heading) : "Edit Integration";
+    }
+    var currentGroupPks = (user && Array.isArray(user.groups)) ? user.groups : [];
+    editPickedGroupIds = new Set(currentGroupPks.map(String));
+    if (editGroupFilter) editGroupFilter.value = "";
+    renderEditGroups();
     setEditMsg("");
     editIntegrationOverlay.style.display = "flex";
   }
@@ -607,8 +741,8 @@
       btn.addEventListener("click", function () {
         var pk = btn.getAttribute("data-pk");
         var username = btn.getAttribute("data-username");
-        var groupPk = btn.getAttribute("data-group");
-        openEditModal(pk, username, groupPk);
+        var title = btn.getAttribute("data-integration-title");
+        openEditModal(pk, username, title);
       });
     });
     tbody.querySelectorAll("button[data-action=\"data-feed\"]").forEach(function (btn) {
@@ -616,18 +750,9 @@
         const username = btn.getAttribute("data-username");
         const mode = btn.getAttribute("data-mode");
         const integrationTitleAttr = btn.getAttribute("data-integration-title");
-        const groupPk = btn.getAttribute("data-grouppk");
         
         if (mode === "create") {
             integrationRetroactiveUsername = username;
-            filterGroupsCheckboxList.innerHTML = groupsCache.map(function(g) {
-               const isChecked = (g.pk === groupPk) ? "checked" : "";
-               const displayName = stripTakPrefix(g.name) || g.pk;
-               return `<label style="display: flex; flex-direction: row; align-items: center; font-weight: normal; margin-bottom: 6px; width: 100%;">
-                         <input type="checkbox" value="${esc(g.name)}" style="margin-right: 8px; margin-top: 0;" ${isChecked} />
-                         ${esc(displayName)}
-                       </label>`;
-            }).join("");
             
             dataFeedForm.reset();
             document.getElementById("dataFeedTitle").innerText = "Create Streaming Data Feed";
@@ -683,14 +808,6 @@
                  dataFeedForm.archiveOnly.value = f.archiveOnly === true ? "true" : "false";
                  dataFeedForm.sync.value = f.sync === true ? "true" : "false";
                  dataFeedForm.federated.value = f.federated === true ? "true" : "false";
-
-                 filterGroupsCheckboxList.innerHTML = ((f.filtergroup || [])).map(function(grp) {
-                     const displayName = stripTakPrefix(grp);
-                     return `<label style="display: flex; flex-direction: row; align-items: center; font-weight: normal; margin-bottom: 6px; width: 100%;">
-                               <input type="checkbox" checked disabled style="margin-right: 8px; margin-top: 0;"/>
-                               ${esc(displayName)}
-                             </label>`;
-                 }).join("");
                  
                  Array.from(dataFeedForm.elements).forEach(el => el.disabled = true);
                  document.getElementById("dataFeedCloseBtn").disabled = false;
@@ -752,18 +869,75 @@
       if (e.target === editIntegrationOverlay) closeEditModal();
     });
   }
+  if (createGroupsBox) {
+    createGroupsBox.addEventListener("change", function (e) {
+      var cb = e.target;
+      if (!cb || cb.tagName !== "INPUT" || cb.type !== "checkbox") return;
+      var id = String(cb.value);
+      if (cb.checked) createPickedGroupIds.add(id);
+      else createPickedGroupIds.delete(id);
+    });
+  }
+  if (createGroupFilter) {
+    createGroupFilter.addEventListener("input", function () {
+      renderCreateGroups();
+    });
+  }
+  if (createSelectAllBtn) {
+    createSelectAllBtn.addEventListener("click", function () {
+      Array.from(createGroupsBox.querySelectorAll('input[type="checkbox"]')).forEach(function (cb) {
+        cb.checked = true;
+        createPickedGroupIds.add(String(cb.value));
+      });
+    });
+  }
+  if (createClearAllBtn) {
+    createClearAllBtn.addEventListener("click", function () {
+      Array.from(createGroupsBox.querySelectorAll('input[type="checkbox"]')).forEach(function (cb) {
+        cb.checked = false;
+      });
+      createPickedGroupIds.clear();
+    });
+  }
+  if (editGroupsBox) {
+    editGroupsBox.addEventListener("change", function (e) {
+      var cb = e.target;
+      if (!cb || cb.tagName !== "INPUT" || cb.type !== "checkbox") return;
+      var id = String(cb.value);
+      if (cb.checked) editPickedGroupIds.add(id);
+      else editPickedGroupIds.delete(id);
+    });
+  }
+  if (editGroupFilter) {
+    editGroupFilter.addEventListener("input", function () {
+      renderEditGroups();
+    });
+  }
+  if (editSelectAllBtn) {
+    editSelectAllBtn.addEventListener("click", function () {
+      editPickedGroupIds = new Set(groupsCache.map(function (g) { return String(g.pk); }));
+      renderEditGroups();
+    });
+  }
+  if (editClearAllBtn) {
+    editClearAllBtn.addEventListener("click", function () {
+      editPickedGroupIds = new Set();
+      renderEditGroups();
+    });
+  }
   if (editIntegrationSaveBtn) {
     editIntegrationSaveBtn.addEventListener("click", function () {
-      var groupId = editGroupSelect.value;
-      if (!editCurrentPk || !groupId) {
-        setEditMsg("Please select a group.", false);
+      var groupIds = Array.from(editPickedGroupIds);
+      if (!editCurrentPk || !groupIds.length) {
+        setEditMsg("Please select at least one group.", false);
         return;
       }
-      setEditMsg("");
+      setEditMsg("Saving…", true);
+      editIntegrationSaveBtn.disabled = true;
       fetch("/api/integrations/" + encodeURIComponent(editCurrentPk) + "/group", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ groupId: groupId }),
+        body: JSON.stringify({ groupIds: groupIds }),
       })
         .then(function (res) { return res.json(); })
         .then(function (out) {
@@ -772,10 +946,19 @@
             return;
           }
           closeEditModal();
-          loadIntegrations();
+          loadIntegrations(true).then(function () {
+            if (out.dataFeedWarning) {
+              setTableMsg(out.dataFeedWarning, false);
+            } else if (out.dataFeedUpdated) {
+              setTableMsg("Groups saved. Data feed filter groups were updated.", true);
+            }
+          });
         })
         .catch(function (err) {
           setEditMsg(err.message || "Save failed", false);
+        })
+        .finally(function () {
+          editIntegrationSaveBtn.disabled = false;
         });
     });
   }
@@ -785,9 +968,9 @@
     setCreateMsg("");
     const type = integrationType.value || "global";
     const title = createForm.title.value.trim();
-    const groupId = groupSelect.value;
-    if (!groupId) {
-      setCreateMsg("Please select a group.", false);
+    const groupIds = Array.from(createPickedGroupIds);
+    if (!groupIds.length) {
+      setCreateMsg("Please select at least one group.", false);
       return;
     }
     if (type === "agency" && !agencySelect.value) {
@@ -805,7 +988,7 @@
     const payload = {
       type: type,
       title: title,
-      groupId: groupId,
+      groupIds: groupIds,
     };
     if (type === "agency") payload.agencySuffix = agencySelect.value;
     if (type === "county") payload.county = countySelect.value;
@@ -833,16 +1016,6 @@
 
     integrationPayloadCache = payload;
     integrationRetroactiveUsername = null;
-    
-    // Render Filter Groups checkboxes for standard flow
-    filterGroupsCheckboxList.innerHTML = groupsCache.map(function(g) {
-        const isChecked = (g.pk === groupId) ? "checked" : "";
-        const displayName = stripTakPrefix(g.name) || g.pk;
-        return `<label style="display: flex; flex-direction: row; align-items: center; font-weight: normal; margin-bottom: 6px; width: 100%;">
-                  <input type="checkbox" value="${esc(g.name)}" style="margin-right: 8px; margin-top: 0;" ${isChecked} />
-                  ${esc(displayName)}
-                </label>`;
-    }).join("");
 
     dataFeedForm.reset();
     document.getElementById("dataFeedTitle").innerText = "Create Streaming Data Feed";
@@ -868,39 +1041,14 @@
 
   dataFeedForm.addEventListener("submit", async function(e) {
     e.preventDefault();
-    if (!integrationPayloadCache) return;
+    if (!integrationPayloadCache && !integrationRetroactiveUsername) return;
 
-    const payload = integrationPayloadCache;
-    
-    payload.dataFeedName = dataFeedForm.dataFeedName.value.trim();
-    payload.tags = dataFeedForm.tags.value;
-    payload.protocol = dataFeedForm.protocol.value;
-    payload.authType = dataFeedForm.authType.value;
-    payload.port = dataFeedForm.port.value;
-    payload.coreVersion = dataFeedForm.coreVersion.value;
-    
     const tlsVersions = [];
     if (dataFeedForm.tlsv1.checked) tlsVersions.push("TLSv1");
     if (dataFeedForm.tlsv1_1.checked) tlsVersions.push("TLSv1.1");
     if (dataFeedForm.tlsv1_2.checked) tlsVersions.push("TLSv1.2");
     if (dataFeedForm.tlsv1_3.checked) tlsVersions.push("TLSv1.3");
-    payload.coreVersion2TlsVersions = tlsVersions.join(",");
 
-    payload.multicastGroup = dataFeedForm.multicastGroup.value.trim();
-    payload.iface = dataFeedForm.interface.value.trim();
-    payload.syncCacheRetention = dataFeedForm.syncCacheRetention.value;
-    payload.archive = dataFeedForm.archive.value;
-    payload.anongroup = dataFeedForm.anongroup.value;
-    payload.archiveOnly = dataFeedForm.archiveOnly.value;
-    payload.sync = dataFeedForm.sync.value;
-    payload.federated = dataFeedForm.federated.value;
-
-    const checkedBoxes = filterGroupsCheckboxList.querySelectorAll('input[type="checkbox"]:checked');
-    const filterGroups = [];
-    checkedBoxes.forEach(function(box) {
-        filterGroups.push(box.value);
-    });
-    
     const dataFeedPayloadSegment = {
       dataFeedName: dataFeedForm.dataFeedName.value.trim(),
       tags: dataFeedForm.tags.value,
@@ -916,8 +1064,7 @@
       anongroup: dataFeedForm.anongroup.value,
       archiveOnly: dataFeedForm.archiveOnly.value,
       sync: dataFeedForm.sync.value,
-      federated: dataFeedForm.federated.value,
-      filterGroups: filterGroups
+      federated: dataFeedForm.federated.value
     };
 
     dataFeedModalOverlay.style.display = "none";
@@ -946,8 +1093,8 @@
     }
 
     // Default Creation Flow
-    Object.assign(payload, dataFeedPayloadSegment);
-    submitIntegration(payload);
+    Object.assign(integrationPayloadCache, dataFeedPayloadSegment);
+    submitIntegration(integrationPayloadCache);
   });
 
   async function submitIntegration(payload) {
@@ -969,7 +1116,9 @@
       setCreateMsg("Integration \"" + username + "\" created successfully. Downloading cert bundle...", true);
 
       createForm.reset();
-      groupSelect.value = "";
+      createPickedGroupIds = new Set();
+      if (createGroupFilter) createGroupFilter.value = "";
+      renderCreateGroups();
       integrationType.value = "global";
       integrationType.dispatchEvent(new Event("change"));
       updateIntegrationTitleConstraints();
@@ -978,9 +1127,19 @@
       if (out.user && out.user.pk) {
         try {
           await downloadIntegrationCertBundle(out.user.pk, username);
+          setCreateMsg(
+            "Integration \"" + username + "\" created successfully. Cert bundle downloaded.",
+            true
+          );
         } catch (downloadErr) {
-          setCreateMsg("Integration \"" + username + "\" created. Cert download failed: " + (downloadErr.message || "Download failed"), false);
+          setCreateMsg(
+            "Integration \"" + username + "\" created. Cert download failed: " +
+              (downloadErr.message || "Download failed"),
+            false
+          );
         }
+      } else {
+        setCreateMsg("Integration \"" + username + "\" created successfully.", true);
       }
     } catch (err) {
       setCreateMsg(err.message || "Create failed", false);
@@ -1032,6 +1191,92 @@
 </script>
 
 <style>
+.pagination {
+  margin: 12px 0 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.pagination .btn {
+  padding: 4px 14px;
+  border-radius: 999px;
+  background: #2f3241;
+  border: 1px solid #3a3d4d;
+  color: #e4e4e4;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.pagination .btn:hover:not(:disabled) {
+  background: #3a3d4d;
+  border-color: #4a4d5e;
+}
+
+.pagination .btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+#integrationsPageInfo {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  opacity: 0.9;
+  font-size: 12px;
+}
+
+.groupsBox {
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 12px;
+  padding: 10px;
+  max-height: 320px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.groupsInner {
+  column-width: 310px;
+  column-gap: 14px;
+  column-count: 4;
+}
+.groupItem {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  break-inside: avoid;
+  -webkit-column-break-inside: avoid;
+  page-break-inside: avoid;
+}
+.groupItem:hover {
+  background: rgba(255,255,255,.06);
+}
+.groupItem input {
+  margin: 0;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+.groupItem span {
+  display: inline-block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.createIntegrationSubmitBtn {
+  margin-left: auto;
+}
+
 .status-pill { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
 .status-connected { background: rgba(24, 179, 90, 0.2); color: var(--success, #18b35a); }
 .status-disconnected { background: rgba(255, 59, 59, 0.2); color: var(--danger, #ff3b3b); }
@@ -1056,52 +1301,121 @@
   opacity: 0.7;
 }
 
-@media (max-width: 640px){
-  .table th:nth-child(2),
-  .table td:nth-child(2),
-  .table th:nth-child(3),
-  .table td:nth-child(3){
-    display: none;
+@media (max-width: 640px) {
+  .groupsInner {
+    column-count: 1;
+    column-width: auto;
   }
-
-  /* Hide Status column on mobile; use row tint instead */
-  .table th:nth-child(5),
-  .table td:nth-child(5){
-    display: none;
-  }
-
-  /* Port column: keep compact, about 4 digits wide */
-  .table th:nth-child(4),
-  .table td:nth-child(4){
-    width: 4ch;
-    min-width: 4ch;
-    max-width: 4ch;
-    white-space: nowrap;
-    text-align: center;
-    padding-left: 6px;
-    padding-right: 6px;
-  }
-
-  /* Improve spacing/readability between Username, Port, and Actions */
-  .table th:nth-child(6),
-  .table td:nth-child(6){
-    padding-left: 10px;
-    padding-right: 8px;
+  .groupItem {
+    min-height: 44px;
+    padding: 10px 8px;
     white-space: normal;
   }
-  .table td:nth-child(6) .row{
-    gap: 6px !important;
-    align-items: center;
-    justify-content: flex-start;
+  .groupItem input {
+    width: 20px;
+    height: 20px;
   }
-  .table td:nth-child(6) .btn{
-    padding: 8px 10px;
+  .groupItem span {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: unset;
   }
+}
 
-  .table tbody tr.row-status-connected{
+@media (max-width: 990px) {
+  .listCardTableWrap {
+    overflow-x: hidden;
+  }
+  .integrations-table.listCardTable {
+    width: 100%;
+    min-width: 0 !important;
+    border-collapse: separate;
+    border-spacing: 0 12px;
+  }
+  .integrations-table.listCardTable thead { display: none; }
+  .integrations-table.listCardTable tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .integrations-table.listCardTable tbody tr {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      "title status"
+      "group port"
+      "feed feed"
+      "actions actions";
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--panel);
+    overflow: hidden;
+  }
+  .integrations-table .cardTitleCell { grid-area: title; }
+  .integrations-table .intGroupCell { grid-area: group; }
+  .integrations-table .intFeedCell { grid-area: feed; }
+  .integrations-table .intPortCell { grid-area: port; }
+  .integrations-table .intStatusCell { grid-area: status; }
+  .integrations-table .cardActionsCell { grid-area: actions; }
+  .integrations-table.listCardTable tbody tr.emptyStateRow {
+    display: block;
+    border: none;
+    background: transparent;
+  }
+  .integrations-table.listCardTable tbody td {
+    display: block;
+    border-top: none;
+    padding: 8px 12px;
+    word-break: normal;
+    overflow-wrap: anywhere;
+    min-width: 0 !important;
+    max-width: none !important;
+    white-space: normal;
+  }
+  .integrations-table.listCardTable tbody td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .integrations-table .cardTitleCell::before,
+  .integrations-table .cardActionsCell::before {
+    display: none;
+  }
+  .integrations-table .intStatusCell::before {
+    display: none;
+  }
+  .integrations-table .cardTitleCell { padding-top: 12px; padding-bottom: 4px; }
+  .integrations-table .intStatusCell { padding-top: 12px; display: flex; align-items: flex-start; justify-content: flex-end; }
+  .integrations-table .cardTitleText { font-weight: 600; font-size: 15px; line-height: 1.3; word-break: break-word; }
+  .integrations-table .cardActionsCell { padding-top: 10px; padding-bottom: 12px; }
+  .integrations-table .cardActionsRow {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    width: 100%;
+  }
+  .integrations-table .cardActionsRow .btn {
+    width: 100% !important;
+    max-width: 100%;
+    min-width: 0;
+    margin: 0;
+    white-space: nowrap;
+    box-sizing: border-box;
+    text-align: center;
+  }
+  .integrations-table .intFeedCell .btn {
+    width: 100% !important;
+    box-sizing: border-box;
+  }
+  .integrations-table tbody tr.row-status-connected {
     background: rgba(24, 179, 90, 0.08);
   }
-  .table tbody tr.row-status-disconnected{
+  .integrations-table tbody tr.row-status-disconnected {
     background: rgba(255, 59, 59, 0.08);
   }
 }

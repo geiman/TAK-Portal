@@ -1,38 +1,44 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <%
-      const _serverName = String(
-        (typeof settings !== "undefined" && settings && settings.SERVER_NAME) ||
-          (typeof serverAbbrev !== "undefined" && serverAbbrev) ||
-          ""
-      )
-        .trim()
-        .toUpperCase();
-      const _mapHeading = _serverName ? _serverName + " LIVE MAP" : "LIVE MAP";
-    %>
-    <title><%= _mapHeading %></title>
-    <% if (typeof brandLogoUrl !== "undefined" && brandLogoUrl) { %>
-      <link rel="icon" href="<%= brandLogoUrl %>" type="image/png" />
-      <link rel="shortcut icon" href="<%= brandLogoUrl %>" type="image/png" />
-    <% } %>
-    <link
-      href="https://unpkg.com/maplibre-gl@5.13.0/dist/maplibre-gl.css"
-      rel="stylesheet"
-    />
-    <link rel="stylesheet" href="<%= mapCssUrl %>" />
-  </head>
-  <body data-map-user="<%= typeof mapStorageUserKey !== 'undefined' ? mapStorageUserKey : 'anonymous' %>">
-    <div class="map-shell">
-      <div id="map" aria-label="TAK live map"></div>
+<%
+  const _serverName = String(
+    (typeof settings !== "undefined" && settings && settings.SERVER_NAME) ||
+      (typeof serverAbbrev !== "undefined" && serverAbbrev) ||
+      ""
+  ).trim();
+  const _mapHeading = _serverName ? _serverName + " Live Map" : "Live Map";
+%>
+<%- include("partials/header", {
+  pageTitle: "Live Map",
+  bodyExtraClass: "map-page",
+  extraStylesheets: [maplibreCssUrl, mapCssUrl]
+}) %>
+<%- include("partials/sidebar") %>
 
-      <div class="map-offline-banner" id="mapOfflineBanner" hidden>
-        Stream disconnected — reload the page to retry.
-      </div>
+<main class="main map-main">
+  <div class="map-shell">
+    <div id="map" aria-label="TAK live map"></div>
 
-      <header class="map-hud">
+    <div class="map-offline-banner" id="mapOfflineBanner" hidden>
+      Stream disconnected — reconnecting, the map will reload.
+    </div>
+
+    <header class="map-hud">
+      <div class="map-hud-left">
+        <button
+          type="button"
+          class="map-hud-icon-btn map-hud-sidebar-btn"
+          id="mapSiteNavBtn"
+          title="Hide sidebar"
+          aria-label="Hide sidebar"
+          aria-controls="sidebar"
+          aria-expanded="true"
+        >
+          <span class="map-hud-sidebar-glyph" aria-hidden="true">
+            <span class="map-hud-sidebar-pane"></span>
+            <svg class="map-hud-sidebar-arrow" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M6.2 2.2L3.2 5l3 2.8" />
+            </svg>
+          </span>
+        </button>
         <div
           class="map-hud-title map-hud-fit-trigger"
           id="mapHudFit"
@@ -40,23 +46,69 @@
           tabindex="0"
           title="Fit visible markers"
         >
-          <% if (typeof brandLogoUrl !== "undefined" && brandLogoUrl) { %>
-            <img src="<%= brandLogoUrl %>" alt="" class="map-hud-logo" />
-          <% } %>
           <h1><%= _mapHeading %></h1>
         </div>
-        <div class="map-hud-center">
-          <span class="map-zulu" id="mapZulu">— Z</span>
-          <span class="map-counts" id="mapVisibleCounts">0 / 0 visible</span>
+      </div>
+      <div class="map-hud-actions">
+        <button
+          type="button"
+          class="map-hud-icon-btn map-hud-channels-btn is-active"
+          id="mapExpandLeft"
+          title="Hide channels"
+          aria-label="Hide channels"
+          aria-controls="mapPanelLeft"
+          aria-expanded="true"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M3 12h18" />
+            <path d="M12 3a14 14 0 0 1 0 18" />
+            <path d="M12 3a14 14 0 0 0 0 18" />
+          </svg>
+          <span class="map-hud-channels-label">Channels</span>
+        </button>
+        <button
+          type="button"
+          class="map-hud-icon-btn"
+          id="mapGoToBtn"
+          title="Go to location"
+          aria-label="Go to location"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="7" />
+            <path d="M20 20l-3-3" />
+          </svg>
+        </button>
+        <div class="map-basemap-picker" title="Basemap">
+          <svg
+            class="map-basemap-icon"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3V6z" />
+            <path d="M9 3v15" />
+            <path d="M15 6v15" />
+          </svg>
+          <select class="map-select" id="mapBasemapSelect" title="Basemap" aria-label="Basemap"></select>
         </div>
-        <div class="map-hud-actions">
-          <div class="map-status" id="mapConnStatus" title="Stream status">
-            <span class="map-status-dot" id="mapConnDot"></span>
-            <span id="mapConnLabel">Connecting</span>
-          </div>
-          <div class="map-basemap-picker" title="Basemap">
+        <% if (typeof isGlobalAdmin !== "undefined" && isGlobalAdmin) { %>
+        <div class="map-geofence-create-wrap">
+          <button
+            type="button"
+            class="map-btn map-geofence-create-btn"
+            id="mapGeofenceCreateBtn"
+            title="Create a geofence"
+            aria-label="Create a geofence"
+          >
             <svg
-              class="map-basemap-icon"
+              class="map-geofence-create-icon"
               width="16"
               height="16"
               viewBox="0 0 24 24"
@@ -67,116 +119,226 @@
               stroke-linejoin="round"
               aria-hidden="true"
             >
-              <path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3-6-3V6z" />
-              <path d="M9 3v15" />
-              <path d="M15 6v15" />
+              <path d="M12 3l8 6.5-3 9.5H7l-3-9.5L12 3z" />
+              <path d="M12 9v6M9 12h6" />
             </svg>
-            <select class="map-select" id="mapBasemapSelect" title="Basemap" aria-label="Basemap"></select>
+            <span class="map-geofence-create-label">+ Create Geofence</span>
+          </button>
+          <div class="map-geofence-draw-bar" id="mapGeofenceDrawBar" hidden>
+            <div class="map-geofence-draw-shapes">
+              <button type="button" class="map-geofence-shape-btn" data-geofence-draw="circle" title="Draw circle" aria-label="Draw circle">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <circle cx="12" cy="12" r="8" />
+                </svg>
+              </button>
+              <button type="button" class="map-geofence-shape-btn" data-geofence-draw="rectangle" title="Draw rectangle" aria-label="Draw rectangle">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <rect x="4" y="6" width="16" height="12" rx="1" />
+                </svg>
+              </button>
+              <button type="button" class="map-geofence-shape-btn" data-geofence-draw="polygon" title="Draw polygon" aria-label="Draw polygon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M12 3l8 6.5-3 9.5H7l-3-9.5L12 3z" />
+                </svg>
+              </button>
+              <button type="button" class="map-link-btn" id="mapGeofenceFinishPoly" hidden>Finish</button>
+            </div>
+            <span class="map-geofence-status" id="mapGeofenceStatus" aria-live="polite"></span>
           </div>
-          <a class="map-btn" href="/dashboard">Dashboard</a>
         </div>
-      </header>
-
-      <button
-        type="button"
-        class="map-panel-expand map-panel-expand-left"
-        id="mapExpandLeft"
-        title="Show channels"
-        hidden
-      >
-        Channels ›
-      </button>
-      <button
-        type="button"
-        class="map-panel-expand map-panel-expand-right"
-        id="mapExpandRight"
-        title="Show marker details"
-        hidden
-      >
-        ‹ Details
-      </button>
-
-      <aside class="map-panel map-panel-left" id="mapPanelLeft" aria-label="Map layers">
-        <div class="map-panel-tabs">
-          <button type="button" class="map-tab active" id="mapTabChannels">Channels</button>
-          <button type="button" class="map-tab" id="mapTabMissions">Missions</button>
-          <button type="button" class="map-panel-collapse" id="mapCollapseLeft" title="Collapse panel">‹</button>
-        </div>
-
-        <div class="map-panel-body is-active" id="mapPanelChannels">
-          <div class="map-search map-search-compact">
-            <input id="mapLayerSearch" type="search" placeholder="Filter channels…" autocomplete="off" />
-          </div>
-          <div class="map-layer-actions">
-            <button type="button" class="map-link-btn" id="mapGroupsAll">All</button>
-            <button type="button" class="map-link-btn" id="mapGroupsNone">None</button>
-          </div>
-          <div class="map-layer-list" id="mapLayerList"></div>
-        </div>
-
-        <div class="map-panel-body" id="mapPanelMissions">
-          <div class="map-search map-search-compact">
-            <input id="mapMissionSearch" type="search" placeholder="Filter missions…" autocomplete="off" />
-          </div>
-          <div class="map-layer-actions">
-            <button type="button" class="map-link-btn" id="mapMissionsAll">All</button>
-            <button type="button" class="map-link-btn" id="mapMissionsNone">None</button>
-          </div>
-          <div class="map-mission-list" id="mapMissionList"></div>
-        </div>
-      </aside>
-
-      <div class="map-detail-stack collapsed" id="mapDetailStack" aria-label="Marker details">
-        <div
-          class="map-panel-resize-handle"
-          id="mapDetailResize"
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize details panels"
-          tabindex="-1"
-        ></div>
+        <% } %>
       </div>
+    </header>
 
-      <div class="map-zoom-controls" aria-label="Zoom controls">
-        <button type="button" class="map-zoom-btn" id="mapZoomIn" title="Zoom in" aria-label="Zoom in">+</button>
-        <button type="button" class="map-zoom-btn" id="mapZoomOut" title="Zoom out" aria-label="Zoom out">−</button>
-      </div>
+    <button
+      type="button"
+      class="map-panel-expand map-panel-expand-right"
+      id="mapExpandRight"
+      title="Show marker details"
+      hidden
+    >
+      ‹ Details
+    </button>
 
-      <footer class="map-coords-bar">
-        <button
-          type="button"
-          class="map-cursor-coords"
-          id="mapCursorBtn"
-          title="Click to change coordinate format · right-click map to copy"
-        >
-          <span id="mapCursor">Decimal Degrees: —</span>
+    <aside class="map-panel map-panel-left" id="mapPanelLeft" aria-label="Map layers">
+      <div class="map-panel-tabs">
+        <button type="button" class="map-tab active" id="mapTabChannels">Channels</button>
+        <button type="button" class="map-tab" id="mapTabMissions">Missions</button>
+        <button type="button" class="map-tab" id="mapTabPackages">Packages</button>
+        <button type="button" class="map-panel-collapse" id="mapCollapseLeft" title="Close panel" aria-label="Close panel">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
         </button>
-      </footer>
-
-      <div class="map-goto-overlay" id="mapGoToOverlay" hidden>
-        <div class="map-goto-backdrop" id="mapGoToBackdrop"></div>
-        <div class="map-goto-panel" role="dialog" aria-modal="true" aria-label="Go to location">
-          <input
-            id="mapGoToInput"
-            class="map-goto-input"
-            type="text"
-            autocomplete="off"
-            spellcheck="false"
-            placeholder="Callsign, address, or coordinates…"
-            aria-controls="mapGoToResults"
-            aria-autocomplete="list"
-          />
-          <div class="map-goto-results-wrap" id="mapGoToResultsWrap" hidden>
-            <ul class="map-goto-results" id="mapGoToResults" role="listbox"></ul>
-          </div>
-          <p class="map-goto-hint" id="mapGoToHint" aria-live="polite"></p>
-        </div>
       </div>
+
+      <div class="map-panel-body is-active" id="mapPanelChannels">
+        <div class="map-search map-search-compact">
+          <input id="mapLayerSearch" type="search" placeholder="Filter channels…" autocomplete="off" />
+        </div>
+        <div class="map-layer-actions">
+          <button type="button" class="map-link-btn" id="mapGroupsAll">All</button>
+          <button type="button" class="map-link-btn" id="mapGroupsNone">None</button>
+        </div>
+        <div class="map-layer-list" id="mapLayerList"></div>
+      </div>
+
+      <div class="map-panel-body" id="mapPanelMissions" hidden>
+        <div class="map-search map-search-compact">
+          <input id="mapMissionSearch" type="search" placeholder="Filter missions…" autocomplete="off" />
+        </div>
+        <div class="map-layer-actions">
+          <button type="button" class="map-link-btn" id="mapMissionsAll">All</button>
+          <button type="button" class="map-link-btn" id="mapMissionsNone">None</button>
+        </div>
+        <div class="map-mission-list" id="mapMissionList"></div>
+      </div>
+
+      <div class="map-panel-body" id="mapPanelPackages" hidden>
+        <div class="map-search map-search-compact">
+          <input id="mapPackageSearch" type="search" placeholder="Filter packages…" autocomplete="off" />
+        </div>
+        <div class="map-layer-actions">
+          <button type="button" class="map-link-btn" id="mapPackagesAll">All</button>
+          <button type="button" class="map-link-btn" id="mapPackagesNone">None</button>
+        </div>
+        <div class="map-mission-list" id="mapPackageList"></div>
+      </div>
+    </aside>
+
+    <div class="map-detail-stack collapsed" id="mapDetailStack" aria-label="Marker details">
+      <div
+        class="map-panel-resize-handle"
+        id="mapDetailResize"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize details panels"
+        tabindex="-1"
+      ></div>
     </div>
 
-    <script src="https://unpkg.com/maplibre-gl@5.13.0/dist/maplibre-gl.js"></script>
-    <script src="<%= shapeDecorFilterJsUrl %>"></script>
-    <script src="<%= mapJsUrl %>" defer></script>
-    <script src="<%= mapMissionsJsUrl %>" defer></script>
-  </body>
-</html>
+    <div class="map-zoom-controls" aria-label="Zoom controls">
+      <button type="button" class="map-zoom-btn" id="mapZoomIn" title="Zoom in" aria-label="Zoom in">+</button>
+      <button type="button" class="map-zoom-btn" id="mapZoomOut" title="Zoom out" aria-label="Zoom out">−</button>
+    </div>
+
+    <footer class="map-coords-bar">
+      <span class="map-counts" id="mapVisibleCounts">0 / 0 visible</span>
+      <button
+        type="button"
+        class="map-cursor-coords"
+        id="mapCursorBtn"
+        title="Click to change coordinate format · right-click map to copy"
+      >
+        <span id="mapCursor">Decimal Degrees: —</span>
+      </button>
+    </footer>
+
+    <div class="map-goto-overlay" id="mapGoToOverlay" hidden>
+      <div class="map-goto-backdrop" id="mapGoToBackdrop"></div>
+      <div class="map-goto-panel" role="dialog" aria-modal="true" aria-label="Go to location">
+        <input
+          id="mapGoToInput"
+          class="map-goto-input"
+          type="text"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="Callsign, address, or coordinates…"
+          aria-controls="mapGoToResults"
+          aria-autocomplete="list"
+        />
+        <div class="map-goto-results-wrap" id="mapGoToResultsWrap" hidden>
+          <ul class="map-goto-results" id="mapGoToResults" role="listbox"></ul>
+        </div>
+        <p class="map-goto-hint" id="mapGoToHint" aria-live="polite"></p>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+  window.TAK_PORTAL_MAP_DEFAULTS = {
+    basemap: "<%= defaultMapSource %>",
+    enableGeofences: <%= typeof isGlobalAdmin !== "undefined" && isGlobalAdmin ? "true" : "false" %>,
+    canControlClients: <%=
+      (typeof isGlobalAdmin !== "undefined" && isGlobalAdmin) ||
+      (typeof isAgencyAdmin !== "undefined" && isAgencyAdmin)
+        ? "true"
+        : "false"
+    %>,
+  };
+</script>
+<script>
+  (function () {
+    var LS_KEY = "tak-portal-map-site-sidebar";
+    var navBtn = document.getElementById("mapSiteNavBtn");
+    var siteToggle = document.getElementById("sidebarToggle");
+    var mq = window.matchMedia("(max-width: 990px)");
+
+    function isMobile() {
+      return mq.matches;
+    }
+
+    function syncNavBtn() {
+      if (!navBtn) return;
+      var expanded;
+      if (isMobile()) {
+        expanded = document.body.classList.contains("sidebar-open");
+        navBtn.title = expanded ? "Hide sidebar" : "Show sidebar";
+        navBtn.setAttribute("aria-label", navBtn.title);
+      } else {
+        expanded = !document.documentElement.classList.contains("map-sidebar-collapsed");
+        navBtn.title = expanded ? "Hide sidebar" : "Show sidebar";
+        navBtn.setAttribute("aria-label", navBtn.title);
+      }
+      navBtn.setAttribute("aria-expanded", expanded ? "true" : "false");
+    }
+
+    function setDesktopCollapsed(collapsed) {
+      document.documentElement.classList.toggle("map-sidebar-collapsed", collapsed);
+      try {
+        localStorage.setItem(LS_KEY, collapsed ? "collapsed" : "open");
+      } catch (e) {}
+      syncNavBtn();
+    }
+
+    if (navBtn) {
+      navBtn.addEventListener("click", function () {
+        if (isMobile()) {
+          if (siteToggle) siteToggle.click();
+        } else {
+          setDesktopCollapsed(
+            !document.documentElement.classList.contains("map-sidebar-collapsed")
+          );
+        }
+      });
+    }
+
+    if (typeof MutationObserver !== "undefined") {
+      new MutationObserver(syncNavBtn).observe(document.body, {
+        attributes: true,
+        attributeFilter: ["class"],
+      });
+    }
+
+    mq.addEventListener("change", function (e) {
+      if (e.matches) {
+        document.documentElement.classList.remove("map-sidebar-collapsed");
+      } else {
+        var collapsed = false;
+        try {
+          collapsed = localStorage.getItem(LS_KEY) === "collapsed";
+        } catch (err) {}
+        setDesktopCollapsed(collapsed);
+      }
+      syncNavBtn();
+    });
+
+    syncNavBtn();
+  })();
+</script>
+<script src="<%= maplibreJsUrl %>"></script>
+<script src="<%= mapBasemapsJsUrl %>"></script>
+<script src="<%= shapeDecorFilterJsUrl %>"></script>
+<script src="<%= mapJsUrl %>" defer></script>
+</div></body></html>

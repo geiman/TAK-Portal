@@ -43,14 +43,77 @@ async function runTests() {
   );
   assert.ok(/fed_fixed_wing/i.test(airHit.iconName || airHit.relPath || ""));
 
-  // EUD always dots
+  // Live map: 2525D milsym only when CoT explicitly requests 2525 mapping.
+  // Bare aircraft/vehicle CoT types use iconset PNG (or team dots for SA types).
+  const liveFixed = await mapIcon.resolveIconAsync({ type: "a-f-A-C-F", affiliation: "friend" });
+  assert.ok(liveFixed, "live map aircraft should resolve");
+  assert.notStrictEqual(
+    liveFixed.source,
+    "milsym",
+    "bare aircraft CoT must not invent 2525D milsym"
+  );
+  assert.ok(liveFixed.iconId, "live map aircraft should resolve a PNG icon");
+  assert.strictEqual(
+    mapRender.markerUsesMapIcon({
+      type: "a-f-A-C-F",
+      origin: "feed",
+      iconId: liveFixed.iconId,
+      iconSource: liveFixed.source,
+    }),
+    true,
+    "aircraft PNG should paint as map icons"
+  );
+  const liveVehicle = await mapIcon.resolveIconAsync({ type: "a-f-G-E-V", affiliation: "friend" });
+  assert.ok(liveVehicle, "live map ground vehicle should resolve");
+  assert.notStrictEqual(
+    liveVehicle.source,
+    "milsym",
+    "bare vehicle CoT must not invent 2525D milsym"
+  );
+  const cloudTakSa = await mapIcon.resolveIconAsync({
+    type: "a-f-G-E-V-C",
+    affiliation: "friend",
+  });
+  assert.strictEqual(
+    cloudTakSa,
+    null,
+    "CloudTAK civilian-vehicle SA type must stay a team dot"
+  );
+  assert.strictEqual(
+    mapIconResolve.isStandardGroundEudType("a-f-G-E-V-C"),
+    true,
+    "a-f-G-E-V-C is treated as ground SA for team dots"
+  );
+  assert.strictEqual(
+    mapRender.markerUsesMapIcon({
+      type: "a-f-G-E-V-C",
+      origin: "eud",
+      iconId: "2525D:10031000001211000000",
+      iconSource: "milsym",
+    }),
+    false,
+    "CloudTAK SA stays a team dot even with leftover milsym id"
+  );
+  const liveMapped2525b = await mapIcon.resolveIconAsync({
+    type: "a-f-G-E-V",
+    affiliation: "friend",
+    usericon: { iconsetpath: "COT_MAPPING_2525B/a/f/A/C/H" },
+  });
+  assert.ok(liveMapped2525b);
+  assert.strictEqual(
+    liveMapped2525b.source,
+    "milsym",
+    "COT_MAPPING_2525B on live map should use 2525D of the remapped type"
+  );
+
+  // EUD ground uses dots; EUD air keeps type2525b/milsym symbology
   const eudAir = {
     type: "a-f-A-C-H",
     origin: "eud",
     iconId: rotor.iconId,
     iconSource: rotor.source,
   };
-  assert.strictEqual(mapRender.markerUsesMapIcon(eudAir), false);
+  assert.strictEqual(mapRender.markerUsesMapIcon(eudAir), true);
 
   const eudGround = {
     type: "a-f-G-U-C",
@@ -58,7 +121,41 @@ async function runTests() {
     iconId: "34ae1613-9645-4222-a9d2-e5f243dea2865:People/walk.png",
     iconSource: "usericon",
   };
-  assert.strictEqual(mapRender.markerUsesMapIcon(eudGround), false);
+  assert.strictEqual(mapRender.markerUsesMapIcon(eudGround), true);
+
+  // Bare a-f-G-U-C must not pick FalconView A-F-G.png (ATAK shows a team dot)
+  const bareEud = mapIcon.resolveIcon({ type: "a-f-G-U-C", affiliation: "friend" });
+  assert.strictEqual(bareEud, null, "bare ground EUD should not resolve a type2525b PNG");
+  const bareEudAsync = await mapIcon.resolveIconAsync({
+    type: "a-f-G-U-C",
+    affiliation: "friend",
+  });
+  assert.strictEqual(bareEudAsync, null, "bare ground EUD should not fall back to milsym");
+  const mappedEud2525c = await mapIcon.resolveIconAsync({
+    type: "a-f-G-U-C",
+    affiliation: "friend",
+    usericon: { iconsetpath: "COT_MAPPING_2525C/a-f/a-f-G-U-C" },
+  });
+  assert.strictEqual(
+    mappedEud2525c,
+    null,
+    "ground EUD with COT_MAPPING_2525C must not milsym-render as aviation"
+  );
+  assert.strictEqual(
+    mapIconResolve.isStandardGroundEudType("a\u2013f\u2013G\u2013U\u2013C"),
+    true,
+    "en-dash CoT types still match ground EUD"
+  );
+  assert.strictEqual(
+    mapRender.markerUsesMapIcon({
+      type: "a-f-G-U-C",
+      origin: "feed",
+      iconId: "6d180afb-89a6-4c07-b2b3-a89748b6a38f:FalconView/A-F-G.png",
+      iconSource: "type2525b",
+    }),
+    false,
+    "ground EUD stays a team dot even if origin is misclassified as feed"
+  );
 
   // Milsym / 2525D display gate
   const milsymMarker = {
@@ -129,6 +226,16 @@ async function runTests() {
   assert.strictEqual(geoOpsCamp.source, "path");
   assert.ok(/WildFire\/Camp\.png/i.test(geoOpsCamp.relPath || geoOpsCamp.iconId));
   assert.ok(mapIcon.getIconFilePath(geoOpsCamp.iconId), "GeoOps Camp file must exist");
+  const liveGeoOpsCamp = await mapIcon.resolveIconAsync({
+    type: "a-n-G",
+    affiliation: "neutral",
+    usericon: {
+      iconsetpath:
+        "83198b4872a8c34eb9c549da8a4de5a28f07821185b39a2277948f66c24ac17a/WildFire/Camp.png",
+    },
+  });
+  assert.strictEqual(liveGeoOpsCamp.source, "path", "explicit usericon stays PNG on live map");
+  assert.ok(/WildFire\/Camp\.png/i.test(liveGeoOpsCamp.relPath || liveGeoOpsCamp.iconId));
 
   const geoOpsMedical = mapIcon.resolveIcon({
     type: "a-n-G",
@@ -216,10 +323,80 @@ async function runTests() {
   assert.strictEqual(psaPathIcon.source, "path");
   assert.ok(/FED_FIXED_WING\.png/i.test(psaPathIcon.relPath || psaPathIcon.iconId));
 
+  const swatCab = mapIcon.resolveIcon({
+    type: "a-f-G-E-V",
+    affiliation: "friend",
+    usericon: {
+      iconsetpath: "ad78aafb-83a6-4c07-b2b9-a897a8b6a38f/Shapes/cabs.png",
+    },
+  });
+  assert.ok(swatCab, "Generic Icons Shapes/cabs path should resolve");
+  assert.strictEqual(swatCab.source, "path");
+  const swatFeedMarker = {
+    type: "a-f-G-E-V",
+    origin: "feed",
+    iconId: swatCab.iconId,
+    iconSource: swatCab.source,
+  };
+  assert.strictEqual(
+    mapRender.markerUsesMapIcon(swatFeedMarker),
+    true,
+    "integration/feed ground vehicles with usericon should use PNG icon"
+  );
+
   // Default affiliation icons
   const defaults = mapIcon.getDefaultIconIds();
   assert.ok(defaults.friend, "default friendly icon");
   assert.ok(mapIcon.getIconFilePath(defaults.friend));
+
+  const spiIcon = mapIcon.resolveIcon({ type: "b-m-p-s-p-i", affiliation: "other" });
+  assert.ok(spiIcon, "SPI type should resolve");
+  assert.strictEqual(spiIcon.source, "type-override");
+  assert.ok(
+    /Hunting\/crosshair\.png/i.test(spiIcon.relPath || spiIcon.iconId),
+    "SPI should use Default Hunting/crosshair.png, got " + spiIcon.iconId
+  );
+  assert.ok(mapIcon.getIconFilePath(spiIcon.iconId), "SPI crosshair icon file must exist");
+  assert.strictEqual(
+    mapRender.markerUsesMapIcon({
+      type: "b-m-p-s-p-i",
+      origin: "spi",
+      iconId: spiIcon.iconId,
+      iconSource: spiIcon.source,
+    }),
+    true,
+    "SPI markers should render with map icons"
+  );
+
+  const unknownGroundSync = mapIcon.resolveIcon({ type: "a-u-G", affiliation: "unknown" });
+  assert.strictEqual(unknownGroundSync, null, "a-u-G should skip PNG flags and use filled milsym");
+  assert.strictEqual(mapIconResolve.prefersMilSymCotType("a-u-G"), true);
+  const unknownGround = await mapIcon.resolveIconAsync({ type: "a-u-G", affiliation: "unknown" });
+  assert.ok(unknownGround, "unknown ground should resolve via milsym");
+  assert.strictEqual(unknownGround.source, "milsym");
+  assert.ok(/^2525D:/i.test(unknownGround.iconId), "a-u-G milsym id, got " + unknownGround.iconId);
+  assert.strictEqual(
+    mapRender.markerUsesMapIcon({
+      type: "a-u-G",
+      origin: "mission",
+      iconId: unknownGround.iconId,
+      iconSource: unknownGround.source,
+    }),
+    true,
+    "mission drop pins should render with the filled unknown-ground milsym"
+  );
+
+  const sensorLocIcon = mapIcon.resolveIcon({ type: "b-m-p-s-p-loc", affiliation: "other" });
+  assert.ok(sensorLocIcon, "sensor location type should resolve");
+  assert.strictEqual(sensorLocIcon.source, "type-override");
+  assert.ok(
+    /Shapes\/camera\.png/i.test(sensorLocIcon.relPath || sensorLocIcon.iconId),
+    "sensor location should use camera icon, got " + sensorLocIcon.iconId
+  );
+  assert.ok(
+    mapIcon.getIconFilePath(sensorLocIcon.iconId),
+    "sensor location camera icon file must exist"
+  );
 
   console.log("mapIcon.test.js: all assertions passed");
 }

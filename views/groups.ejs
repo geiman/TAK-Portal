@@ -8,15 +8,25 @@
     singleFallbackTitle: "Agency Groups / Channels"
   }) %>
 
-  <div class="card">
+  <% if (typeof canSeeChannelPatch !== "undefined" && canSeeChannelPatch && Number(activeChannelPatchCount) > 0) { %>
+    <a href="/channel-patch" style="text-decoration:none;">
+      <div class="channelPatchBanner" style="margin: 10px 0 14px 0;">
+        <%= activeChannelPatchCount %> Channel Patch<%= Number(activeChannelPatchCount) === 1 ? "" : "es" %> Active
+      </div>
+    </a>
+  <% } %>
+
+  <div class="card createFormCard">
   <h2>Create Group / Channel</h2>
 
+  <div class="createForm">
   <div class="row">
     <% if (isGlobalAdmin) { %>
     <label>Group Type
       <select id="createType">
         <option value="agency" selected>Agency-Specific Group</option>
         <option value="county">County-Specific Group</option>
+        <option value="region">Region-Specific Group</option>
         <option value="state">State-Specific Group</option>
         <option value="generic">Global Group</option>
       </select>
@@ -38,6 +48,12 @@
         <option value="">Select County</option>
       </select>
     </label>
+
+    <label id="regionWrap" style="display:none;">Select Region
+      <select id="regionSelect">
+        <option value="">Select Region</option>
+      </select>
+    </label>
 <label id="stateWrap" style="display:none;">Select State
   <select id="stateSelect">
     <option value="">Select State</option>
@@ -47,15 +63,15 @@
     <label style="flex: 1; min-width: 160px;">Group Name
       <input
         id="groupName"
-        placeholder="Group name"
+        placeholder="Group Name"
         style="width: 100%;"
       />
     </label>
 
     <label style="min-width: 220px;">Channel Behavior
       <select id="behaviorSelect" style="min-width: 120px;">
-        <option value="both" selected>BOTH - Send and Recieve (default)</option>
-        <option value="read">READ - Recieve Only</option>
+        <option value="both" selected>BOTH - Send and Receive (default)</option>
+        <option value="read">READ - Receive Only</option>
         <option value="write">WRITE - Send Only</option>
       </select>
     </label>
@@ -71,7 +87,7 @@
 
   </div>
 
-  <div class="row" style="margin-top:8px;">
+  <div class="row">
     <label style="flex: 1; min-width: 0;">Group Description
       <input
         id="groupDescription"
@@ -81,11 +97,12 @@
     </label>
   </div>
 
-  <div class="row createGroupActionRow" style="margin-top:10px; justify-content:flex-end;">
-    <button class="btn createGroupSubmitBtnAlignRight" id="createBtn" type="button">Create New Group</button>
+  <div class="row createGroupActionRow" style="justify-content:flex-end;">
+    <button class="btn success createGroupSubmitBtnAlignRight" id="createBtn" type="button">Create New Group</button>
   </div>
 
   <div id="createMsg" class="msg"></div>
+  </div>
 </div>
 
 
@@ -101,6 +118,7 @@
             <option value="all" selected>All Groups</option>
             <option value="agency">Agency Groups</option>
             <option value="county">County Groups</option>
+            <option value="region">Regional Groups</option>
             <option value="state">State Groups</option>
             <option value="global">Global Groups</option>
           </select>
@@ -119,13 +137,29 @@
     </div>
 
     <div id="listMsg" class="msg"></div>
+    <div class="pagination" id="groupsPagination" style="display:none;">
+      <button class="btn pagination-first-last" type="button" id="groupsFirstBtn">First</button>
+      <button class="btn" type="button" id="groupsPrevBtn">Previous</button>
+      <span id="groupsPageInfo"></span>
+      <button class="btn" type="button" id="groupsNextBtn">Next</button>
+      <button class="btn pagination-first-last" type="button" id="groupsLastBtn">Last</button>
+    </div>
 
     <div class="listCardTableWrap">
       <table class="table listCardTable groupsListTable">
         <thead>
           <tr>
+            <th class="sortable groupTypeCol" data-key="type">
+              Type <span class="sortIndicator" aria-hidden="true"></span>
+            </th>
             <th class="sortable" data-key="name">
               Group Name <span class="sortIndicator" aria-hidden="true"></span>
+            </th>
+            <th class="sortable groupScopeCol" data-key="scope">
+              Scope <span class="sortIndicator" aria-hidden="true"></span>
+            </th>
+            <th class="sortable groupBehaviorCol" data-key="behavior">
+              Behavior <span class="sortIndicator" aria-hidden="true"></span>
             </th>
             <% if (isGlobalAdmin) { %>
             <th class="sortable groupPrivateCol" data-key="private">
@@ -149,86 +183,94 @@
 
 <!-- Edit Group Modal -->
 <div class="modalOverlay" id="editGroupOverlay" style="display:none;">
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="editGroupTitle">
+  <div class="modal editGroupModal" role="dialog" aria-modal="true" aria-labelledby="editGroupTitle">
     <div class="modalHeader">
-      <h2 id="editGroupTitle" style="margin:0;">Edit Group</h2>
+      <div class="modalHeaderLeft">
+        <h2 id="editGroupTitle" style="margin:0;">Edit Group</h2>
+      </div>
       <button class="btn" id="editGroupCloseBtn" type="button">Close</button>
     </div>
     <div class="modalBody">
-      <div class="card" style="margin:0;">
-        <h2 style="margin-top:0;">Edit Group</h2>
-
-        <!-- Row that mirrors Create Group -->
-        <div class="row">
-          <% if (isGlobalAdmin) { %>
-          <label>Group Type
-            <select id="editType">
-              <option value="agency">Agency-Specific Group</option>
-              <option value="county">County-Specific Group</option>
-              <option value="state">State-Specific Group</option>
-              <option value="generic">Global Group</option>
+      <div class="editGroupForm">
+        <section class="editGroupTop">
+          <div class="row">
+            <% if (isGlobalAdmin) { %>
+            <label>Group Type
+              <select id="editType">
+                <option value="agency">Agency-Specific Group</option>
+                <option value="county">County-Specific Group</option>
+                <option value="region">Region-Specific Group</option>
+                <option value="state">State-Specific Group</option>
+                <option value="generic">Global Group</option>
+              </select>
+            </label>
+            <% } else { %>
+            <select id="editType" style="display:none;" disabled>
+              <option value="agency" selected>Agency-Specific Group</option>
             </select>
-          </label>
-          <% } else { %>
-          <select id="editType" style="display:none;" disabled>
-            <option value="agency" selected>Agency-Specific Group</option>
-          </select>
-          <% } %>
+            <% } %>
 
-          <label id="editAgencyPrefixWrap" style="display:none;">Select Agency
-            <select id="editAgencyPrefixSelect">
-              <option value="">Select Agency</option>
-            </select>
-          </label>
+            <label id="editAgencyPrefixWrap" style="display:none;">Select Agency
+              <select id="editAgencyPrefixSelect">
+                <option value="">Select Agency</option>
+              </select>
+            </label>
 
-          <label id="editCountyWrap" style="display:none;">Select County
-            <select id="editCountySelect">
-              <option value="">Select County</option>
-            </select>
-          </label>
-<label id="editStateWrap" style="display:none;">Select State
-  <select id="editStateSelect">
-    <option value="">Select State</option>
-  </select>
-</label>
+            <label id="editCountyWrap" style="display:none;">Select County
+              <select id="editCountySelect">
+                <option value="">Select County</option>
+              </select>
+            </label>
 
-          <label style="flex: 1; min-width: 160px;">Group Name
-            <input
-              id="editGroupName"
-              placeholder="Group name"
-              style="width: 100%;"
-            />
-          </label>
+            <label id="editRegionWrap" style="display:none;">Select Region
+              <select id="editRegionSelect">
+                <option value="">Select Region</option>
+              </select>
+            </label>
+            <label id="editStateWrap" style="display:none;">Select State
+              <select id="editStateSelect">
+                <option value="">Select State</option>
+              </select>
+            </label>
 
-          <label style="min-width: 220px;">Channel Behavior
-            <select id="editBehaviorSelect" style="min-width: 120px;">
-              <option value="both">BOTH - Send and Recieve (default)</option>
-              <option value="read">READ - Recieve Only</option>
-              <option value="write">WRITE - Send Only</option>
-            </select>
-          </label>
+            <label style="flex: 1; min-width: 160px;">Group Name
+              <input
+                id="editGroupName"
+                placeholder="Group Name"
+                style="width: 100%;"
+              />
+            </label>
 
-          <% if (isGlobalAdmin) { %>
-          <label id="editPrivateWrap" style="min-width: 220px;">Hide From Agency Admins
-            <select id="editPrivateSelect" style="min-width: 120px;">
-              <option value="no">No</option>
-              <option value="yes">Yes</option>
-            </select>
-          </label>
-          <% } %>
-        </div>
+            <label style="min-width: 220px;">Channel Behavior
+              <select id="editBehaviorSelect" style="min-width: 120px;">
+                <option value="both">BOTH - Send and Receive (default)</option>
+                <option value="read">READ - Receive Only</option>
+                <option value="write">WRITE - Send Only</option>
+              </select>
+            </label>
 
-        <div class="row" style="margin-top:8px;">
-          <label style="flex: 1; min-width: 0;">Group Description
-            <input
-              id="editGroupDescription"
-              placeholder="One-line description for this group (optional)"
-              style="width: 100%;"
-            />
-          </label>
-        </div>
+            <% if (isGlobalAdmin) { %>
+            <label id="editPrivateWrap" style="min-width: 220px;">Hide From Agency Admins
+              <select id="editPrivateSelect" style="min-width: 120px;">
+                <option value="no">No</option>
+                <option value="yes">Yes</option>
+              </select>
+            </label>
+            <% } %>
+          </div>
 
-        <div class="row" style="margin-top:16px; align-items:center; justify-content:flex-end;">
+          <div class="row" style="margin-top:8px;">
+            <label style="flex: 1; min-width: 0;">Group Description
+              <input
+                id="editGroupDescription"
+                placeholder="One-line description for this group (optional)"
+                style="width: 100%;"
+              />
+            </label>
+          </div>
+        </section>
+
+        <div class="editGroupFooter row">
           <span id="editGroupMsg" class="msg"></span>
           <button class="btn success" id="editGroupSaveBtn" type="button">Save Changes</button>
         </div>
@@ -237,151 +279,152 @@
   </div>
 </div>
 
-<!-- Mass Assign Modal -->
-<div class="modalOverlay" id="massOverlay" style="display:none;">
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="massTitle">
-    <div class="modalHeader">
-      <h2 id="massTitle" style="margin:0;">Mass Assign</h2>
-      <button class="btn" id="massCloseBtn" type="button">Close</button>
-    </div>
-
-    <div class="modalBody">
-      <div class="segmented" style="margin-top:4px;">
-        <button class="segBtn active" type="button" data-mode="agency">Agencies</button>
-        <button class="segBtn" type="button" data-mode="template">Templates</button>
-        <button class="segBtn" type="button" data-mode="group">Users With An Existing Group</button>
-        <button class="segBtn" type="button" data-mode="users">Specific Users</button>
-      </div>
-
-      <!-- Agency mode -->
-      <div id="massAgencyPane" style="margin-top:14px;">
-        <div class="row" style="justify-content:space-between; align-items:center;">
-          <input
-            id="agencySearch"
-            placeholder="Search agencies..."
-            style="flex: 1; min-width: 0;"
-          />
-          <div class="row" style="gap:10px;">
-            <button class="btn" id="agencySelectAll" type="button">Select All</button>
-            <button class="btn" id="agencyClearAll" type="button">Clear</button>
-          </div>
-        </div>
-        <div id="agencyList" class="groupsBox" style="margin-top:10px;"></div>
-      </div>
-
-      <!-- Group mode -->
-      <div id="massGroupPane" style="display:none; margin-top:14px;">
-        <div class="row" style="justify-content:space-between; align-items:center;">
-          <input
-            id="sourceGroupSearch"
-            placeholder="Search groups..."
-            style="flex: 1; min-width: 0;"
-          />
-          <div class="row" style="gap:10px;">
-            <button class="btn" id="groupSelectAll" type="button">Select All</button>
-            <button class="btn" id="groupClearAll" type="button">Clear</button>
-          </div>
-        </div>
-        <div id="sourceGroupList" class="groupsBox" style="margin-top:10px;"></div>
-      </div>
-
-      <!-- Template mode -->
-      <div id="massTemplatePane" style="display:none; margin-top:14px;">
-        <div class="row" style="justify-content:space-between; align-items:center;">
-          <input
-            id="templateSearch"
-            placeholder="Search templates..."
-            style="flex: 1; min-width: 0;"
-          />
-          <div class="row" style="gap:10px;">
-            <button class="btn" id="templateSelectAll" type="button">Select All</button>
-            <button class="btn" id="templateClearAll" type="button">Clear</button>
-          </div>
-        </div>
-        <div id="templateList" class="groupsBox" style="margin-top:10px;"></div>
-      </div>
-
-      <!-- Users mode -->
-      <div id="massUsersPane" style="display:none; margin-top:14px;">
-        <div class="row" style="justify-content:space-between; align-items:center;">
-          <input
-            id="userSearch"
-            placeholder="Search username, name, or email..."
-            style="flex: 1; min-width: 0;"
-            autocomplete="off"
-          />
-          <div class="row" style="gap:10px;">
-            <button class="btn" id="userSelectAll" type="button">Select All (shown)</button>
-            <button class="btn" id="userClearAll" type="button">Clear</button>
-          </div>
-        </div>
-        <div id="userList" class="groupsBox" style="margin-top:10px;"></div>
-      </div>
-
-      <div class="row" style="margin-top:16px; align-items:center; justify-content:flex-end;">
-        <span id="massMsg" class="msg"></span>
-        <button class="btn success" id="massApplyBtn" type="button">Mass Assign</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- Group Members Modal (read-only) -->
+<!-- Group Members Modal -->
 <div class="modalOverlay" id="membersOverlay" style="display:none;">
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="membersTitle">
+  <div class="modal membersModal" role="dialog" aria-modal="true" aria-labelledby="membersTitle">
     <div class="modalHeader">
-      <h2 id="membersTitle" style="margin:0;">Group Members</h2>
+      <div class="modalHeaderLeft">
+        <h2 id="membersTitle" style="margin:0;">Members</h2>
+      </div>
       <button class="btn" id="membersCloseBtn" type="button">Close</button>
     </div>
     <div class="modalBody">
-      <div id="membersSummary" class="msg"></div>
+      <div class="membersSplit" id="membersSplit">
+        <div class="membersSplitPane" id="membersListPane">
+          <div class="membersSplitPaneHead">
+            <h3>Current Members</h3>
+            <span id="membersRange" class="muted membersRange"></span>
+          </div>
+          <div id="membersSummary" class="msg"></div>
+          <input
+            id="membersFilter"
+            placeholder="Search name, username, agency, or template..."
+          />
+          <div class="pagination" id="membersPagination" style="display:none;">
+            <button class="btn pagination-first-last" id="membersFirstBtn" type="button">First</button>
+            <button class="btn" id="membersPrevBtn" type="button">Previous</button>
+            <span id="membersPageInfo"></span>
+            <button class="btn" id="membersNextBtn" type="button">Next</button>
+            <button class="btn pagination-first-last" id="membersLastBtn" type="button">Last</button>
+          </div>
+          <div id="membersList" class="groupsBox membersListBox"></div>
+        </div>
 
-      <div style="margin-top:14px;">
-        <input
-          id="membersFilter"
-          placeholder="Filter by username, name, or email..."
-          style="width: 100%; box-sizing: border-box;"
-        />
+        <div class="membersSplitPane" id="membersMassPane">
+          <div class="membersSplitPaneHead">
+            <h3>Bulk Update</h3>
+          </div>
+          <div class="segmented membersMassActionToggle">
+            <button class="segBtn active" type="button" id="massActionAssignBtn">Assign</button>
+            <button class="segBtn" type="button" id="massActionUnassignBtn">Unassign</button>
+          </div>
+
+          <div class="segmented" id="massSegmented">
+            <button class="segBtn active" type="button" data-mode="agency">Agencies</button>
+            <button class="segBtn" type="button" data-mode="template">Templates</button>
+            <button class="segBtn" type="button" data-mode="agencyType">Agency Types</button>
+            <button class="segBtn" type="button" data-mode="group">Existing Groups</button>
+            <button class="segBtn" type="button" data-mode="users">Specific Users</button>
+          </div>
+
+          <div class="membersMassPanes">
+            <div id="massAgencyPane">
+              <div class="row" style="justify-content:space-between; align-items:center;">
+                <input
+                  id="agencySearch"
+                  placeholder="Search agencies..."
+                  style="flex: 1; min-width: 0;"
+                />
+                <div class="row" style="gap:10px;">
+                  <button class="btn" type="button" id="agencySelectAll">Select All</button>
+                  <button class="btn" type="button" id="agencyClearAll">Clear</button>
+                </div>
+              </div>
+              <div id="agencyList" class="groupsBox membersMassListBox"></div>
+            </div>
+
+            <div id="massGroupPane" style="display:none;">
+              <div class="row" style="justify-content:space-between; align-items:center;">
+                <input
+                  id="sourceGroupSearch"
+                  placeholder="Search groups..."
+                  style="flex: 1; min-width: 0;"
+                />
+                <div class="row" style="gap:10px;">
+                  <button class="btn" type="button" id="groupSelectAll">Select All</button>
+                  <button class="btn" type="button" id="groupClearAll">Clear</button>
+                </div>
+              </div>
+              <div id="sourceGroupList" class="groupsBox membersMassListBox"></div>
+            </div>
+
+            <div id="massTemplatePane" style="display:none;">
+              <div class="row" style="justify-content:space-between; align-items:center;">
+                <input
+                  id="templateSearch"
+                  placeholder="Search templates..."
+                  style="flex: 1; min-width: 0;"
+                />
+                <div class="row" style="gap:10px;">
+                  <button class="btn" type="button" id="templateSelectAll">Select All</button>
+                  <button class="btn" type="button" id="templateClearAll">Clear</button>
+                </div>
+              </div>
+              <div id="templateList" class="groupsBox membersMassListBox"></div>
+            </div>
+
+            <div id="massAgencyTypePane" style="display:none;">
+              <div class="row" style="justify-content:space-between; align-items:center;">
+                <input
+                  id="agencyTypeSearch"
+                  placeholder="Search agency types..."
+                  style="flex: 1; min-width: 0;"
+                />
+                <div class="row" style="gap:10px;">
+                  <button class="btn" type="button" id="agencyTypeSelectAll">Select All</button>
+                  <button class="btn" type="button" id="agencyTypeClearAll">Clear</button>
+                </div>
+              </div>
+              <div id="agencyTypeList" class="groupsBox membersMassListBox"></div>
+            </div>
+
+            <div id="massUsersPane" style="display:none;">
+              <div class="row" style="justify-content:space-between; align-items:center;">
+                <input
+                  id="userSearch"
+                  placeholder="Search username, name, or email..."
+                  style="flex: 1; min-width: 0;"
+                  autocomplete="off"
+                />
+                <div class="row" style="gap:10px;">
+                  <button class="btn" type="button" id="userSelectAll">Select All (shown)</button>
+                  <button class="btn" type="button" id="userClearAll">Clear</button>
+                </div>
+              </div>
+              <div id="userList" class="groupsBox membersMassListBox"></div>
+            </div>
+          </div>
+
+          <div class="membersMassFooter row">
+            <span id="massMsg" class="msg"></span>
+            <button class="btn success" id="massApplyBtn" type="button">ASSIGN FOR SELECTED AGENCIES</button>
+          </div>
+        </div>
       </div>
 
-      <div class="pagination" style="margin-top:10px; display:flex; align-items:center; justify-content:center; gap:8px; font-size:14px;">
-        <button class="btn" id="membersPrevBtn" type="button"
-          style="padding: 4px 14px; border-radius:999px; background:#2f3241; border:1px solid #3a3d4d; color:#e4e4e4; font-size:13px; line-height:1.2;">
-          Previous
-        </button>
-        <span id="membersPageInfo"
-          style="padding:3px 10px; border-radius:999px; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.06); opacity:.9; font-size:12px;">
-        </span>
-        <button class="btn" id="membersNextBtn" type="button"
-          style="padding: 4px 14px; border-radius:999px; background:#2f3241; border:1px solid #3a3d4d; color:#e4e4e4; font-size:13px; line-height:1.2;">
-          Next
-        </button>
-      </div>
-
-      <div
-        id="membersList"
-        class="groupsBox"
-        style="margin-top:10px; max-height: 320px; overflow:auto;"
-      ></div>
-    </div>
-  </div>
-</div>
-
-<!-- Admin Access Modal (which agencies' admins can see this group) -->
-<div class="modalOverlay" id="adminAccessOverlay" style="display:none;">
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="adminAccessTitle">
-    <div class="modalHeader">
-      <h2 id="adminAccessTitle" style="margin:0;">Group Admin Access</h2>
-      <button class="btn" id="adminAccessCloseBtn" type="button">Close</button>
-    </div>
-    <div class="modalBody">
-      <p id="adminAccessSummary" class="msg"></p>
-      <div class="row" style="justify-content:flex-end; align-items:center; gap:10px; margin-top:8px;">
-        <button class="btn" type="button" id="adminAccessSelectAllBtn">Select All</button>
-        <button class="btn" type="button" id="adminAccessClearBtn">Clear</button>
-      </div>
-      <div id="adminAccessBox" class="groupsBox" style="margin-top:10px; max-height:320px; overflow:auto;">
-        <div id="adminAccessInner" class="groupsInner"></div>
+      <div class="membersDelegatePane" id="membersDelegatePane">
+        <div class="membersSplitPaneHead">
+          <h3>Delegate Management to Agency Admins</h3>
+          <div class="row" style="gap:8px; flex-wrap:wrap;">
+            <button class="btn" type="button" id="adminAccessSelectAllBtn">Select All</button>
+            <button class="btn" type="button" id="adminAccessClearBtn">Clear</button>
+          </div>
+        </div>
+        <p id="adminAccessSummary" class="msg"></p>
+        <input id="adminAccessSearch" placeholder="Search agencies..." />
+        <div id="adminAccessBox" class="groupsBox membersMassListBox">
+          <div id="adminAccessInner" class="groupsInner"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -391,24 +434,34 @@
 <script>
 const membersOverlay = document.getElementById("membersOverlay");
 const membersCloseBtn = document.getElementById("membersCloseBtn");
+const membersTitle = document.getElementById("membersTitle");
 const membersSummary = document.getElementById("membersSummary");
+const membersRange = document.getElementById("membersRange");
 const membersFilter = document.getElementById("membersFilter");
 const membersList = document.getElementById("membersList");
+const membersSplit = document.getElementById("membersSplit");
+const membersMassPane = document.getElementById("membersMassPane");
+const membersDelegatePane = document.getElementById("membersDelegatePane");
+const membersFirstBtn = document.getElementById("membersFirstBtn");
 const membersPrevBtn = document.getElementById("membersPrevBtn");
 const membersNextBtn = document.getElementById("membersNextBtn");
+const membersLastBtn = document.getElementById("membersLastBtn");
 const membersPageInfo = document.getElementById("membersPageInfo");
 
 const createType = document.getElementById("createType");
 const agencyPrefixSelect = document.getElementById("agencyPrefixSelect");
 const countySelect = document.getElementById("countySelect");
+const regionSelect = document.getElementById("regionSelect");
 const stateSelect = document.getElementById("stateSelect");
 const groupName = document.getElementById("groupName");
 const groupDescription = document.getElementById("groupDescription");
 const agencyPrefixWrap = document.getElementById("agencyPrefixWrap");
 const countyWrap = document.getElementById("countyWrap");
+const regionWrap = document.getElementById("regionWrap");
 const stateWrap = document.getElementById("stateWrap");
 const editAgencyPrefixWrap = document.getElementById("editAgencyPrefixWrap");
 const editCountyWrap = document.getElementById("editCountyWrap");
+const editRegionWrap = document.getElementById("editRegionWrap");
 const editStateWrap = document.getElementById("editStateWrap");
 
 // Private dropdown (Global Admins only)
@@ -428,7 +481,7 @@ const groupScopeDetailSelect = document.getElementById("groupScopeDetailSelect")
 const tbody = document.getElementById("tbody");
 const listMsg = document.getElementById("listMsg");
 
-// Sorting (similar behavior to users-manage.ejs)
+// Sorting (similar behavior to users.ejs)
 let sortKey = "name";
 let sortDir = 1; // 1 = ascending, -1 = descending
 
@@ -439,8 +492,11 @@ function normalizeSortValue(v){
 function getSortValue(group, key){
   if (!group) return "";
   if (key === "name") return normalizeSortValue(group.name);
+  if (key === "type") return normalizeSortValue(groupTypeLabel(group));
+  if (key === "scope") return normalizeSortValue(groupScopeLabel(group));
+  if (key === "behavior") return normalizeSortValue(groupBehaviorLabel(group));
   if (key === "private") {
-    const isPriv = normalizeSortValue(group?.attributes?.private) === "yes";
+    const isPriv = groupIsPrivate(group);
     // Sort as 0/1 so non-private comes first in ascending order
     return isPriv ? "1" : "0";
   }
@@ -475,7 +531,6 @@ function updateSortIndicators(){
 function initGroupSort(){
   const headers = document.querySelectorAll("th.sortable");
   headers.forEach(th => {
-    th.style.cursor = "pointer";
     th.addEventListener("click", () => {
       const key = th.getAttribute("data-key");
       if (!key) return;
@@ -494,16 +549,17 @@ function initGroupSort(){
 }
 const reloadBtn = document.getElementById("reloadBtn");
 
-// Mass assign modal
-const massOverlay = document.getElementById("massOverlay");
-const massCloseBtn = document.getElementById("massCloseBtn");
+// Mass assign / unassign (embedded in Members modal)
 const massTitle = document.getElementById("massTitle");
 const massMsg = document.getElementById("massMsg");
 const massApplyBtn = document.getElementById("massApplyBtn");
+const massActionAssignBtn = document.getElementById("massActionAssignBtn");
+const massActionUnassignBtn = document.getElementById("massActionUnassignBtn");
 
 const massAgencyPane = document.getElementById("massAgencyPane");
 const massGroupPane = document.getElementById("massGroupPane");
 const massTemplatePane = document.getElementById("massTemplatePane");
+const massAgencyTypePane = document.getElementById("massAgencyTypePane");
 const massUsersPane = document.getElementById("massUsersPane");
 
 const agencySearch = document.getElementById("agencySearch");
@@ -522,6 +578,11 @@ const templateSelectAll = document.getElementById("templateSelectAll");
 const templateClearAll = document.getElementById("templateClearAll");
 const templateModeVerb = document.getElementById("templateModeVerb");
 
+const agencyTypeSearch = document.getElementById("agencyTypeSearch");
+const agencyTypeList = document.getElementById("agencyTypeList");
+const agencyTypeSelectAll = document.getElementById("agencyTypeSelectAll");
+const agencyTypeClearAll = document.getElementById("agencyTypeClearAll");
+
 const userSearch = document.getElementById("userSearch");
 const userList = document.getElementById("userList");
 const userSelectAll = document.getElementById("userSelectAll");
@@ -531,6 +592,7 @@ const userClearAll = document.getElementById("userClearAll");
 const editType = document.getElementById("editType");
 const editAgencyPrefixSelect = document.getElementById("editAgencyPrefixSelect");
 const editCountySelect = document.getElementById("editCountySelect");
+const editRegionSelect = document.getElementById("editRegionSelect");
 const editStateSelect = document.getElementById("editStateSelect");
 const editBehaviorSelect = document.getElementById("editBehaviorSelect");
 
@@ -540,6 +602,7 @@ const editPrivateWrap = document.getElementById("editPrivateWrap");
 
 // Global admin flag for JS logic
 const IS_GLOBAL_ADMIN = <%= isGlobalAdmin ? 'true' : 'false' %>;
+const CAN_SEE_CHANNEL_PATCH = <%= (typeof canSeeChannelPatch !== "undefined" && canSeeChannelPatch) ? "true" : "false" %>;
 const IS_AGENCY_ADMIN = <%= isAgencyAdmin ? 'true' : 'false' %>;
 const ALLOWED_AGENCY_SUFFIXES = <%- JSON.stringify(allowedAgencySuffixes || []) %>;
 const IS_MULTI_AGENCY_ADMIN =
@@ -566,7 +629,13 @@ function agenciesForScopeFilter() {
 }
 
 let groupsCache = [];
+let sourceGroupsCache = [];
+let groupsTotal = 0;
+let groupsPage = 1;
+const GROUPS_PAGE_SIZE = 25;
+let groupsFilterTimer = null;
 let agenciesCache = [];
+let regionsCache = [];
 
 // Action-lock prefixes (case-insensitive, comma-separated)
 const GROUPS_ACTIONS_HIDDEN_PREFIXES_RAW = "<%= (process.env.GROUPS_ACTIONS_HIDDEN_PREFIXES) %>";
@@ -660,7 +729,7 @@ async function loadAgencies(){
   agencyPrefixSelect.innerHTML =
     `<option value="">Select Agency</option>` +
     prefixList.map(a => {
-      const prefix = String(a.groupPrefix || "").trim().toUpperCase();
+      const prefix = String(a.groupPrefix || "").trim();
       const label = `${a.name} (${prefix})`;
       return `<option value="${esc(prefix)}">${esc(label)}</option>`;
     }).join("");
@@ -716,9 +785,84 @@ if (editStateSelect && stateSelect) {
   if (editCountySelect) {
     editCountySelect.innerHTML = countySelect.innerHTML;
   }
+  if (editRegionSelect && regionSelect) {
+    editRegionSelect.innerHTML = regionSelect.innerHTML;
+  }
 
   renderAgencyList();
   updateGroupScopeDetailOptions();
+  updateCreateEditTypeOptions();
+}
+
+async function loadRegions() {
+  try {
+    const res = await fetch("/api/regions");
+    const out = await res.json().catch(() => []);
+    regionsCache = res.ok && Array.isArray(out) ? out : [];
+  } catch (_) {
+    regionsCache = [];
+  }
+  if (regionSelect) {
+    regionSelect.innerHTML =
+      `<option value="">Select Region</option>` +
+      regionsCache
+        .map((r) => {
+          const name = String(r?.name || "").trim();
+          if (!name) return "";
+          return `<option value="${esc(name)}">${esc(name)}</option>`;
+        })
+        .filter(Boolean)
+        .join("");
+  }
+  if (editRegionSelect && regionSelect) {
+    editRegionSelect.innerHTML = regionSelect.innerHTML;
+  }
+  updateCreateEditTypeOptions();
+}
+
+/** Which create/edit group types have underlying data available. */
+function getGroupTypeAvailability() {
+  const agencies = Array.isArray(agenciesCache) ? agenciesCache : [];
+  const regions = Array.isArray(regionsCache) ? regionsCache : [];
+  return {
+    agency: agencies.some(
+      (a) => String(a.groupPrefix || "").trim() || String(a.suffix || "").trim()
+    ),
+    county: agencies.some((a) => String(a.county || "").trim()),
+    region: regions.some((r) => String(r?.name || "").trim()),
+    state: agencies.some((a) => String(a.state || "").trim()),
+    generic: true,
+  };
+}
+
+function applyTypeOptionVisibility(select, { forceShow } = {}) {
+  if (!select || select.disabled) return;
+  const avail = getGroupTypeAvailability();
+  const force = String(forceShow || "").trim().toLowerCase();
+  Array.from(select.options).forEach((opt) => {
+    const v = String(opt.value || "").trim().toLowerCase();
+    if (v === "generic") {
+      opt.hidden = false;
+      opt.disabled = false;
+      return;
+    }
+    const show = !!avail[v] || (force && v === force);
+    opt.hidden = !show;
+    opt.disabled = !show;
+  });
+  const selected = select.options[select.selectedIndex];
+  if (selected && (selected.hidden || selected.disabled)) {
+    const first = Array.from(select.options).find((o) => !o.hidden && !o.disabled);
+    if (first) {
+      select.value = first.value;
+      if (typeof select.onchange === "function") select.onchange();
+    }
+  }
+}
+
+function updateCreateEditTypeOptions(forceEditType) {
+  applyTypeOptionVisibility(createType);
+  applyTypeOptionVisibility(editType, { forceShow: forceEditType });
 }
 
 function agencyItems(){
@@ -728,7 +872,7 @@ function agencyItems(){
     .sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")))
     .map(a => {
       const sfx = String(a.suffix || "").trim().toLowerCase();
-      const prefix = String(a.groupPrefix || "").trim().toUpperCase();
+      const prefix = String(a.groupPrefix || "").trim();
       return { name: String(a.name || ""), suffix: sfx, prefix };
     });
 }
@@ -752,6 +896,7 @@ function parseGroupName(fullName) {
   let type = "generic";
   let agencyPrefix = "";
   let county = "";
+  let region = "";
   let state = "";
   let baseName = name;
 
@@ -766,14 +911,14 @@ function parseGroupName(fullName) {
     const leftUpper = left.toUpperCase();
     const leftNoCoUpper = leftNoCo.toUpperCase();
 
-    // Check for agency prefix
+    // Check for agency short name (exact left side, case-insensitive)
     const agencyMatch = (agenciesCache || []).find(a =>
       String(a.groupPrefix || "").trim().toUpperCase() === leftUpper
     );
 
     if (agencyMatch) {
       type = "agency";
-      agencyPrefix = leftUpper;
+      agencyPrefix = String(agencyMatch.groupPrefix || "").trim() || left;
       baseName = right || "";
     } else {
       // Try County (compare uppercase)
@@ -817,18 +962,20 @@ function parseGroupName(fullName) {
 
 
   // Fallback parse for new format without " - "
-  // Agency: "<PREFIX> <Title>"
+  // Agency: "<PREFIX> <Title>" — longest short-name match (supports spaces)
   if (type === "generic") {
     const upperName = name.toUpperCase();
     const agencyPrefixes = (agenciesCache || [])
-      .map(a => String(a.groupPrefix || "").trim().toUpperCase())
+      .map((a) => String(a.groupPrefix || "").trim())
       .filter(Boolean)
-      .sort((a,b)=>b.length - a.length); // longest first, just in case
-    const hit = agencyPrefixes.find(pfx => upperName.startsWith(pfx + " "));
+      .sort((a, b) => b.length - a.length);
+    const hit = agencyPrefixes.find((pfx) =>
+      upperName.startsWith(pfx.toUpperCase() + " ")
+    );
     if (hit) {
       type = "agency";
       agencyPrefix = hit;
-      baseName = name.slice(hit.length + 1).trim(); // drop "<PREFIX> "
+      baseName = name.slice(hit.length + 1).trim();
     }
   }
 
@@ -844,6 +991,21 @@ function parseGroupName(fullName) {
       type = "county";
       county = hitCounty;
       baseName = name.slice((hitCounty + " Co ").length).trim();
+    }
+  }
+  // Region: "<Region Name> <Title>" (longest match first)
+  if (type === "generic") {
+    const regions = (regionsCache || [])
+      .map((r) => String(r?.name || "").trim())
+      .filter(Boolean)
+      .sort((a, b) => b.length - a.length);
+    const hitRegion = regions.find((rn) =>
+      name.toLowerCase().startsWith((rn + " ").toLowerCase())
+    );
+    if (hitRegion) {
+      type = "region";
+      region = hitRegion;
+      baseName = name.slice(hitRegion.length + 1).trim();
     }
   }
   // State: "<State> <Title>"
@@ -865,24 +1027,52 @@ function parseGroupName(fullName) {
     }
   }
 
-  return { type, agencyPrefix, county, state, baseName, behavior };
+  return { type, agencyPrefix, county, region, state, baseName, behavior };
 }
 
 function normalizeCreatedType(raw) {
   return String(raw || "").trim().toLowerCase();
 }
 
-/** Scope bucket for Existing Groups filters (agency / county / state / global). */
+function groupCreatedType(g) {
+  return normalizeCreatedType(g?.created_type || g?.attributes?.created_type);
+}
+
+function groupCreatedTypeDetail(g) {
+  return String(g?.created_type_detail || g?.attributes?.created_type_detail || "").trim();
+}
+
+function groupIsPrivate(g) {
+  if (g && g.is_private === true) return true;
+  if (g && g.is_private === false) return false;
+  return String(g?.attributes?.private || "").trim().toLowerCase() === "yes";
+}
+
+function groupDescriptionText(g) {
+  return String(g?.description || g?.attributes?.description || "").trim();
+}
+
+/** Scope bucket for Existing Groups filters (agency / county / region / state / global). */
 function getPortalGroupScope(g) {
   const parsed = parseGroupName(g?.name || "");
-  const createdType = normalizeCreatedType(g?.attributes?.created_type);
+  const createdType = groupCreatedType(g);
 
   // Name patterns win for scoped types (fixes legacy groups mis-tagged as Global).
-  if (parsed.type === "agency" || parsed.type === "county" || parsed.type === "state") {
+  if (
+    parsed.type === "agency" ||
+    parsed.type === "county" ||
+    parsed.type === "region" ||
+    parsed.type === "state"
+  ) {
     return parsed.type;
   }
 
-  if (createdType === "agency" || createdType === "county" || createdType === "state") {
+  if (
+    createdType === "agency" ||
+    createdType === "county" ||
+    createdType === "region" ||
+    createdType === "state"
+  ) {
     return createdType;
   }
   if (createdType === "global") return "global";
@@ -890,13 +1080,54 @@ function getPortalGroupScope(g) {
   return "global";
 }
 
+function groupTypeLabel(g) {
+  switch (getPortalGroupScope(g)) {
+    case "agency": return "Agency";
+    case "county": return "County";
+    case "region": return "Region";
+    case "state": return "State";
+    default: return "Global";
+  }
+}
+
+function groupScopeLabel(g) {
+  const type = getPortalGroupScope(g);
+  const detail = groupCreatedTypeDetail(g);
+  if (type === "agency") {
+    if (detail) return detail;
+    const prefix = getPortalGroupAgencyPrefixDetail(g);
+    if (prefix) {
+      const agency = (agenciesCache || []).find(
+        (a) => String(a.groupPrefix || "").trim().toUpperCase() === prefix.toUpperCase()
+      );
+      return String(agency?.name || prefix).trim();
+    }
+    return "";
+  }
+  if (type === "county") {
+    const county = String(getPortalGroupCountyDetail(g) || detail || "").trim();
+    if (!county) return "";
+    return / county$/i.test(county) ? county : `${county} County`;
+  }
+  if (type === "region") return getPortalGroupRegionDetail(g) || detail;
+  if (type === "state") return getPortalGroupStateDetail(g) || detail;
+  return "";
+}
+
+function groupBehaviorLabel(g) {
+  const behavior = parseGroupName(g?.name || "").behavior;
+  if (behavior === "read") return "READ";
+  if (behavior === "write") return "WRITE";
+  return "BOTH";
+}
+
 function getPortalGroupStateDetail(g) {
   const parsed = parseGroupName(g?.name || "");
   if (parsed.type === "state" && parsed.state) {
     return String(parsed.state).trim().toUpperCase();
   }
-  if (normalizeCreatedType(g?.attributes?.created_type) === "state") {
-    return String(g?.attributes?.created_type_detail || "").trim().toUpperCase();
+  if (groupCreatedType(g) === "state") {
+    return groupCreatedTypeDetail(g).toUpperCase();
   }
   return "";
 }
@@ -906,22 +1137,56 @@ function getPortalGroupCountyDetail(g) {
   if (parsed.type === "county" && parsed.county) {
     return String(parsed.county).trim();
   }
-  if (normalizeCreatedType(g?.attributes?.created_type) === "county") {
-    return String(g?.attributes?.created_type_detail || "").trim();
+  if (groupCreatedType(g) === "county") {
+    return groupCreatedTypeDetail(g);
+  }
+  return "";
+}
+
+function getPortalGroupRegionDetail(g) {
+  const parsed = parseGroupName(g?.name || "");
+  if (parsed.type === "region" && parsed.region) {
+    return String(parsed.region).trim();
+  }
+  if (groupCreatedType(g) === "region") {
+    return groupCreatedTypeDetail(g);
   }
   return "";
 }
 
 function getPortalGroupAgencyPrefixDetail(g) {
+  if (groupCreatedType(g) === "agency") {
+    const detail = groupCreatedTypeDetail(g);
+    if (detail) {
+      const byName = agenciesCache.find(
+        (a) => String(a.name || "").trim().toLowerCase() === detail.toLowerCase()
+      );
+      if (byName) return String(byName.groupPrefix || "").trim();
+      return detail;
+    }
+  }
   const parsed = parseGroupName(g?.name || "");
   if (parsed.type === "agency" && parsed.agencyPrefix) {
-    return String(parsed.agencyPrefix).trim().toUpperCase();
+    return String(parsed.agencyPrefix).trim();
   }
   return "";
 }
 
+function getPortalGroupAgencyNameDetail(g) {
+  if (groupCreatedType(g) === "agency") {
+    return groupCreatedTypeDetail(g);
+  }
+  const prefix = getPortalGroupAgencyPrefixDetail(g);
+  if (!prefix) return "";
+  const match = agenciesCache.find(
+    (a) =>
+      String(a.groupPrefix || "").trim().toLowerCase() === prefix.toLowerCase()
+  );
+  return match ? String(match.name || "").trim() : "";
+}
+
 // Build a full group name from broken-out fields
-function buildGroupNameFromParts({ type, baseName, behavior, prefix, county, state }) {
+function buildGroupNameFromParts({ type, baseName, behavior, prefix, county, region, state }) {
   let name = String(baseName || "").trim();
   if (!name) return "";
 
@@ -930,13 +1195,17 @@ function buildGroupNameFromParts({ type, baseName, behavior, prefix, county, sta
   else if (b === "write") name += "_WRITE";
 
   if (type === "agency") {
-    const p = String(prefix || "").trim().toUpperCase();
+    const p = String(prefix || "").trim();
     if (!p) return "";
     name = `${p} ${name}`;
   } else if (type === "county") {
     const c = String(county || "").trim();
     if (!c) return "";
     name = `${c} Co ${name}`;
+  } else if (type === "region") {
+    const r = String(region || "").trim();
+    if (!r) return "";
+    name = `${r} ${name}`;
   } else if (type === "state") {
     const s = String(state || "").trim().toUpperCase();
     if (!s) return "";
@@ -946,30 +1215,48 @@ function buildGroupNameFromParts({ type, baseName, behavior, prefix, county, sta
   return ensureTakPrefix(name);
 }
 
-function isGroupEditable(name){
+function isGroupEditable(groupOrName){
   <% if (isGlobalAdmin) { %>
   return true;
   <% } %>
 
-  const raw = String(name || "").trim();
+  // Prefer full group object (attribute ownership); accept name string for legacy callers.
+  if (groupOrName && typeof groupOrName === "object") {
+    const detail = groupCreatedTypeDetail(groupOrName);
+    const createdType = groupCreatedType(groupOrName);
+    if (createdType === "agency" && detail) {
+      return agenciesCache.some(
+        (a) => String(a.name || "").trim().toLowerCase() === detail.toLowerCase()
+      );
+    }
+  }
+
+  const raw = String(
+    (groupOrName && typeof groupOrName === "object"
+      ? groupOrName.name
+      : groupOrName) || ""
+  ).trim();
   if (!raw) return false;
 
-  // Remove tak_ prefix first
   const n = stripTakPrefix(raw);
-
-  // Agency groups are formatted as: "<PREFIX> <Title>"
-  const spIdx = n.indexOf(" ");
-  if (spIdx <= 0) return false;
-
-  const prefix = n.slice(0, spIdx).trim().toUpperCase();
-
-  return agenciesCache.some(a =>
-    String(a.groupPrefix || "").trim().toUpperCase() === prefix
-  );
+  const prefixes = agenciesCache
+    .map((a) => String(a.groupPrefix || "").trim())
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length);
+  const nUpper = n.toUpperCase();
+  return prefixes.some((prefix) => {
+    const p = prefix.toUpperCase();
+    return (
+      nUpper.startsWith(p + " ") ||
+      nUpper.startsWith(p + "-") ||
+      nUpper.startsWith(p + " -")
+    );
+  });
 }
 
 function renderAgencyList(){
-  const needle = String(agencySearch.value || "").trim().toLowerCase();
+  if (!agencyList) return;
+  const needle = String(agencySearch?.value || "").trim().toLowerCase();
   const items = agencyItems().filter(x => {
     if (!needle) return true;
     return (
@@ -989,7 +1276,60 @@ function renderAgencyList(){
   }).join("") || `<div style="padding:10px; color: var(--muted);">No agencies found.</div>`;
 }
 
-// Show/hide agency / county selects based on type
+/** Agency types that currently have at least one registered agency (scoped for agency admins). */
+function agencyTypesWithAgencies(){
+  const list = typeof agenciesForScopeFilter === "function"
+    ? agenciesForScopeFilter()
+    : (Array.isArray(agenciesCache) ? agenciesCache : []);
+  const counts = new Map();
+  for (const a of list) {
+    const type = String(a?.type || "").trim();
+    const sfx = String(a?.suffix || "").trim();
+    if (!type || !sfx) continue;
+    counts.set(type, (counts.get(type) || 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .map(([type, count]) => ({ type, count }))
+    .sort((a, b) => a.type.localeCompare(b.type, undefined, { sensitivity: "base" }));
+}
+
+function suffixesForSelectedAgencyTypes(types){
+  const wanted = new Set(
+    (types || []).map((t) => String(t || "").trim().toLowerCase()).filter(Boolean)
+  );
+  if (!wanted.size) return [];
+  const list = typeof agenciesForScopeFilter === "function"
+    ? agenciesForScopeFilter()
+    : (Array.isArray(agenciesCache) ? agenciesCache : []);
+  const suffixes = [];
+  for (const a of list) {
+    const type = String(a?.type || "").trim().toLowerCase();
+    if (!wanted.has(type)) continue;
+    const sfx = String(a?.suffix || "").trim().toLowerCase();
+    if (sfx) suffixes.push(sfx);
+  }
+  return Array.from(new Set(suffixes));
+}
+
+function renderAgencyTypeList(){
+  if (!agencyTypeList) return;
+  const needle = String(agencyTypeSearch?.value || "").trim().toLowerCase();
+  const items = agencyTypesWithAgencies().filter((x) => {
+    if (!needle) return true;
+    return x.type.toLowerCase().includes(needle);
+  });
+  agencyTypeList.innerHTML = items.map((x) => {
+    const label = `${x.type} (${x.count} ${x.count === 1 ? "agency" : "agencies"})`;
+    return `
+      <label class="groupItem">
+        <input type="checkbox" class="agencyTypeChk" value="${esc(x.type)}" />
+        <span>${esc(label)}</span>
+      </label>
+    `;
+  }).join("") || `<div style="padding:10px; color: var(--muted);">No agency types with registered agencies.</div>`;
+}
+
+// Show/hide agency / county / region selects based on type
 createType.onchange = () => {
   if (!IS_GLOBAL_ADMIN) {
     if (IS_MULTI_AGENCY_ADMIN) {
@@ -998,6 +1338,7 @@ createType.onchange = () => {
       agencyPrefixWrap.style.display = "none";
     }
     if (countyWrap) countyWrap.style.display = "none";
+    if (regionWrap) regionWrap.style.display = "none";
     if (stateWrap) stateWrap.style.display = "none";
     if (privateWrap) privateWrap.style.display = "none";
     return;
@@ -1005,15 +1346,17 @@ createType.onchange = () => {
   const v = createType.value;
   const isAgency = v === "agency";
   const isCounty = v === "county";
+  const isRegion = v === "region";
   const isState = v === "state";
 
   if (agencyPrefixWrap) agencyPrefixWrap.style.display = isAgency ? "flex" : "none";
   if (countyWrap) countyWrap.style.display = isCounty ? "flex" : "none";
+  if (regionWrap) regionWrap.style.display = isRegion ? "flex" : "none";
   if (stateWrap) stateWrap.style.display = isState ? "flex" : "none";
   if (privateWrap) privateWrap.style.display = isAgency ? "flex" : "none";
 };
 
-// Show/hide edit agency / county selects based on type
+// Show/hide edit agency / county / region selects based on type
 if (editType) {
   editType.onchange = () => {
     if (!IS_GLOBAL_ADMIN) {
@@ -1023,6 +1366,7 @@ if (editType) {
         editAgencyPrefixWrap.style.display = "none";
       }
       if (editCountyWrap) editCountyWrap.style.display = "none";
+      if (editRegionWrap) editRegionWrap.style.display = "none";
       if (editStateWrap) editStateWrap.style.display = "none";
       if (editPrivateWrap) editPrivateWrap.style.display = "none";
       return;
@@ -1030,10 +1374,12 @@ if (editType) {
     const v = editType.value;
     const isAgency = v === "agency";
     const isCounty = v === "county";
+    const isRegion = v === "region";
     const isState = v === "state";
 
     if (editAgencyPrefixWrap) editAgencyPrefixWrap.style.display = isAgency ? "flex" : "none";
     if (editCountyWrap) editCountyWrap.style.display = isCounty ? "flex" : "none";
+    if (editRegionWrap) editRegionWrap.style.display = isRegion ? "flex" : "none";
     if (editStateWrap) editStateWrap.style.display = isState ? "flex" : "none";
     if (editPrivateWrap) editPrivateWrap.style.display = isAgency ? "flex" : "none";
   };
@@ -1041,93 +1387,74 @@ if (editType) {
 
 
 function renderGroups(){
-  const needle = String(filter.value || "").trim().toLowerCase();
-
-  // Base search filtering
-  let filteredRaw = needle
-    ? groupsCache.filter(g => {
-        const name = String(g.name || "").toLowerCase();
-        const desc = String(g?.attributes?.description || "").toLowerCase();
-        return name.includes(needle) || desc.includes(needle);
-      })
-    : groupsCache;
-
-  // Scope + sub-filter (global admin and agency / multi-agency admin)
-  if ((IS_GLOBAL_ADMIN || IS_AGENCY_ADMIN) && groupScopeSelect && groupScopeDetailSelect) {
-    const scope = String(groupScopeSelect.value || "all").trim().toLowerCase();
-    const detail = String(groupScopeDetailSelect.value || "").trim();
-
-    if (scope !== "all") {
-      if (scope === "global") {
-        filteredRaw = filteredRaw.filter(g => getPortalGroupScope(g) === "global");
-      } else if (scope === "state") {
-        filteredRaw = filteredRaw.filter(g => {
-          if (getPortalGroupScope(g) !== "state") return false;
-          if (!detail) return true;
-          return getPortalGroupStateDetail(g) === String(detail).trim().toUpperCase();
-        });
-      } else if (scope === "county") {
-        filteredRaw = filteredRaw.filter(g => {
-          if (getPortalGroupScope(g) !== "county") return false;
-          if (!detail) return true;
-          return (
-            getPortalGroupCountyDetail(g).toUpperCase() ===
-            String(detail).trim().toUpperCase()
-          );
-        });
-      } else if (scope === "agency") {
-        filteredRaw = filteredRaw.filter(g => {
-          if (getPortalGroupScope(g) !== "agency") return false;
-          if (!detail) return true;
-          return getPortalGroupAgencyPrefixDetail(g) === String(detail).trim().toUpperCase();
-        });
-      }
-    }
-  }
-
-  const filtered = stableSortedCopy(filteredRaw, sortKey, sortDir);
+  const filtered = stableSortedCopy(groupsCache || [], sortKey, sortDir);
 
   tbody.innerHTML = filtered.map(g => {
     const locked = groupActionsLocked(g.name);
-    const editable = !locked && isGroupEditable(g.name);
-    const desc = String(g?.attributes?.description || "").trim();
-    const isPrivate = String(g?.attributes?.private || "").trim().toLowerCase() === "yes";
+    const editable = !locked && isGroupEditable(g);
+    const desc = groupDescriptionText(g);
+    const isPrivate = groupIsPrivate(g);
+    const typeLabel = groupTypeLabel(g);
+    const scopeLabel = groupScopeLabel(g);
+    const behaviorLabel = groupBehaviorLabel(g);
+    const patchedWithLabel =
+      CAN_SEE_CHANNEL_PATCH && Array.isArray(g.patchedWith) && g.patchedWith.length
+        ? g.patchedWith.join(", ")
+        : "";
 
     return `
     <tr>
+      <td class="groupTypeCell" data-label="Type">${esc(typeLabel)}</td>
       <td class="groupNameCell cardTitleCell">
         <div class="groupNameText cardTitleText">${esc(stripTakPrefix(g.name))}</div>
         ${desc ? `<div class="muted groupDescText">${esc(desc)}</div>` : ""}
+        ${patchedWithLabel ? `<div class="groupPatchedText">Channel Patched With ${esc(patchedWithLabel)}</div>` : ""}
         ${IS_GLOBAL_ADMIN && isPrivate ? `<span class="groupPrivateBadge cardMetaBadge">Private</span>` : ""}
       </td>
-      ${IS_GLOBAL_ADMIN ? `<td class="groupPrivateCell">${isPrivate ? "Private" : ""}</td>` : ``}
+      <td class="groupScopeCell" data-label="Scope">${esc(scopeLabel || "—")}</td>
+      <td class="groupBehaviorCell" data-label="Behavior">${esc(behaviorLabel)}</td>
+      ${IS_GLOBAL_ADMIN ? `<td class="groupPrivateCell" data-label="Private">${isPrivate ? "Private" : ""}</td>` : ``}
       <td class="groupActionsCell cardActionsCell">
         <div class="groupActionsRow cardActionsRow">
-          <button class="btn" type="button"
-            onclick="openGroupMembers('${esc(g.pk)}')">View Members</button>
-          ${locked ? `<span class="muted">Actions Hidden</span>` : `
-            <button class="btn success" type="button"
-              onclick="openMassAssign('${esc(g.pk)}')">Assign</button>
-            <button class="btn" type="button"
-              onclick="openMassUnassign('${esc(g.pk)}')">Unassign</button>
-            ${IS_GLOBAL_ADMIN ? `
-            <button class="btn btn-access" type="button"
-              onclick="openGroupAdminAccess('${esc(g.pk)}')">Admin Access</button>
-            ` : ``}
-            ${editable ? `
+          ${editable ? `
             <button class="btn" type="button"
               onclick="editGroupName('${esc(g.pk)}')">Edit</button>
+          ` : ``}
+          <button class="btn btn-access" type="button"
+            onclick="openGroupMembers('${esc(g.pk)}')">Members</button>
+          ${locked ? `<span class="muted">Actions Hidden</span>` : editable ? `
             <button class="btn danger" type="button"
               onclick="deleteGroup('${esc(g.pk)}')">Delete</button>
-            ` : ``}
-          `}
+          ` : ``}
         </div>
       </td>
     </tr>
   `;
   }).join("");
 
-  renderSourceGroupList();
+  const shown = filtered.length;
+  const total = Number(groupsTotal || shown);
+  const needleLabel = String(filter.value || "").trim();
+  if (!total) {
+    setMsg(listMsg, needleLabel ? `No groups found for "${needleLabel}".` : "No groups found.", true);
+  } else if (needleLabel) {
+    setMsg(listMsg, `Showing ${shown} of ${total} group(s) for "${needleLabel}".`, true);
+  } else {
+    setMsg(listMsg, `Showing ${shown} of ${total} group(s).`, true);
+  }
+  const pag = document.getElementById("groupsPagination");
+  const info = document.getElementById("groupsPageInfo");
+  const first = document.getElementById("groupsFirstBtn");
+  const prev = document.getElementById("groupsPrevBtn");
+  const next = document.getElementById("groupsNextBtn");
+  const last = document.getElementById("groupsLastBtn");
+  const totalPages = Math.max(1, Math.ceil(total / GROUPS_PAGE_SIZE));
+  if (pag) pag.style.display = total > GROUPS_PAGE_SIZE ? "flex" : "none";
+  if (info) info.textContent = `Page ${groupsPage} of ${totalPages}`;
+  if (first) first.disabled = groupsPage <= 1;
+  if (last) last.disabled = groupsPage >= totalPages;
+  if (prev) prev.disabled = groupsPage <= 1;
+  if (next) next.disabled = groupsPage >= totalPages;
 }
 
 function updateGroupScopeDetailOptions() {
@@ -1139,6 +1466,23 @@ function updateGroupScopeDetailOptions() {
   // Default: hide detail selector
   groupScopeDetailWrap.style.display = "none";
   groupScopeDetailSelect.innerHTML = "";
+
+  if (scope === "region") {
+    const regionList = (regionsCache || [])
+      .map((r) => String(r?.name || "").trim())
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+
+    groupScopeDetailSelect.innerHTML =
+      `<option value="">All Regional Groups</option>` +
+      regionList
+        .map((r) => `<option value="${esc(r)}">${esc(r)}</option>`)
+        .join("");
+
+    groupScopeDetailWrap.style.display = "flex";
+    groupScopeDetailSelect.value = "";
+    return;
+  }
 
   if (!scopedAgencies.length) return;
 
@@ -1176,22 +1520,22 @@ function updateGroupScopeDetailOptions() {
     groupScopeDetailWrap.style.display = "flex";
     groupScopeDetailSelect.value = "";
   } else if (scope === "agency") {
-    const prefixSet = new Set(
-      scopedAgencies
-        .map(a => String(a.groupPrefix || "").trim().toUpperCase())
-        .filter(Boolean)
-    );
-
-    const prefixList = Array.from(prefixSet).sort((a, b) => a.localeCompare(b));
-
-    const options = prefixList.map(prefix => {
-      const agency = scopedAgencies.find(
-        a => String(a.groupPrefix || "").trim().toUpperCase() === prefix
-      );
-      const name = agency?.name ? String(agency.name).trim() : "";
-      const label = name ? `${name} (${prefix})` : prefix;
-      return `<option value="${esc(prefix)}">${esc(label)}</option>`;
-    }).join("");
+    const options = scopedAgencies
+      .slice()
+      .sort((a, b) =>
+        String(a.name || "").localeCompare(String(b.name || ""), undefined, {
+          sensitivity: "base",
+        })
+      )
+      .map((agency) => {
+        const name = String(agency?.name || "").trim();
+        const prefix = String(agency?.groupPrefix || "").trim();
+        if (!name) return "";
+        const label = prefix ? `${name} (${prefix})` : name;
+        return `<option value="${esc(name)}">${esc(label)}</option>`;
+      })
+      .filter(Boolean)
+      .join("");
 
     groupScopeDetailSelect.innerHTML =
       `<option value="">All Agency Groups</option>${options}`;
@@ -1208,7 +1552,18 @@ function updateGroupScopeDetailOptions() {
 
 async function loadGroups(){
   setMsg(listMsg, "Loading groups...", true);
-  const res = await fetch("/api/groups");
+  const params = new URLSearchParams({
+    q: String(filter && filter.value || "").trim(),
+    page: String(groupsPage),
+    pageSize: String(GROUPS_PAGE_SIZE),
+  });
+  if (groupScopeSelect) {
+    params.set("scope", String(groupScopeSelect.value || "all").trim().toLowerCase());
+  }
+  if (groupScopeDetailSelect && groupScopeDetailSelect.value) {
+    params.set("detail", String(groupScopeDetailSelect.value || "").trim());
+  }
+  const res = await fetch("/api/groups/search?" + params.toString());
   const out = await res.json();
 
   if(!res.ok){
@@ -1216,9 +1571,20 @@ async function loadGroups(){
     return;
   }
 
-  groupsCache = out || [];
-  setMsg(listMsg, `Loaded ${groupsCache.length} group(s).`, true);
+  groupsCache = Array.isArray(out.groups) ? out.groups : [];
+  groupsTotal = Number(out.total || 0);
+  groupsPage = Number(out.page || groupsPage || 1);
   renderGroups();
+}
+
+/** Scope options stay visible; paging means the current page is not the full catalog. */
+function updateGroupScopeSelectOptions() {
+  if (!groupScopeSelect) return;
+  Array.from(groupScopeSelect.options).forEach((opt) => {
+    opt.hidden = false;
+    opt.disabled = false;
+  });
+  updateGroupScopeDetailOptions();
 }
 
 const exportGroupsCsvBtn = document.getElementById("exportGroupsCsvBtn");
@@ -1262,17 +1628,58 @@ if (exportGroupsCsvBtn) {
   });
 }
 
-filter.oninput = renderGroups;
+filter.oninput = () => {
+  clearTimeout(groupsFilterTimer);
+  groupsFilterTimer = setTimeout(() => {
+    groupsPage = 1;
+    loadGroups();
+  }, 280);
+};
 if (groupScopeSelect) {
   groupScopeSelect.addEventListener("change", () => {
-    // Update detail options + visibility, then re-render.
     updateGroupScopeDetailOptions();
-    renderGroups();
+    groupsPage = 1;
+    loadGroups();
   });
 }
 
 if (groupScopeDetailSelect) {
-  groupScopeDetailSelect.addEventListener("change", renderGroups);
+  groupScopeDetailSelect.addEventListener("change", () => {
+    groupsPage = 1;
+    loadGroups();
+  });
+}
+const groupsFirstBtn = document.getElementById("groupsFirstBtn");
+const groupsPrevBtn = document.getElementById("groupsPrevBtn");
+const groupsNextBtn = document.getElementById("groupsNextBtn");
+const groupsLastBtn = document.getElementById("groupsLastBtn");
+if (groupsFirstBtn) {
+  groupsFirstBtn.onclick = () => {
+    if (groupsPage <= 1) return;
+    groupsPage = 1;
+    loadGroups();
+  };
+}
+if (groupsPrevBtn) {
+  groupsPrevBtn.onclick = () => {
+    if (groupsPage <= 1) return;
+    groupsPage -= 1;
+    loadGroups();
+  };
+}
+if (groupsNextBtn) {
+  groupsNextBtn.onclick = () => {
+    groupsPage += 1;
+    loadGroups();
+  };
+}
+if (groupsLastBtn) {
+  groupsLastBtn.onclick = () => {
+    const totalPages = Math.max(1, Math.ceil(Number(groupsTotal || 0) / GROUPS_PAGE_SIZE));
+    if (groupsPage >= totalPages) return;
+    groupsPage = totalPages;
+    loadGroups();
+  };
 }
 
 createBtn.onclick = async () => {
@@ -1292,13 +1699,17 @@ createBtn.onclick = async () => {
   const type = createType.value;
 
   if (type === "agency") {
-    const prefix = String(agencyPrefixSelect.value || "").trim().toUpperCase();
+    const prefix = String(agencyPrefixSelect.value || "").trim();
     if (!prefix) return setMsg(createMsg, "Select an agency prefix.", false);
     name = `${prefix} ${name}`;
   } else if (type === "county") {
     const county = String(countySelect.value || "").trim();
     if (!county) return setMsg(createMsg, "Select a county.", false);
     name = `${county} Co ${name}`;
+  } else if (type === "region") {
+    const region = String(regionSelect?.value || "").trim();
+    if (!region) return setMsg(createMsg, "Select a region.", false);
+    name = `${region} ${name}`;
   } else if (type === "state") {
     const state = String(stateSelect?.value || "").trim().toUpperCase();
     if (!state) return setMsg(createMsg, "Select a state.", false);
@@ -1309,6 +1720,18 @@ createBtn.onclick = async () => {
   // Enforce tak_ prefix
   name = ensureTakPrefix(name);
 
+  // Global groups cannot use the mutual-aid reserved prefix
+  if (type === "generic") {
+    const withoutTak = stripTakPrefix(name).toLowerCase();
+    if (withoutTak.startsWith("ma -")) {
+      return setMsg(
+        createMsg,
+        'Global groups cannot start with "MA -". Create mutual aid groups from the Mutual Aid page.',
+        false
+      );
+    }
+  }
+
   if (!confirm(`Create group "${name}"?`)) return;
 
   // Derive group type metadata for auditing
@@ -1317,10 +1740,10 @@ createBtn.onclick = async () => {
 
   if (type === "agency") {
     groupType = "Agency";
-    const prefix = String(agencyPrefixSelect.value || "").trim().toUpperCase();
+    const prefix = String(agencyPrefixSelect.value || "").trim();
     const agencyObj = (agenciesCache || []).find(a => {
-      const p = String(a.groupPrefix || "").trim().toUpperCase();
-      return p === prefix;
+      const p = String(a.groupPrefix || "").trim();
+      return p.toLowerCase() === prefix.toLowerCase();
     });
     if (agencyObj && agencyObj.name) {
       groupTypeDetail = String(agencyObj.name);
@@ -1332,6 +1755,12 @@ createBtn.onclick = async () => {
     const county = String(countySelect.value || "").trim();
     if (county) {
       groupTypeDetail = county;
+    }
+  } else if (type === "region") {
+    groupType = "Region";
+    const region = String(regionSelect?.value || "").trim();
+    if (region) {
+      groupTypeDetail = region;
     }
   } else if (type === "state") {
     groupType = "State";
@@ -1372,6 +1801,7 @@ createBtn.onclick = async () => {
 // ---- Edit Group modal ----
 const editGroupOverlay = document.getElementById("editGroupOverlay");
 const editGroupCloseBtn = document.getElementById("editGroupCloseBtn");
+const editGroupTitle = document.getElementById("editGroupTitle");
 const editGroupNameInput = document.getElementById("editGroupName");
 const editGroupDescriptionInput = document.getElementById("editGroupDescription");
 const editGroupSaveBtn = document.getElementById("editGroupSaveBtn");
@@ -1389,11 +1819,8 @@ window.editGroupName = async (groupId) => {
 
   const g = (groupsCache || []).find(x => String(x.pk) === String(groupId));
   const currentName = String(g?.name || "").trim();
-  const currentDescription = String(g?.attributes?.description || "").trim();
-	  const currentPrivateRaw = String(g?.attributes?.private || "no").trim().toLowerCase();
-	  const currentPrivate = (currentPrivateRaw === "yes" || currentPrivateRaw === "true" || currentPrivateRaw === "1")
-	    ? "yes"
-	    : "no";
+  const currentDescription = groupDescriptionText(g);
+	  const currentPrivate = groupIsPrivate(g) ? "yes" : "no";
 
   if (groupActionsLocked(currentName)) {
     setMsg(listMsg, `Actions are locked for group ${currentName || groupId}`, false);
@@ -1415,6 +1842,7 @@ window.editGroupName = async (groupId) => {
       editType.value = "agency";
       editType.disabled = true;
     } else {
+      updateCreateEditTypeOptions(parsed.type || "generic");
       editType.value = parsed.type || "generic";
       editType.disabled = false;
     }
@@ -1431,6 +1859,9 @@ window.editGroupName = async (groupId) => {
 }
   if (editCountySelect) {
     editCountySelect.value = parsed.county || "";
+  }
+  if (editRegionSelect) {
+    editRegionSelect.value = parsed.region || "";
   }
   if (editStateSelect) {
     editStateSelect.value = parsed.state || "";
@@ -1450,6 +1881,11 @@ window.editGroupName = async (groupId) => {
   // Private dropdown (Global Admins only)
   if (editPrivateSelect) {
     editPrivateSelect.value = currentPrivate === "yes" ? "yes" : "no";
+  }
+
+  if (editGroupTitle) {
+    const label = stripTakPrefix(currentName);
+    editGroupTitle.textContent = label ? `Edit Group - ${label}` : "Edit Group";
   }
 
   setMsg(editGroupMsg, "");
@@ -1494,7 +1930,7 @@ window.deleteGroup = async (groupId) => {
     `This will:\n` +
     `• Remove this group from ${userCount} user(s)\n` +
     `• Remove this group from ${tmplCount} template(s)\n\n` +
-    `Then delete the group in Authentik.` +
+    `Then delete the group.` +
     tmplPreview
   );
 
@@ -1518,19 +1954,93 @@ window.deleteGroup = async (groupId) => {
   await loadGroups();
 };
 
-function showMassModal(show){
-  massOverlay.style.display = show ? "flex" : "none";
-  document.body.classList.toggle("noScroll", !!show);
+function selectedMassCount(){
+  const mode = selectedMassMode();
+  if (mode === "agency") {
+    return agencyList ? agencyList.querySelectorAll("input.agencyChk:checked").length : 0;
+  }
+  if (mode === "agencyType") {
+    return agencyTypeList ? agencyTypeList.querySelectorAll("input.agencyTypeChk:checked").length : 0;
+  }
+  if (mode === "group") return selectedSourceGroupIds.size;
+  if (mode === "template") return selectedTemplateIndices.size;
+  if (mode === "users") return selectedUserIds.size;
+  return 0;
+}
+
+function massWhoNoun(count){
+  const mode = selectedMassMode();
+  const n = Number(count || 0);
+  if (mode === "agency") return n === 1 ? "agency" : "agencies";
+  if (mode === "agencyType") return n === 1 ? "agency type" : "agency types";
+  if (mode === "group") return n === 1 ? "group" : "groups";
+  if (mode === "template") return n === 1 ? "template" : "templates";
+  if (mode === "users") return n === 1 ? "user" : "users";
+  return n === 1 ? "item" : "items";
+}
+
+function updateMassChrome(){
+  const adding = massAction !== "unassign";
+  const count = selectedMassCount();
+  const who = massWhoNoun(count);
+  const verb = adding ? "Assign" : "Unassign";
+  if (massTitle) massTitle.textContent = verb;
+  if (massApplyBtn) {
+    massApplyBtn.textContent = (count
+      ? `${verb} for ${count} selected ${who}`
+      : `${verb} for selected ${who}`).toUpperCase();
+    massApplyBtn.className = adding ? "btn success" : "btn caution";
+    massApplyBtn.disabled = count < 1;
+  }
+  if (massActionAssignBtn) massActionAssignBtn.classList.toggle("active", adding);
+  if (massActionUnassignBtn) massActionUnassignBtn.classList.toggle("active", !adding);
+  if (templateModeVerb) templateModeVerb.textContent = adding ? "add" : "remove";
 }
 
 function setMassAction(next){
   massAction = next === "unassign" ? "unassign" : "assign";
-  const actionLabel = massAction === "assign" ? "Mass Assign" : "Mass Unassign";
-  const groupLabel = stripTakPrefix(String(activeMassGroupName || activeMassGroupId || ""));
-  massTitle.textContent = `${actionLabel}: ${groupLabel}`.trim();
-  massApplyBtn.textContent = actionLabel;
-  if (templateModeVerb) templateModeVerb.textContent = massAction === "assign" ? "add" : "remove";
+  updateMassChrome();
   setMsg(massMsg, "");
+}
+
+function resetMassPane(){
+  if (agencySearch) agencySearch.value = "";
+  if (agencyTypeSearch) agencyTypeSearch.value = "";
+  if (userSearch) userSearch.value = "";
+  usersSearchCache = [];
+  selectedSourceGroupIds.clear();
+  selectedUserIds.clear();
+  selectedTemplateIndices.clear();
+  renderAgencyList();
+  renderUserList([]);
+  if (sourceGroupSearch) sourceGroupSearch.value = "";
+  loadSourceGroups();
+  if (templateSearch) templateSearch.value = "";
+  renderTemplateSourceList();
+  renderAgencyTypeList();
+  setMassMode("agency");
+  updateMassPanes();
+}
+
+function prepareMassPane(groupId, groupName){
+  activeMassGroupId = String(groupId || "");
+  activeMassGroupName = String(groupName || "");
+  setMassAction("assign");
+  resetMassPane();
+}
+
+let membersShowMass = false;
+let membersShowDelegate = false;
+
+function setMembersSplitPanes() {
+  if (membersSplit) membersSplit.classList.toggle("has-mass", !!membersShowMass);
+  if (membersMassPane) membersMassPane.style.display = membersShowMass ? "flex" : "none";
+  if (membersOverlay) membersOverlay.classList.toggle("has-delegate", !!membersShowDelegate);
+}
+
+function setMembersMassPaneVisible(show){
+  membersShowMass = !!show;
+  setMembersSplitPanes();
 }
 
 function selectedMassMode(){
@@ -1539,10 +2049,11 @@ function selectedMassMode(){
 
 function updateMassPanes(){
   const mode = selectedMassMode();
-  massAgencyPane.style.display = mode === "agency" ? "block" : "none";
-  massGroupPane.style.display = mode === "group" ? "block" : "none";
-  massTemplatePane.style.display = mode === "template" ? "block" : "none";
-  massUsersPane.style.display = mode === "users" ? "block" : "none";
+  if (massAgencyPane) massAgencyPane.style.display = mode === "agency" ? "flex" : "none";
+  if (massGroupPane) massGroupPane.style.display = mode === "group" ? "flex" : "none";
+  if (massTemplatePane) massTemplatePane.style.display = mode === "template" ? "flex" : "none";
+  if (massAgencyTypePane) massAgencyTypePane.style.display = mode === "agencyType" ? "flex" : "none";
+  if (massUsersPane) massUsersPane.style.display = mode === "users" ? "flex" : "none";
   setMsg(massMsg, "");
 }
 
@@ -1573,7 +2084,7 @@ function getAgencyLabelBySuffix(sfxRaw){
   );
   if (!agency) return sfx.toUpperCase();
   const name = String(agency?.name || "").trim();
-  const prefix = String(agency?.groupPrefix || "").trim().toUpperCase();
+  const prefix = String(agency?.groupPrefix || "").trim();
   return prefix ? `${name} (${prefix})` : name;
 }
 
@@ -1634,10 +2145,12 @@ let membersPageSize = 100;
 let membersTotalCount = 0;
 let membersHasNext = false;
 let membersHasPrev = false;
+let membersQuery = "";
+let membersFilterTimer = null;
 
 window.setMembersSort = function(key){
   key = String(key || "").toLowerCase();
-  if (!["username", "name", "email"].includes(key)) return;
+  if (!["username", "name", "agency", "template"].includes(key)) return;
   if (membersSortKey === key) {
     membersSortDir = membersSortDir === "asc" ? "desc" : "asc";
   } else {
@@ -1647,28 +2160,58 @@ window.setMembersSort = function(key){
   renderMembersList();
 };
 
-function renderMembersList(){
-  const needle = String(membersFilter.value || "").trim().toLowerCase();
+function memberAgencyLabel(u){
+  const abbr = String(
+    u?.agency_abbreviation ||
+    u?.attributes?.agency_abbreviation ||
+    u?.attributes?.agencyAbbreviation ||
+    ""
+  ).trim();
+  const name = String(u?.agency_name || u?.attributes?.agency_name || u?.agency || "").trim();
+  if (abbr && name && name.toLowerCase() !== abbr.toLowerCase()) return { abbr, name };
+  if (abbr) return { abbr, name: "" };
+  if (name) return { abbr: name, name: "" };
+  return { abbr: "", name: "" };
+}
 
+function memberTemplateLabel(u){
+  const raw = String(u?.current_template || u?.attributes?.current_template || "").trim();
+  if (!raw || raw.toLowerCase() === "manual group selection") return "";
+  return raw;
+}
+
+function memberVisibleName(u) {
+  const name = String(u?.name || "").trim();
+  if (!name) return "";
+  if (name.includes("@")) return "";
+  const email = String(u?.email || "").trim();
+  if (email && name.toLowerCase() === email.toLowerCase()) return "";
+  return name;
+}
+
+function memberSortValue(u, key){
+  if (key === "agency") {
+    const agency = memberAgencyLabel(u);
+    return String(agency.name || agency.abbr || "").toLowerCase();
+  }
+  if (key === "template") return memberTemplateLabel(u).toLowerCase();
+  return String(u?.[key] || "").toLowerCase();
+}
+
+function renderMembersList(){
+  if (!membersList) return;
   const items = (activeMembers || []).slice().sort((a, b) => {
-    const ak = String(a[membersSortKey] || "").toLowerCase();
-    const bk = String(b[membersSortKey] || "").toLowerCase();
+    const ak = memberSortValue(a, membersSortKey);
+    const bk = memberSortValue(b, membersSortKey);
     if (ak < bk) return membersSortDir === "asc" ? -1 : 1;
     if (ak > bk) return membersSortDir === "asc" ? 1 : -1;
-    return 0;
+    return String(a.username || "").localeCompare(String(b.username || ""));
   });
 
-  const filtered = needle
-    ? items.filter(u => {
-        const uName = String(u.username || "").toLowerCase();
-        const n = String(u.name || "").toLowerCase();
-        const em = String(u.email || "").toLowerCase();
-        return uName.includes(needle) || n.includes(needle) || em.includes(needle);
-      })
-    : items;
-
-  if (!filtered.length) {
-    membersList.innerHTML = `<div class="muted">No members match your filter.</div>`;
+  if (!items.length) {
+    membersList.innerHTML = `<div class="muted" style="padding:10px;">${
+      membersQuery ? "No members match your search." : "No members in this group."
+    }</div>`;
     return;
   }
 
@@ -1677,26 +2220,36 @@ function renderMembersList(){
     return membersSortDir === "asc" ? " ▲" : " ▼";
   };
 
-  const rowsHtml = filtered.map(u => `
-    <tr>
-      <td>${esc(u.username || "")}</td>
-      <td>${esc(u.name || "")}</td>
-      <td>${esc(u.email || "")}</td>
-      <td style="text-align:right;">
-        <button class="btn danger" type="button"
-          onclick="removeUserFromGroup('${esc(u.pk)}')">Remove</button>
+  const rowsHtml = items.map(u => {
+    const agency = memberAgencyLabel(u);
+    const template = memberTemplateLabel(u);
+    const active = u.is_active !== false;
+    const pk = String(u.pk || "");
+    const displayName = memberVisibleName(u);
+    const actionsCell = membersShowMass
+      ? `<td class="membersRemoveCell" data-label="Actions"><button class="btn danger" type="button" onclick="removeUserFromGroup('${esc(pk)}')">Remove</button></td>`
+      : "";
+    return `
+    <tr class="${active ? "" : "membersRowDisabled"}">
+      <td class="membersUserCell" data-label="User">
+        <div class="membersUserName">${esc(u.username || "")}</div>
+        <div class="muted membersUserMeta">${esc(displayName || "—")}</div>
       </td>
+      <td class="membersAgencyCell" data-label="Agency">${esc(agency.name || agency.abbr || "—")}</td>
+      <td class="membersTemplateCell" data-label="Template">${esc(template || "—")}</td>
+      ${actionsCell}
     </tr>
-  `).join("");
+  `;
+  }).join("");
 
   membersList.innerHTML = `
-    <table class="table">
+    <table class="table membersTable">
       <thead>
         <tr>
-          <th><span style="cursor:pointer;" onclick="setMembersSort('username')">Username${sortArrow('username')}</span></th>
-          <th><span style="cursor:pointer;" onclick="setMembersSort('name')">Name${sortArrow('name')}</span></th>
-          <th><span style="cursor:pointer;" onclick="setMembersSort('email')">Email${sortArrow('email')}</span></th>
-          <th style="text-align:right;">Actions</th>
+          <th><span style="cursor:pointer;" onclick="setMembersSort('username')">User${sortArrow('username')}</span></th>
+          <th><span style="cursor:pointer;" onclick="setMembersSort('agency')">Agency${sortArrow('agency')}</span></th>
+          <th><span style="cursor:pointer;" onclick="setMembersSort('template')">Template${sortArrow('template')}</span></th>
+          ${membersShowMass ? `<th style="text-align:right;">Actions</th>` : ""}
         </tr>
       </thead>
       <tbody>
@@ -1710,19 +2263,41 @@ function renderMembersPagination() {
   const total = Number(membersTotalCount || 0);
   const size = Math.max(1, Number(membersPageSize || 100));
   const totalPages = total > 0 ? Math.max(1, Math.ceil(total / size)) : 1;
+  const wrap = document.getElementById("membersPagination");
+  if (wrap) wrap.style.display = total > size ? "flex" : "none";
   if (membersPageInfo) membersPageInfo.textContent = `Page ${membersCurrentPage} of ${totalPages}`;
+  if (membersFirstBtn) membersFirstBtn.disabled = membersCurrentPage <= 1 || !membersHasPrev;
+  if (membersLastBtn) membersLastBtn.disabled = membersCurrentPage >= totalPages || !membersHasNext;
   if (membersPrevBtn) membersPrevBtn.disabled = !membersHasPrev;
   if (membersNextBtn) membersNextBtn.disabled = !membersHasNext;
+
+  if (membersRange) {
+    if (!total) {
+      membersRange.textContent = "";
+    } else {
+      const start = (membersCurrentPage - 1) * size + 1;
+      const end = Math.min(membersCurrentPage * size, total);
+      membersRange.textContent = `${start}–${end} of ${total}`;
+    }
+  }
 }
 
 async function loadMembersPage(page) {
   if (!activeMembersGroupId) return;
   const targetPage = Math.max(1, Number(page || 1));
-  membersSummary.textContent = "Loading members...";
-  membersSummary.className = "msg";
+  if (membersSummary) {
+    membersSummary.textContent = "";
+    membersSummary.className = "msg";
+  }
+
+  const params = new URLSearchParams({
+    page: String(targetPage),
+    pageSize: String(membersPageSize),
+  });
+  if (membersQuery) params.set("q", membersQuery);
 
   const res = await fetch(
-    `/api/groups/${encodeURIComponent(activeMembersGroupId)}/members?page=${targetPage}&pageSize=${membersPageSize}`
+    `/api/groups/${encodeURIComponent(activeMembersGroupId)}/members?${params.toString()}`
   );
   const out = await res.json();
   if (!res.ok) throw new Error(out.error || "Failed to load members");
@@ -1734,25 +2309,50 @@ async function loadMembersPage(page) {
   membersHasNext = !!out.hasNext;
   membersHasPrev = !!out.hasPrev;
 
-    const groupLabel = stripTakPrefix(String(activeMembersGroupName || out.group?.name || activeMembersGroupId || ""));
-  membersSummary.textContent = `${membersTotalCount} member${membersTotalCount === 1 ? "" : "s"} in group "${groupLabel}".`;
-  membersSummary.className = "msg ok";
+  if (membersSummary) {
+    membersSummary.textContent = "";
+    membersSummary.className = "msg";
+  }
 
   renderMembersList();
   renderMembersPagination();
 }
 
-window.openGroupMembers = async (groupId) => {
+async function refreshMembersAfterMass() {
+  if (!activeMembersGroupId) return;
+  try {
+    await loadMembersPage(membersCurrentPage || 1);
+  } catch (_) {}
+}
+
+window.openGroupMembers = async (groupId, opts = {}) => {
   setMsg(listMsg, "");
 
   const g = (groupsCache || []).find(x => String(x.pk) === String(groupId));
-  activeMembersGroupName = String(g?.name || "");
+  activeMembersGroupName = String(opts.groupName || g?.name || "");
   activeMembersGroupId = String(groupId || "");
+  const groupLabel = stripTakPrefix(activeMembersGroupName || activeMembersGroupId);
+  if (membersTitle) {
+    membersTitle.textContent = groupLabel ? `Members - ${groupLabel}` : "Members";
+  }
 
-  membersSummary.textContent = "Loading members...";
+  const locked = groupActionsLocked(activeMembersGroupName);
+  membersShowMass = !locked;
+  membersShowDelegate = !!IS_GLOBAL_ADMIN;
+  setMembersSplitPanes();
+  if (!locked) {
+    prepareMassPane(groupId, activeMembersGroupName);
+  } else {
+    activeMassGroupId = "";
+    activeMassGroupName = "";
+  }
+
+  membersSummary.textContent = "";
   membersSummary.className = "msg";
   membersList.innerHTML = "";
-  membersFilter.value = "";
+  if (membersFilter) membersFilter.value = "";
+  membersQuery = "";
+  if (membersRange) membersRange.textContent = "";
   membersCurrentPage = 1;
   membersTotalCount = 0;
   membersHasNext = false;
@@ -1760,6 +2360,9 @@ window.openGroupMembers = async (groupId) => {
   renderMembersPagination();
 
   showMembersModal(true);
+  if (membersShowDelegate) {
+    loadAdminAccessForEdit(groupId).catch(() => {});
+  }
 
   try {
     await loadMembersPage(1);
@@ -1795,19 +2398,16 @@ window.removeUserFromGroup = async (userPk) => {
       alert(out.error || "Failed to remove user from group.");
       return;
     }
+    if (!Number(out.updated)) {
+      alert("That user could not be removed from this group.");
+      await loadMembersPage(membersCurrentPage);
+      return;
+    }
 
-    activeMembers = activeMembers.filter(u => String(u.pk) !== String(userPk));
-    const memberCount = Math.max(0, Number(membersTotalCount || 0) - 1);
-    membersTotalCount = memberCount;
-    const groupLabel = stripTakPrefix(String(label || ""));
-
-    membersSummary.textContent =
-      `${memberCount} member${memberCount === 1 ? "" : "s"} in group "${groupLabel}".`;
-    membersSummary.className = "msg ok";
-
-
-    renderMembersList();
-    renderMembersPagination();
+    await loadMembersPage(membersCurrentPage);
+    if (!activeMembers.length && membersHasPrev) {
+      await loadMembersPage(Math.max(1, membersCurrentPage - 1));
+    }
   } catch (e) {
     alert("Failed to remove user from group.");
   }
@@ -1829,6 +2429,7 @@ editGroupSaveBtn.onclick = async () => {
 
   let prefix = "";
   let county = "";
+  let region = "";
   let state = "";
 
   if (!baseName) {
@@ -1843,7 +2444,7 @@ editGroupSaveBtn.onclick = async () => {
   }
 
   if (type === "agency") {
-    prefix = String(editAgencyPrefixSelect?.value || "").trim().toUpperCase();
+    prefix = String(editAgencyPrefixSelect?.value || "").trim();
     if (!prefix) {
       setMsg(editGroupMsg, "Select an agency prefix.", false);
       return;
@@ -1852,6 +2453,12 @@ editGroupSaveBtn.onclick = async () => {
     county = String(editCountySelect?.value || "").trim();
     if (!county) {
       setMsg(editGroupMsg, "Select a county.", false);
+      return;
+    }
+  } else if (type === "region") {
+    region = String(editRegionSelect?.value || "").trim();
+    if (!region) {
+      setMsg(editGroupMsg, "Select a region.", false);
       return;
     }
   } else if (type === "state") {
@@ -1868,6 +2475,7 @@ editGroupSaveBtn.onclick = async () => {
     behavior,
     prefix,
     county,
+    region,
     state,
   });
 
@@ -1879,6 +2487,19 @@ editGroupSaveBtn.onclick = async () => {
   if (!newName) {
     setMsg(editGroupMsg, "Invalid group name.", false);
     return;
+  }
+
+  // Global groups cannot use the mutual-aid reserved prefix
+  if (type === "generic") {
+    const withoutTak = stripTakPrefix(newName).toLowerCase();
+    if (withoutTak.startsWith("ma -")) {
+      setMsg(
+        editGroupMsg,
+        'Global groups cannot start with "MA -". Create mutual aid groups from the Mutual Aid page.',
+        false
+      );
+      return;
+    }
   }
 
   const privateUnchanged = (newPrivate === null) || (newPrivate === editGroupCurrentPrivate);
@@ -1918,22 +2539,46 @@ editGroupSaveBtn.onclick = async () => {
   showEditGroupModal(false);
 };
 
-editGroupCloseBtn.onclick = () => showEditGroupModal(false);
-editGroupOverlay.addEventListener("click", (e) => {
-  if (e.target === editGroupOverlay) showEditGroupModal(false);
-});
+if (editGroupCloseBtn) editGroupCloseBtn.onclick = () => showEditGroupModal(false);
+if (editGroupOverlay) {
+  editGroupOverlay.addEventListener("click", (e) => {
+    if (e.target === editGroupOverlay) showEditGroupModal(false);
+  });
+}
 
 window.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && editGroupOverlay.style.display !== "none") {
+  if (e.key !== "Escape") return;
+  if (membersOverlay && membersOverlay.style.display !== "none") {
+    showMembersModal(false);
+    return;
+  }
+  if (editGroupOverlay && editGroupOverlay.style.display !== "none") {
     showEditGroupModal(false);
   }
 });
 
-membersCloseBtn.onclick = () => showMembersModal(false);
-membersOverlay.addEventListener("click", (e) => {
-  if (e.target === membersOverlay) showMembersModal(false);
-});
-membersFilter.oninput = renderMembersList;
+if (membersCloseBtn) membersCloseBtn.onclick = () => showMembersModal(false);
+if (membersOverlay) {
+  membersOverlay.addEventListener("click", (e) => {
+    if (e.target === membersOverlay) showMembersModal(false);
+  });
+}
+if (membersFilter) {
+  membersFilter.oninput = () => {
+    clearTimeout(membersFilterTimer);
+    membersFilterTimer = setTimeout(() => {
+      membersQuery = String(membersFilter.value || "").trim();
+      loadMembersPage(1).catch(() => {});
+    }, 250);
+  };
+}
+if (membersFirstBtn) {
+  membersFirstBtn.onclick = () => {
+    if (membersCurrentPage > 1) {
+      loadMembersPage(1).catch(() => {});
+    }
+  };
+}
 if (membersPrevBtn) {
   membersPrevBtn.onclick = () => {
     if (membersHasPrev && membersCurrentPage > 1) {
@@ -1948,89 +2593,71 @@ if (membersNextBtn) {
     }
   };
 }
-
-window.openMassAssign = async (groupId) => {
-  const g = (groupsCache || []).find(x => String(x.pk) === String(groupId));
-  if (g && groupActionsLocked(g.name)) {
-    setMsg(listMsg, `Actions are locked for group ${String(g.name || groupId)}`, false);
-    return;
-  }
-  activeMassGroupId = String(groupId);
-  activeMassGroupName = String(g?.name || "");
-  setMassAction("assign");
-
-  agencySearch.value = "";
-  userSearch.value = "";
-  usersSearchCache = [];
-  selectedSourceGroupIds.clear();
-  selectedUserIds.clear();
-  selectedTemplateIndices.clear();
-  renderAgencyList();
-  renderUserList([]);
-  sourceGroupSearch.value = "";
-  renderSourceGroupList();
-  if (templateSearch) templateSearch.value = "";
-  renderTemplateSourceList();
-
-  setMassMode("agency");
-  updateMassPanes();
-  showMassModal(true);
-};
-
-window.openMassUnassign = async (groupId) => {
-  const g = (groupsCache || []).find(x => String(x.pk) === String(groupId));
-  if (g && groupActionsLocked(g.name)) {
-    setMsg(listMsg, `Actions are locked for group ${String(g.name || groupId)}`, false);
-    return;
-  }
-  activeMassGroupId = String(groupId);
-  activeMassGroupName = String(g?.name || "");
-  setMassAction("unassign");
-
-  agencySearch.value = "";
-  userSearch.value = "";
-  usersSearchCache = [];
-  selectedSourceGroupIds.clear();
-  selectedUserIds.clear();
-  selectedTemplateIndices.clear();
-  renderAgencyList();
-  renderUserList([]);
-  sourceGroupSearch.value = "";
-  renderSourceGroupList();
-  if (templateSearch) templateSearch.value = "";
-  renderTemplateSourceList();
-
-  setMassMode("agency");
-  updateMassPanes();
-  showMassModal(true);
-};
-
-massCloseBtn.onclick = () => showMassModal(false);
-massOverlay.addEventListener("click", (e) => {
-  if (e.target === massOverlay) showMassModal(false);
-});
+if (membersLastBtn) {
+  membersLastBtn.onclick = () => {
+    const size = Math.max(1, Number(membersPageSize || 100));
+    const totalPages = Math.max(1, Math.ceil(Number(membersTotalCount || 0) / size));
+    if (membersCurrentPage < totalPages) {
+      loadMembersPage(totalPages).catch(() => {});
+    }
+  };
+}
 
 function setMassMode(next){
   massMode = next;
-  document.querySelectorAll(".segBtn").forEach(b => {
+  document.querySelectorAll("#massSegmented .segBtn").forEach(b => {
     b.classList.toggle("active", String(b.dataset.mode) === String(next));
   });
   updateMassPanes();
+  if (next === "agencyType") renderAgencyTypeList();
+  updateMassChrome();
 }
 
-document.querySelectorAll('.segBtn').forEach(btn => {
-  btn.addEventListener('click', () => setMassMode(btn.dataset.mode));
+if (massActionAssignBtn) {
+  massActionAssignBtn.addEventListener("click", () => setMassAction("assign"));
+}
+if (massActionUnassignBtn) {
+  massActionUnassignBtn.addEventListener("click", () => setMassAction("unassign"));
+}
+
+document.querySelectorAll("#massSegmented .segBtn").forEach(btn => {
+  btn.addEventListener("click", () => setMassMode(btn.dataset.mode));
 });
 
-agencySearch.oninput = renderAgencyList;
-agencySelectAll.onclick = () => {
-  agencyList.querySelectorAll('input.agencyChk').forEach(c => (c.checked = true));
-};
-agencyClearAll.onclick = () => {
-  agencyList.querySelectorAll('input.agencyChk').forEach(c => (c.checked = false));
-};
+if (membersMassPane) {
+  membersMassPane.addEventListener("change", () => updateMassChrome());
+}
+
+if (agencySearch) agencySearch.oninput = () => { renderAgencyList(); updateMassChrome(); };
+if (agencySelectAll) {
+  agencySelectAll.onclick = () => {
+    agencyList.querySelectorAll('input.agencyChk').forEach(c => (c.checked = true));
+    updateMassChrome();
+  };
+}
+if (agencyClearAll) {
+  agencyClearAll.onclick = () => {
+    agencyList.querySelectorAll('input.agencyChk').forEach(c => (c.checked = false));
+    updateMassChrome();
+  };
+}
+
+if (agencyTypeSearch) agencyTypeSearch.oninput = renderAgencyTypeList;
+if (agencyTypeSelectAll) {
+  agencyTypeSelectAll.onclick = () => {
+    agencyTypeList.querySelectorAll("input.agencyTypeChk").forEach((c) => (c.checked = true));
+    updateMassChrome();
+  };
+}
+if (agencyTypeClearAll) {
+  agencyTypeClearAll.onclick = () => {
+    agencyTypeList.querySelectorAll("input.agencyTypeChk").forEach((c) => (c.checked = false));
+    updateMassChrome();
+  };
+}
 
 function renderUserList(users){
+  if (!userList) return;
   userList.innerHTML = (users || []).map(u => {
     const pk = String(u.pk);
     const username = String(u.username || "");
@@ -2047,17 +2674,20 @@ function renderUserList(users){
   }).join("") || `<div style="padding:10px; color: var(--muted);">No users loaded.</div>`;
 }
 
-userList.addEventListener("change", (e) => {
-  const t = e.target;
-  if (!(t && t.classList && t.classList.contains("userChk"))) return;
-  const id = String(t.value || "").trim();
-  if (!id) return;
-  if (t.checked) selectedUserIds.add(id);
-  else selectedUserIds.delete(id);
-});
+if (userList) {
+  userList.addEventListener("change", (e) => {
+    const t = e.target;
+    if (!(t && t.classList && t.classList.contains("userChk"))) return;
+    const id = String(t.value || "").trim();
+    if (!id) return;
+    if (t.checked) selectedUserIds.add(id);
+    else selectedUserIds.delete(id);
+  });
+}
 
 let userSearchT = null;
-userSearch.oninput = () => {
+if (userSearch) {
+  userSearch.oninput = () => {
   clearTimeout(userSearchT);
   userSearchT = setTimeout(async () => {
     const q = String(userSearch.value || "").trim();
@@ -2067,44 +2697,53 @@ userSearch.oninput = () => {
       return;
     }
     try {
-      const res = await fetch(`/api/users/search?q=${encodeURIComponent(q)}&page=1&pageSize=200`);
+      const res = await fetch(`/api/users/search?q=${encodeURIComponent(q)}&page=1&pageSize=25`);
       const out = await res.json();
       if(!res.ok) throw new Error(out.error || "Search failed");
       const arr = Array.isArray(out.users) ? out.users : [];
-      usersSearchCache = arr.slice(0, 200);
+      usersSearchCache = arr.slice(0, 25);
       renderUserList(usersSearchCache);
     } catch (e) {
       renderUserList([]);
     }
   }, 220);
-};
+  };
+}
 
-userSelectAll.onclick = () => {
-  usersSearchCache.forEach(u => {
-    const id = String(u.pk || "").trim();
-    if (id) selectedUserIds.add(id);
-  });
-  renderUserList(usersSearchCache);
-};
-userClearAll.onclick = () => {
-  selectedUserIds.clear();
-  renderUserList(usersSearchCache);
-};
+if (userSelectAll) {
+  userSelectAll.onclick = () => {
+    usersSearchCache.forEach(u => {
+      const id = String(u.pk || "").trim();
+      if (id) selectedUserIds.add(id);
+    });
+    renderUserList(usersSearchCache);
+    updateMassChrome();
+  };
+}
+if (userClearAll) {
+  userClearAll.onclick = () => {
+    selectedUserIds.clear();
+    renderUserList(usersSearchCache);
+    updateMassChrome();
+  };
+}
 
 function renderSourceGroupList(){
+  if (!sourceGroupList) return;
   const needle = String(sourceGroupSearch?.value || "").trim().toLowerCase();
-  const items = (groupsCache || [])
-    .filter(g => String(g.pk) !== String(activeMassGroupId))
+  const items = (sourceGroupsCache || [])
+    .filter(g => String(g.pk || g.id) !== String(activeMassGroupId))
     .slice()
     .sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")))
     .filter(g => {
       if (!needle) return true;
-      const n = String(g.name || "").toLowerCase();
-      return n.includes(needle);
+      const raw = String(g.name || "").toLowerCase();
+      const display = stripTakPrefix(String(g.name || "")).toLowerCase();
+      return raw.includes(needle) || display.includes(needle);
     });
 
   sourceGroupList.innerHTML = items.map(g => {
-    const id = String(g.pk);
+    const id = String(g.pk || g.id || "");
     const checked = selectedSourceGroupIds.has(id) ? "checked" : "";
     return `
       <label class="groupItem">
@@ -2112,30 +2751,57 @@ function renderSourceGroupList(){
         <span>${esc(stripTakPrefix(String(g.name || id)))}</span>
       </label>
     `;
-  }).join("") || `<div style="padding:10px; color: var(--muted);">No groups found.</div>`;
+  }).join("") || `<div style="padding:10px; color: var(--muted);">${
+    (sourceGroupsCache || []).length ? "No matching groups." : "No groups found."
+  }</div>`;
 }
 
-sourceGroupSearch.oninput = renderSourceGroupList;
-groupSelectAll.onclick = () => {
-  sourceGroupList.querySelectorAll("input.srcGroupChk").forEach(c => {
-    const id = String(c.value || "").trim();
-    if (id) selectedSourceGroupIds.add(id);
-  });
+async function loadSourceGroups() {
+  try {
+    const res = await fetch("/api/groups");
+    const out = await res.json();
+    sourceGroupsCache = res.ok
+      ? (Array.isArray(out) ? out : (Array.isArray(out.groups) ? out.groups : []))
+      : [];
+  } catch (_) {
+    sourceGroupsCache = [];
+  }
   renderSourceGroupList();
-};
-groupClearAll.onclick = () => {
-  selectedSourceGroupIds.clear();
-  renderSourceGroupList();
-};
+}
 
-sourceGroupList.addEventListener("change", (e) => {
-  const t = e.target;
-  if (!(t && t.classList && t.classList.contains("srcGroupChk"))) return;
-  const id = String(t.value || "").trim();
-  if (!id) return;
-  if (t.checked) selectedSourceGroupIds.add(id);
-  else selectedSourceGroupIds.delete(id);
-});
+if (sourceGroupSearch) {
+  sourceGroupSearch.oninput = () => {
+    renderSourceGroupList();
+  };
+}
+if (groupSelectAll) {
+  groupSelectAll.onclick = () => {
+    sourceGroupList.querySelectorAll("input.srcGroupChk").forEach(c => {
+      const id = String(c.value || "").trim();
+      if (id) selectedSourceGroupIds.add(id);
+    });
+    renderSourceGroupList();
+    updateMassChrome();
+  };
+}
+if (groupClearAll) {
+  groupClearAll.onclick = () => {
+    selectedSourceGroupIds.clear();
+    renderSourceGroupList();
+    updateMassChrome();
+  };
+}
+
+if (sourceGroupList) {
+  sourceGroupList.addEventListener("change", (e) => {
+    const t = e.target;
+    if (!(t && t.classList && t.classList.contains("srcGroupChk"))) return;
+    const id = String(t.value || "").trim();
+    if (!id) return;
+    if (t.checked) selectedSourceGroupIds.add(id);
+    else selectedSourceGroupIds.delete(id);
+  });
+}
 
 if (templateSearch) {
   templateSearch.oninput = renderTemplateSourceList;
@@ -2147,12 +2813,14 @@ if (templateSelectAll) {
       if (id) selectedTemplateIndices.add(id);
     });
     renderTemplateSourceList();
+    updateMassChrome();
   };
 }
 if (templateClearAll) {
   templateClearAll.onclick = () => {
     selectedTemplateIndices.clear();
     renderTemplateSourceList();
+    updateMassChrome();
   };
 }
 if (templateList) {
@@ -2185,7 +2853,8 @@ const templateBulkPhaseLabel = (phase) => {
   }
 };
 
-massApplyBtn.onclick = async () => {
+if (massApplyBtn) {
+  massApplyBtn.onclick = async () => {
   setMsg(massMsg, "");
   if (!activeMassGroupId) return setMsg(massMsg, "No target group selected.", false);
   if (groupActionsLocked(activeMassGroupName)) {
@@ -2202,6 +2871,19 @@ massApplyBtn.onclick = async () => {
     if (!suffixes.length) return setMsg(massMsg, "Select one or more agencies.", false);
     const actionVerb = massAction === "unassign" ? "unassign" : "assign";
     if (!confirm(`Mass ${actionVerb} "${activeMassGroupName}" ${actionVerb === "assign" ? "to" : "from"} all users in ${suffixes.length} agency suffix(es)?`)) return;
+    payload.suffixes = suffixes;
+  }
+
+  if (mode === "agencyType") {
+    const types = Array.from(agencyTypeList.querySelectorAll("input.agencyTypeChk:checked"))
+      .map((x) => String(x.value || "").trim())
+      .filter(Boolean);
+    if (!types.length) return setMsg(massMsg, "Select one or more agency types.", false);
+    const suffixes = suffixesForSelectedAgencyTypes(types);
+    if (!suffixes.length) return setMsg(massMsg, "No agencies found for the selected type(s).", false);
+    const actionVerb = massAction === "unassign" ? "unassign" : "assign";
+    if (!confirm(`Mass ${actionVerb} "${activeMassGroupName}" ${actionVerb === "assign" ? "to" : "from"} all users in ${types.length} agency type(s) (${suffixes.length} agency suffix(es))?`)) return;
+    payload.sourceMode = "agency";
     payload.suffixes = suffixes;
   }
 
@@ -2297,6 +2979,7 @@ massApplyBtn.onclick = async () => {
     } catch (e) {
       return setMsg(massMsg, e?.message || "Template update failed", false);
     }
+    await refreshMembersAfterMass();
     return;
   }
 
@@ -2365,18 +3048,19 @@ massApplyBtn.onclick = async () => {
       );
       done = true;
     }
+    await refreshMembersAfterMass();
   } catch (e) {
     setMsg(massMsg, `Mass ${massAction} failed`, false);
   }
 };
+}
 
 if (reloadBtn) reloadBtn.onclick = loadGroups;
 
-// ---- Admin Access modal (global admins: which agencies can see this group) ----
-const adminAccessOverlay = document.getElementById("adminAccessOverlay");
-const adminAccessCloseBtn = document.getElementById("adminAccessCloseBtn");
+// ---- Admin Access (global admins: which agencies can see this group) ----
 const adminAccessSummary = document.getElementById("adminAccessSummary");
 const adminAccessInner = document.getElementById("adminAccessInner");
+const adminAccessSearch = document.getElementById("adminAccessSearch");
 const adminAccessSelectAllBtn = document.getElementById("adminAccessSelectAllBtn");
 const adminAccessClearBtn = document.getElementById("adminAccessClearBtn");
 
@@ -2397,14 +3081,8 @@ function setAdminAccessControlsDisabled(disabled) {
   }
 }
 
-function showAdminAccessModal(on) {
-  if (!adminAccessOverlay) return;
-  adminAccessOverlay.style.display = on ? "flex" : "none";
-  document.body.style.overflow = on ? "hidden" : "";
-}
-
 function adminAccessAgencyLabel(a) {
-  const prefix = String(a.groupPrefix || "").trim().toUpperCase();
+  const prefix = String(a.groupPrefix || "").trim();
   const name = String(a.name || "").trim();
   return prefix ? `${name} (${prefix})` : name;
 }
@@ -2412,9 +3090,15 @@ function adminAccessAgencyLabel(a) {
 function renderAdminAccessGrid() {
   if (!adminAccessInner) return;
 
-  const sorted = [...adminAccessSelectable].sort((a, b) =>
-    adminAccessAgencyLabel(a).localeCompare(adminAccessAgencyLabel(b), undefined, { sensitivity: "base" })
-  );
+  const needle = String(adminAccessSearch?.value || "").trim().toLowerCase();
+  const sorted = [...adminAccessSelectable]
+    .sort((a, b) =>
+      adminAccessAgencyLabel(a).localeCompare(adminAccessAgencyLabel(b), undefined, { sensitivity: "base" })
+    )
+    .filter((a) => {
+      if (!needle) return true;
+      return adminAccessAgencyLabel(a).toLowerCase().includes(needle);
+    });
 
   adminAccessInner.innerHTML = sorted.map(a => {
     const id = String(a.id ?? "");
@@ -2429,7 +3113,9 @@ function renderAdminAccessGrid() {
         <span>${esc(adminAccessAgencyLabel(a))}</span>
       </label>
     `;
-  }).join("") || `<div style="padding:10px; color: var(--muted);">No agencies found.</div>`;
+  }).join("") || `<div style="padding:10px; color: var(--muted);">${
+    adminAccessSelectable.length ? "No agencies match your filter." : "No agencies found."
+  }</div>`;
 
   adminAccessInner.querySelectorAll("input.adminAccessChk").forEach(cb => {
     cb.addEventListener("change", () => {
@@ -2462,8 +3148,10 @@ async function saveAdminAccess() {
 
   adminAccessSaving = true;
   setAdminAccessControlsDisabled(true);
-  adminAccessSummary.textContent = "Saving...";
-  adminAccessSummary.className = "msg";
+  if (adminAccessSummary) {
+    adminAccessSummary.textContent = "";
+    adminAccessSummary.className = "msg";
+  }
 
   const agencyIds = Array.from(adminAccessPickedIds)
     .map(x => Number(x))
@@ -2485,8 +3173,10 @@ async function saveAdminAccess() {
       const id = String(a.id ?? "");
       a.hasAccess = adminAccessPickedIds.has(id);
     });
-    adminAccessSummary.textContent = "Changes saved.";
-    adminAccessSummary.className = "msg ok";
+    if (adminAccessSummary) {
+      adminAccessSummary.textContent = "";
+      adminAccessSummary.className = "msg";
+    }
   } catch (e) {
     try {
       const res = await fetch(`/api/groups/${encodeURIComponent(adminAccessGroupId)}/admin-access`);
@@ -2504,8 +3194,10 @@ async function saveAdminAccess() {
     } catch (_) {
       // ignore reload failure
     }
-    adminAccessSummary.textContent = e.message || "Save failed";
-    adminAccessSummary.className = "msg bad";
+    if (adminAccessSummary) {
+      adminAccessSummary.textContent = e.message || "Save failed";
+      adminAccessSummary.className = "msg bad";
+    }
   } finally {
     adminAccessSaving = false;
     setAdminAccessControlsDisabled(false);
@@ -2516,13 +3208,16 @@ async function saveAdminAccess() {
   }
 }
 
-window.openGroupAdminAccess = async (groupId) => {
+async function loadAdminAccessForEdit(groupId) {
   if (!IS_GLOBAL_ADMIN) return;
   adminAccessGroupId = String(groupId || "").trim();
   if (!adminAccessGroupId) return;
 
-  adminAccessSummary.textContent = "Loading agencies...";
-  adminAccessSummary.className = "msg";
+  if (adminAccessSearch) adminAccessSearch.value = "";
+  if (adminAccessSummary) {
+    adminAccessSummary.textContent = "";
+    adminAccessSummary.className = "msg";
+  }
   if (adminAccessInner) adminAccessInner.innerHTML = "";
   adminAccessPickedIds = new Set();
   adminAccessSelectable = [];
@@ -2531,14 +3226,12 @@ window.openGroupAdminAccess = async (groupId) => {
     clearTimeout(adminAccessSaveTimer);
     adminAccessSaveTimer = null;
   }
-  showAdminAccessModal(true);
 
   try {
     const res = await fetch(`/api/groups/${encodeURIComponent(adminAccessGroupId)}/admin-access`);
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Failed to load admin access");
 
-    const groupLabel = stripTakPrefix(data.groupName || "");
     adminAccessSelectable = (Array.isArray(data.agencies) ? data.agencies : []).filter(a => a.selectable !== false);
     adminAccessPickedIds = new Set(
       adminAccessSelectable
@@ -2547,16 +3240,22 @@ window.openGroupAdminAccess = async (groupId) => {
         .filter(Boolean)
     );
 
-    adminAccessSummary.textContent = groupLabel
-      ? `Select agencies whose administrators can access "${groupLabel}". Changes save automatically.`
-      : "Select agencies whose administrators can access this group. Changes save automatically.";
-    adminAccessSummary.className = "msg ok";
+    if (adminAccessSummary) {
+      adminAccessSummary.textContent = "";
+      adminAccessSummary.className = "msg";
+    }
     renderAdminAccessGrid();
   } catch (e) {
-    adminAccessSummary.textContent = e.message || "Failed to load.";
-    adminAccessSummary.className = "msg bad";
+    if (adminAccessSummary) {
+      adminAccessSummary.textContent = e.message || "Failed to load.";
+      adminAccessSummary.className = "msg bad";
+    }
   }
-};
+}
+
+if (adminAccessSearch) {
+  adminAccessSearch.addEventListener("input", () => renderAdminAccessGrid());
+}
 
 if (adminAccessSelectAllBtn) {
   adminAccessSelectAllBtn.onclick = () => {
@@ -2574,11 +3273,42 @@ if (adminAccessClearBtn) {
     saveAdminAccess();
   };
 }
-if (adminAccessCloseBtn) adminAccessCloseBtn.onclick = () => showAdminAccessModal(false);
-if (adminAccessOverlay) {
-  adminAccessOverlay.addEventListener("click", e => {
-    if (e.target === adminAccessOverlay) showAdminAccessModal(false);
-  });
+
+async function openMembersFromDeepLink(groupId) {
+  const id = String(groupId || "").trim();
+  if (!id) return;
+  try {
+    const res = await fetch(
+      `/api/groups/${encodeURIComponent(id)}/members?page=1&pageSize=1`
+    );
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setMsg(listMsg, out.error || "Unable to open that group's members.", false);
+      return;
+    }
+    if (!out.visibleOnGroupsPage) {
+      setMsg(
+        listMsg,
+        "You don't have access to manage that group from the Groups page.",
+        false
+      );
+      return;
+    }
+    await window.openGroupMembers(id, { groupName: out.group?.name || "" });
+  } catch (e) {
+    setMsg(listMsg, e.message || "Unable to open that group's members.", false);
+  }
+}
+
+function consumeMembersDeepLink() {
+  const params = new URLSearchParams(window.location.search);
+  const membersId = String(params.get("members") || "").trim();
+  if (!membersId) return;
+  params.delete("members");
+  const qs = params.toString();
+  const nextUrl = window.location.pathname + (qs ? `?${qs}` : "") + window.location.hash;
+  window.history.replaceState({}, "", nextUrl);
+  openMembersFromDeepLink(membersId);
 }
 
 (async () => {
@@ -2586,13 +3316,55 @@ if (adminAccessOverlay) {
   if (editType) editType.onchange();
   initGroupSort();
   await loadAgencies();
+  await loadRegions();
   await loadTemplatesForMassModal();
+  updateCreateEditTypeOptions();
   updateGroupScopeDetailOptions();
   await loadGroups();
+  consumeMembersDeepLink();
 })();
 </script>
 
 <style>
+.pagination {
+  margin: 12px 0 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.pagination .btn {
+  padding: 4px 14px;
+  border-radius: 999px;
+  background: #2f3241;
+  border: 1px solid #3a3d4d;
+  color: #e4e4e4;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.pagination .btn:hover:not(:disabled) {
+  background: #3a3d4d;
+  border-color: #4a4d5e;
+}
+
+.pagination .btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+#groupsPageInfo,
+#membersPageInfo {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  opacity: 0.9;
+  font-size: 12px;
+}
+
 .btn-access {
   background: #7c3aed;
   border-color: #7c3aed;
@@ -2600,6 +3372,15 @@ if (adminAccessOverlay) {
 }
 .btn-access:hover {
   filter: brightness(0.95);
+}
+
+.channelPatchBanner{
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-weight: 800;
+  color: #ffffff;
+  background: #c2410c;
+  display: block;
 }
 
 .createGroupSubmitBtnAlignRight{
@@ -2615,12 +3396,38 @@ if (adminAccessOverlay) {
   width: 100%;
 }
 
+/* Sortable header UI */
+th.sortable{
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+th.sortable:hover{
+  text-decoration: underline;
+}
+.sortIndicator{
+  display: inline-block;
+  min-width: 12px;
+  margin-left: 6px;
+  opacity: 0.9;
+}
+
 .groupsListTable td {
   vertical-align: top;
 }
 
 .groupsListTable .groupNameCell {
   max-width: 320px;
+}
+
+.groupsListTable .groupTypeCell,
+.groupsListTable .groupBehaviorCell,
+.groupsListTable .groupPrivateCell {
+  white-space: nowrap;
+}
+
+.groupsListTable .groupScopeCell {
+  max-width: 220px;
 }
 
 .groupsListTable .groupNameText {
@@ -2633,6 +3440,14 @@ if (adminAccessOverlay) {
   font-size: 11px;
   margin-top: 2px;
   white-space: normal;
+}
+
+.groupsListTable .groupPatchedText {
+  font-size: 11px;
+  margin-top: 2px;
+  white-space: normal;
+  color: #c2410c;
+  font-weight: 600;
 }
 
 .groupsListTable .groupPrivateBadge,
@@ -2693,8 +3508,11 @@ if (adminAccessOverlay) {
     overflow: hidden;
   }
 
-  .groupsListTable .cardTitleCell { order: 1; }
-  .groupsListTable .cardActionsCell { order: 2; }
+  .groupsListTable .groupTypeCell { order: 1; }
+  .groupsListTable .cardTitleCell { order: 2; }
+  .groupsListTable .groupScopeCell { order: 3; }
+  .groupsListTable .groupBehaviorCell { order: 4; }
+  .groupsListTable .cardActionsCell { order: 5; }
   .groupsListTable .groupPrivateCell { order: 99; display: none !important; }
 
   .listCardTable tbody td {
@@ -2705,6 +3523,22 @@ if (adminAccessOverlay) {
     overflow-wrap: normal;
     min-width: 0 !important;
     max-width: none !important;
+  }
+
+  .listCardTable tbody td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+
+  .listCardTable .cardTitleCell::before,
+  .listCardTable .cardActionsCell::before {
+    display: none;
   }
 
   .listCardTable .cardTitleCell {
@@ -2777,6 +3611,619 @@ if (adminAccessOverlay) {
 .groupsExportCardActions {
   display: flex;
   justify-content: flex-end;
+}
+
+#editGroupOverlay,
+#membersOverlay {
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+#editGroupOverlay .editGroupModal {
+  display: flex;
+  flex-direction: column;
+  width: min(1280px, 100%);
+  max-height: 92vh;
+  overflow: hidden;
+}
+
+#membersOverlay .membersModal {
+  display: flex;
+  flex-direction: column;
+  width: min(1280px, 100%);
+  height: min(92vh, 100%);
+  max-height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+#editGroupOverlay .modalHeader,
+#membersOverlay .modalHeader {
+  flex: 0 0 auto;
+}
+
+#editGroupOverlay .modalHeaderLeft,
+#membersOverlay .modalHeaderLeft {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+#editGroupOverlay .modalHeaderLeft h2,
+#membersOverlay .modalHeaderLeft h2 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#editGroupOverlay .modalBody,
+#membersOverlay .modalBody {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#editGroupOverlay .editGroupForm {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#editGroupOverlay .editGroupTop {
+  flex: 0 0 auto;
+}
+
+#editGroupOverlay .editGroupFooter {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+}
+
+#editGroupOverlay .editGroupFooter .msg {
+  margin-right: auto;
+}
+
+#editGroupOverlay label > input:not([type="checkbox"]),
+#editGroupOverlay label > select {
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+#editGroupOverlay select[disabled],
+#editGroupOverlay input[disabled] {
+  opacity: 0.75;
+  cursor: not-allowed;
+}
+
+#membersOverlay .membersSplit {
+  flex: 1 1 0%;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  overflow: hidden;
+}
+
+#membersOverlay.has-delegate .membersSplit {
+  flex: 0 0 auto;
+  height: min(29rem, 48vh);
+  max-height: min(29rem, 48vh);
+}
+
+#membersOverlay .membersSplit.has-mass {
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+}
+
+#membersOverlay .membersSplit:not(.has-mass) #membersMassPane {
+  display: none !important;
+}
+
+#membersOverlay:not(.has-delegate) #membersDelegatePane {
+  display: none !important;
+}
+
+#membersOverlay .membersDelegatePane {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  overflow: hidden;
+}
+
+#membersOverlay.has-delegate .membersDelegatePane {
+  flex: 1 1 0%;
+  min-height: 10rem;
+  max-height: none;
+}
+
+#membersOverlay .membersDelegatePane .msg:empty {
+  display: none;
+}
+
+#membersOverlay .membersDelegatePane .membersMassListBox {
+  flex: 1 1 auto;
+  min-height: 8rem;
+}
+
+#membersOverlay #adminAccessInner {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 8px;
+  align-content: start;
+}
+
+#membersOverlay .membersSplitPane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+#membersOverlay .membersSplitPaneHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: 0 0 auto;
+  margin-bottom: 6px;
+}
+
+#membersOverlay .membersSplitPaneHead h3 {
+  margin: 0;
+}
+
+#membersOverlay .membersRange {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+#membersOverlay .membersSplitPane .msg:empty {
+  display: none;
+}
+
+#membersOverlay #membersFilter,
+#membersOverlay #adminAccessSearch {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 8px;
+  flex: 0 0 auto;
+}
+
+#membersOverlay .membersListBox,
+#membersOverlay .membersMassListBox {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  max-height: none;
+  margin-top: 8px;
+}
+
+#membersOverlay .membersListBox {
+  padding: 0;
+}
+
+#membersOverlay .membersSplitPane .pagination {
+  flex: 0 0 auto;
+  margin: 8px 0 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  font-size: 14px;
+}
+
+#membersOverlay .pagination .btn {
+  padding: 4px 14px;
+  border-radius: 999px;
+  background: var(--input-bg);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.2;
+  font-weight: 600;
+  width: auto;
+  min-width: 0;
+  box-shadow: none;
+}
+
+#membersOverlay .pagination .btn:hover:not(:disabled) {
+  background: var(--hover-strong);
+  border-color: var(--line);
+  filter: none;
+}
+
+#membersOverlay .pagination .btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+#membersOverlay #membersPageInfo {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-border);
+  opacity: 0.9;
+  font-size: 12px;
+}
+
+#membersOverlay .membersTable {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+#membersOverlay .membersTable thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel);
+  box-shadow: 0 1px 0 var(--line);
+}
+
+#membersOverlay .membersUserCell {
+  min-width: 12rem;
+}
+
+#membersOverlay .membersUserName {
+  font-weight: 600;
+}
+
+#membersOverlay .membersUserMeta {
+  font-size: 12px;
+  margin-top: 1px;
+}
+
+#membersOverlay .membersAgencyCell {
+  min-width: 8rem;
+}
+
+#membersOverlay .membersTemplateCell {
+  white-space: nowrap;
+}
+
+#membersOverlay .membersRemoveCell {
+  text-align: right;
+  white-space: nowrap;
+}
+
+#membersOverlay .membersRowDisabled td {
+  opacity: 0.7;
+}
+
+#membersOverlay .membersMassActionToggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  width: 100%;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  margin-bottom: 10px;
+}
+
+#membersOverlay .membersMassActionToggle .segBtn {
+  width: 100%;
+  text-align: center;
+}
+
+#membersOverlay #massSegmented {
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+}
+
+#membersOverlay #massApplyBtn {
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+#membersOverlay .membersMassPanes {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-top: 10px;
+}
+
+#membersOverlay #massAgencyPane,
+#membersOverlay #massGroupPane,
+#membersOverlay #massTemplatePane,
+#membersOverlay #massAgencyTypePane,
+#membersOverlay #massUsersPane {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#membersOverlay .membersMassFooter {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  flex-wrap: wrap;
+}
+
+#membersOverlay .membersMassFooter .msg {
+  margin-right: auto;
+}
+
+body.noScroll .main {
+  overflow: hidden !important;
+}
+
+@media (max-width: 990px) {
+  #editGroupOverlay,
+  #membersOverlay {
+    padding: 0;
+    align-items: stretch;
+    justify-content: stretch;
+  }
+  #editGroupOverlay .editGroupModal,
+  #membersOverlay .membersModal {
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    max-height: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+  }
+  #membersOverlay .membersModal {
+    overflow-x: hidden;
+  }
+  #editGroupOverlay .modalHeader,
+  #membersOverlay .modalHeader {
+    padding-top: max(14px, env(safe-area-inset-top));
+    padding-left: max(14px, env(safe-area-inset-left));
+    padding-right: max(14px, env(safe-area-inset-right));
+    gap: 8px;
+    align-items: center;
+  }
+  #editGroupOverlay .modalHeaderLeft,
+  #membersOverlay .modalHeaderLeft {
+    flex: 1 1 auto;
+  }
+  #editGroupOverlay .modalHeaderLeft h2,
+  #membersOverlay .modalHeaderLeft h2 {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    font-size: 16px;
+    line-height: 1.3;
+  }
+  #editGroupOverlay .modalHeader > .btn,
+  #membersOverlay .modalHeader > .btn {
+    flex: 0 0 auto;
+    min-height: 44px;
+  }
+  #editGroupOverlay .modalBody,
+  #membersOverlay .modalBody {
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    padding-left: max(14px, env(safe-area-inset-left));
+    padding-right: max(14px, env(safe-area-inset-right));
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
+  }
+  #editGroupOverlay .editGroupForm,
+  #membersOverlay .membersSplit,
+  #membersOverlay .membersSplit.has-mass,
+  #membersOverlay.has-delegate .membersSplit {
+    display: flex;
+    flex-direction: column;
+    overflow: visible;
+    flex: 0 0 auto;
+    min-height: auto;
+    height: auto;
+    max-height: none;
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  #membersOverlay .membersSplitPane + .membersSplitPane {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+  }
+  #membersOverlay .membersDelegatePane,
+  #membersOverlay.has-delegate .membersDelegatePane {
+    flex: 0 0 auto;
+    min-height: auto;
+    max-height: none;
+    overflow: visible;
+  }
+  #membersOverlay .membersDelegatePane .membersMassListBox {
+    max-height: min(40dvh, 22rem);
+  }
+  #membersOverlay .membersDelegatePane .membersSplitPaneHead {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  #membersOverlay .membersDelegatePane .membersSplitPaneHead .row {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  #membersOverlay .membersDelegatePane .membersSplitPaneHead .btn {
+    width: 100%;
+    min-height: 44px;
+  }
+  #membersOverlay #adminAccessInner {
+    grid-template-columns: 1fr;
+  }
+  #membersOverlay .groupItem {
+    align-items: flex-start;
+  }
+  #membersOverlay .groupItem span {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: unset;
+  }
+  #editGroupOverlay .editGroupTop .row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  #editGroupOverlay .editGroupTop label {
+    min-width: 0 !important;
+    width: 100%;
+  }
+  #membersOverlay .membersListBox,
+  #membersOverlay .membersMassListBox {
+    flex: 0 0 auto;
+    min-height: 10rem;
+    max-height: min(40dvh, 22rem);
+    -webkit-overflow-scrolling: touch;
+  }
+  #membersOverlay .membersListBox {
+    padding: 6px 10px 10px;
+  }
+  #membersOverlay .membersSplitPane {
+    flex: 0 0 auto;
+    min-height: auto;
+    overflow: visible;
+  }
+  #membersOverlay .membersSplitPaneHead {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  #membersOverlay .membersRange {
+    white-space: normal;
+  }
+  #membersOverlay .membersMassActionToggle .segBtn,
+  #membersOverlay #massSegmented .segBtn {
+    min-height: 44px;
+  }
+  #membersOverlay .pagination {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  #membersOverlay .pagination .btn {
+    width: auto;
+    flex: 0 0 auto;
+    max-width: none;
+    min-height: 36px;
+  }
+  #membersOverlay .membersMassPanes,
+  #membersOverlay #massAgencyPane,
+  #membersOverlay #massGroupPane,
+  #membersOverlay #massTemplatePane,
+  #membersOverlay #massAgencyTypePane,
+  #membersOverlay #massUsersPane {
+    flex: 0 0 auto;
+    min-height: auto;
+    overflow: visible;
+  }
+  #membersOverlay .membersMassPanes > div > .row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  #membersOverlay .membersMassPanes > div > .row input {
+    width: 100%;
+  }
+  #membersOverlay .membersMassPanes > div > .row > .row {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  #membersOverlay .membersMassPanes > div > .row > .row .btn {
+    width: 100%;
+    min-height: 44px;
+  }
+  #membersOverlay #massSegmented .segBtn {
+    flex: 1 1 calc(50% - 8px);
+    text-align: center;
+  }
+  #membersOverlay .membersTable thead {
+    display: none;
+  }
+  #membersOverlay .membersTable tbody tr {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  #membersOverlay .membersTable td {
+    display: block;
+    min-width: 0 !important;
+    white-space: normal;
+    padding: 0;
+  }
+  #membersOverlay .membersTable td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--muted);
+    margin-bottom: 2px;
+  }
+  #membersOverlay .membersUserCell::before,
+  #membersOverlay .membersRemoveCell::before {
+    display: none;
+  }
+  #membersOverlay .membersRemoveCell .btn {
+    width: 100%;
+    min-height: 44px;
+    margin-top: 4px;
+  }
+  #editGroupOverlay .editGroupFooter,
+  #membersOverlay .membersMassFooter {
+    position: sticky;
+    bottom: 0;
+    z-index: 4;
+    background: var(--raised);
+    margin-top: 12px;
+    padding-top: 12px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+    box-shadow: 0 -10px 16px var(--raised);
+    flex-wrap: wrap;
+  }
+  #editGroupOverlay .editGroupFooter .btn,
+  #membersOverlay .membersMassFooter .btn {
+    min-height: 44px;
+    width: 100%;
+    white-space: normal;
+  }
+  #editGroupOverlay .editGroupFooter .msg,
+  #membersOverlay .membersMassFooter .msg {
+    margin: 0 0 8px;
+    width: 100%;
+  }
+  #editGroupOverlay .editGroupFooter .msg:empty,
+  #membersOverlay .membersMassFooter .msg:empty {
+    display: none;
+  }
+  #editGroupOverlay input:not([type="checkbox"]),
+  #editGroupOverlay select,
+  #membersOverlay input:not([type="checkbox"]),
+  #membersOverlay select {
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 420px) {
+  #membersOverlay .pagination-first-last {
+    display: none;
+  }
 }
 </style>
 

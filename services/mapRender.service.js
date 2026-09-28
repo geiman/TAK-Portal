@@ -4,6 +4,7 @@
 const crypto = require("crypto");
 const { getInt } = require("./env");
 const mapMeta = require("./mapMeta.service");
+const mapIconResolve = require("./mapIcon.resolve");
 const mapIconRender = require("./mapIconRender.service");
 const shapeDecor = require("../public/shapeDecorFilter.js");
 
@@ -27,7 +28,7 @@ function markerChannelKeys(marker) {
   const groups =
     Array.isArray(marker?.groups) && marker.groups.length
       ? marker.groups
-      : [mapMeta.UNASSIGNED_GROUP];
+      : mapMeta.resolveGroupsForMarker(marker, null);
   const keys = new Set();
   for (const g of groups) {
     const channelName = mapMeta.toChannelGroupName(g) || g;
@@ -117,24 +118,28 @@ function markerInBounds(marker, bounds) {
 }
 
 function markerVisible(marker, options) {
+  const uid = String(marker?.uid || "");
+  const isPriority =
+    (options?.selectedUid && uid === String(options.selectedUid)) ||
+    (options?.lockedUid && uid === String(options.lockedUid));
   const keys = markerChannelKeys(marker);
   const scopeChannelKeys = options?.scopeChannelKeys;
 
-  if (scopeChannelKeys !== null && scopeChannelKeys !== undefined) {
+  if (!isPriority && scopeChannelKeys !== null && scopeChannelKeys !== undefined) {
     if (scopeChannelKeys.size === 0) return false;
     if (!keys.length) return false;
     if (!keys.some((k) => scopeChannelKeys.has(k))) return false;
   }
 
   const enabledChannelKeys = options?.enabledChannelKeys;
-  if (enabledChannelKeys !== null && enabledChannelKeys !== undefined) {
+  if (!isPriority && enabledChannelKeys !== null && enabledChannelKeys !== undefined) {
     if (enabledChannelKeys.size === 0) return false;
     if (!keys.length) return false;
     if (!keys.some((k) => enabledChannelKeys.has(k))) return false;
   }
 
   if (!markerMatchesSearch(marker, options?.search)) return false;
-  if (!markerInBounds(marker, options?.bounds)) return false;
+  if (!isPriority && !markerInBounds(marker, options?.bounds)) return false;
   return true;
 }
 
@@ -145,35 +150,73 @@ function isAirCotType(type) {
   return parts.length >= 3 && parts[2].toUpperCase() === "A";
 }
 
+/** ATAK/TAK Aware self-SA ground (a-f-G-U-C). CloudTAK browser SA uses a-f-G-E-V-C. */
+function isStandardGroundEudCotType(type) {
+  return mapIconResolve.isStandardGroundEudType(type);
+}
+
+function isMilsymAviationIconId(iconId) {
+  const raw = String(iconId || "").trim();
+  if (!/^2525D:/i.test(raw)) return false;
+  const sidc = raw.slice(6);
+  if (sidc.length < 16) return false;
+  // Type2525.to2525D("a-f-G-U-C") → land-unit entity 120900 (fixed-wing bowtie).
+  return sidc.slice(10, 16) === "120900";
+}
+
+function isSpiCotType(type) {
+  const t = String(type || "").trim().toLowerCase();
+  return t.startsWith("b-m-p-s-p-i") || t.startsWith("b-m-p-s-p-loc");
+}
+
 function isFeedLikeOrigin(origin) {
   const o = String(origin || "").toLowerCase();
-  return o === "feed" || o === "mission";
+  return o === "feed" || o === "mission" || o === "spi" || o === "package";
 }
 
 /** PNG / 2525D map icons: feeds, explicit usericon/path, air type2525b; EUD uses team dots. */
 function markerUsesMapIcon(marker) {
   if (!marker?.iconId) return false;
-  if (String(marker.origin || "").toLowerCase() === "eud") return false;
+  if (isSpiCotType(marker.type)) return true;
   const src = String(marker.iconSource || "").toLowerCase();
-  if (src === "usericon" || src === "path" || src === "alias" || src === "milsym") {
+  const apiId = String(marker.iconId || "");
+  // Ground EUDs (a-f-G-U-C) always use team dots unless the CoT set a custom bitmap.
+  // Prefix matching otherwise assigns FalconView A-F-G.png / 2525D aviation frames.
+  if (isStandardGroundEudCotType(marker.type)) {
+    if (/^2525D:/i.test(apiId) || /a-f-g\.png$/i.test(apiId)) return false;
+    return src === "usericon" || src === "path" || src === "alias";
+  }
+  if (!isAirCotType(marker.type) && isMilsymAviationIconId(apiId)) return false;
+  // Aircraft (and milsym) keep symbology even when multi-hop _flow-tags_
+  // classify the marker as federation (otherwise they render as team dots).
+  if (apiId.startsWith("2525D:")) return true;
+  if (isAirCotType(marker.type) && (src === "type2525b" || src === "default" || src === "milsym")) {
     return true;
   }
-  const apiId = String(marker.iconId || "");
-  if (apiId.startsWith("2525D:")) return true;
-  if (isAirCotType(marker.type) && src === "default") return true;
+  if (
+    src === "usericon" ||
+    src === "path" ||
+    src === "alias" ||
+    src === "milsym" ||
+    src === "type-override"
+  ) {
+    return true;
+  }
+  const origin = String(marker.origin || "").toLowerCase();
+  if (origin === "eud" || origin === "federation") return false;
   if (src === "type2525b") {
-    if (isAirCotType(marker.type)) return true;
     return isFeedLikeOrigin(marker.origin);
   }
   return false;
 }
-
 function markerOriginRank(marker) {
   const origin = String(marker?.origin || "").toLowerCase();
-  if (origin === "eud") return 2;
+  if (origin === "eud" || origin === "federation") return 2;
+  if (origin === "spi") return 2;
   if (origin === "feed") return 0;
   if (origin === "unknown") return 1;
   const type = String(marker?.type || "");
+  if (isSpiCotType(type)) return 2;
   if (/^a-f-G-/i.test(type)) return 2;
   if (/^a-[fnhu]-A-/i.test(type)) return 0;
   if (/^a-f-[GUS]-/i.test(type)) return 2;
@@ -208,7 +251,7 @@ function estimateLabelBoxMercator(lon, lat, callsign, zoom) {
   const x = ((lon + 180) / 360) * scale;
   const sinLat = Math.sin((lat * Math.PI) / 180);
   const y = (0.5 - Math.log((1 + sinLat) / (1 - sinLat)) / (4 * Math.PI)) * scale;
-  const w = Math.max(36, String(callsign || "").length * 6.5);
+  const w = Math.max(36, String(mapMeta.sanitizeCallsign(callsign) || "").length * 6.5);
   const h = 13;
   return { x: x - w / 2, y: y - 28, w, h };
 }
@@ -284,7 +327,7 @@ function toSlimMarker(marker) {
     : "";
   return {
     uid: marker.uid,
-    callsign: marker.callsign,
+    callsign: mapMeta.sanitizeCallsign(marker.callsign),
     type: marker.type,
     lat: Number.isFinite(Number(marker?.lat)) ? Number(marker.lat) : marker?.lat,
     lon: Number.isFinite(Number(marker?.lon)) ? Number(marker.lon) : marker?.lon,
@@ -311,8 +354,8 @@ function toSlimMarker(marker) {
     platform: marker.platform || null,
     battery: marker.battery != null && marker.battery !== "" ? marker.battery : null,
     updatedAt: marker.updatedAt,
-    iconId: marker.iconId || null,
-    iconSource: marker.iconSource || null,
+    iconId: usesIcon ? marker.iconId || null : null,
+    iconSource: usesIcon ? marker.iconSource || null : null,
     mapImageId: mapImageId || "",
     usesMapIcon: usesIcon ? 1 : 0,
     channelKeys: markerChannelKeys(marker).join(","),
@@ -343,7 +386,7 @@ function toRenderedFeature(marker, options = {}) {
     properties: {
       kind: "marker",
       uid: marker.uid,
-      callsign: marker.callsign,
+      callsign: mapMeta.sanitizeCallsign(marker.callsign),
       type: marker.type,
       affiliation: marker.affiliation || "other",
       color,
@@ -471,6 +514,7 @@ module.exports = {
   markerVisible,
   markerChannelKeys,
   isAirCotType,
+  isStandardGroundEudCotType,
   markerUsesMapIcon,
   markerDisplayColor,
   markerOriginRank,

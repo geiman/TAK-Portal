@@ -2,10 +2,11 @@ const router = require("express").Router();
 const multer = require("multer");
 const store = require("../services/agencies.service");
 const agencyTypesSvc = require("../services/agencyTypes.service");
+const regionsSvc = require("../services/regions.service");
 const accessSvc = require("../services/access.service");
 const usersService = require("../services/users.service");
 const groupsService = require("../services/groups.service");
-const api = require("../services/authentik");
+const directoryRepo = require("../services/directoryRepo.service");
 const auditSvc = require("../services/auditLog.service");
 const agencyAbbrevRenameSvc = require("../services/agencyAbbrevRename.service");
 const agencyNameRenameSvc = require("../services/agencyNameRename.service");
@@ -13,10 +14,13 @@ const countyNameRenameSvc = require("../services/countyNameRename.service");
 const stateCodeRenameSvc = require("../services/stateCodeRename.service");
 const agencyActiveSvc = require("../services/agencyActive.service");
 const agencyDeleteSvc = require("../services/agencyDelete.service");
+const userRequestsSvc = require("../services/userRequests.service");
+const autoCreateGroupsSvc = require("../services/autoCreateGroups.service");
+const autoCreateDataSyncSvc = require("../services/autoCreateDataSync.service");
 const upload = multer({ storage: multer.memoryStorage() });
 
 function getAgencyAdminGroupName(agency) {
-  const abbr = String(agency?.groupPrefix || "").trim().toUpperCase();
+  const abbr = store.normalizeGroupPrefix(agency?.groupPrefix);
   const countyAbbrev = String(agency?.countyAbbrev || "").trim().toUpperCase();
   if (!abbr) return null;
   if (countyAbbrev) {
@@ -28,7 +32,7 @@ function getAgencyAdminGroupName(agency) {
 
 async function ensureAgencyAdminGroupExists(agency) {
   const name = getAgencyAdminGroupName(agency);
-  if (!name) throw new Error("Agency abbreviation (groupPrefix) is required");
+  if (!name) throw new Error("Agency abbreviation / short name is required");
 
   // Create (idempotent-ish): if the group already exists, Authentik will reject.
   // We treat "already exists" as success.
@@ -47,40 +51,37 @@ async function ensureAgencyAdminGroupExists(agency) {
     // Common Authentik duplicate patterns include "unique" / "already exists".
     const lower = msg.toLowerCase();
     if (lower.includes("already") || lower.includes("exists") || lower.includes("unique")) {
-      return { created: false, name };
+      try {
+        const existing = await getGroupByNameUnfiltered(name);
+        if (existing && store.isAgencyOwnedGroup(existing, agency)) {
+          return { created: false, name };
+        }
+      } catch (_) {
+        // fall through
+      }
+      throw new Error(
+        `Authentik group "${name}" already exists and is not owned by this agency`
+      );
     }
     throw err;
   }
 }
 
-// IMPORTANT:
-// The portal intentionally hides internal Authentik groups from /api/groups
-// (via GROUPS_HIDDEN_PREFIXES, often including "authentik-").
-// Agencies need to look up their computed admin group anyway.
-// So, for the agencies page ONLY, we query Authentik directly to resolve
-// a group by name (unfiltered).
+// Hidden prefixes (often including "authentik-") apply to paged /api/groups search.
+// Agency admin groups still need an exact name lookup against local Postgres.
 async function getGroupByNameUnfiltered(groupName) {
   const name = String(groupName || "").trim();
   if (!name) throw new Error("Group name is required");
-
-  // 1) Try exact-name filter (fast if supported)
-  try {
-    const res = await api.get(`/core/groups/?name=${encodeURIComponent(name)}`);
-    const results = Array.isArray(res?.data?.results) ? res.data.results : [];
-    const exact = results.find(g => String(g?.name || "").trim().toLowerCase() === name.toLowerCase());
-    if (exact) return exact;
-  } catch (e) {
-    // ignore and fall back to search
-  }
-
-  // 2) Fallback: use search and then exact-match in JS
-  const res2 = await api.get(`/core/groups/?search=${encodeURIComponent(name)}`);
-  const results2 = Array.isArray(res2?.data?.results) ? res2.data.results : [];
-  const exact2 = results2.find(g => String(g?.name || "").trim().toLowerCase() === name.toLowerCase());
-  return exact2 || null;
+  return directoryRepo.getGroupById(name);
 }
 
 function normalizeAgency(a) {
+  const sfRaw = String(a?.stateFederalAgency ?? "").trim().toLowerCase();
+  const stateFederalAgency =
+    sfRaw === "yes" ||
+    sfRaw === "true" ||
+    sfRaw === "1" ||
+    a?.stateFederalAgency === true;
   const normalized = {
     name: String(a.name || "").trim(),
     type: String(a.type || "").trim(),
@@ -88,8 +89,9 @@ function normalizeAgency(a) {
     countyAbbrev: String(a.countyAbbrev || "").trim().toUpperCase(),
     state: String(a.state || "").trim().toUpperCase(),
     suffix: String(a.suffix || "").trim().toLowerCase(),
-    groupPrefix: String(a.groupPrefix || "").trim().toUpperCase(),
+    groupPrefix: store.normalizeGroupPrefix(a.groupPrefix),
     color: String(a.color || "").trim(),
+    stateFederalAgency: !!stateFederalAgency,
     usernameTokenPlacement: accessSvc.normalizeUsernameTokenPlacement(
       a.usernameTokenPlacement ?? a.usernameSuffixPlacement ?? "suffix"
     ),
@@ -109,17 +111,52 @@ function normalizeAgency(a) {
       .map((id) => String(id).trim())
       .filter(Boolean);
   }
+  // Optional region assignment (registry id). Empty clears.
+  if ("regionId" in (a || {}) || "region" in (a || {})) {
+    const rawRegion =
+      a.regionId != null && String(a.regionId).trim() !== ""
+        ? a.regionId
+        : a.region;
+    try {
+      const resolved = regionsSvc.resolveRegionId(rawRegion);
+      if (resolved) normalized.regionId = resolved;
+    } catch (_) {
+      // Leave unset; validateAgency / callers handle unknown regions.
+      const fallback = String(rawRegion || "").trim();
+      if (fallback) normalized.regionId = fallback;
+    }
+  }
+  // County lock wins: locked counties always use their region.
+  const lockedId = regionsSvc.lockedRegionIdForAgency(normalized);
+  if (lockedId) {
+    normalized.regionId = lockedId;
+  }
   return normalized;
 }
 
 function validateAgency(a) {
   if (!a.name) return "Name is required";
-  if (!a.state) return "State is required";   // ← ADD THIS
+  if (!a.state) return "State is required";
   if (!a.suffix) return "Username suffix is required";
-  if (!a.groupPrefix) return "Group prefix is required";
+  const gpErr = store.validateGroupPrefix(a.groupPrefix);
+  if (gpErr) return gpErr;
   if (!a.color) return "Agency color is required";
-  if (!a.countyAbbrev) return "County abbreviation is required";
-  if (a.countyAbbrev.length < 2) return "County abbreviation must be at least 2 characters";
+  const isStateFederal = !!a.stateFederalAgency;
+  if (!isStateFederal) {
+    if (!a.county) return "County is required";
+    if (!a.countyAbbrev) return "County abbreviation is required";
+  }
+  if (a.countyAbbrev && a.countyAbbrev.length < 2) {
+    return "County abbreviation must be at least 2 characters";
+  }
+  if (a.countyAbbrev && !/^[A-Z0-9]+$/.test(a.countyAbbrev)) {
+    return "County abbreviation must contain only letters and numbers";
+  }
+  if (a.regionId) {
+    if (!regionsSvc.findById(a.regionId)) {
+      return "Invalid region";
+    }
+  }
   const rawPlacement = String(
     a.usernameTokenPlacement ?? a.usernameSuffixPlacement ?? ""
   )
@@ -158,7 +195,7 @@ function normalizeCountyName(raw) {
 }
 
 const ALLOWED_STATES = new Set([
-  "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID",
+  "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DC", "DE", "FL", "GA", "HI", "ID",
   "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS",
   "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK",
   "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV",
@@ -183,7 +220,13 @@ router.get("/with-counts", async (req, res) => {
         (ag) => ag === a || (String(ag.suffix || "").toLowerCase() === String(a.suffix || "").toLowerCase() && String(ag.name || "") === String(a.name || ""))
       );
       const id = idx >= 0 ? idx : 0;
-      return { ...a, id, _id: id };
+      return {
+        ...a,
+        id,
+        _id: id,
+        autoApproveRequests: a.autoApproveRequests === true,
+        hasDefaultTemplate: store.agencyHasDefaultTemplate(a?.suffix),
+      };
     });
 
     res.json(result);
@@ -198,16 +241,55 @@ function csvEscapeCell(value) {
   return s;
 }
 
+/** Minimal CSV line parser (supports quotes / escaped quotes). */
+function parseCsvLine(line) {
+  const raw = String(line ?? "");
+  const out = [];
+  let cur = "";
+  let inQuotes = false;
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (raw[i + 1] === '"') {
+          cur += '"';
+          i += 1;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        cur += ch;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inQuotes = true;
+      continue;
+    }
+    if (ch === ",") {
+      out.push(cur);
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+
 function buildAgenciesExportCsv(agencies) {
   const header = [
     "Agency Full Name",
-    "Agency Abbreviation",
-    "Username Suffix",
+    "Agency Abbreviation / Short Name",
+    "Username Agency Identifier",
+    "Username Identifier",
     "State",
+    "State/Federal Agency",
     "County",
     "County Abbreviation",
     "Agency Type",
     "Agency Color",
+    "Region",
   ];
   const lines = [header.map(csvEscapeCell).join(",")];
   const sorted = (Array.isArray(agencies) ? agencies : [])
@@ -219,16 +301,25 @@ function buildAgenciesExportCsv(agencies) {
     );
 
   for (const a of sorted) {
+    const placement =
+      String(a?.usernameTokenPlacement || "suffix").toLowerCase() === "prefix"
+        ? "prefix"
+        : "suffix";
+    const stateFederal = a?.stateFederalAgency === true ? "Yes" : "No";
+    const regionName = regionsSvc.getRegionName(a?.regionId) || "";
     lines.push(
       [
         a?.name || "",
         a?.groupPrefix || "",
+        placement,
         a?.suffix || "",
         a?.state || "",
+        stateFederal,
         a?.county || "",
         a?.countyAbbrev || "",
         a?.type || "",
         a?.color || "",
+        regionName,
       ]
         .map(csvEscapeCell)
         .join(",")
@@ -339,39 +430,190 @@ router.get("/:index/admin-group", async (req, res) => {
   }
 });
 
-router.post("/", async (req, res) => {
+function agencyErrorMessage(err, fallback) {
+  const data = err?.response?.data;
+  if (typeof data === "string" && data.trim()) return data;
+  if (data && typeof data === "object") {
+    if (typeof data.detail === "string" && data.detail.trim()) return data.detail;
+    if (typeof data.error === "string" && data.error.trim()) return data.error;
+  }
+  return err?.message || fallback;
+}
+
+async function createAgencyFromPayload(body, opts = {}) {
+  const actor = opts.actor || null;
+  const requestInfo = opts.request || {};
   const agencies = store.load();
-  const a = normalizeAgency(req.body || {});
+  const a = normalizeAgency(body || {});
+  const sourceUserRequestId = String(body?.sourceUserRequestId || "").trim();
+  let autoCreateResult = null;
 
   const err = validateAgency(a);
-  if (err) return res.status(400).json({ error: err });
+  if (err) {
+    const e = new Error(err);
+    e.statusCode = 400;
+    throw e;
+  }
 
-  if (agencies.some(x => String(x.suffix || "").toLowerCase() === a.suffix)) {
-    return res.status(400).json({ error: "Suffix already exists" });
+  if (sourceUserRequestId) {
+    const sourceRequest = userRequestsSvc.getById(sourceUserRequestId);
+    if (!sourceRequest || String(sourceRequest.agencySuffix || "") !== "__other__") {
+      const e = new Error("The pending Other agency request was not found");
+      e.statusCode = 400;
+      throw e;
+    }
+  }
+
+  if (agencies.some((x) => String(x.suffix || "").toLowerCase() === a.suffix)) {
+    const e = new Error("Suffix already exists");
+    e.statusCode = 400;
+    throw e;
+  }
+
+  const dupPrefix = store.assertUniqueGroupPrefix(agencies, a.groupPrefix);
+  if (dupPrefix) {
+    const e = new Error(dupPrefix);
+    e.statusCode = 400;
+    throw e;
+  }
+
+  const dupName = store.assertUniqueAgencyName(agencies, a.name);
+  if (dupName) {
+    const e = new Error(dupName);
+    e.statusCode = 400;
+    throw e;
   }
 
   try {
-    // Ensure the agency admin group exists in Authentik.
     await ensureAgencyAdminGroupExists(a);
-  } catch (err) {
-    return res.status(400).json({
-      error: err?.response?.data || err?.message || "Failed to create agency admin group",
-    });
+    autoCreateResult = await autoCreateGroupsSvc.ensureAutoCreateGroupsForAgency(
+      a,
+      actor
+    );
+  } catch (groupErr) {
+    const e = new Error(
+      agencyErrorMessage(groupErr, "Failed to create required agency groups")
+    );
+    e.statusCode = 400;
+    throw e;
+  }
+
+  let dsResult = null;
+  try {
+    dsResult = await autoCreateDataSyncSvc.ensureAutoCreateDataSyncForAgency(a);
+  } catch (dsErr) {
+    console.warn(
+      "[agencies] Auto Create Data Sync failed:",
+      dsErr?.message || dsErr
+    );
   }
 
   agencies.push(a);
   store.save(agencies);
 
+  const mainGroupResult = autoCreateResult?.mainGroup || null;
+
+  const linkedRequest = sourceUserRequestId
+    ? userRequestsSvc.markAgencyCreated(
+        sourceUserRequestId,
+        a,
+        mainGroupResult?.name
+      )
+    : null;
+
+  const newlyCreated = Array.isArray(autoCreateResult?.createdGroups)
+    ? autoCreateResult.createdGroups
+    : [];
+  for (const created of newlyCreated) {
+    const createdGroup = created.group || {};
+    auditSvc.logEvent({
+      actor,
+      request: requestInfo,
+      action: "CREATE_GROUP",
+      targetType: "group",
+      targetId: String(createdGroup.pk || createdGroup.id || ""),
+      details: {
+        name: createdGroup.name || created.name,
+        description: null,
+        private: "no",
+        created_type: created.created_type || null,
+        created_type_detail: created.created_type_detail || null,
+      },
+    });
+  }
+
+  const createdMissions = Array.isArray(dsResult?.createdMissions)
+    ? dsResult.createdMissions
+    : [];
+  for (const m of createdMissions) {
+    auditSvc.logEvent({
+      actor,
+      request: requestInfo,
+      action: "DATA_SYNC_MISSION_CREATED",
+      targetType: "data_sync_mission",
+      targetId: String(m.missionName || ""),
+      details: {
+        missionName: m.missionName || null,
+        groupName: m.groupName || null,
+        scope: m.scope || null,
+        autoCreate: true,
+      },
+    });
+  }
+  const dsErrors = (Array.isArray(dsResult?.results) ? dsResult.results : []).filter(
+    (r) => r && r.reason === "error"
+  );
+  if (dsErrors.length) {
+    console.warn(
+      "[agencies] Auto Create Data Sync errors:",
+      dsErrors.map((e) => e.error || e.missionName).join("; ")
+    );
+  }
+
   auditSvc.logEvent({
-    actor: req.authentikUser || null,
-    request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+    actor,
+    request: requestInfo,
     action: "CREATE_AGENCY",
     targetType: "agency",
     targetId: String(a?.suffix || ""),
     details: a,
   });
 
-  res.json({ success: true });
+  const mainGroup = mainGroupResult
+    ? {
+        name: mainGroupResult.name,
+        pk: mainGroupResult.group?.pk ?? mainGroupResult.group?.id ?? null,
+        created: !!mainGroupResult.created,
+      }
+    : null;
+
+  return {
+    success: true,
+    mainGroup,
+    createdAgency: linkedRequest?.createdAgency || null,
+  };
+}
+
+router.post("/", async (req, res) => {
+  try {
+    const result = await createAgencyFromPayload(req.body || {}, {
+      actor: req.authentikUser || null,
+      request: {
+        method: req.method,
+        path: req.originalUrl || req.path,
+        ip: req.ip,
+      },
+    });
+    return res.json({
+      success: true,
+      mainGroup: result.mainGroup,
+      createdAgency: result.createdAgency,
+    });
+  } catch (err) {
+    return res.status(err.statusCode || 400).json({
+      error: err?.message || "Failed to create agency",
+    });
+  }
 });
 
 /** Must match the create-agency color dropdown in views/agencies.ejs */
@@ -411,17 +653,71 @@ router.post("/import-csv", upload.single("file"), async (req, res) => {
       });
     }
 
-    const header = lines[0].split(",").map((h) => String(h || "").trim());
+    const header = parseCsvLine(lines[0]).map((h) => String(h || "").trim());
     const normalizedHeader = header.map((h) => h.toLowerCase());
     const requiredColumns = [
       { key: "name", label: "Agency Full Name", aliases: ["agency full name", "name"] },
-      { key: "groupPrefix", label: "Agency Abbreviation", aliases: ["agency abbreviation", "groupprefix"] },
-      { key: "suffix", label: "Username Suffix", aliases: ["username suffix", "suffix"] },
+      {
+        key: "groupPrefix",
+        label: "Agency Abbreviation / Short Name",
+        aliases: [
+          "agency abbreviation / short name",
+          "agency abbreviation",
+          "agency short name",
+          "groupprefix",
+          "abbreviation",
+          "short name",
+        ],
+      },
+      {
+        key: "suffix",
+        label: "Username Identifier",
+        aliases: [
+          "username identifier",
+          "username suffix",
+          "username prefix",
+          "suffix",
+          "prefix",
+        ],
+      },
       { key: "state", label: "State", aliases: ["state"] },
       { key: "county", label: "County", aliases: ["county"] },
-      { key: "countyAbbrev", label: "County Abbreviation", aliases: ["county abbreviation", "countyabbrev"] },
+      {
+        key: "countyAbbrev",
+        label: "County Abbreviation",
+        aliases: ["county abbreviation", "countyabbrev", "county abbrev"],
+      },
       { key: "type", label: "Agency Type", aliases: ["agency type", "type"] },
       { key: "color", label: "Agency Color", aliases: ["agency color", "color"] },
+    ];
+    const optionalColumns = [
+      {
+        key: "usernameTokenPlacement",
+        label: "Username Agency Identifier",
+        aliases: [
+          "username agency identifier",
+          "username token placement",
+          "usernametokenplacement",
+          "token placement",
+          "placement",
+        ],
+      },
+      {
+        key: "stateFederalAgency",
+        label: "State/Federal Agency",
+        aliases: [
+          "state/federal agency",
+          "state federal agency",
+          "statefederalagency",
+          "state/federal",
+          "state federal",
+        ],
+      },
+      {
+        key: "region",
+        label: "Region",
+        aliases: ["region", "region name", "regionid", "region id"],
+      },
     ];
 
     const columnIndexes = new Map();
@@ -431,6 +727,10 @@ router.post("/import-csv", upload.single("file"), async (req, res) => {
         return res.status(400).json({ error: `Missing required column: ${col.label}` });
       }
       columnIndexes.set(col.key, idx);
+    }
+    for (const col of optionalColumns) {
+      const idx = normalizedHeader.findIndex((h) => col.aliases.includes(h));
+      if (idx >= 0) columnIndexes.set(col.key, idx);
     }
 
     function get(parts, key) {
@@ -449,23 +749,34 @@ router.post("/import-csv", upload.single("file"), async (req, res) => {
       allAgencies.map((a) => String(a?.suffix || "").trim().toLowerCase()).filter(Boolean)
     );
     const seenIncomingSuffixes = new Set();
+    const existingPrefixes = new Set(
+      allAgencies.map((a) => store.groupPrefixKey(a?.groupPrefix)).filter(Boolean)
+    );
+    const seenIncomingPrefixes = new Set();
+    const existingNames = new Set(
+      allAgencies.map((a) => store.agencyNameKey(a?.name)).filter(Boolean)
+    );
+    const seenIncomingNames = new Set();
 
     const created = [];
     const skipped = [];
     const failed = [];
 
     for (let i = 1; i < lines.length; i++) {
-      const parts = lines[i].split(",");
+      const parts = parseCsvLine(lines[i]);
       const line = i + 1;
 
       const name = get(parts, "name");
-      const groupPrefix = get(parts, "groupPrefix").toUpperCase();
+      const groupPrefix = store.normalizeGroupPrefix(get(parts, "groupPrefix"));
       const suffix = get(parts, "suffix").toLowerCase();
       const state = get(parts, "state").toUpperCase();
       const county = normalizeCountyName(get(parts, "county"));
-      const countyAbbrev = get(parts, "countyAbbrev").toUpperCase().replace(/[^A-Z]/g, "");
+      const countyAbbrev = get(parts, "countyAbbrev").toUpperCase().replace(/[^A-Z0-9]/g, "");
       const type = get(parts, "type");
       const color = get(parts, "color");
+      const usernameTokenPlacement = get(parts, "usernameTokenPlacement") || "suffix";
+      const stateFederalAgency = get(parts, "stateFederalAgency") || "no";
+      const region = get(parts, "region");
 
       const candidate = normalizeAgency({
         name,
@@ -476,16 +787,18 @@ router.post("/import-csv", upload.single("file"), async (req, res) => {
         countyAbbrev,
         type,
         color,
+        usernameTokenPlacement,
+        stateFederalAgency,
+        region,
       });
 
       const rowErrors = [];
       const baseErr = validateAgency(candidate);
       if (baseErr) rowErrors.push(baseErr);
       if (candidate.suffix && !/^[a-z0-9_-]+$/.test(candidate.suffix)) {
-        rowErrors.push("Username suffix can only contain lowercase letters, numbers, dashes, and underscores");
-      }
-      if (candidate.groupPrefix && !/^[A-Z0-9_-]+$/.test(candidate.groupPrefix)) {
-        rowErrors.push("Agency abbreviation can only contain letters, numbers, dashes, and underscores");
+        rowErrors.push(
+          "Username identifier can only contain lowercase letters, numbers, dashes, and underscores"
+        );
       }
       if (candidate.state && !ALLOWED_STATES.has(candidate.state)) {
         rowErrors.push(`Invalid state "${candidate.state}"`);
@@ -495,6 +808,22 @@ router.post("/import-csv", upload.single("file"), async (req, res) => {
       }
       if (candidate.color && !ALLOWED_AGENCY_COLORS.has(candidate.color)) {
         rowErrors.push(`Invalid agency color "${candidate.color}"`);
+      }
+      const placementRaw = String(usernameTokenPlacement || "").trim().toLowerCase();
+      if (
+        placementRaw &&
+        !["suffix", "prefix", "start", "before", "leading", "end", "after"].includes(placementRaw)
+      ) {
+        rowErrors.push(
+          'Username Agency Identifier must be "suffix" or "prefix"'
+        );
+      }
+      const sfRaw = String(stateFederalAgency || "").trim().toLowerCase();
+      if (
+        sfRaw &&
+        !["yes", "no", "true", "false", "1", "0", "y", "n"].includes(sfRaw)
+      ) {
+        rowErrors.push('State/Federal Agency must be "Yes" or "No"');
       }
 
       if (rowErrors.length) {
@@ -533,11 +862,65 @@ router.post("/import-csv", upload.single("file"), async (req, res) => {
         continue;
       }
 
+      const prefixKey = store.groupPrefixKey(candidate.groupPrefix);
+      if (existingPrefixes.has(prefixKey)) {
+        skipped.push({
+          line,
+          suffix: candidate.suffix,
+          reason: "Agency abbreviation / short name already exists",
+        });
+        continue;
+      }
+      if (seenIncomingPrefixes.has(prefixKey)) {
+        skipped.push({
+          line,
+          suffix: candidate.suffix,
+          reason: "Duplicate agency abbreviation / short name in CSV",
+        });
+        continue;
+      }
+
+      const nameKey = store.agencyNameKey(candidate.name);
+      if (existingNames.has(nameKey)) {
+        skipped.push({
+          line,
+          suffix: candidate.suffix,
+          reason: "Agency name already exists",
+        });
+        continue;
+      }
+      if (seenIncomingNames.has(nameKey)) {
+        skipped.push({
+          line,
+          suffix: candidate.suffix,
+          reason: "Duplicate agency name in CSV",
+        });
+        continue;
+      }
+
       try {
         await ensureAgencyAdminGroupExists(candidate);
+        // Groups must exist before Data Sync missions are created.
+        await autoCreateGroupsSvc.ensureAutoCreateGroupsForAgency(
+          candidate,
+          req.authentikUser || null
+        );
+        try {
+          await autoCreateDataSyncSvc.ensureAutoCreateDataSyncForAgency(candidate);
+        } catch (dsErr) {
+          console.warn(
+            "[agencies/import-csv] Auto Create Data Sync failed for",
+            candidate.suffix,
+            dsErr?.message || dsErr
+          );
+        }
         allAgencies.push(candidate);
         existingSuffixes.add(candidate.suffix);
         seenIncomingSuffixes.add(candidate.suffix);
+        existingPrefixes.add(prefixKey);
+        seenIncomingPrefixes.add(prefixKey);
+        existingNames.add(nameKey);
+        seenIncomingNames.add(nameKey);
         created.push({
           line,
           suffix: candidate.suffix,
@@ -551,7 +934,7 @@ router.post("/import-csv", upload.single("file"), async (req, res) => {
             err?.response?.data?.detail ||
               err?.response?.data ||
               err?.message ||
-              "Failed to create agency admin group",
+              "Failed to create agency groups",
           ],
         });
       }
@@ -663,6 +1046,111 @@ router.patch("/:index/type", (req, res) => {
   res.json({ success: true, type: raw });
 });
 
+router.patch("/:index/region", (req, res) => {
+  const idx = Number(req.params.index);
+  const agencies = store.load();
+  if (!Number.isInteger(idx) || !agencies[idx]) {
+    return res.status(404).json({ error: "Not found" });
+  }
+
+  const agency = agencies[idx];
+  if (!accessSvc.isSuffixAllowed(req.authentikUser, agency.suffix)) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+
+  const lockedId = regionsSvc.lockedRegionIdForAgency(agency);
+  if (lockedId) {
+    return res.status(400).json({
+      error: "Region is assigned for this agency's location",
+      regionId: lockedId,
+      regionName: regionsSvc.getRegionName(lockedId) || null,
+      locked: true,
+    });
+  }
+
+  let nextId = null;
+  const raw =
+    req.body?.regionId != null ? req.body.regionId : req.body?.region;
+  try {
+    nextId = regionsSvc.resolveRegionId(raw);
+  } catch (err) {
+    return res.status(400).json({ error: err?.message || "Invalid region" });
+  }
+
+  const before = String(agency.regionId || "").trim() || null;
+  if (before === nextId) {
+    return res.json({
+      success: true,
+      regionId: nextId,
+      regionName: nextId ? regionsSvc.getRegionName(nextId) : null,
+    });
+  }
+
+  const next = { ...agency };
+  if (nextId) next.regionId = nextId;
+  else delete next.regionId;
+  agencies[idx] = next;
+  store.save(agencies);
+
+  auditSvc.logEvent({
+    actor: req.authentikUser || null,
+    request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+    action: "UPDATE_AGENCY_REGION",
+    targetType: "agency",
+    targetId: String(agency.suffix || ""),
+    details: {
+      before,
+      after: nextId,
+      regionName: nextId ? regionsSvc.getRegionName(nextId) : null,
+    },
+  });
+
+  res.json({
+    success: true,
+    regionId: nextId,
+    regionName: nextId ? regionsSvc.getRegionName(nextId) : null,
+  });
+});
+
+router.patch("/:index/state-federal", (req, res) => {
+  const idx = Number(req.params.index);
+  const agencies = store.load();
+  if (!Number.isInteger(idx) || !agencies[idx]) {
+    return res.status(404).json({ error: "Not found" });
+  }
+
+  const agency = agencies[idx];
+  if (!accessSvc.isSuffixAllowed(req.authentikUser, agency.suffix)) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+
+  const sfRaw = String(req.body?.stateFederalAgency ?? "").trim().toLowerCase();
+  const next =
+    req.body?.stateFederalAgency === true ||
+    sfRaw === "yes" ||
+    sfRaw === "true" ||
+    sfRaw === "1";
+
+  const before = !!agency.stateFederalAgency;
+  if (before === next) {
+    return res.json({ success: true, stateFederalAgency: next });
+  }
+
+  agencies[idx] = { ...agency, stateFederalAgency: next };
+  store.save(agencies);
+
+  auditSvc.logEvent({
+    actor: req.authentikUser || null,
+    request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+    action: "UPDATE_AGENCY_STATE_FEDERAL",
+    targetType: "agency",
+    targetId: String(agency.suffix || ""),
+    details: { before, after: next },
+  });
+
+  return res.json({ success: true, stateFederalAgency: next });
+});
+
 router.post("/:index/rename-agency-name", async (req, res) => {
   try {
     const idx = Number(req.params.index);
@@ -676,7 +1164,11 @@ router.post("/:index/rename-agency-name", async (req, res) => {
       return res.status(403).json({ error: "Forbidden" });
     }
 
-    const validationErr = agencyNameRenameSvc.validateNewAgencyName(req.body?.name);
+    const validationErr = agencyNameRenameSvc.validateNewAgencyName(
+      req.body?.name,
+      agencies,
+      idx
+    );
     if (validationErr) {
       return res.status(400).json({ error: validationErr });
     }
@@ -741,7 +1233,7 @@ router.post("/:index/rename-group-prefix", async (req, res) => {
       return res.status(400).json({ error: validationErr });
     }
 
-    const beforeAbbr = String(agency.groupPrefix || "").trim().toUpperCase();
+    const beforeAbbr = store.normalizeGroupPrefix(agency.groupPrefix);
     const result = await agencyAbbrevRenameSvc.renameAgencyGroupPrefix(
       idx,
       req.body.groupPrefix
@@ -802,6 +1294,7 @@ router.put("/:index", async (req, res) => {
   const body = req.body || {};
   if (!("lookupEnabled" in body)) a.lookupEnabled = existing.lookupEnabled;
   if (!("lookupDomain" in body)) a.lookupDomain = existing.lookupDomain;
+  if (!("autoApproveRequests" in body)) a.autoApproveRequests = existing.autoApproveRequests === true;
   if (!("isActive" in body)) a.isActive = existing.isActive;
   if (!("usernameTokenPlacement" in body) && !("usernameSuffixPlacement" in body)) {
     a.usernameTokenPlacement = accessSvc.normalizeUsernameTokenPlacement(
@@ -813,6 +1306,11 @@ router.put("/:index", async (req, res) => {
       ? existing.agencyDisabledUserIds
       : [];
   }
+  if (!("regionId" in body) && !("region" in body)) {
+    if (existing.regionId) a.regionId = existing.regionId;
+  }
+  const lockedId = regionsSvc.lockedRegionIdForAgency(a);
+  if (lockedId) a.regionId = lockedId;
   const err = validateAgency(a);
   if (err) return res.status(400).json({ error: err });
 
@@ -822,6 +1320,12 @@ router.put("/:index", async (req, res) => {
   )) {
     return res.status(400).json({ error: "Suffix already exists" });
   }
+
+  const dupPrefix = store.assertUniqueGroupPrefix(agencies, a.groupPrefix, idx);
+  if (dupPrefix) return res.status(400).json({ error: dupPrefix });
+
+  const dupName = store.assertUniqueAgencyName(agencies, a.name, idx);
+  if (dupName) return res.status(400).json({ error: dupName });
 
   try {
     // If the abbreviation changed (or group is missing), create the new admin group.
@@ -858,20 +1362,21 @@ router.put("/:index/county-abbrev", async (req, res) => {
     }
 
     const raw = String(req.body?.countyAbbrev || "").trim().toUpperCase();
+    const agency = agencies[idx];
+    const allowEmpty = !!agency?.stateFederalAgency;
     if (!raw) {
-      return res.status(400).json({ error: "County abbreviation is required" });
-    }
-    if (raw.length < 2) {
+      if (!allowEmpty) {
+        return res.status(400).json({ error: "County abbreviation is required" });
+      }
+    } else if (raw.length < 2) {
       return res.status(400).json({ error: "County abbreviation must be at least 2 characters" });
-    }
-    if (!/^[A-Z]+$/.test(raw)) {
-      return res.status(400).json({ error: "County abbreviation must contain only letters" });
+    } else if (!/^[A-Z0-9]+$/.test(raw)) {
+      return res.status(400).json({ error: "County abbreviation must contain only letters and numbers" });
     }
 
-    const agency = agencies[idx];
-    const abbr = String(agency?.groupPrefix || "").trim().toUpperCase();
+    const abbr = store.normalizeGroupPrefix(agency?.groupPrefix);
     if (!abbr) {
-      return res.status(400).json({ error: "Agency abbreviation (groupPrefix) is missing" });
+      return res.status(400).json({ error: "Agency abbreviation / short name is missing" });
     }
 
     const oldCountyAbbrev = String(agency.countyAbbrev || "").trim().toUpperCase();
@@ -882,12 +1387,17 @@ router.put("/:index/county-abbrev", async (req, res) => {
     const targetState = String(agency.state || "").trim().toUpperCase();
 
     const matchingIndexes = [];
-    for (let i = 0; i < agencies.length; i++) {
-      const ag = agencies[i];
-      if (!ag) continue;
-      const c = String(ag.county || "").trim().toLowerCase();
-      const s = String(ag.state || "").trim().toUpperCase();
-      if (c === targetCounty && s === targetState) matchingIndexes.push(i);
+    if (!newCountyAbbrev) {
+      // Clearing abbrev (State/Federal only): update this agency alone so peers keep theirs.
+      matchingIndexes.push(idx);
+    } else {
+      for (let i = 0; i < agencies.length; i++) {
+        const ag = agencies[i];
+        if (!ag) continue;
+        const c = String(ag.county || "").trim().toLowerCase();
+        const s = String(ag.state || "").trim().toUpperCase();
+        if (c === targetCounty && s === targetState) matchingIndexes.push(i);
+      }
     }
 
     const allAlreadySet = matchingIndexes.every((i) => {
@@ -912,11 +1422,13 @@ router.put("/:index/county-abbrev", async (req, res) => {
       const ag = agencies[i];
       if (!ag) continue;
 
-      const gp = String(ag.groupPrefix || "").trim().toUpperCase();
+      const gp = store.normalizeGroupPrefix(ag.groupPrefix);
       if (!gp) continue;
 
       const prevCountyAbbrev = String(ag.countyAbbrev || "").trim().toUpperCase();
-      const desiredName = `authentik-${newCountyAbbrev}-${gp}-AgencyAdmin`;
+      const desiredName = newCountyAbbrev
+        ? `authentik-${newCountyAbbrev}-${gp}-AgencyAdmin`
+        : `authentik-${gp}-AgencyAdmin`;
 
       if (prevCountyAbbrev !== newCountyAbbrev) {
         const candidates = [];
@@ -1334,4 +1846,75 @@ router.post("/:index/lookup/disable", (req, res) => {
   return res.json({ success: true });
 });
 
+
+// Enable auto-approve of matching Request Access submissions (requires a default template).
+router.post("/:index/auto-approve/enable", (req, res) => {
+  const idx = Number(req.params.index);
+  if (!Number.isInteger(idx)) {
+    return res.status(400).json({ error: "Invalid agency index" });
+  }
+
+  const agencies = store.load();
+  if (!agencies[idx]) {
+    return res.status(404).json({ error: "Agency not found" });
+  }
+
+  const agency = agencies[idx];
+  try {
+    store.assertAgencyCanEnableAutoApprove(agency);
+  } catch (e) {
+    return res.status(400).json({ error: e?.message || "Cannot enable auto-approve" });
+  }
+
+  agencies[idx].autoApproveRequests = true;
+  store.save(agencies);
+
+  auditSvc.logEvent({
+    actor: req.authentikUser || null,
+    request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+    action: "ENABLE_AGENCY_AUTO_APPROVE",
+    targetType: "agency",
+    targetId: String(agency?.suffix || ""),
+    details: {
+      lookupDomain: String(agency.lookupDomain || ""),
+      summary: `Enabled auto-approve of access requests for agency ${agency?.name || agency?.suffix || ""}.`,
+    },
+  });
+
+  return res.json({ success: true, autoApproveRequests: true });
+});
+
+
+// Disable auto-approve of Request Access submissions.
+router.post("/:index/auto-approve/disable", (req, res) => {
+  const idx = Number(req.params.index);
+  if (!Number.isInteger(idx)) {
+    return res.status(400).json({ error: "Invalid agency index" });
+  }
+
+  const agencies = store.load();
+  if (!agencies[idx]) {
+    return res.status(404).json({ error: "Agency not found" });
+  }
+
+  const agency = agencies[idx];
+  agencies[idx].autoApproveRequests = false;
+  store.save(agencies);
+
+  auditSvc.logEvent({
+    actor: req.authentikUser || null,
+    request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
+    action: "DISABLE_AGENCY_AUTO_APPROVE",
+    targetType: "agency",
+    targetId: String(agency?.suffix || ""),
+    details: {
+      lookupDomain: String(agency.lookupDomain || ""),
+      summary: `Disabled auto-approve of access requests for agency ${agency?.name || agency?.suffix || ""}.`,
+    },
+  });
+
+  return res.json({ success: true, autoApproveRequests: false });
+});
+
 module.exports = router;
+module.exports.createAgencyFromPayload = createAgencyFromPayload;

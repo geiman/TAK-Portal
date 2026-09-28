@@ -4,8 +4,8 @@
 <main class="main">
   <h1>Plugin Manager</h1>
 
-  <!-- Link TAK.gov Account (OAuth 2.0 device flow – same as OpenTAKServer). When linked, only show badge. -->
-  <div class="card">
+  <!-- Link TAK.gov Account (OAuth 2.0 device flow – same as OpenTAKServer). Hidden entirely when linked. -->
+  <div class="card" id="takGovLinkCard">
     <h2>Link TAK.gov Account</h2>
     <div id="linkSetupBlock">
       <div class="grid2">
@@ -27,15 +27,14 @@
       <a id="verificationUriLink" href="https://tak.gov/register-device" target="_blank" rel="noopener noreferrer" style="display: none;" aria-hidden="true"></a>
     </div>
     <div id="linkStatus" class="msg"></div>
-    <div id="linkedBadge" class="row" style="display: none; margin-top: 8px; align-items: center; gap: 10px;">
-      <span class="status-pill status-connected">TAK.gov account linked</span>
-      <button class="btn" type="button" id="unlinkBtnBadge">Unlink account</button>
-    </div>
   </div>
 
   <!-- Downloaded plugins: cards (above Plugin Browser) -->
   <div class="card">
     <h2 style="margin-top: 0;">Downloaded Plugins</h2>
+    <div id="takServerSyncStatus" class="plugin-sync-status" aria-live="polite">
+      <span id="takServerSyncLabel" class="muted">Checking…</span>
+    </div>
     <div class="row" style="flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-top: 12px;">
       <label>Filter by ATAK version
         <select id="downloadedVersionFilter" style="min-width: 160px;">
@@ -49,13 +48,38 @@
       <!-- Filled by JS -->
     </div>
     <div id="pluginsEmpty" style="display: none; margin-top: 16px; color: var(--muted);">
-      No plugins yet. Add plugins from the Plugin Browser below or use Manual Plugin Upload at the bottom.
+      No plugins yet. Add plugins from TAKwerx Plugins or the Plugin Browser below, or use Manual Plugin Upload at the bottom.
     </div>
   </div>
 
-  <!-- TAK.gov Plugin Browser (visible when linked) -->
+  <!-- TAKwerx Plugins (public GitHub Releases; no TAK.gov link required) -->
+  <div class="card" id="takwerxCard">
+    <h2 style="margin-top: 0;">TAKwerx Community Plugins</h2>
+    <div class="row" style="flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-top: 12px;">
+      <label>ATAK version
+        <select id="takwerxVersion" style="min-width: 120px;">
+          <option value="" selected>Loading…</option>
+        </select>
+      </label>
+      <label style="flex: 1; min-width: 200px;">Search
+        <input type="text" id="takwerxSearch" placeholder="Search plugins…" style="width: 100%;" />
+      </label>
+    </div>
+    <div id="takwerxMsg" class="msg" style="margin-top: 8px;"></div>
+    <div id="takwerxGrid" class="plugin-cards marketplace-grid" style="display: none; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-top: 16px;">
+      <!-- TAKwerx plugin cards -->
+    </div>
+    <div id="takwerxEmpty" style="display: none; margin-top: 16px; color: var(--muted);">
+      No TAKwerx plugins available for this ATAK version.
+    </div>
+  </div>
+
+  <!-- TAK.gov Plugin Browser (browse UI visible when linked) -->
   <div class="card" id="marketplaceCard">
-    <h2 style="margin-top: 0;">TAK Plugin Browser</h2>
+    <div class="plugin-browser-header" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 0;">
+      <h2 style="margin: 0;">TAK Plugins</h2>
+      <button class="btn" type="button" id="unlinkBtnBadge" style="display: none; margin-left: auto;">Unlink Account</button>
+    </div>
     <div id="marketplaceBrowse" style="display: none;">
       <div class="row" style="flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-top: 12px;">
         <label>ATAK version
@@ -141,6 +165,52 @@
   .btn.favorite:hover { filter: brightness(1.08); }
   .btn.favorite.is-favorite { background: #f0d000; color: #000; }
   .marketplace-grid .plugin-card .plugin-desc { font-size: 0.85rem; color: var(--muted); max-height: 2.6em; overflow: hidden; text-overflow: ellipsis; }
+  .plugin-sync-status {
+    margin: 4px 0 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+    font-size: 0.9rem;
+  }
+  .plugin-sync-status.is-error #takServerSyncLabel { color: #c44; }
+  .plugin-sync-status.is-success #takServerSyncLabel { color: #2a7; }
+  .plugin-sync-status.is-blocked #takServerSyncLabel { color: #c80; }
+  .plugin-sync-status.is-syncing #takServerSyncLabel { color: var(--muted); }
+
+  @media (max-width: 990px) {
+    .plugin-cards {
+      grid-template-columns: minmax(0, 1fr) !important;
+    }
+    .plugin-cards .plugin-card .plugin-actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .plugin-cards .plugin-card .plugin-actions .btn {
+      width: 100%;
+      margin: 0;
+      box-sizing: border-box;
+      text-align: center;
+    }
+    .main .row {
+      flex-direction: column;
+      align-items: stretch !important;
+    }
+    .main .row > label,
+    .main .row > div {
+      flex: 1 1 100% !important;
+      min-width: 0 !important;
+      width: 100%;
+    }
+    .main select,
+    .main input[type="text"],
+    .main input[type="search"] {
+      width: 100%;
+      min-width: 0 !important;
+      max-width: 100%;
+      box-sizing: border-box;
+    }
+  }
 </style>
 
 <script>
@@ -153,7 +223,7 @@
   const linkCodeArea = document.getElementById("linkCodeArea");
   const verificationUriLink = document.getElementById("verificationUriLink");
   const linkStatus = document.getElementById("linkStatus");
-  const linkedBadge = document.getElementById("linkedBadge");
+  const takGovLinkCard = document.getElementById("takGovLinkCard");
   const pluginFile = document.getElementById("pluginFile");
   const uploadName = document.getElementById("uploadName");
   const uploadPluginBtn = document.getElementById("uploadPluginBtn");
@@ -173,6 +243,11 @@
   const marketplaceMsg = document.getElementById("marketplaceMsg");
   const marketplaceGrid = document.getElementById("marketplaceGrid");
   const marketplaceEmpty = document.getElementById("marketplaceEmpty");
+  const takwerxVersion = document.getElementById("takwerxVersion");
+  const takwerxSearch = document.getElementById("takwerxSearch");
+  const takwerxMsg = document.getElementById("takwerxMsg");
+  const takwerxGrid = document.getElementById("takwerxGrid");
+  const takwerxEmpty = document.getElementById("takwerxEmpty");
 
   let takgovPluginsCache = [];
   let takgovSearchText = "";
@@ -180,6 +255,9 @@
   let updateStatusCache = {};
   let downloadedVersionFilterValue = "";
   let takgovVersionsLoaded = false;
+  let takwerxPluginsCache = [];
+  let takwerxSearchText = "";
+  let takwerxVersionsLoaded = false;
 
   function esc(s) {
     if (s == null || s === undefined) return "";
@@ -284,7 +362,7 @@
       const exists = p.exists !== false;
       const downloadUrl = "/api/plugins/" + esc(p.id) + "/download";
       const isFavorite = p.favorite === true;
-      const updateAvailable = p.source === "tak.gov" && p.package_name && updateStatusCache[p.id] === true;
+      const updateAvailable = !!p.package_name && updateStatusCache[p.id] === true;
       const versionPill = p.version ? "<span class=\"plugin-version-pill\">v" + esc(p.version) + "</span>" : "";
       return "<div class=\"plugin-card\" data-id=\"" + esc(p.id) + "\">" +
         "<div class=\"plugin-card-header\">" +
@@ -297,7 +375,7 @@
         "<button class=\"btn favorite " + (isFavorite ? "is-favorite" : "") + "\" type=\"button\" data-favorite=\"" + esc(p.id) + "\" title=\"" + (isFavorite ? "Unfavorite" : "Favorite") + "\">" + (isFavorite ? "★ Unfavorite" : "☆ Favorite") + "</button>" +
         "<button class=\"btn\" type=\"button\" data-edit-desc=\"" + esc(p.id) + "\" title=\"Edit description\">Edit description</button>" +
         (exists ? "<a href=\"" + downloadUrl + "\" class=\"btn\" download>Download</a>" : "") +
-        (updateAvailable ? "<button class=\"btn\" type=\"button\" data-update=\"" + esc(p.id) + "\">Check for Updates</button>" : "") +
+        (updateAvailable ? "<button class=\"btn success\" type=\"button\" data-update=\"" + esc(p.id) + "\">Update To Latest</button>" : "") +
         "<button class=\"btn danger\" type=\"button\" data-delete=\"" + esc(p.id) + "\">Delete</button>" +
         "</div></div>";
     }).join("");
@@ -321,7 +399,7 @@
       btn.addEventListener("click", function () {
         const id = btn.getAttribute("data-update");
         if (!id) return;
-        updatePluginFromTakgov(id, btn);
+        updateInstalledPlugin(id, btn);
       });
     });
     pluginCards.querySelectorAll("[data-edit-desc]").forEach(function (btn) {
@@ -379,15 +457,55 @@
       });
   }
 
-  function updatePluginFromTakgov(id, btnEl) {
-    if (btnEl) { btnEl.disabled = true; btnEl.textContent = "Checking…"; }
+  function versionCore(v) {
+    const s = String(v || "").trim().replace(/^v/i, "");
+    const m = s.match(/^(\d+(?:\.\d+)*)/);
+    return m ? m[1] : s;
+  }
+
+  function isRemoteNewer(installed, remote) {
+    const cv = versionCore(installed && installed.version);
+    const rv = versionCore(remote && remote.version);
+    if (!rv) return false;
+    if (!cv) return true;
+    const cParts = cv.split(".").map(function (n) { return parseInt(n, 10) || 0; });
+    const rParts = rv.split(".").map(function (n) { return parseInt(n, 10) || 0; });
+    for (let i = 0; i < Math.max(cParts.length, rParts.length); i++) {
+      const c = cParts[i] || 0;
+      const r = rParts[i] || 0;
+      if (r > c) return true;
+      if (r < c) return false;
+    }
+    const cr = installed && installed.revision_code != null ? installed.revision_code : 0;
+    const rr = remote && remote.revision_code != null ? remote.revision_code : 0;
+    return rr > cr;
+  }
+
+  function findInstalledMatch(remotePlugin) {
+    const pkg = remotePlugin && remotePlugin.package_name;
+    if (!pkg) return null;
+    const pVer = (remotePlugin.atakVersion || remotePlugin.atak_version || "").toString();
+    const pKeyMatch = pVer.match(/^(\d+)\.(\d+)/);
+    const pKey = pKeyMatch ? pKeyMatch[1] + "." + pKeyMatch[2] : "";
+    return (downloadedPluginsCache || []).find(function (d) {
+      if (d.package_name !== pkg) return false;
+      if (!pKey) return true;
+      const dVer = (d.atakVersion || d.atak_version || "").toString();
+      const dKeyMatch = dVer.match(/^(\d+)\.(\d+)/);
+      if (!dKeyMatch) return !dVer;
+      return dKeyMatch[1] + "." + dKeyMatch[2] === pKey;
+    }) || null;
+  }
+
+  function updateInstalledPlugin(id, btnEl) {
+    if (btnEl) { btnEl.disabled = true; btnEl.textContent = "Updating…"; }
     setPluginsMsg("", true);
-    fetch("/api/plugins/" + encodeURIComponent(id) + "/update-from-takgov", { method: "POST" })
+    fetch("/api/plugins/" + encodeURIComponent(id) + "/update", { method: "POST" })
       .then(function (res) {
         return res.text().then(function (text) {
           var data = {};
           try { data = text ? JSON.parse(text) : {}; } catch (_) {}
-          return { res, data, text };
+          return { res: res, data: data };
         });
       })
       .then(function (_ref) {
@@ -395,16 +513,15 @@
         const data = _ref.data;
         if (!res.ok) {
           setPluginsMsg((data && data.error) || "Update failed", false);
-          if (btnEl) { btnEl.disabled = false; btnEl.textContent = "Check for Updates"; }
+          if (btnEl) { btnEl.disabled = false; btnEl.textContent = "Update To Latest"; }
           return;
         }
-        setPluginsMsg("Plugin updated.", true);
+        setPluginsMsg("Plugin updated to latest.", true);
         loadState();
-        if (btnEl) { btnEl.disabled = false; btnEl.textContent = "Check for Updates"; }
       })
       .catch(function (err) {
         setPluginsMsg(err.message || "Update failed", false);
-        if (btnEl) { btnEl.disabled = false; btnEl.textContent = "Check for Updates"; }
+        if (btnEl) { btnEl.disabled = false; btnEl.textContent = "Update To Latest"; }
       });
   }
 
@@ -416,19 +533,19 @@
       const link = data.takGovLink || {};
       const plugins = data.plugins || [];
       if (link.linked) {
-        linkedBadge.style.display = "flex";
-        const linkSetup = document.getElementById("linkSetupBlock");
-        if (linkSetup) linkSetup.style.display = "none";
+        if (takGovLinkCard) takGovLinkCard.style.display = "none";
+        if (unlinkBtn) unlinkBtn.style.display = "";
         linkCodeArea.style.display = "none";
         setLinkStatus("", true);
         if (marketplaceIntro) marketplaceIntro.style.display = "none";
         if (marketplaceBrowse) marketplaceBrowse.style.display = "block";
       } else {
+        if (takGovLinkCard) takGovLinkCard.style.display = "";
+        if (unlinkBtn) unlinkBtn.style.display = "none";
         const linkSetup = document.getElementById("linkSetupBlock");
         if (linkSetup) linkSetup.style.display = "";
         if (marketplaceIntro) marketplaceIntro.style.display = "block";
         if (marketplaceBrowse) marketplaceBrowse.style.display = "none";
-        linkedBadge.style.display = "none";
         if (link.linkCode && link.linkCodeExpiry && Date.now() < link.linkCodeExpiry) {
           linkCodeArea.style.display = "block";
           linkCodeDisplay.textContent = link.linkCode;
@@ -445,16 +562,17 @@
       updateStatusCache = {};
       renderPluginCards(plugins);
 
-      // Fetch TAK.gov update status in the background so we don't block rendering.
-      if (link.linked && plugins.some(function (p) { return p.source === "tak.gov" && p.package_name; })) {
+      // Auto-detect available updates (TAK.gov + TAKwerx) in the background.
+      if (plugins.some(function (p) { return !!p.package_name && (p.source === "tak.gov" || p.source === "takwerx"); })) {
         (async function () {
           try {
             const statusRes = await fetch("/api/plugins/update-status");
             const statusData = await statusRes.json();
             if (statusData && statusData.updateStatus) {
               updateStatusCache = statusData.updateStatus;
-              // Re-render to show/hide update buttons once status arrives.
               renderPluginCards(downloadedPluginsCache);
+              if (takgovPluginsCache.length) renderTakgovMarketplace(getTakgovDisplayList());
+              if (takwerxPluginsCache.length) renderTakwerxMarketplace(getTakwerxDisplayList());
             }
           } catch (_) {}
         })();
@@ -466,6 +584,8 @@
       } else if (takgovPluginsCache.length > 0) {
         renderTakgovMarketplace(getTakgovDisplayList());
       }
+      loadTakwerxPlugins();
+      if (typeof refreshSyncStatus === "function") refreshSyncStatus();
     } catch (err) {
       if (pluginsLoading) pluginsLoading.style.display = "none";
       setPluginsMsg(err.message || "Failed to load plugins", false);
@@ -526,20 +646,24 @@
     }
     marketplaceEmpty.style.display = "none";
     marketplaceGrid.style.display = "grid";
-    const downloaded = downloadedPluginsCache || [];
     marketplaceGrid.innerHTML = list.map(function (p, idx) {
       const name = esc(p.display_name || p.package_name || p.name || "Plugin");
       const desc = (p.description || "").slice(0, 120);
-      const alreadyInstalled = p.package_name && downloaded.some(function (d) { return d.package_name === p.package_name; });
-      const btnLabel = alreadyInstalled ? "Check for Update" : "Add to server";
-      const btnClass = alreadyInstalled ? "btn" : "btn success";
+      const installed = findInstalledMatch(p);
+      const needsUpdate = !!(installed && isRemoteNewer(installed, p));
+      let actionBtn = "";
+      if (needsUpdate) {
+        actionBtn = "<button class=\"btn success\" type=\"button\" data-takgov-download data-takgov-index=\"" + idx + "\">Update To Latest</button>";
+      } else if (!installed) {
+        actionBtn = "<button class=\"btn success\" type=\"button\" data-takgov-download data-takgov-index=\"" + idx + "\">Add To Server</button>";
+      }
       return "<div class=\"plugin-card\" data-takgov-index=\"" + idx + "\">" +
         "<div class=\"plugin-card-header\">" +
         "<div class=\"plugin-name\">" + name + "</div>" +
         "</div>" +
         (desc ? "<div class=\"plugin-desc\">" + esc(desc) + (desc.length >= 120 ? "…" : "") + "</div>" : "") +
         "<div class=\"plugin-actions\">" +
-        "<button class=\"" + btnClass + "\" type=\"button\" data-takgov-download data-takgov-index=\"" + idx + "\">" + btnLabel + "</button>" +
+        actionBtn +
         "</div></div>";
     }).join("");
     marketplaceGrid.querySelectorAll("[data-takgov-download]").forEach(function (btn) {
@@ -547,8 +671,9 @@
         const idx = parseInt(btn.getAttribute("data-takgov-index"), 10);
         const pluginItem = list[idx];
         if (!pluginItem || !pluginItem.apk_url) return;
+        const isUpdate = btn.textContent === "Update To Latest";
         btn.disabled = true;
-        btn.textContent = "Adding…";
+        btn.textContent = isUpdate ? "Updating…" : "Adding…";
         setMarketplaceMsg("", true);
         fetch("/api/plugins/takgov/download", {
           method: "POST",
@@ -559,7 +684,7 @@
             return res.text().then(function (text) {
               var data = {};
               try { data = text ? JSON.parse(text) : {}; } catch (_) {}
-              return { res, data, text };
+              return { res: res, data: data, text: text };
             });
           })
           .then(function (_ref) {
@@ -569,16 +694,15 @@
             const errMsg = (data && data.error) || (typeof text === "string" && text.slice(0, 200)) || "Download failed";
             if (!res.ok) {
               setMarketplaceMsg(errMsg, false);
-              btn.textContent = btn.textContent === "Update" ? "Update" : "Add to server";
+              btn.textContent = isUpdate ? "Update To Latest" : "Add To Server";
               btn.disabled = false;
               return;
             }
-            btn.textContent = "Check for Update";
-            setMarketplaceMsg("Plugin added/updated on server.", true);
+            setMarketplaceMsg(isUpdate ? "Plugin updated on server." : "Plugin added/updated on server.", true);
             loadState();
           })
           .catch(function (err) {
-            btn.textContent = btn.classList.contains("success") ? "Add to server" : "Check for Update";
+            btn.textContent = isUpdate ? "Update To Latest" : "Add To Server";
             btn.disabled = false;
             setMarketplaceMsg(err.message || "Failed to add plugin", false);
           });
@@ -623,6 +747,163 @@
     });
   }
 
+  function setTakwerxMsg(text, ok) {
+    if (!takwerxMsg) return;
+    takwerxMsg.textContent = text || "";
+    takwerxMsg.style.color = ok === false ? "var(--danger)" : "";
+  }
+
+  function getTakwerxDisplayList() {
+    const raw = takwerxPluginsCache || [];
+    const sorted = raw.slice().sort(function (a, b) {
+      const na = (a.display_name || a.package_name || a.name || "").toLowerCase();
+      const nb = (b.display_name || b.package_name || b.name || "").toLowerCase();
+      return na.localeCompare(nb);
+    });
+    const q = (takwerxSearchText || "").trim().toLowerCase();
+    if (!q) return sorted;
+    return sorted.filter(function (p) {
+      const name = (p.display_name || p.package_name || p.name || "").toLowerCase();
+      const desc = (p.description || "").toLowerCase();
+      const pkg = (p.package_name || "").toLowerCase();
+      return name.includes(q) || desc.includes(q) || pkg.includes(q);
+    });
+  }
+
+  function renderTakwerxMarketplace(plugins) {
+    if (!takwerxGrid || !takwerxEmpty) return;
+    const list = Array.isArray(plugins) ? plugins : [];
+    if (list.length === 0) {
+      takwerxGrid.innerHTML = "";
+      takwerxGrid.style.display = "none";
+      takwerxEmpty.style.display = "block";
+      takwerxEmpty.textContent = (takwerxSearchText || "").trim()
+        ? "No plugins match your search."
+        : "No TAKwerx plugins available for this ATAK version.";
+      return;
+    }
+    takwerxEmpty.style.display = "none";
+    takwerxGrid.style.display = "grid";
+    takwerxGrid.innerHTML = list.map(function (p, idx) {
+      const name = esc(p.display_name || p.package_name || p.name || "Plugin");
+      const desc = (p.description || "").slice(0, 120);
+      const ver = (p.version || "").trim();
+      const installed = findInstalledMatch(p);
+      const needsUpdate = !!(installed && isRemoteNewer(installed, p));
+      let actionBtn = "";
+      if (needsUpdate) {
+        actionBtn = "<button class=\"btn success\" type=\"button\" data-takwerx-download data-takwerx-index=\"" + idx + "\">Update To Latest</button>";
+      } else if (!installed) {
+        actionBtn = "<button class=\"btn success\" type=\"button\" data-takwerx-download data-takwerx-index=\"" + idx + "\">Add To Server</button>";
+      }
+      return "<div class=\"plugin-card\" data-takwerx-index=\"" + idx + "\">" +
+        "<div class=\"plugin-card-header\">" +
+        "<div class=\"plugin-name\">" + name + "</div>" +
+        (ver ? "<span class=\"plugin-version-pill\">" + esc(ver) + "</span>" : "") +
+        "</div>" +
+        (desc ? "<div class=\"plugin-desc\">" + esc(desc) + (desc.length >= 120 ? "…" : "") + "</div>" : "") +
+        "<div class=\"plugin-actions\">" +
+        actionBtn +
+        "</div></div>";
+    }).join("");
+    takwerxGrid.querySelectorAll("[data-takwerx-download]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        const idx = parseInt(btn.getAttribute("data-takwerx-index"), 10);
+        const pluginItem = list[idx];
+        if (!pluginItem || !pluginItem.apk_url) return;
+        const isUpdate = btn.textContent === "Update To Latest";
+        btn.disabled = true;
+        btn.textContent = isUpdate ? "Updating…" : "Adding…";
+        setTakwerxMsg("", true);
+        fetch("/api/plugins/takwerx/download", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ plugin: pluginItem }),
+        })
+          .then(function (res) {
+            return res.text().then(function (text) {
+              var data = {};
+              try { data = text ? JSON.parse(text) : {}; } catch (_) {}
+              return { res: res, data: data, text: text };
+            });
+          })
+          .then(function (_ref) {
+            const res = _ref.res;
+            const data = _ref.data;
+            const text = _ref.text;
+            const errMsg = (data && data.error) || (typeof text === "string" && text.slice(0, 200)) || "Download failed";
+            if (!res.ok) {
+              setTakwerxMsg(errMsg, false);
+              btn.textContent = isUpdate ? "Update To Latest" : "Add To Server";
+              btn.disabled = false;
+              return;
+            }
+            setTakwerxMsg(isUpdate ? "Plugin updated on server." : "Plugin added/updated on server.", true);
+            loadState();
+          })
+          .catch(function (err) {
+            btn.textContent = isUpdate ? "Update To Latest" : "Add To Server";
+            btn.disabled = false;
+            setTakwerxMsg(err.message || "Failed to add plugin", false);
+          });
+      });
+    });
+  }
+
+  async function loadTakwerxPlugins() {
+    const version = (takwerxVersion && takwerxVersion.value || "").trim();
+    setTakwerxMsg("Loading…", true);
+    try {
+      const qs = version ? ("?product_version=" + encodeURIComponent(version)) : "";
+      const res = await fetch("/api/plugins/takwerx/plugins" + qs);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to load TAKwerx plugins");
+      const versions = Array.isArray(data.versions) ? data.versions.filter(Boolean) : [];
+      if (takwerxVersion) {
+        const previous = (takwerxVersion.value || "").trim();
+        if (versions.length === 0) {
+          takwerxVersion.innerHTML = "<option value=\"\">No versions available</option>";
+          takwerxVersion.value = "";
+        } else {
+          takwerxVersion.innerHTML = versions.map(function (v) {
+            return "<option value=\"" + esc(v) + "\">" + esc(v) + "</option>";
+          }).join("");
+          const selected = versions.includes(previous) ? previous : versions[0];
+          takwerxVersion.value = selected;
+          takwerxVersionsLoaded = true;
+          // Refetch only if we asked for a concrete version that isn't what's selected now.
+          if (version && selected !== version) {
+            return loadTakwerxPlugins();
+          }
+        }
+      }
+      // Only show plugins that have a downloadable APK for the selected ATAK version.
+      takwerxPluginsCache = (data.plugins || []).filter(function (p) {
+        return p && p.apk_url;
+      });
+      takwerxSearchText = "";
+      if (takwerxSearch) takwerxSearch.value = "";
+      setTakwerxMsg(takwerxPluginsCache.length ? "" : "No plugins found for this ATAK version.", true);
+      renderTakwerxMarketplace(getTakwerxDisplayList());
+    } catch (err) {
+      setTakwerxMsg(err.message || "Failed to load", false);
+      takwerxPluginsCache = [];
+      takwerxSearchText = "";
+      if (takwerxSearch) takwerxSearch.value = "";
+      renderTakwerxMarketplace([]);
+    }
+  }
+
+  if (takwerxVersion) {
+    takwerxVersion.addEventListener("change", function () { loadTakwerxPlugins(); });
+  }
+  if (takwerxSearch) {
+    takwerxSearch.addEventListener("input", function () {
+      takwerxSearchText = takwerxSearch.value || "";
+      renderTakwerxMarketplace(getTakwerxDisplayList());
+    });
+  }
+
   getLinkCodeBtn.addEventListener("click", async function () {
     setLinkStatus("Requesting code from TAK.gov…", true);
     try {
@@ -664,18 +945,19 @@
     }
   });
 
-  unlinkBtn.addEventListener("click", async function () {
-    if (!confirm("Unlink your TAK.gov account? Downloaded plugins will remain stored.")) return;
-    try {
-      const res = await fetch("/api/plugins/unlink", { method: "POST", headers: { "Content-Type": "application/json" } });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Unlink failed");
-      setLinkStatus("Account unlinked.", true);
-      loadState();
-    } catch (err) {
-      setLinkStatus(err.message || "Error", false);
-    }
-  });
+  if (unlinkBtn) {
+    unlinkBtn.addEventListener("click", async function () {
+      if (!confirm("Unlink your TAK.gov account? Downloaded plugins will remain stored.")) return;
+      try {
+        const res = await fetch("/api/plugins/unlink", { method: "POST", headers: { "Content-Type": "application/json" } });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Unlink failed");
+        loadState();
+      } catch (err) {
+        setMarketplaceMsg(err.message || "Unlink failed", false);
+      }
+    });
+  }
 
   uploadPluginBtn.addEventListener("click", function () {
     const file = pluginFile && pluginFile.files && pluginFile.files[0];
@@ -751,15 +1033,77 @@
   const initialPlugins = typeof plugins !== "undefined" && Array.isArray(plugins) ? plugins : [];
   const initialLink = typeof takGovLink !== "undefined" && takGovLink ? takGovLink : { linked: false };
   if (initialLink.linked) {
-    linkedBadge.style.display = "flex";
+    if (takGovLinkCard) takGovLinkCard.style.display = "none";
+    if (unlinkBtn) unlinkBtn.style.display = "";
     if (marketplaceIntro) marketplaceIntro.style.display = "none";
     if (marketplaceBrowse) marketplaceBrowse.style.display = "block";
   } else {
+    if (takGovLinkCard) takGovLinkCard.style.display = "";
+    if (unlinkBtn) unlinkBtn.style.display = "none";
     if (marketplaceIntro) marketplaceIntro.style.display = "block";
     if (marketplaceBrowse) marketplaceBrowse.style.display = "none";
   }
   downloadedPluginsCache = initialPlugins;
   renderPluginCards(initialPlugins);
   loadState();
+
+  // --- TAK Server OTA auto-sync status ---
+  const syncStatusEl = document.getElementById("takServerSyncStatus");
+  const syncLabelEl = document.getElementById("takServerSyncLabel");
+  let syncPollTimer = null;
+
+  function applySyncStatus(sync) {
+    if (!syncStatusEl || !syncLabelEl) return;
+    syncStatusEl.classList.remove("is-error", "is-success", "is-blocked", "is-syncing");
+    const state = (sync && sync.state) || "idle";
+    const portalCount = sync && sync.portalCount != null ? sync.portalCount : null;
+    const syncedCount = sync && sync.syncedCount != null ? sync.syncedCount : null;
+    let label = "";
+    if (state === "pending" || state === "syncing" || (sync && sync.inProgress)) {
+      label = portalCount != null ? (portalCount + "/" + portalCount + " syncing…") : "Syncing…";
+      syncStatusEl.classList.add("is-syncing");
+    } else if (state === "success") {
+      label =
+        portalCount != null && syncedCount != null
+          ? syncedCount + "/" + portalCount + " on TAK Server"
+          : syncedCount != null
+            ? syncedCount + " on TAK Server"
+            : "Synced";
+      syncStatusEl.classList.add("is-success");
+    } else if (state === "blocked_ssh") {
+      label = "SSH required for TAK Server sync";
+      syncStatusEl.classList.add("is-blocked");
+    } else if (state === "error") {
+      label = "Sync failed";
+      syncStatusEl.classList.add("is-error");
+    } else if (portalCount != null) {
+      label = (syncedCount != null ? syncedCount : 0) + "/" + portalCount + " on TAK Server";
+    }
+    syncLabelEl.textContent = label;
+    syncLabelEl.className = "";
+  }
+
+  function refreshSyncStatus() {
+    return fetch("/api/plugins/sync-status")
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        const sync = data && data.sync ? data.sync : null;
+        applySyncStatus(sync);
+        const busy = !!(sync && (sync.inProgress || sync.state === "syncing" || sync.state === "pending"));
+        if (busy) {
+          if (!syncPollTimer) {
+            syncPollTimer = setInterval(refreshSyncStatus, 2000);
+          }
+        } else if (syncPollTimer) {
+          clearInterval(syncPollTimer);
+          syncPollTimer = null;
+        }
+      })
+      .catch(function () {
+        applySyncStatus({ state: "error" });
+      });
+  }
+
+  refreshSyncStatus();
 })();
 </script>

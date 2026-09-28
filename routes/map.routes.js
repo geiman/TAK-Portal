@@ -10,6 +10,11 @@ const dataSyncSvc = require("../services/dataSync.service");
 const dataSyncAccess = require("../services/dataSyncAccess.service");
 const missionGeo = require("../services/missionGeo.service");
 const missionRaster = require("../services/missionRaster.service");
+const packageGeo = require("../services/packageGeo.service");
+const dataPackagesSvc = require("../services/dataPackages.service");
+const geofenceStore = require("../services/geofence.store");
+const geofenceEngine = require("../services/geofence.engine");
+const { fenceToGeoJsonFeature } = require("../services/geofence.geometry");
 
 mapIcon.ensureIconsets().then(() => {
   cotStream.refreshAllMarkerIcons();
@@ -37,9 +42,17 @@ function getMapAccessContext(req) {
   return {
     isGlobalAdmin,
     isAgencyAdmin,
-    scopeMemberGroups: isAgencyAdmin,
+    scopeMemberGroups: !isGlobalAdmin,
     userGroups: Array.isArray(user.groups) ? user.groups : [],
   };
+}
+
+/** Geofence tools are global-admin only for now. */
+function requireGeofenceGlobalAdmin(req, res, next) {
+  if (!req.authentikUser || !req.authentikUser.isGlobalAdmin) {
+    return res.status(403).json({ error: "Geofences are limited to global admins." });
+  }
+  return next();
 }
 
 async function attachScopedGroupCatalog(snapshot, ctx) {
@@ -82,11 +95,47 @@ router.get("/markers", (req, res) => {
 router.get("/cot-raw", (req, res) => {
   cotStream.ensureBridgeStarted();
   const uid = String(req.query.uid || "").trim();
-  if (!uid) return res.status(400).json({ error: "Missing uid" });
-  const raw = cotStream.getMarkerRawCot(uid);
+  const callsign = String(req.query.callsign || "").trim();
+  if (!uid && !callsign) {
+    return res.status(400).json({ error: "Pass ?uid= or ?callsign=" });
+  }
+
+  let marker = uid ? cotStream.getMarkerByUid(uid) : null;
+  if (!marker && callsign) {
+    let matches = cotStream.findMarkersByCallsign(callsign);
+    if (!matches.length) {
+      const q = callsign.toLowerCase();
+      matches = cotStream.getMarkerList().filter((m) =>
+        String(m?.callsign || "")
+          .trim()
+          .toLowerCase()
+          .includes(q)
+      );
+    }
+    if (matches.length > 1) {
+      return res.status(300).json({
+        error: "Multiple markers match callsign; pass ?uid=",
+        matches: matches.slice(0, 25).map((m) => ({
+          uid: m.uid,
+          callsign: m.callsign,
+          type: m.type,
+          groups: m.groups,
+          updatedAt: m.updatedAt || null,
+        })),
+      });
+    }
+    marker = matches[0] || null;
+  }
+
+  if (!marker) {
+    return res.status(404).json({ error: "Marker or raw CoT not found" });
+  }
+
+  const raw = cotStream.getMarkerRawCot(marker.uid);
   if (raw == null) {
     return res.status(404).json({ error: "Marker or raw CoT not found" });
   }
+
   res.setHeader("Cache-Control", "no-cache");
   res.type("application/json");
   return res.send(JSON.stringify(raw, null, 2));
@@ -217,38 +266,6 @@ router.get("/groups", async (req, res) => {
   }
 });
 
-/** Trace group assignment for one marker (compare EUD vs data-feed). */
-router.get("/debug/groups", async (req, res) => {
-  cotStream.ensureBridgeStarted();
-  await mapMeta.refreshSubscriptionIndex();
-  await mapMeta.refreshDataFeedIndex();
-
-  const uid = String(req.query.uid || "").trim();
-  const callsign = String(req.query.callsign || "").trim();
-
-  let marker = uid ? cotStream.getMarkerByUid(uid) : null;
-  if (!marker && callsign) {
-    const matches = cotStream.findMarkersByCallsign(callsign);
-    if (matches.length === 1) marker = matches[0];
-    else if (matches.length > 1) {
-      return res.json({
-        error: "Multiple markers match callsign; pass uid instead",
-        matches: matches.map((m) => ({ uid: m.uid, callsign: m.callsign, groups: m.groups })),
-      });
-    }
-  }
-
-  if (!marker) {
-    return res.status(404).json({
-      error: "Marker not found on map",
-      hint: "Pass ?uid=ICAO-ACE18D or ?callsign=N929W while the marker is live",
-    });
-  }
-
-  res.setHeader("Cache-Control", "no-cache");
-  return res.json(mapMeta.explainGroupAssignment(marker));
-});
-
 router.get("/geocode", async (req, res) => {
   const q = String(req.query.q || "").trim();
   if (!q) return res.status(400).json({ error: "Missing q" });
@@ -326,6 +343,9 @@ router.get("/debug/render-stats", (req, res) => {
     markerCount: cotStream.getMarkerList().length,
     render: mapRender.getRenderStats(),
     icons: mapIconRender.getStats(),
+    bridge: typeof cotStream.getBridgeMemoryStats === "function"
+      ? cotStream.getBridgeMemoryStats()
+      : null,
   });
 });
 
@@ -423,6 +443,114 @@ function unwrapMissionList(payload) {
   if (Array.isArray(payload?.data)) return payload.data;
   return [];
 }
+
+function resolveMissionDisplayName(mission) {
+  return String(mission?.name || mission?.missionName || "").trim();
+}
+
+/** Channel + mission pickers for geofence action config. */
+router.get("/geofences/action-options", requireGeofenceGlobalAdmin, async (req, res) => {
+  const ctx = getMapAccessContext(req);
+  const authUser = req.authentikUser || null;
+  try {
+    cotStream.ensureBridgeStarted();
+    const catalog = await mapMeta.getTakGroupCatalog(cotStream.getMarkerList(), {
+      scopeMemberGroups: ctx.scopeMemberGroups,
+      userGroupNames: ctx.userGroups,
+    });
+    const channels = (Array.isArray(catalog.groups) ? catalog.groups : [])
+      .map((g) => {
+        const name = String(g?.name || g?.groupName || "").trim();
+        if (!name) return null;
+        return {
+          name,
+          displayName: String(g?.displayName || g?.label || name).trim() || name,
+        };
+      })
+      .filter(Boolean);
+
+    let missions = [];
+    try {
+      const allowedKeySet = await dataSyncAccess.getAllowedCanonicalKeySet(authUser);
+      const raw = await dataSyncSvc.listMissions({});
+      const filtered = dataSyncAccess.filterMissionsPayload(raw, allowedKeySet);
+      const list = dataSyncAccess.enrichMissionListAssignmentMeta(unwrapMissionList(filtered));
+      missions = list
+        .map((mission) => {
+          const name = resolveMissionDisplayName(mission);
+          const groupName = dataSyncAccess.missionSingleGroupName(mission);
+          if (!name || !groupName) return null;
+          return {
+            name,
+            groupName,
+            assignedAgencyName: mission.assignedAgencyName || null,
+          };
+        })
+        .filter(Boolean);
+    } catch (err) {
+      console.warn("[map] geofence mission options failed:", err?.message || err);
+    }
+
+    res.setHeader("Cache-Control", "no-cache");
+    return res.json({ channels, missions });
+  } catch (err) {
+    console.warn("[map] geofence action-options failed:", err?.message || err);
+    return res.status(500).json({ error: err?.message || "Action options failed" });
+  }
+});
+
+router.get("/geofences", requireGeofenceGlobalAdmin, (req, res) => {
+  try {
+    const fences = geofenceStore.listFences();
+    const membershipCounts = geofenceStore.getMembershipSummary();
+    const features = fences.map(fenceToGeoJsonFeature).filter(Boolean);
+    res.setHeader("Cache-Control", "no-cache");
+    return res.json({
+      fences,
+      membershipCounts,
+      geojson: { type: "FeatureCollection", features },
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err?.message || "Geofence list failed" });
+  }
+});
+
+router.patch("/geofences/:id", requireGeofenceGlobalAdmin, (req, res) => {
+  try {
+    const fence = geofenceStore.updateFence(
+      req.params.id,
+      req.body || {},
+      req.authentikUser || null
+    );
+    // Immediately re-evaluate so action changes apply to devices already inside.
+    void geofenceEngine.tick();
+    return res.json({ fence });
+  } catch (err) {
+    const status = err?.status >= 400 && err?.status < 600 ? err.status : 500;
+    return res.status(status).json({ error: err?.message || "Update geofence failed" });
+  }
+});
+
+router.post("/geofences", requireGeofenceGlobalAdmin, (req, res) => {
+  try {
+    const fence = geofenceStore.createFence(req.body || {}, req.authentikUser || null);
+    void geofenceEngine.tick();
+    return res.status(201).json({ fence });
+  } catch (err) {
+    const status = err?.status >= 400 && err?.status < 600 ? err.status : 500;
+    return res.status(status).json({ error: err?.message || "Create geofence failed" });
+  }
+});
+
+router.delete("/geofences/:id", requireGeofenceGlobalAdmin, (req, res) => {
+  try {
+    geofenceStore.deleteFence(req.params.id);
+    return res.json({ ok: true });
+  } catch (err) {
+    const status = err?.status >= 400 && err?.status < 600 ? err.status : 500;
+    return res.status(status).json({ error: err?.message || "Delete geofence failed" });
+  }
+});
 
 /** Filtered mission list for map overlay picker (read-only). */
 router.get("/missions", async (req, res) => {
@@ -619,6 +747,150 @@ router.get("/missions/:missionName/raster/:hash", async (req, res) => {
     console.warn("[map] mission raster failed:", err?.message || err);
     const status = err?.status >= 400 && err?.status < 600 ? err.status : 500;
     return res.status(status).json({ error: err?.message || "Raster render failed" });
+  }
+});
+
+/** Filtered data package list for map overlay picker (read-only). */
+router.get("/packages", async (req, res) => {
+  try {
+    const list = await packageGeo.listMapPackages();
+    res.setHeader("Cache-Control", "no-cache");
+    return res.json({ packages: list, total: list.length });
+  } catch (err) {
+    console.warn("[map] packages list failed:", err?.message || err);
+    const status = err?.status || err?.response?.status || 500;
+    return res.status(status >= 400 && status < 600 ? status : 500).json({
+      error: err?.message || "Package list failed",
+    });
+  }
+});
+
+/** Single package CoT event XML by uid (read-only). */
+router.get("/packages/:hash/cot-raw", async (req, res) => {
+  try {
+    const hash = String(req.params.hash || "").trim();
+    const uid = String(req.query.uid || "").trim();
+    if (!hash) return res.status(400).json({ error: "Missing package hash" });
+    if (!uid) return res.status(400).json({ error: "Missing uid" });
+    const filename = String(req.query.filename || "").trim();
+    const raw = await packageGeo.getPackageCotRaw(hash, uid, {
+      filename: filename || undefined,
+    });
+    res.setHeader("Cache-Control", "no-cache");
+    res.type("application/xml");
+    return res.send(raw);
+  } catch (err) {
+    console.warn("[map] package cot-raw failed:", err?.message || err);
+    const status =
+      err?.code === "NOT_FOUND"
+        ? 404
+        : err?.code === "PACKAGE_TOO_LARGE"
+          ? 413
+          : err?.status >= 400 && err?.status < 600
+            ? err.status
+            : 500;
+    return res.status(status).json({ error: err?.message || "Package CoT raw failed" });
+  }
+});
+
+/** Data package ZIP contents as GeoJSON (read-only). */
+router.get("/packages/:hash/geojson", async (req, res) => {
+  try {
+    const hash = String(req.params.hash || "").trim();
+    if (!hash) return res.status(400).json({ error: "Missing package hash" });
+    const refresh = String(req.query.refresh || "") === "1";
+    const filename = String(req.query.filename || "").trim();
+    const geojson = await packageGeo.getPackageGeoJson(hash, {
+      refresh,
+      filename: filename || undefined,
+    });
+
+    if (geojson.meta?.iconManifest?.length) {
+      void mapIconRender
+        .prewarmIconManifest(geojson.meta.iconManifest)
+        .catch(function () {});
+    }
+
+    res.setHeader("Cache-Control", "no-cache");
+    return res.json(geojson);
+  } catch (err) {
+    console.warn("[map] package geojson failed:", err?.message || err);
+    const status =
+      err?.code === "PACKAGE_TOO_LARGE"
+        ? 413
+        : err?.status >= 400 && err?.status < 600
+          ? err.status
+          : 500;
+    return res.status(status).json({ error: err?.message || "Package GeoJSON failed" });
+  }
+});
+
+/** Package ZIP raster entry as PNG for MapLibre image source (read-only). */
+router.get("/packages/:hash/raster/:entryHash", async (req, res) => {
+  try {
+    const hash = String(req.params.hash || "").trim();
+    const entryHash = String(req.params.entryHash || "").trim();
+    if (!hash || !entryHash) {
+      return res.status(400).json({ error: "Missing package or raster hash" });
+    }
+    const boundsRaw = req.query.bounds;
+    let bounds = null;
+    if (boundsRaw) {
+      const parts = String(boundsRaw).split(",").map(Number);
+      if (parts.length === 4 && parts.every(Number.isFinite)) {
+        bounds = missionRaster.normalizeBounds(parts);
+      }
+    }
+    const rendered = await packageGeo.getPackageRasterPng(hash, entryHash, { bounds });
+    res.setHeader("Cache-Control", "public, max-age=300");
+    res.setHeader("Content-Type", rendered.contentType || "image/png");
+    if (rendered.bounds) {
+      res.setHeader("X-Image-Bounds", rendered.bounds.join(","));
+    }
+    return res.send(rendered.buffer);
+  } catch (err) {
+    console.warn("[map] package raster failed:", err?.message || err);
+    const status =
+      err?.code === "NOT_FOUND"
+        ? 404
+        : err?.status >= 400 && err?.status < 600
+          ? err.status
+          : 500;
+    return res.status(status).json({ error: err?.message || "Package raster failed" });
+  }
+});
+
+/** Download data package ZIP (read-only). */
+router.get("/packages/:hash/download", async (req, res) => {
+  try {
+    const hash = String(req.params.hash || "").trim();
+    if (!hash) return res.status(400).json({ error: "Missing package hash" });
+    const fileNameHint = String(req.query.fileName || req.query.filename || "").trim();
+    const r = await dataPackagesSvc.downloadDataPackageStream(hash);
+
+    if (r.status >= 400) {
+      const chunks = [];
+      await new Promise((resolve, reject) => {
+        r.data.on("data", (c) => chunks.push(c));
+        r.data.on("end", resolve);
+        r.data.on("error", reject);
+      });
+      const msg = Buffer.concat(chunks).toString("utf8").slice(0, 2000) || "Download failed";
+      return res.status(r.status).json({ error: msg });
+    }
+
+    const zipName = dataPackagesSvc.zipDownloadFilename(fileNameHint, hash);
+    res.status(r.status);
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename="${zipName}"`);
+    const cl = r.headers["content-length"];
+    if (cl) res.setHeader("Content-Length", cl);
+
+    r.data.pipe(res);
+  } catch (err) {
+    console.warn("[map] package download failed:", err?.message || err);
+    const status = err?.status >= 400 && err?.status < 600 ? err.status : 500;
+    return res.status(status).json({ error: err?.message || "Package download failed" });
   }
 });
 

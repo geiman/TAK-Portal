@@ -14,6 +14,15 @@ function ensureDirExists(filePath) {
 }
 
 let _settings = null;
+let _settingsMtimeMs = -1;
+
+function settingsFileMtimeMs() {
+  try {
+    return fs.statSync(SETTINGS_PATH).mtimeMs;
+  } catch (_) {
+    return -1;
+  }
+}
 
 function readJsonSafe(filePath) {
   try {
@@ -58,9 +67,21 @@ function mergeWithTemplate(existing) {
   const merged = { ...template, ...current };
 
   // Needs save if we’re missing any template keys
-  const needsSave = Object.keys(template).some(
+  let needsSave = Object.keys(template).some(
     key => !Object.prototype.hasOwnProperty.call(current, key)
   ) || removedDeprecated;
+
+  // One-time: when Allowed Client Devices was introduced, template merge seeded
+  // ALLOWED_CLIENT_CLOUDTAK=false even if CLOUDTAK_URL was already set. Enable
+  // CloudTAK once when a URL exists, then mark migration complete.
+  if (String(current.ALLOWED_CLIENT_DEVICES_MIGRATION || "") !== "1") {
+    const cloudtakUrl = String(merged.CLOUDTAK_URL || "").trim();
+    if (cloudtakUrl) {
+      merged.ALLOWED_CLIENT_CLOUDTAK = "true";
+    }
+    merged.ALLOWED_CLIENT_DEVICES_MIGRATION = "1";
+    needsSave = true;
+  }
 
   return { merged, needsSave };
 }
@@ -90,13 +111,22 @@ function loadSettingsFromDisk() {
   return merged;
 }
 
+function rememberLoadedSettings(next) {
+  _settings = next;
+  _settingsMtimeMs = settingsFileMtimeMs();
+  return _settings;
+}
+
 function ensureSettingsInitialized() {
-  _settings = loadSettingsFromDisk();
+  rememberLoadedSettings(loadSettingsFromDisk());
 }
 
 function getSettings() {
-  if (_settings === null) {
-    _settings = loadSettingsFromDisk();
+  const mtime = settingsFileMtimeMs();
+  // Web and worker are separate processes that share data/settings.json.
+  // Reload when the file changes so enabling a module in the UI is visible to the worker.
+  if (_settings === null || mtime !== _settingsMtimeMs) {
+    rememberLoadedSettings(loadSettingsFromDisk());
   }
   return _settings;
 }
@@ -104,7 +134,20 @@ function getSettings() {
 function saveSettings(newSettings) {
   _settings = stripDeprecatedKeys(newSettings || {}).settings;
   ensureDirExists(SETTINGS_PATH);
-  fs.writeFileSync(SETTINGS_PATH, JSON.stringify(_settings, null, 2));
+  const payload = JSON.stringify(_settings, null, 2);
+  // Atomic replace avoids torn/partial settings.json under rapid autosave writes.
+  const tmpPath = SETTINGS_PATH + ".tmp";
+  fs.writeFileSync(tmpPath, payload);
+  try {
+    fs.renameSync(tmpPath, SETTINGS_PATH);
+  } catch (err) {
+    // Windows can fail rename over an existing file; fall back to copy+unlink.
+    fs.copyFileSync(tmpPath, SETTINGS_PATH);
+    try {
+      fs.unlinkSync(tmpPath);
+    } catch (_) {}
+  }
+  _settingsMtimeMs = settingsFileMtimeMs();
 }
 
 function updateSettings(patch) {
@@ -120,6 +163,37 @@ function get(name, fallback) {
   return fallback;
 }
 
+/** Parse flat settings[KEY] fields from a multipart or urlencoded POST body. */
+function collectBodySettings(rawBody) {
+  const bodySettings = {};
+  const raw = rawBody || {};
+
+  if (raw.settings && typeof raw.settings === "object") {
+    Object.keys(raw.settings).forEach((key) => {
+      bodySettings[key] = raw.settings[key];
+    });
+  }
+
+  Object.keys(raw).forEach((key) => {
+    const nested = key.match(/^settings\[([^\]]+)\]\[([^\]]+)\]$/);
+    if (nested) {
+      const parent = nested[1];
+      const child = nested[2];
+      if (!bodySettings[parent] || typeof bodySettings[parent] !== "object") {
+        bodySettings[parent] = {};
+      }
+      bodySettings[parent][child] = raw[key];
+      return;
+    }
+    const match = key.match(/^settings\[([^\]]+)\]$/);
+    if (match) {
+      bodySettings[match[1]] = raw[key];
+    }
+  });
+
+  return bodySettings;
+}
+
 module.exports = {
   SETTINGS_PATH,
   TEMPLATE_PATH,
@@ -128,4 +202,5 @@ module.exports = {
   saveSettings,
   updateSettings,
   get,
+  collectBodySettings,
 };

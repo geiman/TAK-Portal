@@ -2,15 +2,234 @@
 
 All notable changes to this project will be documented in this file.  Minor quality improvements or tweaks may not be listed.
 
-Planned features can be accessed [here](docs/roadmap.md)
-
 <!-- 🎉 `New Feature` - -->
 <!-- ✨ `Enhancement` - -->
-<!-- ✏️ `Documentation` - -->
 <!-- 🐛 `Bug Fix` - Fixes issue with -->
 <!-- ⬆️ `Dependency Update` - -->
 
 ## Version History
+
+### v2.0.7 - 9/25/26
+🐛 `Bug Fix` - Fixes issue with Data Sync missions created in TAK Portal not applying group and default role to TAK Server (subscribers could subscribe but not add content via send/lasso)
+
+### v2.0.6 - 9/20/26
+✨ `Enhancement` - Connected Users and Connected Integrations card logic updated to be more efficient<br>
+✨ `Enhancement` - Total User count updated to reflect both active and disabled users
+
+### v2.0.5 - 9/17/26
+🐛 `Bug Fix` - Fixes issue with Groups, Mutual Aid, etc - Pages not honoring removed members.  (In the backend there was a power struggle between postgres and authentik leading to no actions being taken
+
+### v2.0.4 - 9/17/26
+🐛 `Bug Fix` - Fixes issue with non-functioning / improper logic for preference QR codes on the setup my device page
+
+### v2.0.3 - 9/16/26
+🐛 `Bug Fix` - Fixes issue with a small memory leak caused by TAK Portal.  Fix implemented to reuse and reduce tomcat sessions.<br>
+🐛 `Bug Fix` - Fixes issue with the Update Available pill showing when the beta version is ahead of the stable version
+
+### v2.0.2 - 9/16/26
+✨ `Enhancement` - Dashboard - Client version added on desktop view<br>
+✨ `Enhancement` - Users - Database built for Status column to include the role of the user and flag users that have never signed into Authentik or generated a TAK client cert<br>
+✨ `Enhancement` - Access Control - Updated list of permissions to match the new sidebar (will be planning to relocate this page to a modal in the near future)
+
+### v2.0.1 - 9/14/26
+✨ `Enhancement` - Mutual Aid - Page reorganized to match the simplicity and structure of the groups page<br>
+✨ `Enhancement` - Mutual Aid - Changed wording from "Sub-Event,Incident,Standby" to "Additional One Time Users" and implemented logic to create multiple one time users at once using auto or custom naming<br>
+✨ `Enhancement` - Mutual Aid - Events, Incidents, and Standbys can be delegated to agency admins to manage<br>
+✨ `Enhancement` - Groups - Agency admin access moved to the Members popup modal
+
+### v2.0.0 - 9/10/26
+🎉 `New Feature` - TAK Portal 2.0.0 introduces two additional containers, a postgres container and a worker container.  Both of these paired together greatly improve performance and usability of TAK Portal at scale (easily handling 1,000+ users)<br>
+🎉 `New Feature` - Locate functionality has been rebuilt from the ground-up and no longer relies on built in TAK Server for full functionality.  This shift allows admins to have better control of their locators, historical data, and channel/data sync selection<br>
+🎉 `New Feature` - Added option to agencies page (per agency) to "auto approve" user requests and assign the agency's defualt template.  This can be restricted to specific domains.<br>
+✨ `Enhancement` - Dashboard, Users, Groups, Agencies - Pages reorganized to provide easier access to functions<br>
+✨ `Enhancement` - Channel Patching and Locate Persons pages are now accessible and scoped for agency admins<br>
+✨ `Enhancement` - Integration cert download now includes the intermediate cert to assist with setting up 3rd party devices such as Skydio UAS platforms<br>
+✨ `Enhancement` - Plugin Manger page now includes a plugin library from TAKwerx as well as fixes to keep tak.gov plugin library alive without a need to keep resyncing to an account<br>
+✨ `Enhancement` - Page colors have been optimized for a more modern feel
+
+
+### v1.4.9 - 9/4/26
+✨ `Enhancement` - Dashboard - Charts - When more than 8 items are shown, the key is hidden<br>
+🐛 `Bug Fix` - Fixes issue with incorrect hover actions/placement on charts<br>
+🐛 `Bug Fix` - Fixes issue with improper margins on page one of the mutual aid packet.
+
+### v1.4.8 - 9/2/26
+🐛 `Bug Fix` - Fixes issue with .env file getting replaced after 1.4.6 change
+
+### v1.4.7 - 8/31/26
+✨ `Enhancement` - Integrations - Now allows for multiple groups to be selected for a single integration cert/data feed
+
+### v1.4.6 - 8/30/26
+✨ `Enhancement` - STANDALONE TAK PORTAL INSTANCES ONLY - Update script changed to ensure that users are recieving the latest stable release version unless "BETA MODE" is enabled in settings.  If beta mode is enabled, each update will pull the latest files from main branch for testing purposes.
+
+INFRATAK INSTALLS ARE NOT AFFECTED BY THIS CHANGE.  AN UPDATE TO INFRATAK WILL BE DONE IN THE NEAR FUTURE TO MIMIC THIS BEHAVIOR.
+
+### v1.4.5 - 8/30/26
+VERSION BUMP FOR TESTING
+
+### v1.4.4 - 8/30/26
+✨ `Enhancement` - Adds support for dzdo commands through a toggle on the connections page in settings (if you don't know what that is... you are blessed and don't change it :)
+
+### v1.4.3 - 8/28/26
+⬆️ `Dependency Update` - Node Forge
+
+### v1.4.2 - 8/28/26
+✨ `Enhancement` - All pages optimized for better functionality and ease of use on mobile<br>
+✨ `Enhancement` - Updated request access one time link that is sent to global admins when a user requests access to a new agency now prompts the admin for the agency creation form
+
+### v1.4.1 - 8/26/26
+✨ `Enhancement` - Open Addresses added to Live Map settings to provide enhanced address lookup.  A free api key must be obtained and entered.  You can then download a region of addresses.  (These files can be large, so ensure you have plenty of storage space).  While downloading and importing you do not have to stay on the settings page as long as you do not restart or update the server.<br>
+✨ `Enhancement` - Channel Patching moved to "Incident Response" section in the sidebar<br>
+🐛 `Bug Fix` - Fixes issue with geofences not deleting properly.  Adds improved error handling to prevent session issues.
+
+### v1.4.0 - 8/26/26
+🎉 `New Feature` - TAK Portal Live Map - A built in live map now ships with TAK Portal allowing for an easy to use, view only web interface that can serve anyone wanting an overview of TAK.  Channels, Data Sync Missions, and Data Packages can all be viewed from within live map. (Issues are still being sorted with an occassional bug of an improper icon getting displayed)<br>
+🎉 `New Feature` - Live Map Search Functionality - Allows the user to search for callsigns of COTs, addresses (in beta), and coordinates.<br>
+🎉 `New Feature` - Live Map Geofence - Geofences can be created within Live Map to automatically toggle channels and/or data sync missions on and off when a user enters or exits a geofence<br>
+🎉 `New Feature` - Channel Patching - TAK Portal can now "patch" channels together similar to a dispatch console.  Currently any channel that is added to the patch will both send and receive across those channels with TAK Portal acting as a bridge/relay.  More customization options will be added at a later date.<br>
+✨ `Enhancement` - Reorganized sidebar allowing for better ease of use and accessibility of frequently used pages
+
+### v1.3.80 - 8/25/26
+✨ `Enhancement` - Agencies - DC added as an option in the states dropdown (more customization to come soon for non-US users)
+
+### v1.3.79 - 8/24/26
+✏️ `Documentation` - License type changed to AGPL 
+
+### v1.3.78 - 8/24/26
+🐛 `Bug Fix` - Fixes issue with improper site scaling artifacts
+
+### v1.3.77 - 8/23/26
+✨ `Enhancement` - Connected Users - Modal now uses a toggle switch rather than a checkbox<br>
+✨ `Enhancement` - Settings / Request Access - If a new agency requests access the requestor is not required/shown fields for suffix and agency details, this is off by default but can be enabled in settings<br>
+✨ `Enhancement` - Agencies - County code now allows for numerics 
+
+### v1.3.76 - 8/23/26
+VERSION BUMP FOR TESTING PURPOSES
+
+### v1.3.75 - 8/20/26
+🎉 `New Feature` - Region Management - Regions can now be created via the settings page and can be assigned manually to agencies or assigned to entire states or counties.  This also allows for both automatic and manual group creation for regions.
+
+### v1.3.74 - 8/20/26
+✨ `Enhancement` - Plugins - Plugin Manager now syncs added plugins to TAK Server via SSH.  ATAK Clients can download these plugins directly within ATAK after scanning the TAK Portal Preference QR Code or by manually entering their update server details at "https://takserverurl:8443/update"<br>
+
+
+### v1.3.73 - 8/20/26
+✨ `Enhancement` - Settings - Supported TAK Clients now optionally allows you to upload your own hosted APK for ATAK that is downloadable from the "Setup My Device" page
+
+### v1.3.72 - 8/19/26
+🐛 `Bug Fix` - Fixes issue with email settings for "Always CC and BCC" fields not saving before a test email is sent<br>
+🐛 `Bug Fix` - Fixes issue with the groups updated email template using the old callsign logic and not pulling from custom callsign formatting as defined in settings
+
+### v1.3.71 - 8/13/26
+✨ `Enhancement` - Adds the ability to build data packages for enrollment.  Must be enabled in server settings and Supported TAK Clients.  Download buttons on Setup My Device page and on Users page under Enroll QR.
+
+### v1.3.70 - 8/11/26
+✨ `Enhancement` - Settings / Setup My Device - Section added in settings to manage supported TAK Clients
+
+### v1.3.69 - 8/11/26
+✨ `Enhancement` - Request Access - One time links to review the access requests follow the scope of that user (agency vs global admin) for agency selection<br>
+✨ `Enhancement` - Mutual Aid - Allows a single existing group to be reused across multiple mutual aid instances rather than limited to one mutual aid at a time<br>
+✨ `Enhancement` - Role migration script now ignores users with the hidden prefixes<br>
+🐛 `Bug Fix` - Fixes issue with request access emails not going to all agency admins when there are more than one
+
+### v1.3.68 - 8/9/26
+🐛 `Bug Fix` - Fixes issue with auto-save not applying to uploaded files to settings
+
+### v1.3.67 - 8/8/26
+🎉 `New Feature` - Settings - Auto Create Groups / Channels<br>
+🎉 `New Feature` - Settings - Auto Create Data Sync Missions<br>
+✨ `Enhancement` - Agencies - Deleting an agency will now add data sync missions to its delete list<br>
+✨ `Enhancement` - Settings - Improved auto-save logic<br>
+🐛 `Bug Fix` - Fixes issue with mutual aid deployment packet quality
+
+### v1.3.66 - 8/8/26
+⬆️ `Dependency Update` - Updated dependencies
+
+### v1.3.65 - 8/7/26
+✨ `Enhancement` - Settings - Page redesigned to aid in navigation and organization
+
+### v1.3.64 - 8/7/26
+✨ `Enhancement` - Groups and Mutual Aid - Adds "Agency Type" to the options for assigning/unassigning groups<br>
+🐛 `Bug Fix` - Groups - Fixes issue with the "Admin Access" button where it occasionally errors out due to a mis-match of group names.
+
+### v1.3.63 - 8/6/26
+✨ `Enhancement` - Setup My Device - Minor wording updates to better onboard new users<br>
+✨ `Enhancement` - Templates - Switched from agency abbreviation to agency full name to aid in visibility
+
+### v1.3.62 - 8/5/26
+✨ `Enhancement` - Agencies - Abbreviation field relabeled to Agency Abbreviation / Short Name; allows mixed case, spaces, dashes, and underscores (no forced uppercase)<br>
+✨ `Enhancement` - Agencies - Duplicate abbreviation/short name and duplicate full agency name are rejected (case-insensitive) on create, edit, CSV import, and rename<br>
+✨ `Enhancement` - Agencies / Groups - Agency group ownership and admin visibility now use Authentik attributes instead of first-space name prefix parsing<br>
+✨ `Enhancement` - Agencies - CSV import creates the agency Main channel group in addition to the admin group<br>
+🐛 `Bug Fix` - Fixes issue with Authentik unique group name collisions when multiple agencies shared the same abbreviation
+
+### v1.3.61 - 8/5/26
+🐛 `Bug Fix` - Fixes issue with cluttered logs due to an error parsing HAE<br>
+🐛 `Bug Fix` - Fixes issue with slow loading times and display on mini-map
+
+### v1.3.60 - 8/4/26
+✨ `Enhancement` - Adds compatibility for WinTAKTracker and AndroidTAKTracker (Work In Progress Applications) to send callsign/team/role information<br>
+
+### v1.3.59 - 8/4/26
+🐛 `Bug Fix` - Fixes issue with Data Sync visibility on missions with read-only permissions
+
+### v1.3.58 - 7/31/26
+🐛 `Bug Fix` - Fixes issue with overlapping text on mutual aid packets in the role/team sections.
+
+### v1.3.57 - 7/28/26
+🐛 `Bug Fix` - Fixes issue with an empty tak cert list returning a connection failure error
+
+### v1.3.56 - 7/27/26
+✨ `Enhancement` - Agencies - Option added for state/federal agencies making County and County Code optional<br>
+✨ `Enhancement` - Settings - Callsign Format - Added option to show template name as a part of the template<br>
+✨ `Enhancement` - Settings - Callsign Format - Added logic for all options to remove leading/trailing dashes if a field is empty/null<br>
+✨ `Enhancement` - Mutual Aid - Increased compression on page one to minimize pdf file size<br>
+🐛 `Bug Fix` - Fixes issue with MOU Documents wanting a new signature after editing a document and saving as the current version.
+
+### v1.3.55 - 7/27/26
+✨ `Enhancement` - Settings - Option added under Branding, Appearance, and Beta to disable the Request Access page.
+
+### v1.3.54 - 7/23/26
+✨ `Enhancement` - Mutual Aid - Agency admins now have access to create and manage mutual aid instances.  Mutual Aid created by global admins will be hidden from agency admins and can only be managed by the global admins.<br>
+🐛 `Bug Fix` - Fixes issue with mutual aid packet "one-pager" cutting off text for the channel name
+
+### v1.3.53 - 7/21/26
+✨ `Enhancement` - Request Access - Selecting "Other / My Agency Isn't Listed" now requires the requester to fill out all fields needed for agency creation<br>
+✨ `Enhancement` - Pending Access - When a requester enters new agency details, the global admin will be able to create a new agency from the pending access page<br>
+✨ `Enhancement` - Groups and Pending Access - When a new agency is created an agency specific group will automatically be created for that agency with a name of "Main"
+
+### v1.3.52 - 7/15/26
+✨ `Enhancement` - Mutual Aid - Minor wording updates<br>
+🐛 `Bug Fix` - Fixes issue with incorrect email templates logic with default vs custom.
+
+### v1.3.51 - 7/14/26
+🐛 `Bug Fix` - Fixes issue with first page of the deployment packet not allowing callsign formats outside of the default configuration
+
+### v1.3.50 - 7/14/26
+✨ `Enhancement` - Mutual Aid - Adds a new "one-pager" as page one of the Mutual Aid document (Design credit to Tom Endress)<br>
+✨ `Enhancement` - Mutual Aid - Enhanced for mobile screen size
+
+### v1.3.49 - 7/14/26
+✨ `Enhancement` - MOU Documents - Documents are now (optionally) able to be countersigned by global admins<br>
+✨ `Enhancement` - MOU Documents - When a document is initially signed the email to the global admin now includes the signed pdf, and when a document is countersigned, the original signer gets an email with the signed pdf.<br>
+✨ `Enhancement` - MOU Documents - Document archive behavior has been redefined to prevent issues with an archived document conflicting with a new document for the same agency.<br>
+
+### v1.3.48 - 7/13/26
+✨ `Enhancement` - Mutual Aid - Cleans up assign and unassign menus to match the groups page by adding templates as an option to deploy a new mutual aid group to<br>
+✨ `Enhancement` - Groups - Global Groups prevent groups from being created that start with "MA -" to prevent inadvertently creating a false mutual aid group.
+
+### v1.3.47 - 7/11/26
+🎉 `New Feature` - Introduces a mini-map display for connected users<br>
+🐛 `Bug Fix` - Fixes issue with MOU Signing not functioning properly for global admins (would sign the wrong agency document and/or give permission errors)
+
+### v1.3.46 - 7/8/26
+✨ `Enhancement` - Dashboard - Connected Users pane now allows sending callsign and data sync missions to TAK Aware devices (Only works for Test Flight version of TAK Aware until release is pushed to the app store).<br>
+🐛 `Bug Fix` - Fixes issue with integrations count related to duplicate connections
+
+### v1.3.45 - 7/7/26
+🐛 `Bug Fix` - Fixes issue with SSH connection timing out<br>
+🐛 `Bug Fix` - Fixes issue with integrations not building and generating certs properly<br>
+🐛 `POTENTIAL Bug Fix` - Aims to fix issue with Brevo mishandling the TAK Portal button
 
 ### v1.3.44 - 6/29/26
 ⬆️ `Dependency Update` - Updated axios, dotenv, marked, multer, nodemailer, sanitize-html, undici, node-cot, node-tak

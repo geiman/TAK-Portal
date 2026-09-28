@@ -84,7 +84,22 @@ async function renameCountyTakGroups(oldCounty, newCounty) {
     return { groupsRenamed: 0 };
   }
 
-  const allGroups = await groupsService.getAllGroups({ includeHidden: true });
+  const repo = require("./directoryRepo.service");
+  const byDetail = await repo.searchGroupsPaged({
+    createdTypeDetail: oldC,
+    includeHidden: true,
+    page: 1,
+    pageSize: 500,
+  });
+  const byQ = await repo.searchGroupsPaged({
+    q: oldC,
+    includeHidden: true,
+    page: 1,
+    pageSize: 500,
+  });
+  const merged = new Map();
+  for (const g of [...byDetail.groups, ...byQ.groups]) merged.set(String(g.pk), g);
+  const allGroups = [...merged.values()];
   let groupsRenamed = 0;
 
   for (const g of Array.isArray(allGroups) ? allGroups : []) {
@@ -119,6 +134,7 @@ async function renameCountyTakGroups(oldCounty, newCounty) {
 
     await groupsService.patchGroupNameAndCn(gid, finalName, {
       skipActionLock: true,
+      bulk: true,
       attributes: {
         created_type: nextAttrs.created_type,
         created_type_detail: nextAttrs.created_type_detail,
@@ -151,8 +167,36 @@ async function renameCountyName(agencyIndex, newCountyRaw) {
 
   const oldCounty = normalizeCountyName(agency.county);
   const newCounty = normalizeCountyName(newCountyRaw);
-  if (!newCounty) {
+  const allowEmpty = !!agency.stateFederalAgency;
+  if (!newCounty && !allowEmpty) {
     throw new Error("County name is required");
+  }
+
+  // Clearing county for a State/Federal agency: update this agency only (no group rename).
+  if (!newCounty && allowEmpty) {
+    if (!oldCounty) {
+      return {
+        success: true,
+        skipped: true,
+        state: targetState,
+        oldCounty,
+        newCounty: "",
+        updatedIndexes: [idx],
+        groupsRenamed: 0,
+      };
+    }
+    agencies[idx] = { ...agencies[idx], county: "" };
+    agenciesStore.save(agencies);
+    groupsService.invalidateGroupsCache();
+    return {
+      success: true,
+      skipped: false,
+      state: targetState,
+      oldCounty,
+      newCounty: "",
+      updatedIndexes: [idx],
+      groupsRenamed: 0,
+    };
   }
 
   const targetCountyKey = String(oldCounty || "").trim().toLowerCase();
