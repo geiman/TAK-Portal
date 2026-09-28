@@ -1,4 +1,5 @@
 const express = require("express");
+const crypto = require("crypto");
 const router = express.Router();
 const multer = require("multer");
 const upload = multer({ storage: multer.memoryStorage() });
@@ -1629,6 +1630,18 @@ router.post("/enroll-qr", async (req, res) => {
     const enrollUrl = qrSvc.buildEnrollUrl({ username: canonicalUsername, token: key });
     const qrCode = await qrSvc.generateDisplayQrDataUrl(enrollUrl);
 
+    // iTAK uses a JSON registration payload instead of the tak:// enroll URL,
+    // so build a second QR from the same token for iOS iTAK users.
+    const itakPayload = qrSvc.buildItakEnrollPayload({
+      host: qrSvc.getTakHost(),
+      username: canonicalUsername,
+      token: key,
+      registrationId: crypto.randomUUID(),
+    });
+    const itakQrCode = itakPayload
+      ? await qrSvc.generateDisplayQrDataUrl(itakPayload)
+      : null;
+
     // Audit (never store token/key)
     auditSvc.logEvent({
       actor: authUser,
@@ -1647,6 +1660,7 @@ router.post("/enroll-qr", async (req, res) => {
       expiresAt,
       enrollUrl,
       qrCode,
+      itakQrCode,
     });
   } catch (err) {
     console.error("[users] Failed to create enrollment QR:", err?.message || err);

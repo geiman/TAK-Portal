@@ -466,17 +466,25 @@
       <button class="btn" id="userEnrollQrCloseBtn" type="button">Close</button>
     </div>
     <div class="modalBody">
-      <div class="userQrSingleCol">
-        <img id="userQrImg" alt="Enrollment QR Code" class="userQrPairImg" />
-        <div class="row userQrPairActions">
-          <button class="btn success btnOpenInApp" type="button" id="userQrOpenBtn" disabled>Open In App</button>
-          <button class="btn" type="button" id="userQrCopyBtn" disabled>Copy URL</button>
-          <% if (typeof dataPackageAvailable !== "undefined" && dataPackageAvailable) { %>
-          <button class="btn success" type="button" id="userQrDataPackageBtn" disabled>Download Data Package</button>
-          <% } %>
+      <div class="userQrPairRow">
+        <div class="userQrPairCol">
+          <div class="userQrPairLabel">ATAK / TAK Aware</div>
+          <img id="userQrImg" alt="ATAK / TAK Aware Enrollment QR Code" class="userQrPairImg" />
+          <div class="row userQrPairActions">
+            <button class="btn success btnOpenInApp" type="button" id="userQrOpenBtn" disabled>Open In App</button>
+            <button class="btn" type="button" id="userQrCopyBtn" disabled>Copy URL</button>
+            <% if (typeof dataPackageAvailable !== "undefined" && dataPackageAvailable) { %>
+            <button class="btn success" type="button" id="userQrDataPackageBtn" disabled>Download Data Package</button>
+            <% } %>
+          </div>
         </div>
-        <div id="userQrCountdown" class="msg userQrPairCountdown"></div>
+        <div class="userQrPairCol" id="userItakQrCol" style="display:none;">
+          <div class="userQrPairLabel">iTAK</div>
+          <img id="userItakQrImg" alt="iTAK Enrollment QR Code" class="userQrPairImg" />
+          <div class="msg userQrPairHint">Scan from inside the iTAK app.</div>
+        </div>
       </div>
+      <div id="userQrCountdown" class="msg userQrPairCountdown" style="text-align:center;"></div>
       <div class="userQrDetailsSection">
         <h3 style="margin-top:0;">Details</h3>
         <div class="chips" id="userQrDetails"></div>
@@ -1635,6 +1643,8 @@ const userEnrollQrCloseBtn = document.getElementById("userEnrollQrCloseBtn");
 const userPrefQrOverlay = document.getElementById("userPrefQrOverlay");
 const userPrefQrCloseBtn = document.getElementById("userPrefQrCloseBtn");
 const userQrImg = document.getElementById("userQrImg");
+const userItakQrImg = document.getElementById("userItakQrImg");
+const userItakQrCol = document.getElementById("userItakQrCol");
 const userPrefQrImg = document.getElementById("userPrefQrImg");
 const userQrOpenBtn = document.getElementById("userQrOpenBtn");
 const userQrCopyBtn = document.getElementById("userQrCopyBtn");
@@ -1769,6 +1779,8 @@ async function copyToClipboard(text, msgEl) {
 
 function resetUserEnrollQrModal() {
   if (userQrImg) userQrImg.src = "";
+  if (userItakQrImg) userItakQrImg.src = "";
+  if (userItakQrCol) userItakQrCol.style.display = "none";
   if (userQrDetails) userQrDetails.innerHTML = "";
   if (userQrOpenBtn) userQrOpenBtn.disabled = true;
   if (userQrCopyBtn) userQrCopyBtn.disabled = true;
@@ -1791,6 +1803,8 @@ function renderUserEnrollQr(obj) {
   userEnrollQrCurrent = obj;
 
   if (userQrImg) userQrImg.src = obj.qrCode || "";
+  if (userItakQrImg) userItakQrImg.src = obj.itakQrCode || "";
+  if (userItakQrCol) userItakQrCol.style.display = obj.itakQrCode ? "" : "none";
 
   const chips = [];
   if (obj.username) chips.push(`<span class="chip">User: ${escapeHtml(obj.username)}</span>`);
@@ -1849,6 +1863,7 @@ async function fetchUserEnrollQrData(userId, username) {
     expiresAt: data.expiresAt,
     enrollUrl: data.enrollUrl,
     qrCode: data.qrCode,
+    itakQrCode: data.itakQrCode || "",
   };
 }
 
@@ -5050,6 +5065,15 @@ tr.row-disabled td {
 
 .userQrModal {
   max-width: 480px;
+}
+
+#userEnrollQrOverlay .userQrModal {
+  max-width: 760px;
+}
+
+.userQrPairHint {
+  margin-top: 14px;
+  opacity: 0.8;
 }
 
 .userQrSingleCol {
