@@ -77,6 +77,12 @@
 
     let agencies = [];
     let selected = new Set();
+    let allAgencies = false;
+
+    function allowAllAgencies() {
+      if (typeof opts.allowAllAgencies === "function") return !!opts.allowAllAgencies();
+      return !!opts.allowAllAgencies;
+    }
 
     function sortedAgencies() {
       const source = typeof opts.getAgencies === "function" ? opts.getAgencies() : agencies;
@@ -98,6 +104,10 @@
 
     function updateToggleLabel() {
       if (!toggle) return;
+      if (allAgencies) {
+        toggle.textContent = "All agencies ▾";
+        return;
+      }
       const n = selected.size;
       toggle.textContent = n
         ? n + " agenc" + (n === 1 ? "y" : "ies") + " selected ▾"
@@ -106,6 +116,10 @@
 
     function updateSummary() {
       if (!summary) return;
+      if (allAgencies) {
+        summary.textContent = "Manages all agencies, including agencies added later.";
+        return;
+      }
       const home = resolveHomeSuffix(opts);
       const labels = sortedAgencies()
         .filter((a) => selected.has(normalizeSuffixValue(a?.suffix)))
@@ -136,19 +150,34 @@
         return name.includes(needle) || sfx.includes(needle) || abbr.includes(needle);
       });
 
+      const allRow = allowAllAgencies()
+        ? '<label class="filter-option ma-multiselect-all-option">' +
+          '<input type="checkbox" class="ma-multiselect-all-cb"' +
+          (allAgencies ? " checked" : "") +
+          " />" +
+          "<span><strong>All agencies</strong>" +
+          '<small class="muted">Includes agencies added later</small></span>' +
+          "</label>"
+        : "";
+
       list.innerHTML =
-        visible
+        allRow +
+        (visible
           .map((a) => {
             const sfx = String(a?.suffix || "").trim().toLowerCase();
-            const checked = selected.has(sfx) ? " checked" : "";
+            const checked = allAgencies || selected.has(sfx) ? " checked" : "";
+            const disabled = allAgencies ? " disabled" : "";
             return (
-              '<label class="filter-option">' +
+              '<label class="filter-option' +
+              (allAgencies ? " is-disabled" : "") +
+              '">' +
               '<input type="checkbox" class="ma-multiselect-cb" name="' +
               esc(inputName) +
               '" value="' +
               esc(sfx) +
               '"' +
               checked +
+              disabled +
               " />" +
               "<span>" +
               esc(formatAgencyLabel(a)) +
@@ -156,14 +185,21 @@
               "</label>"
             );
           })
-          .join("") || '<div class="muted" style="padding:8px 10px;">No agencies found.</div>';
+          .join("") || '<div class="muted" style="padding:8px 10px;">No agencies found.</div>');
 
       updateToggleLabel();
       updateSummary();
     }
 
     function notifyChange() {
-      if (typeof opts.onChange === "function") opts.onChange(selected);
+      if (typeof opts.onChange === "function") opts.onChange(selected, { allAgencies: allAgencies });
+    }
+
+    function setAllAgencies(next, setOpts) {
+      setOpts = setOpts || {};
+      allAgencies = !!next && allowAllAgencies();
+      renderList();
+      if (!setOpts.silent) notifyChange();
     }
 
     function setSelected(next, setOpts) {
@@ -187,13 +223,73 @@
       return mergeWithHome(getSelectedArray(), resolveHomeSuffix(opts));
     }
 
+    const menu = dropdown ? dropdown.querySelector(".filter-menu") : null;
+
+    // The menu is position: fixed so it escapes overflow-clipping ancestors (e.g. the
+    // Edit User modal). It opens upward when there is more room above the toggle and
+    // is capped to the space available, so the list always scrolls within view.
+    function positionMenu() {
+      if (!menu || !toggle || !dropdown.classList.contains("open")) return;
+      const margin = 8;
+      const gap = 4;
+      const vw = window.innerWidth || document.documentElement.clientWidth;
+      const vh = window.innerHeight || document.documentElement.clientHeight;
+      const r = toggle.getBoundingClientRect();
+      const spaceBelow = vh - r.bottom - gap - margin;
+      const spaceAbove = r.top - gap - margin;
+      const openUp = spaceBelow < 240 && spaceAbove > spaceBelow;
+      const maxH = Math.max(120, Math.min(360, openUp ? spaceAbove : spaceBelow));
+      const width = Math.min(Math.max(r.width, 280), vw - margin * 2);
+      const left = Math.min(Math.max(r.left, margin), vw - width - margin);
+
+      menu.classList.add("ma-menu-floating");
+      menu.classList.toggle("ma-menu-up", openUp);
+      menu.style.position = "fixed";
+      menu.style.right = "auto";
+      menu.style.bottom = "auto";
+      menu.style.width = width + "px";
+      menu.style.maxHeight = maxH + "px";
+      menu.style.left = left + "px";
+      const h = menu.offsetHeight;
+      const top = openUp ? r.top - gap - h : r.bottom + gap;
+      menu.style.top = top + "px";
+
+      // A transformed/filtered ancestor makes it the containing block for fixed
+      // elements; shift by the measured offset so the menu still lines up.
+      const actual = menu.getBoundingClientRect();
+      const dx = actual.left - left;
+      const dy = actual.top - top;
+      if (Math.abs(dx) > 0.5) menu.style.left = left - dx + "px";
+      if (Math.abs(dy) > 0.5) menu.style.top = top - dy + "px";
+    }
+
+    function onViewportChange(e) {
+      if (e && e.type === "scroll" && menu && menu.contains(e.target)) return;
+      positionMenu();
+    }
+
+    function setOpen(open) {
+      if (!dropdown) return;
+      dropdown.classList.toggle("open", open);
+      if (open) {
+        positionMenu();
+        window.addEventListener("resize", onViewportChange);
+        window.addEventListener("scroll", onViewportChange, true);
+      } else {
+        window.removeEventListener("resize", onViewportChange);
+        window.removeEventListener("scroll", onViewportChange, true);
+      }
+    }
+
+    if (dropdown) dropdown.__maSetOpen = setOpen;
+
     if (toggle && dropdown) {
       toggle.addEventListener("click", function (e) {
         e.stopPropagation();
         document.querySelectorAll(".ma-multiselect.open").forEach(function (el) {
-          if (el !== dropdown) el.classList.remove("open");
+          if (el !== dropdown) closeDropdown(el);
         });
-        dropdown.classList.toggle("open");
+        setOpen(!dropdown.classList.contains("open"));
       });
     }
 
@@ -202,6 +298,10 @@
     if (list) {
       list.addEventListener("change", function (e) {
         const cb = e.target;
+        if (cb && cb.classList && cb.classList.contains("ma-multiselect-all-cb")) {
+          setAllAgencies(cb.checked);
+          return;
+        }
         if (!cb || cb.type !== "checkbox" || !cb.classList.contains("ma-multiselect-cb")) return;
         const sfx = String(cb.value || "").trim().toLowerCase();
         if (!sfx) return;
@@ -215,6 +315,7 @@
 
     if (selectAll) {
       selectAll.addEventListener("click", function () {
+        if (allAgencies) return;
         const needle = String(search?.value || "").trim().toLowerCase();
         sortedAgencies().forEach(function (a) {
           const name = String(a?.name || "").toLowerCase();
@@ -231,13 +332,13 @@
 
     if (clearBtn) {
       clearBtn.addEventListener("click", function () {
+        allAgencies = false;
         selected.clear();
         renderList();
         notifyChange();
       });
     }
 
-    const menu = dropdown ? dropdown.querySelector(".filter-menu") : null;
     if (menu) menu.addEventListener("click", function (e) { e.stopPropagation(); });
 
     return {
@@ -246,19 +347,27 @@
         renderList();
       },
       setSelected: setSelected,
+      setAllAgencies: setAllAgencies,
+      getAllAgencies: function () { return allAgencies; },
       getSelected: function () { return new Set(selected); },
       getSelectedArray: getSelectedArray,
       getSelectedWithHomeArray: getSelectedWithHomeArray,
-      refresh: renderList,
+      refresh: function () {
+        renderList();
+        positionMenu();
+      },
     };
+  }
+
+  function closeDropdown(el) {
+    if (typeof el.__maSetOpen === "function") el.__maSetOpen(false);
+    else el.classList.remove("open");
   }
 
   if (!global.__maMultiselectDocClick) {
     global.__maMultiselectDocClick = true;
     document.addEventListener("click", function () {
-      document.querySelectorAll(".ma-multiselect.open").forEach(function (el) {
-        el.classList.remove("open");
-      });
+      document.querySelectorAll(".ma-multiselect.open").forEach(closeDropdown);
     });
   }
 

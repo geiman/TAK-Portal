@@ -417,6 +417,11 @@ router.post("/", async (req, res) => {
     }
     payload.permissions = permRaw;
 
+    payload.allAgencies = permRaw === "agency_admin" && payload.allAgencies === true;
+    if (payload.allAgencies && !authUser?.isGlobalAdmin) {
+      return res.status(403).json({ error: "Only global admins can grant all-agency access." });
+    }
+
     if (permRaw === "agency_admin" && Array.isArray(payload.managedAgencySuffixes)) {
       const access = accessSvc.getAgencyAccess(authUser);
       const scope = access.isGlobalAdmin ? null : access.allowedAgencySuffixes || [];
@@ -434,7 +439,7 @@ router.post("/", async (req, res) => {
       if (!payload.managedAgencySuffixes.length) {
         return res.status(400).json({ error: "Select at least one valid managed agency." });
       }
-      if (requestedMultiAgencyAdmin) {
+      if (requestedMultiAgencyAdmin && !payload.allAgencies) {
         const additional = homeSuffix
           ? accessSvc.additionalManagedAgencySuffixes(
               payload.managedAgencySuffixes,
@@ -460,6 +465,7 @@ router.post("/", async (req, res) => {
     const result = await users.createUser(payload, {
       createdBy,
       creationMethod: "manual",
+      allowAllAgencies: !!authUser?.isGlobalAdmin,
       allowedAgencySuffixesForAssign: (() => {
         const access = accessSvc.getAgencyAccess(authUser);
         if (access.isGlobalAdmin) return null;
@@ -1038,6 +1044,11 @@ router.post("/:userId/portal-role", express.json({ limit: "1mb" }), async (req, 
       return res.status(403).json({ error: "You do not have access to that user." });
     }
 
+    const allAgencies = desiredRole === "agency_admin" && req.body?.allAgencies === true;
+    if (allAgencies && !actor.isGlobalAdmin) {
+      return res.status(403).json({ error: "Only global admins can grant all-agency access." });
+    }
+
     let managedAgencySuffixes = [];
     if (desiredRole === "agency_admin") {
       const access = accessSvc.getAgencyAccess(actor);
@@ -1054,7 +1065,7 @@ router.post("/:userId/portal-role", express.json({ limit: "1mb" }), async (req, 
       } else {
         managedAgencySuffixes = resolveDefaultManagedSuffixesForUser(target);
       }
-      if (!managedAgencySuffixes.length) {
+      if (!managedAgencySuffixes.length && !allAgencies) {
         return res.status(400).json({
           error:
             "Select at least one managed agency, or ensure the user has a home agency abbreviation.",
@@ -1065,6 +1076,7 @@ router.post("/:userId/portal-role", express.json({ limit: "1mb" }), async (req, 
     const delta = await accessSvc.syncPortalRoleGroups(userId, {
       role: desiredRole,
       managedAgencySuffixes,
+      allAgencies,
     });
 
     const { user: updatedUser, groupNames } = await loadGroupNamesForUserId(userId);
@@ -1088,6 +1100,7 @@ router.post("/:userId/portal-role", express.json({ limit: "1mb" }), async (req, 
         resultingRole,
         userId,
         managedAgencySuffixes: managed,
+        allAgencies: accessSvc.hasAllAgenciesAdminGroup(groupNames),
         groupsAdded: delta.toAdd,
         groupsRemoved: delta.toRemove,
         summary: `Updated portal role for ${String(updatedUser?.username || "user").trim()} to ${resultingRole}.`,
@@ -1098,6 +1111,7 @@ router.post("/:userId/portal-role", express.json({ limit: "1mb" }), async (req, 
       ok: true,
       role: resultingRole,
       managedAgencySuffixes: managed,
+      allAgencies: accessSvc.hasAllAgenciesAdminGroup(groupNames),
       groups: Array.isArray(updatedUser?.groups) ? updatedUser.groups : [],
     });
   } catch (err) {

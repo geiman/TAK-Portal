@@ -563,6 +563,7 @@ function initCreateManagedPicker() {
     getAgencies: agenciesForManagedPicker,
     getAllAgencies: function () { return allAgenciesCache; },
     homeSuffix: function () { return getCreateHomeSuffix(); },
+    allowAllAgencies: function () { return IS_GLOBAL_ADMIN; },
   });
 }
 
@@ -986,15 +987,19 @@ form.onsubmit = async (e) => {
   if (payload.permissions === "multi_agency_admin" && IS_GLOBAL_ADMIN) {
     const home = getCreateHomeSuffix();
     const additional = getCreateManagedSuffixes();
+    const allAgencies = !!(createManagedPicker && createManagedPicker.getAllAgencies());
     if (!home) {
       setMsg("Select an agency for the user before assigning Multi-Agency Admin.", false);
       return;
     }
-    if (additional.length < 1) {
+    if (additional.length < 1 && !allAgencies) {
       setMsg("Multi-Agency Admin requires at least one additional agency beyond the user's home agency.", false);
       return;
     }
-    payload.managedAgencySuffixes = getCreateManagedSuffixesForSave();
+    payload.managedAgencySuffixes = allAgencies
+      ? ManagedAgenciesPicker.mergeWithHome([], home)
+      : getCreateManagedSuffixesForSave();
+    if (allAgencies) payload.allAgencies = true;
     payload.permissions = "agency_admin";
   } else if (payload.permissions === "agency_admin" && canAssignManagedAgencies()) {
     const suffixes = getCreateManagedSuffixesForSave();
@@ -1332,9 +1337,17 @@ let editManagedPicker = null;
 let editManagedSaveTimer = null;
 let editManagedSaveInflight = false;
 let editManagedLastSavedKey = "";
+let editManagedAllAgencies = false;
+const ALL_AGENCIES_ADMIN_GROUP_NAME_LOWER = "authentik-allagencies-agencyadmin";
+let allAgenciesAdminGroupPk = null;
 
-function managedSuffixesKey(suffixes) {
-  return (Array.isArray(suffixes) ? suffixes : [])
+function userHasAllAgenciesAdminGroup(user) {
+  if (allAgenciesAdminGroupPk == null) return false;
+  return (user?.groups || []).some((x) => String(x) === String(allAgenciesAdminGroupPk));
+}
+
+function managedSuffixesKey(suffixes, allAgencies) {
+  return (allAgencies ? "ALL|" : "") + (Array.isArray(suffixes) ? suffixes : [])
     .map((s) => String(s || "").trim().toLowerCase())
     .filter(Boolean)
     .sort()
@@ -1348,8 +1361,10 @@ function initEditManagedPicker() {
     getAgencies: agenciesForManagedPickerEdit,
     getAllAgencies: function () { return allAgenciesCache; },
     homeSuffix: function () { return editManagedHomeSuffix || getHomeSuffixForUser(selectedUser); },
-    onChange: function (set) {
+    allowAllAgencies: function () { return IS_GLOBAL_ADMIN; },
+    onChange: function (set, info) {
       editManagedSuffixes = set;
+      editManagedAllAgencies = !!(info && info.allAgencies);
       scheduleEditManagedSave();
     },
   });
@@ -1361,7 +1376,7 @@ function canAssignManagedAgenciesForEdit() {
 
 function permissionsUiFromManagedCount(hasAdmin, managedCount) {
   if (!hasAdmin) return "user";
-  if (IS_GLOBAL_ADMIN && managedCount > 1) return "multi_agency_admin";
+  if (IS_GLOBAL_ADMIN && (managedCount > 1 || editManagedAllAgencies)) return "multi_agency_admin";
   return "agency_admin";
 }
 
@@ -1413,17 +1428,20 @@ async function saveEditManagedAgenciesAuto() {
 
   const home = editManagedHomeSuffix || getHomeSuffixForUser(selectedUser);
   const additional = getEditManagedSuffixesFromContainer();
-  if (!home) {
+  const allAgencies = editManagedAllAgencies;
+  if (!home && !allAgencies) {
     setMsgEl(actionMsg, "Cannot save managed agencies: user has no home agency.", false);
     return;
   }
-  if (additional.length < 1) {
+  if (additional.length < 1 && !allAgencies) {
     setMsgEl(actionMsg, "Select at least one additional agency beyond the user's home agency.", false);
     return;
   }
 
-  const suffixes = getEditManagedSuffixesForSave();
-  const saveKey = managedSuffixesKey(suffixes);
+  const suffixes = allAgencies
+    ? ManagedAgenciesPicker.mergeWithHome([], home)
+    : getEditManagedSuffixesForSave();
+  const saveKey = managedSuffixesKey(suffixes, allAgencies);
   if (saveKey === editManagedLastSavedKey) return;
 
   editManagedSaveInflight = true;
@@ -1434,18 +1452,27 @@ async function saveEditManagedAgenciesAuto() {
       {
         method: "PUT",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ managedAgencySuffixes: suffixes }),
+        body: JSON.stringify({ managedAgencySuffixes: suffixes, allAgencies }),
       }
     );
     const out = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(out.error || "Failed to save managed agencies.");
 
-    const managed = Array.isArray(out.managedAgencySuffixes) ? out.managedAgencySuffixes : suffixes;
+    editManagedAllAgencies = !!out.allAgencies;
+    // All-agency admins report every agency as managed; keep the explicit picks only.
+    const managed = editManagedAllAgencies
+      ? suffixes
+      : Array.isArray(out.managedAgencySuffixes)
+      ? out.managedAgencySuffixes
+      : suffixes;
     editManagedSuffixes = new Set(
       ManagedAgenciesPicker.stripHomeFromManaged(managed, home)
     );
-    editManagedLastSavedKey = managedSuffixesKey(managed);
-    if (editManagedPicker) editManagedPicker.setSelected(editManagedSuffixes, { silent: true });
+    editManagedLastSavedKey = managedSuffixesKey(managed, editManagedAllAgencies);
+    if (editManagedPicker) {
+      editManagedPicker.setSelected(editManagedSuffixes, { silent: true });
+      editManagedPicker.setAllAgencies(editManagedAllAgencies, { silent: true });
+    }
     if (permissionsSelect) {
       permissionsSelect.value = permissionsUiFromManagedCount(true, managed.length);
     }
@@ -1471,7 +1498,10 @@ function updateEditManagedAgenciesVisibility() {
   }
   if (show) {
     initEditManagedPicker();
-    if (editManagedPicker) editManagedPicker.setSelected(editManagedSuffixes, { silent: true });
+    if (editManagedPicker) {
+      editManagedPicker.setSelected(editManagedSuffixes, { silent: true });
+      editManagedPicker.setAllAgencies(editManagedAllAgencies, { silent: true });
+    }
   }
 }
 
@@ -2449,6 +2479,9 @@ async function ensureAgencyAdminGroupIdIndex(){
     const nameLower = rawName.toLowerCase();
 
     if (!rawName) continue;
+    if (nameLower === ALL_AGENCIES_ADMIN_GROUP_NAME_LOWER && pk != null) {
+      allAgenciesAdminGroupPk = String(pk);
+    }
     // Match patterns like:
     // - authentik-<COUNTY>-<ABBR>-AgencyAdmin
     // - authentik-<ABBR>-AgencyAdmin
@@ -2996,10 +3029,11 @@ window.editUser = async (userPk) => {
     ]);
     const managed = await resolveManagedSuffixesForUser(merged);
     editManagedHomeSuffix = getHomeSuffixForUser(merged);
+    editManagedAllAgencies = userHasAllAgenciesAdminGroup(merged);
     editManagedSuffixes = new Set(
       ManagedAgenciesPicker.stripHomeFromManaged(managed, editManagedHomeSuffix)
     );
-    editManagedLastSavedKey = managedSuffixesKey(managed);
+    editManagedLastSavedKey = managedSuffixesKey(managed, editManagedAllAgencies);
   } catch (e) {
     console.warn("editUser: failed to refresh user or resolve admin groups", e);
   }
@@ -3107,18 +3141,19 @@ async function applyPermissionsSelection({ silentSuccess = false } = {}) {
   }
 
   let managedSuffixes = getEditManagedSuffixesArray();
+  const allAgencies = desiredUi === "multi_agency_admin" && editManagedAllAgencies;
   if (desiredUi === "multi_agency_admin") {
     const home = editManagedHomeSuffix || getHomeSuffixForUser(selectedUser);
     const additional = getEditManagedSuffixesFromContainer();
-    if (!home) {
+    if (!home && !allAgencies) {
       setMsgEl(actionMsg, "Cannot set Multi-Agency Admin: user has no home agency.", false);
       return { ok: false };
     }
-    if (additional.length < 1) {
+    if (additional.length < 1 && !allAgencies) {
       setMsgEl(actionMsg, "Multi-Agency Admin requires at least one additional agency beyond the user's home agency.", false);
       return { ok: false };
     }
-    managedSuffixes = ManagedAgenciesPicker.mergeWithHome(additional, home);
+    managedSuffixes = ManagedAgenciesPicker.mergeWithHome(allAgencies ? [] : additional, home);
   } else if (desired === "agency_admin") {
     if (!managedSuffixes.length) {
       const home = getHomeSuffixForUser(selectedUser);
@@ -3138,6 +3173,7 @@ async function applyPermissionsSelection({ silentSuccess = false } = {}) {
   try {
     const payload = { role: desired };
     if (desired === "agency_admin") payload.managedAgencySuffixes = managedSuffixes;
+    if (allAgencies) payload.allAgencies = true;
 
     const url = IS_GLOBAL_ADMIN
       ? `/api/access-control/user-role/${encodeURIComponent(selectedUser.pk)}`
@@ -3159,7 +3195,8 @@ async function applyPermissionsSelection({ silentSuccess = false } = {}) {
       selectedUser.groups = out.groups;
     }
 
-    if (Array.isArray(out.managedAgencySuffixes)) {
+    editManagedAllAgencies = desired === "agency_admin" && !!out.allAgencies;
+    if (Array.isArray(out.managedAgencySuffixes) && !editManagedAllAgencies) {
       const home = editManagedHomeSuffix || getHomeSuffixForUser(selectedUser);
       editManagedSuffixes = new Set(
         ManagedAgenciesPicker.stripHomeFromManaged(out.managedAgencySuffixes, home)
@@ -3170,7 +3207,7 @@ async function applyPermissionsSelection({ silentSuccess = false } = {}) {
       editManagedSuffixes = new Set(
         ManagedAgenciesPicker.stripHomeFromManaged(managedSuffixes, home)
       );
-      editManagedLastSavedKey = managedSuffixesKey(managedSuffixes);
+      editManagedLastSavedKey = managedSuffixesKey(managedSuffixes, editManagedAllAgencies);
     } else {
       editManagedSuffixes = new Set();
       editManagedLastSavedKey = "";
@@ -3183,7 +3220,7 @@ async function applyPermissionsSelection({ silentSuccess = false } = {}) {
       desired === "global_admin"
         ? "Global Admin"
         : desiredUi === "multi_agency_admin" ||
-            (desired === "agency_admin" && managedSuffixes.length > 1)
+            (desired === "agency_admin" && (managedSuffixes.length > 1 || allAgencies))
           ? "Multi-Agency Admin"
           : desired === "agency_admin"
             ? "Agency Admin"

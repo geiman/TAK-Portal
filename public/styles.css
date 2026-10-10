@@ -3215,12 +3215,17 @@ a.settings-hub-card:visited {
 .ma-multiselect.open .filter-menu {
   display: flex;
 }
+.ma-multiselect .filter-menu.ma-menu-floating {
+  z-index: 1100;
+}
 .ma-multiselect .filter-menu-inner {
   padding: 8px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 6px;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .ma-multiselect-search {
   width: 100%;
@@ -3236,6 +3241,24 @@ a.settings-hub-card:visited {
   max-height: 200px;
   overflow-y: auto;
   overflow-x: hidden;
+}
+.ma-menu-floating .ma-multiselect-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+}
+.ma-multiselect .ma-multiselect-all-option {
+  border-bottom: 1px solid var(--line);
+  border-radius: 6px 6px 0 0;
+  margin-bottom: 4px;
+}
+.ma-multiselect .ma-multiselect-all-option small {
+  display: block;
+  font-size: 11px;
+}
+.ma-multiselect .filter-option.is-disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 .ma-multiselect .filter-option {
   display: flex;
