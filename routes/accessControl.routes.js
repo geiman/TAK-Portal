@@ -122,6 +122,8 @@ router.post("/user-role/:userId", express.json({ limit: "1mb" }), async (req, re
       ? "agency_admin"
       : "user";
 
+    const allAgencies = desiredRole === "agency_admin" && req.body?.allAgencies === true;
+
     let managedAgencySuffixes = [];
     if (desiredRole === "agency_admin") {
       const raw = req.body?.managedAgencySuffixes;
@@ -134,7 +136,7 @@ router.post("/user-role/:userId", express.json({ limit: "1mb" }), async (req, re
       } else {
         managedAgencySuffixes = resolveDefaultManagedSuffixesForUser(target);
       }
-      if (!managedAgencySuffixes.length) {
+      if (!managedAgencySuffixes.length && !allAgencies) {
         return res.status(400).json({
           error:
             "Cannot assign Agency Admin: select at least one managed agency, or ensure the user has a home agency abbreviation.",
@@ -145,6 +147,7 @@ router.post("/user-role/:userId", express.json({ limit: "1mb" }), async (req, re
     const delta = await accessSvc.syncPortalRoleGroups(userId, {
       role: desiredRole,
       managedAgencySuffixes,
+      allAgencies,
     });
 
     permsSvc.saveOverridesForUser(String(target.username || "").trim().toLowerCase(), {
@@ -173,6 +176,7 @@ router.post("/user-role/:userId", express.json({ limit: "1mb" }), async (req, re
         resultingRole,
         userId,
         managedAgencySuffixes: delta.managedAgencySuffixes || [],
+        allAgencies: !!delta.allAgencies,
         groupsAdded: delta.toAdd,
         groupsRemoved: delta.toRemove,
         summary: `Changed access role for ${String(target.username || "user").trim()} from ${previousRole} to ${resultingRole}. Cleared granular permission overrides.`,
@@ -183,6 +187,7 @@ router.post("/user-role/:userId", express.json({ limit: "1mb" }), async (req, re
       ok: true,
       role: resultingRole,
       managedAgencySuffixes: accessSvc.getManagedAgencySuffixesFromGroupNames(groupNames),
+      allAgencies: accessSvc.hasAllAgenciesAdminGroup(groupNames),
     });
   } catch (e) {
     return res.status(500).json({ error: e?.message || "Failed to update role." });
@@ -215,25 +220,33 @@ router.put("/managed-agencies/:userId", express.json({ limit: "1mb" }), async (r
       });
     }
 
-    let managedAgencySuffixes = await assertCanAssignManagedAgencies(
-      actor,
-      req.body?.managedAgencySuffixes
-    );
+    const allAgencies = req.body?.allAgencies === true;
+    if (allAgencies && !actor.isGlobalAdmin) {
+      return res.status(403).json({ error: "Only global admins can grant all-agency access." });
+    }
+
+    const rawSuffixes = req.body?.managedAgencySuffixes;
+    let managedAgencySuffixes =
+      allAgencies && !(Array.isArray(rawSuffixes) && rawSuffixes.length)
+        ? []
+        : await assertCanAssignManagedAgencies(actor, rawSuffixes);
     managedAgencySuffixes = accessSvc.mergeManagedAgencySuffixesWithHome(
       managedAgencySuffixes,
       target
     );
-    if (!managedAgencySuffixes.length) {
+    if (!managedAgencySuffixes.length && !allAgencies) {
       return res.status(400).json({ error: "Select at least one managed agency." });
     }
 
     const delta = await accessSvc.syncPortalRoleGroups(userId, {
       role: "agency_admin",
       managedAgencySuffixes,
+      allAgencies,
     });
 
     const { groupNames } = await loadGroupNamesForUserId(userId);
     const managed = accessSvc.getManagedAgencySuffixesFromGroupNames(groupNames);
+    const managesAll = accessSvc.hasAllAgenciesAdminGroup(groupNames);
 
     auditSvc.logEvent({
       actor,
@@ -244,13 +257,16 @@ router.put("/managed-agencies/:userId", express.json({ limit: "1mb" }), async (r
       details: {
         username: String(target.username || "").trim().toLowerCase(),
         managedAgencySuffixes: managed,
+        allAgencies: managesAll,
         groupsAdded: delta.toAdd,
         groupsRemoved: delta.toRemove,
-        summary: `Updated managed agencies for ${String(target.username || "user").trim()}: ${managed.join(", ") || "none"}.`,
+        summary: managesAll
+          ? `Updated managed agencies for ${String(target.username || "user").trim()}: all agencies.`
+          : `Updated managed agencies for ${String(target.username || "user").trim()}: ${managed.join(", ") || "none"}.`,
       },
     });
 
-    return res.json({ ok: true, managedAgencySuffixes: managed });
+    return res.json({ ok: true, managedAgencySuffixes: managed, allAgencies: managesAll });
   } catch (e) {
     return res.status(500).json({ error: e?.message || "Failed to update managed agencies." });
   }
@@ -295,6 +311,7 @@ router.get("/effective", async (req, res) => {
       isGlobalAdmin: roles.isGlobalAdmin,
       isAgencyAdmin: roles.isAgencyAdmin,
       managedAgencySuffixes,
+      allAgencies: accessSvc.hasAllAgenciesAdminGroup(groupNames),
       baseRole: desc.baseRole,
       baseIds,
       allow: desc.allow,

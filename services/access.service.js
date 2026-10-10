@@ -316,6 +316,44 @@ function resolveAgencySuffixFromUser(user) {
   return inferred;
 }
 
+/**
+ * Authentik group that grants agency-admin rights over every agency (current and future).
+ * Ends in -AgencyAdmin so existing "admin group" filters treat it like the per-agency ones.
+ */
+const ALL_AGENCIES_ADMIN_GROUP_NAME = "authentik-AllAgencies-AgencyAdmin";
+
+function hasAllAgenciesAdminGroup(groupNames) {
+  const needle = ALL_AGENCIES_ADMIN_GROUP_NAME.toLowerCase();
+  return (Array.isArray(groupNames) ? groupNames : []).some(
+    (g) => String(g || "").trim().toLowerCase() === needle
+  );
+}
+
+/** Whether the viewer manages all agencies via the all-agencies admin group. */
+function userManagesAllAgencies(authUser) {
+  if (!authUser || authUser.isGlobalAdmin) return false;
+  return hasAllAgenciesAdminGroup(authUser.groups);
+}
+
+/**
+ * Create the all-agencies admin group in Authentik if it does not exist yet.
+ * Returns the group row.
+ */
+async function ensureAllAgenciesAdminGroup() {
+  const directoryRepo = require("./directoryRepo.service");
+  const [existing] = await directoryRepo.getGroupsByNames([ALL_AGENCIES_ADMIN_GROUP_NAME]);
+  if (existing) return existing;
+  const groupsSvc = require("./groups.service");
+  return groupsSvc.createGroup(ALL_AGENCIES_ADMIN_GROUP_NAME, {
+    attributes: {
+      created_at: new Date().toISOString(),
+      created_type: "Portal",
+      created_type_detail: "All Agencies",
+      description: "Agency admin for all agencies, including agencies added later",
+    },
+  });
+}
+
 function getAgencyAdminGroupName(agency) {
   const abbr = agenciesStore.normalizeGroupPrefix(
     agency?.groupPrefix || agency?.suffix || ""
@@ -373,6 +411,16 @@ function getAllowedAgencySuffixesForGroups(userGroups) {
 
   const agencies = agenciesStore.load();
   const allowed = new Set();
+
+  // "All agencies" admins manage every agency in agencies.json, including ones
+  // created after the grant, so the scope is computed live rather than stored.
+  if (hasAllAgenciesAdminGroup(groupsLower)) {
+    for (const agency of agencies) {
+      const sfx = normalizeSuffix(agency && agency.suffix);
+      if (sfx) allowed.add(sfx);
+    }
+    return Array.from(allowed);
+  }
 
   for (const agency of agencies) {
     // Legacy (manual) admin groups stored in agencies.json
@@ -878,6 +926,9 @@ function getAllKnownAgencyAdminGroupIds(allGroups) {
     }
   }
 
+  const allPk = groupsByNameLower.get(ALL_AGENCIES_ADMIN_GROUP_NAME.toLowerCase());
+  if (allPk) ids.add(String(allPk));
+
   return ids;
 }
 
@@ -980,6 +1031,7 @@ function additionalManagedAgencySuffixes(rawSuffixes, userOrHomeSuffix) {
 function computePortalRoleGroupDelta({
   role,
   managedAgencySuffixes = [],
+  allAgencies = false,
   currentGroupIds = [],
   allGroups = [],
 }) {
@@ -1001,11 +1053,20 @@ function computePortalRoleGroupDelta({
   const desiredAgencyAdminIds = new Set();
   if (desiredRole === "agency_admin") {
     const suffixes = normalizeManagedAgencySuffixes(managedAgencySuffixes);
-    if (!suffixes.length) {
+    if (!suffixes.length && !allAgencies) {
       throw new Error("At least one managed agency is required for Agency Admin.");
     }
     for (const id of resolveAgencyAdminGroupIdsForSuffixes(suffixes, allGroups)) {
       desiredAgencyAdminIds.add(String(id));
+    }
+    if (allAgencies) {
+      const allPk = groupsByNameLower.get(ALL_AGENCIES_ADMIN_GROUP_NAME.toLowerCase());
+      if (!allPk) {
+        throw new Error(
+          `Cannot assign all agencies: group "${ALL_AGENCIES_ADMIN_GROUP_NAME}" was not found in Authentik.`
+        );
+      }
+      desiredAgencyAdminIds.add(String(allPk));
     }
     if (!desiredAgencyAdminIds.size) {
       throw new Error(
@@ -1043,6 +1104,7 @@ function computePortalRoleGroupDelta({
       desiredRole === "agency_admin"
         ? normalizeManagedAgencySuffixes(managedAgencySuffixes)
         : [],
+    allAgencies: desiredRole === "agency_admin" && !!allAgencies,
   };
 }
 
@@ -1067,10 +1129,13 @@ async function syncPortalRoleGroups(userId, opts = {}) {
       if (n) names.push(n);
     }
   }
+  names.push(ALL_AGENCIES_ADMIN_GROUP_NAME);
   const raw = String(getString("PORTAL_AUTH_REQUIRED_GROUP", "") || "");
   for (const n of raw.split(/[;,]/)) {
     if (n.trim()) names.push(n.trim());
   }
+  const wantsAllAgencies = opts.role === "agency_admin" && !!opts.allAgencies;
+  if (wantsAllAgencies) await ensureAllAgenciesAdminGroup();
   const allGroups = opts.allGroups || (await directoryRepo.getGroupsByNames(names));
   const currentGroupIds = Array.isArray(opts.currentGroupIds)
     ? opts.currentGroupIds
@@ -1081,6 +1146,7 @@ async function syncPortalRoleGroups(userId, opts = {}) {
   const delta = computePortalRoleGroupDelta({
     role: opts.role,
     managedAgencySuffixes: opts.managedAgencySuffixes,
+    allAgencies: wantsAllAgencies,
     currentGroupIds,
     allGroups,
   });
@@ -1148,6 +1214,10 @@ async function enrichAuthUserFromAuthentik(authUser) {
 }
 
 module.exports = {
+  ALL_AGENCIES_ADMIN_GROUP_NAME,
+  hasAllAgenciesAdminGroup,
+  userManagesAllAgencies,
+  ensureAllAgenciesAdminGroup,
   normalizeSuffix,
   normalizeGroupList,
   getAgencyAdminGroupName,

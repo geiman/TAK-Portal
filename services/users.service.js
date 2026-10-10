@@ -1252,11 +1252,15 @@ async function createUser(
     permissions,
     /** Agency suffixes to grant agency-admin groups (defaults to user's create agency) */
     managedAgencySuffixes,
+    /** true: also grant the all-agencies admin group (covers agencies added later) */
+    allAgencies,
     // Optional optimization: pass preloaded Authentik groups to avoid refetching for each user
     allGroups,
   },
   opts = {}
 ) {
+  // Only callers that verified a global-admin actor may grant all-agency scope.
+  const grantAllAgencies = allAgencies === true && opts.allowAllAgencies === true;
   const {
     skipExistenceCheck = false,
     createdBy = null,
@@ -1347,6 +1351,10 @@ async function createUser(
       if (!ag) continue;
       for (const n of accessSvc.getAllAgencyAdminGroupNames(ag) || []) neededNames.push(n);
     }
+    if (grantAllAgencies) {
+      await accessSvc.ensureAllAgenciesAdminGroup();
+      neededNames.push(accessSvc.ALL_AGENCIES_ADMIN_GROUP_NAME);
+    }
   }
   if (perm === "global_admin") {
     for (const n of String(getString("PORTAL_AUTH_REQUIRED_GROUP", "")).split(",")) {
@@ -1416,6 +1424,13 @@ async function createUser(
       const adminPkSet = accessSvc.resolveAgencyAdminGroupIdsForSuffixes(suffixes, allGroupsLocal);
       for (const g of allGroupsLocal) {
         if (adminPkSet.has(String(g.pk))) extra.push(g);
+      }
+      if (grantAllAgencies) {
+        const allGroup = byNameLower.get(accessSvc.ALL_AGENCIES_ADMIN_GROUP_NAME.toLowerCase());
+        if (!allGroup) {
+          throw new Error("Cannot assign all agencies: the all-agencies admin group was not found in Authentik.");
+        }
+        extra.push(allGroup);
       }
       if (!extra.length) {
         throw new Error("Cannot assign Agency Admin: agency admin group was not found in Authentik.");
