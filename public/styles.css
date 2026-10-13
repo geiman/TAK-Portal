@@ -1073,6 +1073,21 @@ label.btn {
     color: var(--warning, #ff6600);
 }
 
+/* CSV import: every skipped / not-imported row */
+.csvImportResults {
+    font-size: 13px;
+}
+
+.csvImportResults ul {
+    margin: 4px 0 10px;
+    padding-left: 20px;
+}
+
+.csvImportResults li {
+    color: var(--bad-text);
+    overflow-wrap: anywhere;
+}
+
 /* ======================
    MODALS
    ====================== */
