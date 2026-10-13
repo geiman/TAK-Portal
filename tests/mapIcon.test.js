@@ -175,14 +175,21 @@ async function runTests() {
   };
   assert.strictEqual(mapRender.markerUsesMapIcon(feedAir), true);
 
-  // COT_MAPPING_2525B override
-  const mapped = mapIcon.resolveIcon({
+  // COT_MAPPING_2525B override → milsym for the remapped type (like 2525C below)
+  const mapped2525bInput = {
     type: "a-f-G-E-V",
     affiliation: "friend",
     usericon: { iconsetpath: "COT_MAPPING_2525B/a/f/A/C/H" },
-  });
-  assert.ok(mapped, "COT_MAPPING_2525B path should resolve");
-  assert.ok(/fed_rotor/i.test(mapped.relPath || mapped.iconId));
+  };
+  assert.strictEqual(
+    mapIcon.resolveIcon(mapped2525bInput),
+    null,
+    "COT_MAPPING_2525B should defer to milsym"
+  );
+  const mapped = await mapIcon.resolveIconAsync(mapped2525bInput);
+  assert.ok(mapped, "COT_MAPPING_2525B path should resolve via milsym");
+  assert.strictEqual(mapped.source, "milsym");
+  assert.ok(/^2525D:100301/.test(mapped.iconId), "should render as friendly air, got " + mapped.iconId);
 
   // COT_MAPPING_2525C → milsym filled symbols
   const mapped2525cSync = mapIcon.resolveIcon({

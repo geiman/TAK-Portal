@@ -229,6 +229,7 @@
         "SMTP_SECURE",
         "EMAIL_FAIL_HARD",
         "PORTAL_AUTH_ENABLED",
+        "USERS_BLOCK_DUPLICATE_EMAIL",
         "REQUEST_ACCESS_ENABLED",
         "REQUEST_ACCESS_REQUIRE_ALL_AGENCY_DETAILS",
         "BETA_MODE",
@@ -357,6 +358,7 @@
         "USERS_HIDDEN_PREFIXES",
         "GROUPS_HIDDEN_PREFIXES",
         "USERS_ACTIONS_HIDDEN_PREFIXES",
+        "USERS_BLOCK_DUPLICATE_EMAIL",
         "GROUPS_ACTIONS_HIDDEN_PREFIXES",
         "DASHBOARD_AUTHENTIK_STATS_REFRESH_SECONDS",
         "DASHBOARD_TAK_STATS_REFRESH_SECONDS",
@@ -516,6 +518,7 @@
             <% renderField("USERS_HIDDEN_PREFIXES","Hidden User Prefixes","Comma-separated prefixes of usernames to hide from the UI."); %>
             <% renderField("GROUPS_HIDDEN_PREFIXES","Hidden Group Prefixes","Comma-separated prefixes of groups to hide from the UI."); %>
             <% renderField("USERS_ACTIONS_HIDDEN_PREFIXES","User Action-Lock Prefixes","Users whose name starts with these prefixes cannot be modified from the portal."); %>
+            <% renderField("USERS_BLOCK_DUPLICATE_EMAIL","Block Duplicate User Emails","When enabled, new users (Create User, CSV import, Request Access) cannot use an email address another account already has.","true"); %>
             <% renderField("GROUPS_ACTIONS_HIDDEN_PREFIXES","Group Action-Lock Prefixes","Groups whose name starts with these prefixes cannot be modified from the portal."); %>
             <% renderField("DASHBOARD_AUTHENTIK_STATS_REFRESH_SECONDS","Dashboard Authentik Stats Refresh (seconds)","How often the server refreshes cached Authentik dashboard stats in the background. Server restart required for changes to take effect."); %>
           </div>
