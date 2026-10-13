@@ -38,6 +38,7 @@ const TEST_FILES = [
   "takSubscriptionsCache.test.js",
   "geofence.test.js",
   "userRequestsOtherAgency.test.js",
+  "duplicateEmail.test.js",
   "accessAllAgencies.test.js",
   "agencyAutoApprove.test.js",
   "migrationGate.test.js",

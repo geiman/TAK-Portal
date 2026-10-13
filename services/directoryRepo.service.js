@@ -1221,6 +1221,17 @@ async function userExists(username) {
   return r.rows.length > 0;
 }
 
+/** Username of an existing (not pending-delete) user with this email, or null. Case-insensitive. */
+async function findUsernameByEmail(email) {
+  const e = String(email || "").trim();
+  if (!e) return null;
+  const r = await db.query(
+    `SELECT username FROM users WHERE lower(email) = lower($1) AND pending_delete = false ORDER BY username LIMIT 1`,
+    [e]
+  );
+  return r.rows[0] ? r.rows[0].username : null;
+}
+
 async function waitForAuthentikPk(username, timeoutMs = 15000) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
@@ -1274,6 +1285,7 @@ module.exports = {
   deleteLocalUser,
   deleteLocalGroup,
   userExists,
+  findUsernameByEmail,
   waitForAuthentikPk,
   attachGroups,
   hiddenUserPrefixes,

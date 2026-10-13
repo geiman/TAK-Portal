@@ -56,6 +56,14 @@ function userAlreadyExistsError() {
   return err;
 }
 
+function emailAlreadyExistsError() {
+  const err = new Error(
+    "An account with this email address already exists. To login or to reset your password, visit the portal."
+  );
+  err.code = "USER_ALREADY_EXISTS";
+  return err;
+}
+
 function pendingRequestExistsError() {
   const err = new Error(
     "An access request is already pending. Please check your email for updates from your administrator."
@@ -477,6 +485,14 @@ async function createRequest(input) {
     if (username && (await usersSvc.userExists(username))) {
       throw userAlreadyExistsError();
     }
+  }
+
+  if (
+    v.email &&
+    usersSvc.isDuplicateEmailBlockEnabled() &&
+    (await usersSvc.findUsernameByEmail(v.email))
+  ) {
+    throw emailAlreadyExistsError();
   }
 
   const now = new Date().toISOString();

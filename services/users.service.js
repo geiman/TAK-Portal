@@ -1235,6 +1235,16 @@ async function userExists(username) {
   return directoryRepo.userExists(username);
 }
 
+// USERS_BLOCK_DUPLICATE_EMAIL (default on): refuse to create a user whose email
+// already belongs to another account.
+function isDuplicateEmailBlockEnabled() {
+  return getBool("USERS_BLOCK_DUPLICATE_EMAIL", true);
+}
+
+async function findUsernameByEmail(email) {
+  return directoryRepo.findUsernameByEmail(email);
+}
+
 // Main: Create user
 async function createUser(
   {
@@ -1309,6 +1319,17 @@ async function createUser(
   if (mail) {
     const emailFmtErr = validateEmailFormatIfPresent(mail);
     if (emailFmtErr) throw new Error(emailFmtErr);
+  }
+
+  if (mail && isDuplicateEmailBlockEnabled()) {
+    const existingUsername = await findUsernameByEmail(mail);
+    if (existingUsername) {
+      const err = new Error(
+        `A user with this email address already exists (${existingUsername}).`
+      );
+      err.code = "EMAIL_ALREADY_EXISTS";
+      throw err;
+    }
   }
 
   const name = `${last}, ${first}`;
@@ -1986,6 +2007,9 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
   }
 
   const agencies = agenciesStore.load();
+  const blockDuplicateEmails = isDuplicateEmailBlockEnabled();
+  /** lowercased email -> first CSV line it appeared on */
+  const emailLinesSeen = new Map();
   const rows = [];
   /** @type {Array<{ line: number, phase: string, messages: string[], badge?: string, email?: string, username?: string }>} */
   const failed = [];
@@ -2077,6 +2101,16 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
         rowErrors.push(
           `Template "${templateName}" not found for agency "${agencySuffix}"`
         );
+      }
+    }
+
+    const emailKey = String(email || "").trim().toLowerCase();
+    if (blockDuplicateEmails && emailKey && !rowErrors.length) {
+      const firstLine = emailLinesSeen.get(emailKey);
+      if (firstLine != null) {
+        rowErrors.push(`Email already used on line ${firstLine} of this file`);
+      } else {
+        emailLinesSeen.set(emailKey, lineNum);
       }
     }
 
@@ -2190,6 +2224,18 @@ async function importUsersFromCsvBuffer(buffer, opts = {}) {
           reason: "Username already exists",
         });
         return;
+      }
+
+      if (blockDuplicateEmails && String(row.email || "").trim()) {
+        const emailOwner = await findUsernameByEmail(row.email);
+        if (emailOwner) {
+          skipped.push({
+            line: row.lineNum,
+            username,
+            reason: `Email already in use by ${emailOwner}`,
+          });
+          return;
+        }
       }
 
       // Use template name directly (no index math)
@@ -4610,6 +4656,8 @@ module.exports = {
 
   // user ops
   userExists,
+  isDuplicateEmailBlockEnabled,
+  findUsernameByEmail,
   createUser,
   createDirectoryUser,
   createIntegrationUser,
