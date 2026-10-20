@@ -40,6 +40,20 @@
         <select id="maExistingGroup"></select>
       </label>
 
+      <label class="createMaField createMaField--pwMode">Password
+        <select id="maPasswordMode">
+          <option value="generate" selected>Generate random</option>
+          <option value="custom">Set my own</option>
+        </select>
+      </label>
+
+      <label id="maPasswordWrap" class="createMaField createMaField--password" style="display:none;">Custom Password
+        <div class="passwordWrap">
+          <input id="maPassword" type="password" placeholder="Enter password" autocomplete="new-password" />
+          <button type="button" id="maPasswordToggle" class="passwordToggle" aria-label="Show password" title="Show password">👁</button>
+        </div>
+      </label>
+
       <label id="maExpireWrap" class="createMaField createMaField--expire">Expires
         <select id="maExpireEnabled">
           <option value="no" selected>No</option>
@@ -170,6 +184,12 @@
   }
   .createMaField--expire {
     flex: 0 1 120px;
+  }
+  .createMaField--pwMode {
+    flex: 0 1 170px;
+  }
+  .createMaField--password {
+    flex: 1 1 220px;
   }
   .createMaField--expireAt {
     flex: 0 1 220px;
@@ -474,6 +494,8 @@
   .createMaField--title,
   .createMaField--expire,
   .createMaField--expireAt,
+  .createMaField--pwMode,
+  .createMaField--password,
   .createMaField--group,
   .createMaField--existing,
   .createMaField--submit {
@@ -1321,6 +1343,22 @@ body.noScroll .main {
           </label>
         </div>
 
+        <div class="addMaUserRow addMaUserRow--expire">
+          <label class="addMaUserField addMaUserField--pwMode">Password
+            <select id="addMaUserPasswordMode">
+              <option value="generate" selected>Generate random</option>
+              <option value="custom">Set my own</option>
+            </select>
+          </label>
+          <label id="addMaUserPasswordWrap" class="addMaUserField addMaUserField--password" style="display:none;">Custom password
+            <div class="passwordWrap">
+              <input id="addMaUserPassword" type="password" placeholder="Enter password" autocomplete="new-password" />
+              <button type="button" id="addMaUserPasswordToggle" class="passwordToggle" aria-label="Show password" title="Show password">👁</button>
+            </div>
+          </label>
+        </div>
+        <div id="addMaUserPasswordHint" class="addMaUserPreviewHint" style="display:none;">Every user created here gets this same password.</div>
+
         <div id="addMaUserPreview" class="addMaUserPreview">
           <div id="addMaUserPreviewLabel" class="addMaUserPreviewLabel">Usernames</div>
           <div id="addMaUserPreviewList" class="addMaUserPreviewList"></div>
@@ -2129,9 +2167,10 @@ const emailPacketTo = document.getElementById("emailPacketTo");
 
 let qrEnrollUrl = "";
 let qrCodeDataUrl = "";
+let itakQrCodeDataUrl = "";
 let qrActiveId = "";
 let qrActiveItem = null;
-/** @type {Map<string, { enrollUrl: string, qrCode: string }>} */
+/** @type {Map<string, { enrollUrl: string, qrCode: string, itakQrCode: string }>} */
 const enrollmentQrByItemId = new Map();
 
 async function ensureEnrollmentQrReady(item) {
@@ -2143,6 +2182,7 @@ async function ensureEnrollmentQrReady(item) {
     qrActiveItem = item;
     qrEnrollUrl = cached.enrollUrl;
     qrCodeDataUrl = cached.qrCode;
+    itakQrCodeDataUrl = cached.itakQrCode || "";
     if (qrImg && qrCodeDataUrl) qrImg.src = qrCodeDataUrl;
     return;
   }
@@ -2156,9 +2196,11 @@ async function ensureEnrollmentQrReady(item) {
   qrEnrollUrl = data.enrollUrl || "";
   if (!qrEnrollUrl) throw new Error("Enrollment URL missing.");
   qrCodeDataUrl = String(data.qrCode || "");
+  itakQrCodeDataUrl = String(data.itakQrCode || "");
   enrollmentQrByItemId.set(cacheKey, {
     enrollUrl: qrEnrollUrl,
     qrCode: qrCodeDataUrl,
+    itakQrCode: itakQrCodeDataUrl,
   });
   if (qrImg && qrCodeDataUrl) qrImg.src = qrCodeDataUrl;
 }
@@ -2182,6 +2224,7 @@ function openQrModal(item){
   if (cached?.enrollUrl && cached?.qrCode) {
     qrEnrollUrl = cached.enrollUrl;
     qrCodeDataUrl = cached.qrCode;
+    itakQrCodeDataUrl = cached.itakQrCode || "";
     qrImg.src = cached.qrCode;
     setQrPacketButtonsEnabled(true);
     setMsg(qrMsg, "QR ready.", true);
@@ -2192,6 +2235,7 @@ function openQrModal(item){
   setQrPacketButtonsEnabled(false);
   qrEnrollUrl = "";
   qrCodeDataUrl = "";
+  itakQrCodeDataUrl = "";
   setMsg(qrMsg, "Loading...", true);
 
   ensureEnrollmentQrReady(item)
@@ -2727,7 +2771,72 @@ async function mountEnrollmentFlyerIframe(filledHtml) {
 
 const flyerPageImageCache = new Map();
 
-async function renderEnrollmentFlyerPageImage(qrDataUrl) {
+function loadDataUrlImage(src) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+
+/**
+ * Draw each data: URL <img> inside the flyer onto the captured canvas, inside
+ * its content box (border + padding excluded) and honoring object-fit: contain.
+ */
+async function paintFlyerImagesOntoCanvas(canvas, target, cssWidth) {
+  if (!canvas || !target) return;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const scale = canvas.width / (cssWidth || canvas.width);
+  const view = target.ownerDocument?.defaultView || window;
+  const origin = target.getBoundingClientRect();
+  const imgs = Array.from(target.querySelectorAll("img"));
+
+  for (const el of imgs) {
+    const src = String(el.getAttribute("src") || "");
+    if (!src.startsWith("data:image")) continue;
+    const img = await loadDataUrlImage(src);
+    if (!img || !img.naturalWidth || !img.naturalHeight) continue;
+
+    const cs = view.getComputedStyle(el);
+    const px = (v) => parseFloat(v) || 0;
+    const r = el.getBoundingClientRect();
+    const left = r.left - origin.left + px(cs.borderLeftWidth) + px(cs.paddingLeft);
+    const top = r.top - origin.top + px(cs.borderTopWidth) + px(cs.paddingTop);
+    const boxW =
+      r.width - px(cs.borderLeftWidth) - px(cs.borderRightWidth) -
+      px(cs.paddingLeft) - px(cs.paddingRight);
+    const boxH =
+      r.height - px(cs.borderTopWidth) - px(cs.borderBottomWidth) -
+      px(cs.paddingTop) - px(cs.paddingBottom);
+    if (boxW <= 0 || boxH <= 0) continue;
+
+    let drawW = boxW;
+    let drawH = boxH;
+    if (cs.objectFit === "contain") {
+      const fit = Math.min(boxW / img.naturalWidth, boxH / img.naturalHeight);
+      drawW = img.naturalWidth * fit;
+      drawH = img.naturalHeight * fit;
+    }
+    const dx = left + (boxW - drawW) / 2;
+    const dy = top + (boxH - drawH) / 2;
+
+    ctx.save();
+    // html2canvas leaves its scale() on the context; draw in raw canvas pixels.
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const radius = px(cs.borderTopLeftRadius);
+    if (radius > 0 && !px(cs.borderLeftWidth) && typeof ctx.roundRect === "function") {
+      ctx.beginPath();
+      ctx.roundRect(left * scale, top * scale, boxW * scale, boxH * scale, radius * scale);
+      ctx.clip();
+    }
+    ctx.drawImage(img, dx * scale, dy * scale, drawW * scale, drawH * scale);
+    ctx.restore();
+  }
+}
+
+async function renderEnrollmentFlyerPageImage(qrDataUrl, itakQrDataUrl = "") {
   if (!ENROLLMENT_FLYER_HTML) {
     throw new Error("Enrollment flyer template is not available.");
   }
@@ -2739,6 +2848,7 @@ async function renderEnrollmentFlyerPageImage(qrDataUrl) {
     String(qrActiveId || ""),
     String(qrDataUrl || "").slice(0, 80),
     String(qrDataUrl || "").length,
+    String(itakQrDataUrl || "").length,
     String(getSetting("SERVER_NAME") || ""),
     String(getSetting("CALLSIGN_FORMAT_EXPRESSION") || ""),
     String(qrActiveItem?.groupName || ""),
@@ -2802,6 +2912,25 @@ async function renderEnrollmentFlyerPageImage(qrDataUrl) {
       )}</span><span class="header-enrollment">Mutual Aid Enrollment</span></h1>`
     : `<h1 class="header-title header-title-solo"><span class="header-enrollment">Mutual Aid Enrollment</span></h1>`;
 
+  const itakQr = String(itakQrDataUrl || "").startsWith("data:image")
+    ? String(itakQrDataUrl)
+    : "";
+  const itakQrHtml = itakQr
+    ? `<div class="qr-wrap qr-wrap-itak">
+          <div class="qr-title">iTAK Users</div>
+          <img id="maFlyerItakQrImg" src="${itakQr}" alt="iTAK Enrollment QR Code">
+          <div class="qr-apps">Scan from inside the iTAK app</div>
+        </div>`
+    : "";
+  const itakStepHtml = itakQr
+    ? `<table class="callout itak-note">
+            <tr>
+              <td class="callout-bar"></td>
+              <td class="callout-body"><strong>iTAK (iOS):</strong> Open iTAK and scan the <strong>iTAK QR code</strong> on the right from inside the app. Your phone's camera app will not work for this one.</td>
+            </tr>
+          </table>`
+    : "";
+
   const tokens = {
     ORG_NAME: esc(split.orgName),
     ORG_NAME_A: esc(split.orgA),
@@ -2813,6 +2942,10 @@ async function renderEnrollmentFlyerPageImage(qrDataUrl) {
     QR_LABEL: esc(channelName),
     // Do not HTML-escape; this is a data: URL for <img src>.
     QR_DATA_URL: String(qrDataUrl || ""),
+    QR_APPS_LABEL_HTML: itakQr ? `<div class="qr-apps">TAK Aware (iOS) &middot; ATAK (Android)</div>` : "",
+    ITAK_QR_HTML: itakQrHtml,
+    ITAK_STEP_HTML: itakStepHtml,
+    QR_COL_CLASS: itakQr ? "two-qr" : "",
     LOGO_HTML: logoHtml,
     COMPLIANCE_BANNER_HTML: complianceBannerHtml,
     CALLSIGN_FORMAT: esc(callsignFormat),
@@ -2836,6 +2969,7 @@ async function renderEnrollmentFlyerPageImage(qrDataUrl) {
     });
   };
     await waitImg(idoc.getElementById("maFlyerQrImg"));
+    await waitImg(idoc.getElementById("maFlyerItakQrImg"));
     await waitImg(idoc.getElementById("maFlyerLogoImg"));
 
     if (target && target.style) {
@@ -3036,6 +3170,12 @@ async function renderEnrollmentFlyerPageImage(qrDataUrl) {
       });
     }
 
+    // Safari/WebKit drops <img> content from foreignObject captures, which left
+    // the enrollment QR and logo blank on page 1. Paint the flyer's images
+    // straight onto the canvas at their laid-out positions so every browser
+    // gets them.
+    await paintFlyerImagesOntoCanvas(canvas, target, letterW);
+
     const jpeg = canvas.toDataURL("image/jpeg", 0.92);
     flyerPageImageCache.set(flyerCacheKey, jpeg);
     while (flyerPageImageCache.size > 12) {
@@ -3090,7 +3230,10 @@ async function buildDeploymentPacketPdf() {
     let flyerOk = false;
     if (flyerQr) {
       try {
-        const flyerImage = await renderEnrollmentFlyerPageImage(flyerQr);
+        const flyerImage = await renderEnrollmentFlyerPageImage(
+          flyerQr,
+          itakQrCodeDataUrl
+        );
         doc.addImage(flyerImage, "JPEG", 0, 0, pageW, pageH, undefined, "FAST");
         flyerOk = true;
       } catch (flyerErr) {
@@ -3200,31 +3343,65 @@ async function buildDeploymentPacketPdf() {
     fitOneLine(doc, callsignText, pageW - margin * 2, 36);
     doc.text(callsignText, pageW / 2, margin + 42, { align: "center" });
 
-    // Main enrollment QR (PNG kept for scan reliability; downscaled for packet size)
-    const maxQrBox = Math.min(pageW - margin * 2, pageH - (margin * 2 + 120));
+    // Main enrollment QR (PNG kept for scan reliability; downscaled for packet size).
+    // When an iTAK QR is available, show both side by side with app labels.
     const qrY2 = margin + 70;
+    const userLabel = String(qrActiveItem?.username || "").trim();
+    const passwordLabel = String(qrActiveItem?.password || "").trim();
+    const credentialLines = [];
+    if (userLabel) credentialLines.push(`Username: ${userLabel}`);
+    if (passwordLabel) credentialLines.push(`Password: ${passwordLabel}`);
+    const credentialBlockH = credentialLines.length * 28 + 20;
+    const packetItakQr = String(itakQrCodeDataUrl || "").startsWith("data:image")
+      ? itakQrCodeDataUrl
+      : "";
+
     if (packetEnrollmentQr) {
-      const qrProps = doc.getImageProperties(packetEnrollmentQr);
-      const qrScale = Math.min(maxQrBox / qrProps.width, maxQrBox / qrProps.height);
-      const drawQrW = qrProps.width * qrScale;
-      const drawQrH = qrProps.height * qrScale;
+      const qrList = [{ src: packetEnrollmentQr, label: "TAK Aware (iOS) / ATAK (Android)", hint: "Scan with your phone's camera" }];
+      if (packetItakQr) {
+        qrList.push({ src: packetItakQr, label: "iTAK (iOS)", hint: "Scan from inside the iTAK app" });
+      }
+      const gap = 24;
+      const labelH = qrList.length > 1 ? 44 : 0;
+      const colW = (pageW - margin * 2 - gap * (qrList.length - 1)) / qrList.length;
+      const maxQrBox = Math.min(colW, pageH - (margin * 2 + 120 + labelH + credentialBlockH));
+      let qrBottom = qrY2;
 
-      doc.addImage(
-        packetEnrollmentQr,
-        "PNG",
-        (pageW - drawQrW) / 2,
-        qrY2,
-        drawQrW,
-        drawQrH
-      );
+      qrList.forEach((q, i) => {
+        const props = doc.getImageProperties(q.src);
+        const scale = Math.min(maxQrBox / props.width, maxQrBox / props.height);
+        const w = props.width * scale;
+        const h = props.height * scale;
+        const colX = margin + i * (colW + gap);
+        doc.addImage(q.src, "PNG", colX + (colW - w) / 2, qrY2, w, h);
+        if (qrList.length > 1) {
+          const cx = colX + colW / 2;
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(14);
+          doc.setTextColor(0);
+          doc.text(q.label, cx, qrY2 + h + 20, { align: "center" });
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(11);
+          doc.setTextColor(80);
+          doc.text(q.hint, cx, qrY2 + h + 36, { align: "center" });
+          doc.setTextColor(0);
+        }
+        qrBottom = Math.max(qrBottom, qrY2 + h + labelH);
+      });
 
-      // Username label
-      const userLabel = String(qrActiveItem?.username || "").trim();
-      if (userLabel) {
-        const userY = Math.min(pageH - margin, qrY2 + drawQrH + 32);
+      // Credentials (username always; password so it can be typed in manually)
+      if (credentialLines.length) {
+        let credY = Math.min(
+          pageH - margin - (credentialLines.length - 1) * 28,
+          qrBottom + 32
+        );
         doc.setFont("helvetica", "bold");
-        doc.setFontSize(24);
-        doc.text(userLabel, pageW / 2, userY, { align: "center" });
+        credentialLines.forEach((line) => {
+          fitOneLine(doc, line, pageW - margin * 2, 22);
+          doc.setTextColor(0);
+          doc.text(line, pageW / 2, credY, { align: "center" });
+          credY += 28;
+        });
       }
     }
 
@@ -3594,6 +3771,7 @@ function updateAddMaUserNamingUi() {
 
 function updateAddMaUserPreview() {
   updateAddMaUserSaveLabel();
+  updateAddMaUserPasswordUi();
   const count = parseAddMaUserCount();
   const parentUser = String(addMaUserParent?.username || "").trim().toLowerCase();
   if (!parentUser) {
@@ -3629,8 +3807,73 @@ function updateAddMaUserExpireUi() {
   }
 }
 
+// ----- Password choice (generate random vs. set my own) -----
+function wirePasswordToggle(inputEl, toggleEl) {
+  if (!inputEl || !toggleEl) return;
+  toggleEl.addEventListener("click", () => {
+    const show = inputEl.type === "password";
+    inputEl.type = show ? "text" : "password";
+    const label = show ? "Hide password" : "Show password";
+    toggleEl.setAttribute("aria-label", label);
+    toggleEl.title = label;
+  });
+}
+
+function updatePasswordModeUi(modeEl, wrapEl, inputEl, hintEl) {
+  const custom = String(modeEl?.value || "") === "custom";
+  if (wrapEl) wrapEl.style.display = custom ? "" : "none";
+  if (hintEl) hintEl.style.display = custom && parseAddMaUserCount() > 1 ? "" : "none";
+  if (inputEl && !custom) {
+    inputEl.value = "";
+    inputEl.type = "password";
+  }
+}
+
+/**
+ * Returns { password } for the request body, or { error } when "Set my own"
+ * is chosen but left blank. Complexity is checked server-side against the
+ * same rule as regular users.
+ */
+function readChosenPassword(modeEl, inputEl) {
+  if (String(modeEl?.value || "") !== "custom") return { password: "" };
+  const password = String(inputEl?.value || "").trim();
+  if (!password) return { error: "Enter a password, or choose Generate random." };
+  return { password };
+}
+
+// Function declarations (hoisted) so count/preview updates can call these at any time.
+function updateCreatePasswordUi() {
+  updatePasswordModeUi(
+    document.getElementById("maPasswordMode"),
+    document.getElementById("maPasswordWrap"),
+    document.getElementById("maPassword"),
+    null
+  );
+}
+
+function updateAddMaUserPasswordUi() {
+  updatePasswordModeUi(
+    document.getElementById("addMaUserPasswordMode"),
+    document.getElementById("addMaUserPasswordWrap"),
+    document.getElementById("addMaUserPassword"),
+    document.getElementById("addMaUserPasswordHint")
+  );
+}
+
+const maPasswordMode = document.getElementById("maPasswordMode");
+const maPassword = document.getElementById("maPassword");
+wirePasswordToggle(maPassword, document.getElementById("maPasswordToggle"));
+if (maPasswordMode) maPasswordMode.onchange = updateCreatePasswordUi;
+
+const addMaUserPasswordMode = document.getElementById("addMaUserPasswordMode");
+const addMaUserPassword = document.getElementById("addMaUserPassword");
+wirePasswordToggle(addMaUserPassword, document.getElementById("addMaUserPasswordToggle"));
+if (addMaUserPasswordMode) addMaUserPasswordMode.onchange = updateAddMaUserPasswordUi;
+
 function openAddMaUserModal(parentItem) {
   addMaUserParent = parentItem;
+  if (addMaUserPasswordMode) addMaUserPasswordMode.value = "generate";
+  updateAddMaUserPasswordUi();
   if (addMaUserTitleEl) addMaUserTitleEl.textContent = CREATE_ADDITIONAL_USER_LABEL;
   if (addMaUserTitleInput) addMaUserTitleInput.value = "";
   setAddMaUserCount(1);
@@ -3689,6 +3932,12 @@ if (addMaUserSaveBtn) {
       return;
     }
     if (addMaUserCountInput) addMaUserCountInput.value = String(count);
+    const chosenPw = readChosenPassword(addMaUserPasswordMode, addMaUserPassword);
+    if (chosenPw.error) {
+      setMsg(addMaUserMsg, chosenPw.error, false);
+      return;
+    }
+    const password = chosenPw.password;
 
     let expireEnabled = false;
     let expireAt = null;
@@ -3710,7 +3959,7 @@ if (addMaUserSaveBtn) {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ count, autoName, title, expireEnabled, expireAt }),
+          body: JSON.stringify({ count, autoName, title, expireEnabled, expireAt, password }),
         }
       );
       const data = await res.json();
@@ -4897,6 +5146,9 @@ maCreateBtn.onclick = async () => {
   const type = String(maType.value || "").trim().toUpperCase();
   const title = String(maTitle.value || "").trim();
   if(!title){ setMsg(maCreateMsg, "Name is required.", false); return; }
+  const chosenPw = readChosenPassword(maPasswordMode, maPassword);
+  if (chosenPw.error) { setMsg(maCreateMsg, chosenPw.error, false); return; }
+  const password = chosenPw.password;
 
   maCreateBtn.disabled = true;
   setMsg(maCreateMsg, "Creating...", true);
@@ -4927,7 +5179,7 @@ maCreateBtn.onclick = async () => {
     const res = await fetch("/api/mutual-aid", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type, title, expireEnabled, expireAt, groupMode, existingGroupId }),
+      body: JSON.stringify({ type, title, expireEnabled, expireAt, groupMode, existingGroupId, password }),
     });
     const data = await res.json();
     if(!res.ok) throw new Error(data.error || "Create failed");
@@ -4935,6 +5187,8 @@ maCreateBtn.onclick = async () => {
     const item = data.item;
     setMsg(maCreateMsg, `Created ${displayGroupName(item.groupName)} (user: ${item.username}).`, true);
     maTitle.value = "";
+    if (maPasswordMode) maPasswordMode.value = "generate";
+    updateCreatePasswordUi();
     maExpireEnabled.value = "no";
     maExpireAt.value = "";
     if (maGroupMode) maGroupMode.value = "new";

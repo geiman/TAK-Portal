@@ -4640,6 +4640,7 @@ module.exports = {
   // meta/template support
   getTemplatesForAgency,
   buildTakPortalBlock,
+  validatePassword,
   emailUserCreated,
 
   // shared data
