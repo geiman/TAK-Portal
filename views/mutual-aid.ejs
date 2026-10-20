@@ -2806,56 +2806,86 @@ function loadDataUrlImage(src) {
 }
 
 /**
- * Draw each data: URL <img> inside the flyer onto the captured canvas, inside
- * its content box (border + padding excluded) and honoring object-fit: contain.
+ * Record where each data: URL <img> in the flyer is laid out, in CSS px from
+ * the flyer root's top-left (the capture origin). Called from html2canvas'
+ * onclone so it measures the hardened clone that is actually rendered.
+ *
+ * Positions are normalized against the root's measured width (pinned to
+ * cssWidth by the clone CSS), because some browsers (Safari with page zoom)
+ * report getBoundingClientRect in zoomed units inside the capture iframe,
+ * which put the painted images about 25% too far down and right.
  */
-async function paintFlyerImagesOntoCanvas(canvas, target, cssWidth) {
-  if (!canvas || !target) return;
+function measureFlyerImages(doc, cssWidth) {
+  const view = doc?.defaultView;
+  if (!doc || !view) return [];
+  const px = (v) => parseFloat(v) || 0;
+  const root =
+    doc.getElementById("maEnrollmentFlyerRoot") || doc.body || doc.documentElement;
+  const rootRect = root.getBoundingClientRect();
+  const k = cssWidth && rootRect.width > 0 ? rootRect.width / cssWidth : 1;
+  const sx = rootRect.left;
+  const sy = rootRect.top;
+  return Array.from(doc.querySelectorAll("img"))
+    .map((el) => {
+      const src = String(el.getAttribute("src") || "");
+      if (!src.startsWith("data:image")) return null;
+      const cs = view.getComputedStyle(el);
+      const r = el.getBoundingClientRect();
+      const bl = px(cs.borderLeftWidth);
+      const bt = px(cs.borderTopWidth);
+      // Computed border/padding are unzoomed CSS px; rects may be zoomed (k).
+      const boxW = r.width / k - bl - px(cs.borderRightWidth) - px(cs.paddingLeft) - px(cs.paddingRight);
+      const boxH = r.height / k - bt - px(cs.borderBottomWidth) - px(cs.paddingTop) - px(cs.paddingBottom);
+      if (boxW <= 0 || boxH <= 0) return null;
+      return {
+        src,
+        left: (r.left - sx) / k + bl + px(cs.paddingLeft),
+        top: (r.top - sy) / k + bt + px(cs.paddingTop),
+        boxW,
+        boxH,
+        contain: cs.objectFit === "contain",
+        // Clip to rounded corners only when the radius belongs to the image itself (no border frame).
+        radius: bl ? 0 : px(cs.borderTopLeftRadius),
+      };
+    })
+    .filter(Boolean);
+}
+
+/**
+ * Draw measured flyer images onto the captured canvas, inside each content
+ * box and honoring object-fit: contain.
+ */
+async function paintFlyerImagesOntoCanvas(canvas, placements, cssWidth) {
+  if (!canvas || !Array.isArray(placements) || !placements.length) return;
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   const scale = canvas.width / (cssWidth || canvas.width);
-  const view = target.ownerDocument?.defaultView || window;
-  const origin = target.getBoundingClientRect();
-  const imgs = Array.from(target.querySelectorAll("img"));
 
-  for (const el of imgs) {
-    const src = String(el.getAttribute("src") || "");
-    if (!src.startsWith("data:image")) continue;
-    const img = await loadDataUrlImage(src);
+  for (const p of placements) {
+    const img = await loadDataUrlImage(p.src);
     if (!img || !img.naturalWidth || !img.naturalHeight) continue;
 
-    const cs = view.getComputedStyle(el);
-    const px = (v) => parseFloat(v) || 0;
-    const r = el.getBoundingClientRect();
-    const left = r.left - origin.left + px(cs.borderLeftWidth) + px(cs.paddingLeft);
-    const top = r.top - origin.top + px(cs.borderTopWidth) + px(cs.paddingTop);
-    const boxW =
-      r.width - px(cs.borderLeftWidth) - px(cs.borderRightWidth) -
-      px(cs.paddingLeft) - px(cs.paddingRight);
-    const boxH =
-      r.height - px(cs.borderTopWidth) - px(cs.borderBottomWidth) -
-      px(cs.paddingTop) - px(cs.paddingBottom);
-    if (boxW <= 0 || boxH <= 0) continue;
-
-    let drawW = boxW;
-    let drawH = boxH;
-    if (cs.objectFit === "contain") {
-      const fit = Math.min(boxW / img.naturalWidth, boxH / img.naturalHeight);
+    let drawW = p.boxW;
+    let drawH = p.boxH;
+    if (p.contain) {
+      const fit = Math.min(p.boxW / img.naturalWidth, p.boxH / img.naturalHeight);
       drawW = img.naturalWidth * fit;
       drawH = img.naturalHeight * fit;
     }
-    const dx = left + (boxW - drawW) / 2;
-    const dy = top + (boxH - drawH) / 2;
+    const dx = p.left + (p.boxW - drawW) / 2;
+    const dy = p.top + (p.boxH - drawH) / 2;
 
     ctx.save();
     // html2canvas leaves its scale() on the context; draw in raw canvas pixels.
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    const radius = px(cs.borderTopLeftRadius);
-    if (radius > 0 && !px(cs.borderLeftWidth) && typeof ctx.roundRect === "function") {
+    if (p.radius > 0 && typeof ctx.roundRect === "function") {
       ctx.beginPath();
-      ctx.roundRect(left * scale, top * scale, boxW * scale, boxH * scale, radius * scale);
+      ctx.roundRect(p.left * scale, p.top * scale, p.boxW * scale, p.boxH * scale, p.radius * scale);
       ctx.clip();
     }
+    // White underlay so a transparent logo doesn't blend with anything already drawn there.
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(dx * scale, dy * scale, drawW * scale, drawH * scale);
     ctx.drawImage(img, dx * scale, dy * scale, drawW * scale, drawH * scale);
     ctx.restore();
   }
@@ -3015,6 +3045,8 @@ async function renderEnrollmentFlyerPageImage(qrDataUrl, itakQrDataUrl = "") {
     }
 
     // ~144 DPI Letter capture; JPEG kept lossy for email size but sharp enough to print.
+    // Filled by onclone with image positions from the clone html2canvas renders.
+    let flyerImagePlacements = [];
     const captureOpts = {
       scale: 1.5,
       backgroundColor: "#ffffff",
@@ -3154,6 +3186,11 @@ async function renderEnrollmentFlyerPageImage(qrDataUrl, itakQrDataUrl = "") {
         } catch (err) {
           console.warn("[mutual-aid] flyer capture clone harden failed:", err?.message || err);
         }
+        try {
+          flyerImagePlacements = measureFlyerImages(clonedDoc, letterW);
+        } catch (err) {
+          console.warn("[mutual-aid] flyer image measure failed:", err?.message || err);
+        }
       },
     };
 
@@ -3199,7 +3236,7 @@ async function renderEnrollmentFlyerPageImage(qrDataUrl, itakQrDataUrl = "") {
     // the enrollment QR and logo blank on page 1. Paint the flyer's images
     // straight onto the canvas at their laid-out positions so every browser
     // gets them.
-    await paintFlyerImagesOntoCanvas(canvas, target, letterW);
+    await paintFlyerImagesOntoCanvas(canvas, flyerImagePlacements, letterW);
 
     const jpeg = canvas.toDataURL("image/jpeg", 0.92);
     flyerPageImageCache.set(flyerCacheKey, jpeg);
