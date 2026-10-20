@@ -19,6 +19,72 @@ for (const p of normalized.plugins) {
   assert.ok(p.name, "plugin name");
   assert.ok(p.repo, "plugin repo");
   assert.ok(p.web && p.web.dest, "plugin web.dest");
+  assert.ok(
+    (p.detect || []).some((d) => String(d).startsWith("api/web/plugins/")),
+    p.id + " detect includes legacy api/web path"
+  );
+  assert.ok(
+    (p.detect || []).some((d) => String(d).startsWith("app/plugins/")),
+    p.id + " detect includes CloudTAK 13.102+ app path"
+  );
+}
+const matchAppOnlyDetect = marketplace.matchCatalogPlugin(
+  { dest: "unexpected", detectHits: ["app/plugins/udash/index.ts"] },
+  normalized.plugins
+);
+assert.strictEqual(matchAppOnlyDetect && matchAppOnlyDetect.id, "udash");
+assert.strictEqual(marketplace.destFromPluginPath("app/plugins/rubber-sheet/index.ts"), "rubber-sheet");
+assert.ok(marketplace.pluginDetectPaths(rubberSheetEntry()).some((p) => p === "app/plugins/rubber-sheet/index.ts"));
+assert.match(marketplace.detectProbeLines(normalized.plugins), /app\/plugins\/rubber-sheet\/index\.ts/);
+assert.match(marketplace.detectProbeLines(normalized.plugins), /DETECT_DEST %s/);
+
+function rubberSheetEntry() {
+  return normalized.plugins.find((p) => p.id === "rubber-sheet");
+}
+
+const scannedRubber = marketplace.parseScanStdout(
+  [
+    "SCAN_BEGIN",
+    "PLUGIN\trubber-sheet\tdir\t1\tcloudtak-plugin-rubber-sheet\t\t\t",
+    "DETECT_HIT app/plugins/rubber-sheet/index.ts",
+    "DETECT_DEST rubber-sheet",
+    "SCAN_END",
+  ].join("\n"),
+  normalized.plugins
+);
+assert.ok(scannedRubber.plugins.some((p) => p.dest === "rubber-sheet"));
+assert.ok(scannedRubber.plugins.find((p) => p.dest === "rubber-sheet").detectHits.includes("app/plugins/rubber-sheet/index.ts"));
+assert.strictEqual(
+  marketplace.matchCatalogPlugin(scannedRubber.plugins.find((p) => p.dest === "rubber-sheet"), normalized.plugins).id,
+  "rubber-sheet"
+);
+assert.strictEqual(
+  marketplace.matchCatalogPlugin(
+    { dest: "host-copy", packageName: "cloudtak-plugin-rubber-sheet", detectHits: [] },
+    normalized.plugins
+  ).id,
+  "rubber-sheet"
+);
+
+const prevScan = store.readScanCache();
+store.writeScanCache({
+  ok: true,
+  scannedAt: new Date().toISOString(),
+  path: "/root/CloudTAK",
+  plugins: [{ dest: "rubber-sheet", catalogId: null, origin: "host", onDisk: true }],
+});
+try {
+  const ui = marketplace.buildUiPlugins({ skipRemoteSha: true });
+  const row = ui.plugins.find((p) => p.id === "rubber-sheet");
+  assert.ok(row, "rubber-sheet catalog row present");
+  assert.strictEqual(row.installed, true, "on-disk rubber-sheet marks catalog row installed even without catalogId");
+} finally {
+  if (prevScan) store.writeScanCache(prevScan);
+  else {
+    try {
+      fs.unlinkSync(require("path").join(store.DIR, "scan-cache.json"));
+    } catch (_) {}
+  }
 }
 
 const ids = normalized.plugins.map((p) => p.id);
@@ -27,6 +93,17 @@ assert.ok(ids.includes("helloworld"));
 assert.ok(ids.includes("dispatcher"));
 assert.ok(ids.includes("livewx"));
 assert.ok(ids.includes("replay"));
+assert.ok(ids.includes("rubber-sheet"));
+assert.ok(ids.includes("sidebar-configurator"));
+const rubberSheet = normalized.plugins.find((p) => p.id === "rubber-sheet");
+assert.strictEqual(rubberSheet.web.dest, "rubber-sheet");
+assert.ok(rubberSheet.detect.some((d) => d.includes("app/plugins/rubber-sheet/")));
+assert.match(marketplace.installRemoteScript("/root/CloudTAK", rubberSheet), /install\.sh/);
+const sidebarConfigurator = normalized.plugins.find((p) => p.id === "sidebar-configurator");
+assert.strictEqual(sidebarConfigurator.web.dest, "sidebar-configurator");
+assert.ok(sidebarConfigurator.routes && sidebarConfigurator.routes.source === "server");
+assert.ok(sidebarConfigurator.detect.some((d) => d.includes("app/plugins/sidebar-configurator/")));
+assert.match(marketplace.installRemoteScript("/root/CloudTAK", sidebarConfigurator), /install\.sh/);
 const replay = normalized.plugins.find((p) => p.id === "replay");
 assert.strictEqual(replay.web.dest, "replay");
 assert.match(marketplace.uninstallRemoteScript("/root/CloudTAK", "replay", [], "replay"), /--remove/);
@@ -97,6 +174,56 @@ assert.ok(marketplace.isHostPluginNoise("example.ts"));
 assert.ok(marketplace.isHostPluginNoise("README.md"));
 assert.ok(marketplace.isHostPluginNoise("readme.md"));
 assert.ok(!marketplace.isHostPluginNoise("quick-point-dropper"));
+assert.ok(
+  marketplace.isHostPluginNoise(
+    'OCI runtime exec failed: exec failed: unable to start container process: exec: "sh": executable file not found in $PATH'
+  ),
+  "docker exec failure text is not a plugin dest"
+);
+assert.ok(marketplace.isHostPluginNoise("has spaces"), "dest names cannot contain spaces");
+
+const ociNoiseScan = marketplace.parseScanStdout(
+  [
+    "SCAN_BEGIN",
+    'PLUGIN\tOCI runtime exec failed: exec failed: unable to start container process: exec: "sh": executable file not found in $PATH\tdir\t1\t\t\t\t',
+    "PLUGIN\tlegit-plugin\tdir\t1\t\t\t\t",
+    "SCAN_END",
+  ].join("\n"),
+  normalized.plugins
+);
+assert.ok(!ociNoiseScan.plugins.some((p) => /OCI runtime/i.test(p.dest)), "parseScanStdout drops OCI noise");
+assert.ok(ociNoiseScan.plugins.some((p) => p.dest === "legit-plugin"));
+
+{
+  const prevOciScan = store.readScanCache();
+  store.writeScanCache({
+    ok: true,
+    scannedAt: new Date().toISOString(),
+    path: "/root/CloudTAK",
+    plugins: [
+      {
+        dest: 'OCI runtime exec failed: exec failed: unable to start container process: exec: "sh": executable file not found in $PATH',
+        catalogId: null,
+        origin: "host",
+        onDisk: true,
+      },
+    ],
+  });
+  try {
+    const ui = marketplace.buildUiPlugins({ skipRemoteSha: true });
+    assert.ok(
+      !ui.plugins.some((p) => /OCI runtime/i.test(String(p.name || p.dest || ""))),
+      "stale scan cache OCI noise must not appear as Not In Catalog plugin"
+    );
+  } finally {
+    if (prevOciScan) store.writeScanCache(prevOciScan);
+    else {
+      try {
+        fs.unlinkSync(path.join(store.DIR, "scan-cache.json"));
+      } catch (_) {}
+    }
+  }
+}
 
 const caddy = require("../services/cloudtakMarketplace.caddy");
 const caddyFile = [
@@ -125,6 +252,10 @@ assert.match(printScript, /cloudtak-marketplace-plugins/);
 assert.match(printScript, /Cleaning plugin runtime/);
 assert.match(printScript, /docker rmi/);
 assert.match(printScript, /docker image prune -f/);
+assert.match(printScript, /ensure_caddy_on_cloudtak_network/);
+assert.match(printScript, /Connected Caddy container/);
+assert.doesNotMatch(printScript, /caddy_default/);
+assert.doesNotMatch(printScript, /cloudtak_default/);
 
 const uninstallPrint = marketplace.uninstallRemoteScript("/root/CloudTAK", "print", [], "print");
 assert.match(uninstallPrint, /Cleaning plugin runtime/);
@@ -133,6 +264,12 @@ assert.match(uninstallPrint, /docker image prune -f/);
 assert.match(uninstallPrint, /cloudtak-marketplace-plugins/);
 assert.match(uninstallPrint, /\.cache\/cloudtak-marketplace/);
 assert.match(uninstallPrint, /api\/web\/src\/plugins/);
+assert.match(uninstallPrint, /app\/plugins\/\$DEST/);
+assert.match(uninstallPrint, /cloudtak_web_rel/);
+assert.match(uninstallPrint, /remove_plugin_tree/);
+assert.match(uninstallPrint, /Removing \$target with elevated privileges/);
+assert.match(uninstallPrint, /docker(_cli)? run --rm -u 0/);
+assert.doesNotMatch(uninstallPrint, /rm -rf "\$TARGET"/);
 assert.doesNotMatch(uninstallPrint, /docker compose -f "\$CF" -f "\$OVERRIDE" stop \)/);
 
 const unknownUninstall = marketplace.uninstallRemoteScript("/root/CloudTAK", "host-only-plugin", [], "");
@@ -140,6 +277,7 @@ assert.match(unknownUninstall, /if \[ -z "\$ID" \]; then ID="\$DEST"; fi/);
 assert.match(unknownUninstall, /api\/web\/plugins\/\$DEST/);
 assert.match(unknownUninstall, /api\/web\/src\/plugins\/\$DEST/);
 assert.match(unknownUninstall, /plugin-host-only-plugin\.ts/);
+assert.match(unknownUninstall, /remove_plugin_tree "\$CT\/api\/stateless\/routes\/plugin-host-only-plugin\.ts"/);
 assert.match(unknownUninstall, /cleanup_plugin_runtime/);
 
 const udash = normalized.plugins.find((p) => p.id === "udash");
@@ -224,6 +362,30 @@ assert.match(discover, /Caddyfile/);
 assert.doesNotMatch(discover, /incident-manager/);
 const probed = caddy.parseProbe("CADDY_NONE\n");
 assert.strictEqual(probed.available, false);
+
+assert.deepStrictEqual(
+  caddy.containerUpstreamsFromSnippets([
+    "(cloudtak_print) {\n\treverse_proxy cloudtak-print:5010\n}",
+    "handle_path /udash-api* {\n\treverse_proxy cloudtak-plugin-udash-sidecar:3080\n}",
+    "reverse_proxy 127.0.0.1:5000",
+    "reverse_proxy 172.22.112.36:5000",
+    "reverse_proxy map.example.com:443",
+  ]),
+  ["cloudtak-print", "cloudtak-plugin-udash-sidecar"]
+);
+const netScript = caddy.ensureSharedNetworkScript({
+  caddyContainer: "caddy",
+  upstreamNames: ["cloudtak-print"],
+});
+assert.match(netScript, /network connect/);
+assert.match(netScript, /pick_network/);
+assert.doesNotMatch(netScript, /caddy_default/);
+assert.doesNotMatch(netScript, /cloudtak_default/);
+assert.match(netScript, /cloudtak-print/);
+const netOk = caddy.parseNetworkResult("NETWORK_OK\nstatus=connected\ncontainer=caddy\nnetwork=tak-stack_default\n");
+assert.strictEqual(netOk.ok, true);
+assert.strictEqual(netOk.network, "tak-stack_default");
+assert.strictEqual(netOk.status, "connected");
 assert.ok(udash.additionalActions.some((a) => /webhook sidecar/i.test(JSON.stringify(a))));
 assert.ok(!udash.additionalActions.some((a) => /does not start/i.test(JSON.stringify(a))));
 const udashScript = marketplace.installRemoteScript("/root/CloudTAK", udash);
@@ -268,11 +430,23 @@ assert.match(installScript, /rm -rf "\$target\/\.git"/);
 assert.match(installScript, /NGINX_CSP_/);
 assert.match(installScript, /docker-compose.marketplace.yml/);
 assert.match(installScript, /Updating CloudTAK CSP overlay/);
+assert.match(installScript, /sync_csp_override/);
+assert.match(installScript, /Wrote docker-compose\.override\.yml so \.\/cloudtak\.sh update keeps plugin external sources/);
+assert.match(installScript, /pin_csp_compose_file/);
+assert.match(installScript, /COMPOSE_FILE=/);
+assert.match(installScript, /Pinned COMPOSE_FILE in \.env so \.\/cloudtak\.sh update keeps plugin external sources/);
 assert.match(installScript, /mesonet\.agron\.iastate\.edu/);
 assert.match(installScript, /wss:\/\/ws1\.blitzortung\.org/);
 assert.match(installScript, /wss:\/\/\*\.blitzortung\.org/);
 assert.match(installScript, /apply_plugin_csp/);
+assert.match(installScript, /cloudtak_web_rel/);
+assert.match(installScript, /app\/plugins/);
+assert.match(installScript, /Moving \$DEST from api\/web\/plugins to app\/plugins/);
+assert.match(installScript, /Removing leftover api\/web\/plugins\/\$DEST/);
 assert.match(installScript, /docker compose --progress=plain/);
+const uninstallScript = marketplace.uninstallRemoteScript("/root/CloudTAK", "livewx-radar", [], "livewx-radar");
+assert.match(uninstallScript, /\$CT\/app\/plugins\/\$DEST/);
+assert.match(uninstallScript, /\$CT\/api\/web\/plugins\/\$DEST/);
 
 assert.deepStrictEqual(
   marketplace.normalizeCsp({ csp: ["wss://*.example.org", "https://tiles.example.com"] }),
@@ -366,8 +540,13 @@ assert.deepStrictEqual(
 );
 
 function writeAlignFixture(root, opts) {
-  const webSrc = path.join(root, "api", "web", "src");
-  const plugin = path.join(root, "api", "web", "plugins", "incident-manager", "src", "lib");
+  const webParts = opts.layout === "app" ? ["app"] : ["api", "web"];
+  const webSrc = path.join(root, ...webParts, "src");
+  const plugin = path.join(root, ...webParts, "plugins", "incident-manager", "src", "lib");
+  if (opts.layout === "app") {
+    fs.mkdirSync(path.join(root, "app"), { recursive: true });
+    fs.writeFileSync(path.join(root, "app", "package.json"), "{}\n");
+  }
   fs.mkdirSync(path.join(webSrc, "base"), { recursive: true });
   fs.mkdirSync(path.join(webSrc, "workers"), { recursive: true });
   fs.mkdirSync(path.join(webSrc, "utils"), { recursive: true });
@@ -471,6 +650,69 @@ assert.ok(checkConfig.exclude.includes("plugins"));
 const lintedAgain = align.alignInstalledPlugins(lintRoot);
 assert.deepStrictEqual(lintedAgain.changes, []);
 fs.rmSync(lintRoot, { recursive: true, force: true });
+
+const appAlignRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ctak-align-app-"));
+writeAlignFixture(appAlignRoot, { layout: "app" });
+const appLintPkg = path.join(appAlignRoot, "app", "package.json");
+fs.writeFileSync(
+  appLintPkg,
+  JSON.stringify(
+    {
+      scripts: {
+        lint: "eslint --config eslint.config.js ./src/ ./public/ ./plugins/",
+        check: "vue-tsc",
+      },
+    },
+    null,
+    2
+  ) + "\n"
+);
+fs.writeFileSync(
+  path.join(appAlignRoot, "app", "eslint.config.js"),
+  "export default tseslint.config(\n    eslint.configs.recommended,\n);\n"
+);
+fs.writeFileSync(
+  path.join(appAlignRoot, "app", "tsconfig.json"),
+  JSON.stringify({ compilerOptions: { strict: true }, include: ["src"], exclude: ["node_modules", "dist"] }, null, 2) + "\n"
+);
+const appLayout = align.detectWebLayout(appAlignRoot);
+assert.strictEqual(appLayout.kind, "app");
+assert.deepStrictEqual(align.listInstalledPluginDirs(appLayout.pluginsDir), ["incident-manager"]);
+const appAligned = align.alignInstalledPlugins(appAlignRoot);
+assert.ok(appAligned.ok);
+assert.ok(!appAligned.skipped);
+assert.ok(appAligned.changes.some((line) => line.includes("app/eslint.config.js")));
+assert.ok(appAligned.changes.some((line) => line.includes("app/tsconfig.json")));
+assert.ok(!appAligned.changes.some((line) => line.startsWith("app/package.json:")));
+const appEslint = fs.readFileSync(path.join(appAlignRoot, "app", "eslint.config.js"), "utf8");
+assert.match(appEslint, /cloudtak-marketplace-plugins/);
+assert.match(appEslint, /plugins\/incident-manager\/\*\*/);
+const appTsconfig = JSON.parse(fs.readFileSync(path.join(appAlignRoot, "app", "tsconfig.json"), "utf8"));
+assert.ok(appTsconfig.exclude.includes("plugins/incident-manager"));
+assert.ok(appTsconfig.exclude.includes("node_modules"));
+const appLintScripts = JSON.parse(fs.readFileSync(appLintPkg, "utf8")).scripts;
+assert.match(appLintScripts.lint, /\.\/plugins/);
+const appBrief = fs.readFileSync(
+  path.join(appAlignRoot, "app", "plugins", "incident-manager", "src", "lib", "irBriefing.ts"),
+  "utf8"
+);
+assert.match(appBrief, /from '\.\.\/\.\.\/\.\.\/\.\.\/src\/utils\/coordinateFormat\.ts'/);
+assert.ok(!fs.existsSync(path.join(appAlignRoot, "api", "web", "plugins")));
+const appAlignedAgain = align.alignInstalledPlugins(appAlignRoot);
+assert.deepStrictEqual(appAlignedAgain.changes, []);
+fs.writeFileSync(
+  path.join(appAlignRoot, "app", "eslint.config.js"),
+  "export default tseslint.config(\n    eslint.configs.recommended,\n);\n"
+);
+fs.writeFileSync(
+  path.join(appAlignRoot, "app", "tsconfig.json"),
+  JSON.stringify({ compilerOptions: { strict: true }, include: ["src"], exclude: ["node_modules", "dist"] }, null, 2) + "\n"
+);
+const appReshield = align.alignInstalledPlugins(appAlignRoot);
+assert.ok(appReshield.changes.some((line) => line.includes("app/eslint.config.js")));
+assert.ok(appReshield.changes.some((line) => line.includes("app/tsconfig.json")));
+assert.ok(!appReshield.changes.some((line) => line.includes("coordinateFormat")));
+fs.rmSync(appAlignRoot, { recursive: true, force: true });
 
 const apiLintRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ctak-align-api-lint-"));
 writeAlignFixture(apiLintRoot, {
@@ -577,9 +819,10 @@ assert.match(rebuildAligned, /CloudTAK image build finished\./);
 assert.match(rebuildAligned, /CloudTAK container recreate finished\./);
 assert.match(rebuildAligned, /align_plugins_to_host/);
 assert.match(rebuildAligned, /node:22-alpine/);
-assert.match(rebuildAligned, /docker run --rm -u 0/);
+assert.match(rebuildAligned, /docker(_cli)? run --rm -u 0/);
 assert.doesNotMatch(installAligned, /--user /);
 assert.doesNotMatch(rebuildAligned, /--user /);
+assert.ok(marketplace.rebuildTimeoutMs() >= 60 * 60 * 1000);
 
 const done = { id: "done", kind: "install", status: "complete", batchId: "old", startedAt: "2026-09-25T12:00:00.000Z", log: ["old install"] };
 const next = { id: "next", kind: "uninstall", status: "running", batchId: "new", startedAt: "2026-09-25T13:00:00.000Z", log: ["removing"] };

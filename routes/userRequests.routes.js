@@ -4,6 +4,8 @@ const auditSvc = require("../services/auditLog.service");
 const permsSvc = require("../services/permissions.service");
 const usersSvc = require("../services/users.service");
 const agenciesSvc = require("../services/agencies.service");
+const groupsSvc = require("../services/groups.service");
+const accessSvc = require("../services/access.service");
 const agenciesRoutes = require("./agencies.routes");
 
 function requireUserRequestsApi(req, res, next) {
@@ -105,11 +107,87 @@ function resolveReviewAgencySuffix(access, requestedSuffix) {
     if (!locked || locked === "__other__") {
       throw new Error("This review link is locked to the requested agency.");
     }
+    if (!userRequestsSvc.isAgencySuffixAllowedForReviewAccess(access, locked)) {
+      throw new Error("This review link is not authorized for the requested agency.");
+    }
     return locked;
   }
   if (requested && requested !== "__other__") return requested;
   if (locked && locked !== "__other__") return locked;
   return "";
+}
+
+async function loadGroupsForReviewAccess(access, allAgencies) {
+  if (access.isGlobalAdmin || access.canChangeAgency) {
+    return groupsSvc.getAllGroups({ includeHidden: false });
+  }
+
+  const suffixes = Array.isArray(access.allowedAgencySuffixes)
+    ? access.allowedAgencySuffixes
+        .map((s) => String(s || "").trim().toLowerCase())
+        .filter(Boolean)
+    : [];
+  const locked = String(access.request?.agencySuffix || "")
+    .trim()
+    .toLowerCase();
+  const targetSuffixes =
+    suffixes.length > 0
+      ? suffixes
+      : locked && locked !== "__other__"
+        ? [locked]
+        : [];
+
+  const seen = new Set();
+  const groups = [];
+  const delegatedIds = new Set();
+
+  for (const sfx of targetSuffixes) {
+    const agency =
+      allAgencies.find(
+        (a) => String(a?.suffix || "").trim().toLowerCase() === sfx
+      ) || null;
+    if (!agency) continue;
+
+    let batch = [];
+    if (agency.groupPrefix) {
+      batch = await groupsSvc.getGroupsByPrefix(agency.groupPrefix);
+    }
+    if (!batch.length && agency.name) {
+      batch = await groupsSvc.getGroupsByAgencyName(agency.name);
+    }
+    for (const g of batch) {
+      const pk = String(g?.pk ?? g?.id ?? "").trim();
+      if (!pk || seen.has(pk)) continue;
+      if (accessSvc.isGroupMarkedPrivate(g)) continue;
+      seen.add(pk);
+      groups.push(g);
+    }
+
+    // Extra groups delegated to this agency's admins (Agencies page).
+    const ids = Array.isArray(agency.allowedAdminGroupIds)
+      ? agency.allowedAdminGroupIds
+      : [];
+    for (const id of ids) {
+      const s = String(id || "").trim();
+      if (s) delegatedIds.add(s);
+    }
+  }
+
+  const toFetch = [...delegatedIds].filter((id) => !seen.has(id));
+  if (toFetch.length) {
+    const extras = await Promise.all(
+      toFetch.map((id) => groupsSvc.getGroupById(id).catch(() => null))
+    );
+    for (const g of extras) {
+      if (!g || accessSvc.isGroupMarkedPrivate(g)) continue;
+      const pk = String(g?.pk ?? g?.id ?? "").trim();
+      if (!pk || seen.has(pk)) continue;
+      seen.add(pk);
+      groups.push(g);
+    }
+  }
+
+  return groups;
 }
 
 async function getReviewMetaHandler(req, res) {
@@ -122,14 +200,6 @@ async function getReviewMetaHandler(req, res) {
       req.query.agencySuffix || access.request.agencySuffix
     );
     const templates = usersSvc.getTemplatesForAgency(agencySuffix);
-    const directoryRepo = require("../services/directoryRepo.service");
-    const found = await directoryRepo.searchGroupsPaged({
-      q: agencySuffix,
-      includeHidden: false,
-      page: 1,
-      pageSize: 200,
-    });
-    const groups = found.groups;
     const allAgencies = agenciesSvc.load();
     const lockedSuffix = String(access.request?.agencySuffix || "")
       .trim()
@@ -139,6 +209,11 @@ async function getReviewMetaHandler(req, res) {
       : allAgencies.filter(
           (a) => String(a?.suffix || "").trim().toLowerCase() === lockedSuffix
         );
+
+    // Global: all groups. Agency admin: managed-agency groups plus any
+    // allowedAdminGroupIds delegated on those agencies (multi-agency included).
+    const groups = await loadGroupsForReviewAccess(access, allAgencies);
+
     return res.json({
       templates,
       groups,
@@ -162,6 +237,11 @@ async function postReviewApproveHandler(req, res) {
     if (!payload.agencySuffix || payload.agencySuffix === "__other__") {
       return res.status(400).json({ error: "Select a valid agency for user creation." });
     }
+    if (!userRequestsSvc.isAgencySuffixAllowedForReviewAccess(access, payload.agencySuffix)) {
+      return res.status(403).json({
+        error: "This review link is not authorized for that agency.",
+      });
+    }
     let permRaw = payload.permissions;
     if (Array.isArray(permRaw)) permRaw = permRaw[0];
     permRaw = String(permRaw ?? "user").trim().toLowerCase();
@@ -172,18 +252,39 @@ async function postReviewApproveHandler(req, res) {
     }
     payload.permissions = permRaw;
 
-    const result = await usersSvc.createUser(payload, {
-      createdBy: {
-        username: "request-access-review-link",
-        displayName: "Request Access Review Link",
-      },
-      creationMethod: "request_access_review_link",
-    });
+    let result;
+    try {
+      result = await usersSvc.createUser(payload, {
+        createdBy: {
+          username: "request-access-review-link",
+          displayName: "Request Access Review Link",
+        },
+        creationMethod: "request_access_review_link",
+      });
+    } catch (createErr) {
+      const msg = String(createErr?.message || createErr);
+      // Prior timeout left the account created but the request still pending.
+      if (/still pending|already exists/i.test(msg)) {
+        userRequestsSvc.deleteRequest(request.id);
+        return res.json({
+          success: true,
+          clearedPendingRequest: true,
+          syncPending: /still pending/i.test(msg),
+          warning: msg,
+        });
+      }
+      throw createErr;
+    }
 
     userRequestsSvc.deleteRequest(request.id);
 
     auditSvc.logEvent({
-      actor: null,
+      actor: access.reviewLink
+        ? {
+            username: access.reviewLink.email || "request-access-review-link",
+            displayName: access.reviewLink.email || "Request Access Review Link",
+          }
+        : null,
       request: { method: req.method, path: req.originalUrl || req.path, ip: req.ip },
       action: "CREATE_USER",
       targetType: "user",
@@ -197,6 +298,8 @@ async function postReviewApproveHandler(req, res) {
           : [],
         created_method: "request_access_review_link",
         sourceRequestId: request.id,
+        reviewLinkEmail: access.reviewLink?.email || null,
+        reviewLinkIsGlobalAdmin: !!access.isGlobalAdmin,
       },
     });
 

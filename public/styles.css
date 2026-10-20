@@ -2309,6 +2309,35 @@ body.modal-open .sidebarToggle {
     min-height: 2.25rem;
 }
 
+.password-policy-rules {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+    margin-top: 0.85rem;
+}
+
+.password-policy-rule {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(5.5rem, 7rem);
+    gap: 0.75rem 1rem;
+    align-items: end;
+}
+
+.password-policy-rule .settings-field-bool {
+    margin: 0;
+}
+
+.password-policy-count input[type="number"] {
+    width: 100%;
+    max-width: 7rem;
+}
+
+@media (max-width: 640px) {
+    .password-policy-rule {
+        grid-template-columns: 1fr;
+    }
+}
+
 .settings-field-bool .settings-label {
     flex: 1;
     min-width: 0;
@@ -3209,7 +3238,8 @@ a.settings-hub-card:visited {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.ma-multiselect .filter-menu {
+.ma-multiselect .filter-menu,
+.ma-multiselect-menu {
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
@@ -3227,20 +3257,19 @@ a.settings-hub-card:visited {
   padding: 0;
   display: none;
 }
-.ma-multiselect.open .filter-menu {
+.ma-multiselect.open .filter-menu,
+.ma-multiselect-menu.is-open {
   display: flex;
 }
-.ma-multiselect .filter-menu.ma-menu-floating {
-  z-index: 1100;
-}
-.ma-multiselect .filter-menu-inner {
+.ma-multiselect .filter-menu-inner,
+.ma-multiselect-menu .filter-menu-inner {
   padding: 8px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 6px;
-  flex: 1 1 auto;
   min-height: 0;
+  flex: 1 1 auto;
 }
 .ma-multiselect-search {
   width: 100%;
@@ -3256,26 +3285,27 @@ a.settings-hub-card:visited {
   max-height: 200px;
   overflow-y: auto;
   overflow-x: hidden;
-}
-.ma-menu-floating .ma-multiselect-list {
-  flex: 1 1 auto;
   min-height: 0;
-  max-height: none;
+  flex: 1 1 auto;
 }
-.ma-multiselect .ma-multiselect-all-option {
+.ma-multiselect .ma-multiselect-all-option,
+.ma-multiselect-menu .ma-multiselect-all-option {
   border-bottom: 1px solid var(--line);
   border-radius: 6px 6px 0 0;
   margin-bottom: 4px;
 }
-.ma-multiselect .ma-multiselect-all-option small {
+.ma-multiselect .ma-multiselect-all-option small,
+.ma-multiselect-menu .ma-multiselect-all-option small {
   display: block;
   font-size: 11px;
 }
-.ma-multiselect .filter-option.is-disabled {
+.ma-multiselect .filter-option.is-disabled,
+.ma-multiselect-menu .filter-option.is-disabled {
   opacity: 0.55;
   cursor: default;
 }
-.ma-multiselect .filter-option {
+.ma-multiselect .filter-option,
+.ma-multiselect-menu .filter-option {
   display: flex;
   flex-direction: row;
   align-items: center;
@@ -3285,16 +3315,19 @@ a.settings-hub-card:visited {
   cursor: pointer;
   border-radius: 6px;
 }
-.ma-multiselect .filter-option:hover {
+.ma-multiselect .filter-option:hover,
+.ma-multiselect-menu .filter-option:hover {
   background: var(--hover);
 }
-.ma-multiselect .filter-option input[type="checkbox"] {
+.ma-multiselect .filter-option input[type="checkbox"],
+.ma-multiselect-menu .filter-option input[type="checkbox"] {
   margin: 0;
   flex-shrink: 0;
   width: 1.125em;
   height: 1.125em;
 }
-.ma-multiselect .filter-option span {
+.ma-multiselect .filter-option span,
+.ma-multiselect-menu .filter-option span {
   flex: 1;
   min-width: 0;
   text-align: left;

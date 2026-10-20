@@ -23,6 +23,7 @@
  *
  * Optional:
  *   TAK_CA_PATH                   PEM CA bundle
+ *   TAK_CERT_LIST_TIMEOUT_MS      timeout for cert catalog GETs (default 60000)
  *
  * Notes:
  * - For P12 parsing, install:
@@ -35,8 +36,16 @@ const fs = require("fs");
 const path = require("path");
 const https = require("https");
 const axios = require("axios");
-const { getBool, getString } = require("./env");
+const { getBool, getInt, getString } = require("./env");
 const { attachCookieStore, getSharedTakCookieStore } = require("./takHttpSession");
+
+/** Full cert catalogs can exceed the default 5s Marti axios timeout on busy servers. */
+const DEFAULT_CERT_LIST_TIMEOUT_MS = 60_000;
+
+function getCertListTimeoutMs() {
+  const n = getInt("TAK_CERT_LIST_TIMEOUT_MS", DEFAULT_CERT_LIST_TIMEOUT_MS);
+  return Math.max(5_000, n || DEFAULT_CERT_LIST_TIMEOUT_MS);
+}
 
 // IMPORTANT: env.js reads from settingsStore first, then process.env.
 // We need the same behavior here, but ALSO need to support empty string
@@ -130,7 +139,17 @@ function loadTakClientTlsMaterials() {
     );
   }
 
-  const ca = caPath ? fs.readFileSync(caPath) : undefined;
+  let ca;
+  if (caPath) {
+    if (!fs.existsSync(caPath)) {
+      const err = new Error(
+        `TAK CA certificate file is missing (${caPath}). Upload the TAK CA (.pem) in Server Settings → Connection & Certificates, or ensure privileged SSH is configured so the portal can fetch it from the TAK server.`
+      );
+      err.code = "TAK_CA_MISSING";
+      throw err;
+    }
+    ca = fs.readFileSync(caPath);
+  }
   let cert;
   let key;
   let passphrase;
@@ -314,6 +333,11 @@ function createTakAxiosClient(options = {}) {
 let _martiAxios = null;
 let _martiAxiosKey = "";
 
+function clearMartiAxiosCache() {
+  _martiAxios = null;
+  _martiAxiosKey = "";
+}
+
 function getDefaultMartiAxios() {
   let key = "marti";
   try {
@@ -327,6 +351,75 @@ function getDefaultMartiAxios() {
   return _martiAxios;
 }
 
+const DEFAULT_TAK_CA_REL_PATH = "data/certs/tak-ca.pem";
+
+/**
+ * Ensure TAK_CA_PATH points at a readable PEM. When the configured file is missing
+ * (common with installer settings that still point at ./certs/tak-ca.pem), fetch
+ * ca.pem from the TAK server over privileged SSH and persist under data/certs.
+ */
+async function ensureTakCaAvailable() {
+  const configured = String(getString("TAK_CA_PATH", "") || "").trim();
+  const caPath = resolvePathMaybe(configured);
+  if (caPath && fs.existsSync(caPath)) {
+    return { ok: true, path: caPath, fetched: false };
+  }
+
+  const defaultAbs = path.join(process.cwd(), DEFAULT_TAK_CA_REL_PATH);
+  if (fs.existsSync(defaultAbs)) {
+    if (!configured || caPath !== defaultAbs) {
+      const current = settingsStore.getSettings() || {};
+      settingsStore.saveSettings({
+        ...current,
+        TAK_CA_PATH: DEFAULT_TAK_CA_REL_PATH,
+      });
+      clearMartiAxiosCache();
+    }
+    return { ok: true, path: defaultAbs, fetched: false };
+  }
+
+  let takSshSvc;
+  try {
+    takSshSvc = require("./takSsh.service");
+  } catch (_) {
+    takSshSvc = null;
+  }
+
+  if (!takSshSvc || !takSshSvc.isPrivilegedSshReady()) {
+    if (!configured) {
+      return { ok: true, path: null, fetched: false };
+    }
+    const err = new Error(
+      `TAK CA certificate file is missing (${caPath || configured}). Upload the TAK CA (.pem) in Server Settings → Connection & Certificates, or complete privileged SSH setup so the portal can fetch it.`
+    );
+    err.code = "TAK_CA_MISSING";
+    throw err;
+  }
+
+  const remote = await takSshSvc.fetchTakCaPemFromRemote();
+  const pem = Buffer.isBuffer(remote?.pem) ? remote.pem : Buffer.from(String(remote?.pem || ""), "utf8");
+  if (!pem.length || !String(pem).includes("BEGIN CERTIFICATE")) {
+    const err = new Error("Fetched TAK CA from the server but it was empty or not a PEM certificate.");
+    err.code = "TAK_CA_MISSING";
+    throw err;
+  }
+
+  fs.mkdirSync(path.dirname(defaultAbs), { recursive: true });
+  fs.writeFileSync(defaultAbs, pem, { mode: 0o600 });
+  const current = settingsStore.getSettings() || {};
+  settingsStore.saveSettings({
+    ...current,
+    TAK_CA_PATH: DEFAULT_TAK_CA_REL_PATH,
+  });
+  clearMartiAxiosCache();
+  return {
+    ok: true,
+    path: defaultAbs,
+    fetched: true,
+    sourcePath: String(remote?.sourcePath || ""),
+  };
+}
+
 function buildTakAxios(options = {}) {
   const customBase = options.baseURL !== undefined;
   const insecure = options.allowInsecureServer === true;
@@ -337,11 +430,35 @@ function buildTakAxios(options = {}) {
   return withDefaultTimeout(client, options.timeout);
 }
 
+function formatCertListFailure(url, err) {
+  const status = err?.response?.status;
+  if (status) {
+    let body = err.response?.data;
+    if (body != null && typeof body === "object") {
+      try {
+        body = JSON.stringify(body);
+      } catch (_) {
+        body = String(body);
+      }
+    } else if (body != null) {
+      body = String(body);
+    }
+    const clipped = body ? String(body).replace(/\s+/g, " ").trim().slice(0, 240) : "";
+    return clipped ? `${url} (HTTP ${status}: ${clipped})` : `${url} (HTTP ${status})`;
+  }
+  const code = err?.code ? `${err.code}: ` : "";
+  return `${url} (${code}${err?.message || String(err)})`;
+}
+
 /**
  * Generic "all certs" list.
- * GET /api/certadmin/cert
+ * Tries /api/certadmin/cert, /all, then /list. First HTTP success wins.
  *
- * Returns { ok, list, url }.
+ * Uses a longer per-request timeout than the default Marti client (5s) so a slow
+ * catalog does not abort before a working candidate can return. A 500 from one
+ * candidate does not block trying the others.
+ *
+ * Returns { ok, list, url, failures? }.
  * - ok=true when any candidate returned HTTP success (including an empty catalog)
  * - ok=false when every candidate failed (network/HTTP error)
  */
@@ -352,28 +469,29 @@ async function getAllCerts(client, TAK_DEBUG) {
     "/api/certadmin/cert/list",
   ];
 
+  const timeout = getCertListTimeoutMs();
   const failures = [];
 
   for (const url of candidates) {
     try {
-      const res = await client.get(url);
+      const res = await client.get(url, { timeout });
       const list = unwrapTakList(res.data);
-      if (TAK_DEBUG) console.log(`[TAK CERT LIST] ${url} -> ${list.length}`);
+      if (TAK_DEBUG) console.log(`[TAK CERT LIST] ${url} -> ${list.length} (timeout=${timeout}ms)`);
       // A successful response (even with 0 certs) is a valid answer on a fresh system.
-      return { ok: true, list, url };
+      return { ok: true, list, url, failures };
     } catch (e) {
-      const detail = e.response?.status || e.message || String(e);
-      failures.push(`${url} (${detail})`);
-      if (TAK_DEBUG) {
-        console.log(`[TAK CERT LIST] ${url} not available (${detail})`);
-      }
+      const detail = formatCertListFailure(url, e);
+      failures.push(detail);
+      // Per-candidate noise (e.g. expected 404 on /all) stays behind TAK_DEBUG.
+      // Status/body are retained in `failures` for the final warn and revoke errors.
+      if (TAK_DEBUG) console.warn(`[TAK CERT LIST] ${detail}`);
     }
   }
 
   console.warn(
     `[TAK CERT LIST] Unable to list certificates; all candidates failed: ${failures.join("; ")}`
   );
-  return { ok: false, list: [], url: null };
+  return { ok: false, list: [], url: null, failures };
 }
 
 function isExpiredGeneric(cert) {
@@ -403,29 +521,41 @@ function isActiveUnrevokedCert(cert) {
 }
 
 function buildActiveCertUsernameSet(allCerts) {
-  const set = new Set();
+  return new Set(countActiveUnrevokedCertsByUsername(allCerts).keys());
+}
+
+/**
+ * Unrevoked, unexpired client certificates per username (creatorDn).
+ * The same username can appear many times after a mutual aid is deleted and
+ * recreated; revoked certificates are ignored, and duplicate cert ids count once.
+ */
+function countActiveUnrevokedCertsByUsername(allCerts) {
+  const counts = new Map();
+  const seen = new Set();
   for (const c of Array.isArray(allCerts) ? allCerts : []) {
     if (!isActiveUnrevokedCert(c)) continue;
     const u = toLowerTrim(c?.creatorDn);
-    if (u) set.add(u);
+    if (!u) continue;
+    const id = String(c?.id ?? c?.hash ?? c?.serialNumber ?? c?.certificateId ?? "").trim();
+    if (id) {
+      const key = `${u}\n${id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+    }
+    counts.set(u, (counts.get(u) || 0) + 1);
   }
-  return set;
+  return counts;
 }
 
 let _certCatalogCache = { at: 0, result: null };
 const CERT_CATALOG_TTL_MS = 45_000;
 
-/**
- * Usernames (lowercase) with at least one unrevoked, unexpired TAK cert.
- * ok=false when TAK is off/bypassed or the cert catalog could not be listed
- * (callers must not treat that as "no certs").
- */
-async function getActiveCertUsernameSet() {
+async function loadCachedCertCatalog() {
   if (!isTakConfigured()) {
-    return { ok: false, usernames: new Set(), reason: "not_configured" };
+    return { ok: false, list: [], reason: "not_configured" };
   }
   if (isTakBypassed()) {
-    return { ok: false, usernames: new Set(), reason: "bypass" };
+    return { ok: false, list: [], reason: "bypass" };
   }
 
   try {
@@ -438,12 +568,37 @@ async function getActiveCertUsernameSet() {
       if (catalog.ok) _certCatalogCache = { at: now, result: catalog };
     }
     if (!catalog || !catalog.ok) {
-      return { ok: false, usernames: new Set(), reason: "list_failed" };
+      return { ok: false, list: [], reason: "list_failed" };
     }
-    return { ok: true, usernames: buildActiveCertUsernameSet(catalog.list) };
+    return { ok: true, list: catalog.list, reason: null };
   } catch (e) {
-    return { ok: false, usernames: new Set(), reason: e?.message || "error" };
+    return { ok: false, list: [], reason: e?.message || "error" };
   }
+}
+
+/**
+ * Usernames (lowercase) with at least one unrevoked, unexpired TAK cert.
+ * ok=false when TAK is off/bypassed or the cert catalog could not be listed
+ * (callers must not treat that as "no certs").
+ */
+async function getActiveCertUsernameSet() {
+  const catalog = await loadCachedCertCatalog();
+  if (!catalog.ok) {
+    return { ok: false, usernames: new Set(), reason: catalog.reason || "list_failed" };
+  }
+  return { ok: true, usernames: buildActiveCertUsernameSet(catalog.list) };
+}
+
+/**
+ * Count of unrevoked, unexpired client certificates keyed by lowercase username.
+ * ok=false when the catalog could not be listed (callers must not treat that as zero).
+ */
+async function getActiveCertCountsByUsername() {
+  const catalog = await loadCachedCertCatalog();
+  if (!catalog.ok) {
+    return { ok: false, counts: new Map(), reason: catalog.reason || "list_failed" };
+  }
+  return { ok: true, counts: countActiveUnrevokedCertsByUsername(catalog.list) };
 }
 
 function isRevokedGeneric(cert) {
@@ -610,8 +765,9 @@ async function revokeCertsForUsersBulk(usernames, options = {}) {
   const certCatalog = await getAllCerts(client, TAK_DEBUG);
   if (!certCatalog.ok) {
     if (requireVerified) {
+      const detail = (certCatalog.failures || []).join("; ") || "all candidates failed";
       throw new Error(
-        "TAK: Unable to list certificates from /api/certadmin/cert; refusing to proceed."
+        `TAK: Unable to list certificates; refusing to proceed (${detail}).`
       );
     }
     return {
@@ -696,8 +852,9 @@ async function revokeCertsForUser(username, options = {}) {
   const certCatalog = await getAllCerts(client, TAK_DEBUG);
   if (!certCatalog.ok) {
     if (requireVerified) {
+      const detail = (certCatalog.failures || []).join("; ") || "all candidates failed";
       throw new Error(
-        "TAK: Unable to list certificates from /api/certadmin/cert; refusing to proceed."
+        `TAK: Unable to list certificates; refusing to proceed (${detail}).`
       );
     }
     return { revoked: 0, attempted: 0, skipped: false, verified: false };
@@ -745,8 +902,12 @@ module.exports = {
   buildTakAxios,
   getTakTlsAuth,
   getTakBaseUrl,
+  ensureTakCaAvailable,
+  clearMartiAxiosCache,
   isExpiredGeneric,
   isActiveUnrevokedCert,
   buildActiveCertUsernameSet,
+  countActiveUnrevokedCertsByUsername,
   getActiveCertUsernameSet,
+  getActiveCertCountsByUsername,
 };

@@ -1,6 +1,9 @@
 (function (global) {
   "use strict";
 
+  /** @type {Set<() => void>} */
+  const openClosers = new Set();
+
   function esc(s) {
     return String(s ?? "")
       .replace(/&/g, "&amp;")
@@ -60,8 +63,19 @@
     );
   }
 
+  function closeAllOpenMenus() {
+    Array.from(openClosers).forEach(function (close) {
+      try {
+        close();
+      } catch (_) {
+        /* ignore */
+      }
+    });
+  }
+
   /**
    * Compact checkbox dropdown for managed-agency selection.
+   * Menu is portaled to document.body while open so modal overflow:hidden cannot clip it.
    * @param {HTMLElement} root - element containing .ma-multiselect
    */
   function bindManagedAgenciesPicker(root, opts) {
@@ -73,11 +87,114 @@
     const selectAll = root.querySelector(".ma-multiselect-select-all");
     const clearBtn = root.querySelector(".ma-multiselect-clear");
     const summary = root.querySelector(".ma-multiselect-summary");
+    const menu = dropdown ? dropdown.querySelector(".filter-menu") : null;
     const inputName = opts.inputName || "managedAgencySuffix";
 
     let agencies = [];
     let selected = new Set();
     let allAgencies = false;
+    let menuHomeParent = null;
+    let menuHomeNext = null;
+    let positionRaf = 0;
+    let isOpen = false;
+
+    function clearMenuPositionStyles() {
+      if (!menu) return;
+      menu.style.position = "";
+      menu.style.top = "";
+      menu.style.left = "";
+      menu.style.right = "";
+      menu.style.bottom = "";
+      menu.style.width = "";
+      menu.style.minWidth = "";
+      menu.style.maxHeight = "";
+      menu.style.zIndex = "";
+    }
+
+    function restoreMenuHome() {
+      if (!menu || !menuHomeParent) return;
+      if (menuHomeNext && menuHomeNext.parentNode === menuHomeParent) {
+        menuHomeParent.insertBefore(menu, menuHomeNext);
+      } else {
+        menuHomeParent.appendChild(menu);
+      }
+      menuHomeParent = null;
+      menuHomeNext = null;
+      clearMenuPositionStyles();
+    }
+
+    function positionMenu() {
+      if (!menu || !toggle || !isOpen) return;
+      const rect = toggle.getBoundingClientRect();
+      const gap = 4;
+      const viewportPad = 8;
+      const minWidth = Math.max(rect.width, 280);
+      const maxWidth = Math.min(minWidth, window.innerWidth - viewportPad * 2);
+      const spaceBelow = window.innerHeight - rect.bottom - gap - viewportPad;
+      const spaceAbove = rect.top - gap - viewportPad;
+      const preferUp = spaceBelow < 220 && spaceAbove > spaceBelow;
+      const available = Math.max(120, preferUp ? spaceAbove : spaceBelow);
+      let left = rect.left;
+      if (left + maxWidth > window.innerWidth - viewportPad) {
+        left = Math.max(viewportPad, window.innerWidth - viewportPad - maxWidth);
+      }
+      if (left < viewportPad) left = viewportPad;
+
+      menu.style.position = "fixed";
+      menu.style.zIndex = "50000";
+      menu.style.left = left + "px";
+      menu.style.width = maxWidth + "px";
+      menu.style.minWidth = maxWidth + "px";
+      menu.style.right = "auto";
+      menu.style.maxHeight = Math.min(280, available) + "px";
+      if (preferUp) {
+        menu.style.top = "auto";
+        menu.style.bottom = window.innerHeight - rect.top + gap + "px";
+      } else {
+        menu.style.bottom = "auto";
+        menu.style.top = rect.bottom + gap + "px";
+      }
+    }
+
+    function schedulePositionMenu() {
+      if (positionRaf) cancelAnimationFrame(positionRaf);
+      positionRaf = requestAnimationFrame(function () {
+        positionRaf = 0;
+        positionMenu();
+      });
+    }
+
+    function closeMenu() {
+      if (!isOpen) return;
+      isOpen = false;
+      openClosers.delete(closeMenu);
+      if (dropdown) dropdown.classList.remove("open");
+      if (menu) menu.classList.remove("is-open");
+      restoreMenuHome();
+      window.removeEventListener("resize", schedulePositionMenu);
+      window.removeEventListener("scroll", schedulePositionMenu, true);
+      if (positionRaf) {
+        cancelAnimationFrame(positionRaf);
+        positionRaf = 0;
+      }
+    }
+
+    function openMenu() {
+      if (!dropdown || !menu || !toggle) return;
+      closeAllOpenMenus();
+      if (!menuHomeParent) {
+        menuHomeParent = menu.parentNode;
+        menuHomeNext = menu.nextSibling;
+      }
+      document.body.appendChild(menu);
+      dropdown.classList.add("open");
+      menu.classList.add("is-open");
+      isOpen = true;
+      openClosers.add(closeMenu);
+      positionMenu();
+      window.addEventListener("resize", schedulePositionMenu);
+      window.addEventListener("scroll", schedulePositionMenu, true);
+    }
 
     function allowAllAgencies() {
       if (typeof opts.allowAllAgencies === "function") return !!opts.allowAllAgencies();
@@ -223,73 +340,11 @@
       return mergeWithHome(getSelectedArray(), resolveHomeSuffix(opts));
     }
 
-    const menu = dropdown ? dropdown.querySelector(".filter-menu") : null;
-
-    // The menu is position: fixed so it escapes overflow-clipping ancestors (e.g. the
-    // Edit User modal). It opens upward when there is more room above the toggle and
-    // is capped to the space available, so the list always scrolls within view.
-    function positionMenu() {
-      if (!menu || !toggle || !dropdown.classList.contains("open")) return;
-      const margin = 8;
-      const gap = 4;
-      const vw = window.innerWidth || document.documentElement.clientWidth;
-      const vh = window.innerHeight || document.documentElement.clientHeight;
-      const r = toggle.getBoundingClientRect();
-      const spaceBelow = vh - r.bottom - gap - margin;
-      const spaceAbove = r.top - gap - margin;
-      const openUp = spaceBelow < 240 && spaceAbove > spaceBelow;
-      const maxH = Math.max(120, Math.min(360, openUp ? spaceAbove : spaceBelow));
-      const width = Math.min(Math.max(r.width, 280), vw - margin * 2);
-      const left = Math.min(Math.max(r.left, margin), vw - width - margin);
-
-      menu.classList.add("ma-menu-floating");
-      menu.classList.toggle("ma-menu-up", openUp);
-      menu.style.position = "fixed";
-      menu.style.right = "auto";
-      menu.style.bottom = "auto";
-      menu.style.width = width + "px";
-      menu.style.maxHeight = maxH + "px";
-      menu.style.left = left + "px";
-      const h = menu.offsetHeight;
-      const top = openUp ? r.top - gap - h : r.bottom + gap;
-      menu.style.top = top + "px";
-
-      // A transformed/filtered ancestor makes it the containing block for fixed
-      // elements; shift by the measured offset so the menu still lines up.
-      const actual = menu.getBoundingClientRect();
-      const dx = actual.left - left;
-      const dy = actual.top - top;
-      if (Math.abs(dx) > 0.5) menu.style.left = left - dx + "px";
-      if (Math.abs(dy) > 0.5) menu.style.top = top - dy + "px";
-    }
-
-    function onViewportChange(e) {
-      if (e && e.type === "scroll" && menu && menu.contains(e.target)) return;
-      positionMenu();
-    }
-
-    function setOpen(open) {
-      if (!dropdown) return;
-      dropdown.classList.toggle("open", open);
-      if (open) {
-        positionMenu();
-        window.addEventListener("resize", onViewportChange);
-        window.addEventListener("scroll", onViewportChange, true);
-      } else {
-        window.removeEventListener("resize", onViewportChange);
-        window.removeEventListener("scroll", onViewportChange, true);
-      }
-    }
-
-    if (dropdown) dropdown.__maSetOpen = setOpen;
-
     if (toggle && dropdown) {
       toggle.addEventListener("click", function (e) {
         e.stopPropagation();
-        document.querySelectorAll(".ma-multiselect.open").forEach(function (el) {
-          if (el !== dropdown) closeDropdown(el);
-        });
-        setOpen(!dropdown.classList.contains("open"));
+        if (isOpen) closeMenu();
+        else openMenu();
       });
     }
 
@@ -339,7 +394,12 @@
       });
     }
 
-    if (menu) menu.addEventListener("click", function (e) { e.stopPropagation(); });
+    if (menu) {
+      menu.classList.add("ma-multiselect-menu");
+      menu.addEventListener("click", function (e) {
+        e.stopPropagation();
+      });
+    }
 
     return {
       setAgencies: function (arr) {
@@ -348,26 +408,26 @@
       },
       setSelected: setSelected,
       setAllAgencies: setAllAgencies,
-      getAllAgencies: function () { return allAgencies; },
-      getSelected: function () { return new Set(selected); },
+      getAllAgencies: function () {
+        return allAgencies;
+      },
+      getSelected: function () {
+        return new Set(selected);
+      },
       getSelectedArray: getSelectedArray,
       getSelectedWithHomeArray: getSelectedWithHomeArray,
       refresh: function () {
         renderList();
-        positionMenu();
+        if (isOpen) schedulePositionMenu();
       },
+      close: closeMenu,
     };
-  }
-
-  function closeDropdown(el) {
-    if (typeof el.__maSetOpen === "function") el.__maSetOpen(false);
-    else el.classList.remove("open");
   }
 
   if (!global.__maMultiselectDocClick) {
     global.__maMultiselectDocClick = true;
     document.addEventListener("click", function () {
-      document.querySelectorAll(".ma-multiselect.open").forEach(closeDropdown);
+      closeAllOpenMenus();
     });
   }
 

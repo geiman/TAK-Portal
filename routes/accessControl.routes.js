@@ -113,6 +113,9 @@ router.post("/user-role/:userId", express.json({ limit: "1mb" }), async (req, re
 
     const target = await usersSvc.getUserById(userId);
     if (!target) return res.status(404).json({ error: "User not found." });
+    if (accessSvc.isSamePortalUser(actor, target)) {
+      return res.status(403).json({ error: "You cannot change your own permissions." });
+    }
 
     const { groupNames: currentGroupNames } = await loadGroupNamesForUserId(userId);
     const currentRoles = authzRoles.computePortalRolesFromGroupNames(currentGroupNames);
@@ -206,6 +209,12 @@ router.put("/managed-agencies/:userId", express.json({ limit: "1mb" }), async (r
 
     const target = await usersSvc.getUserById(userId);
     if (!target) return res.status(404).json({ error: "User not found." });
+    if (accessSvc.isSamePortalUser(actor, target)) {
+      return res.status(403).json({ error: "You cannot change your own permissions." });
+    }
+    if (!actor.isGlobalAdmin && !accessSvc.isUserInAllowedAgencies(actor, target)) {
+      return res.status(403).json({ error: "You do not have access to that user." });
+    }
 
     const { groupNames: beforeGroupNames } = await loadGroupNamesForUserId(userId);
     const beforeRoles = authzRoles.computePortalRolesFromGroupNames(beforeGroupNames);
@@ -224,6 +233,11 @@ router.put("/managed-agencies/:userId", express.json({ limit: "1mb" }), async (r
     if (allAgencies && !actor.isGlobalAdmin) {
       return res.status(403).json({ error: "Only global admins can grant all-agency access." });
     }
+    // An all-agency admin's scope covers every agency, so a scoped admin's
+    // "preserve out-of-scope agencies" merge can't represent it; leave it to globals.
+    if (!actor.isGlobalAdmin && accessSvc.hasAllAgenciesAdminGroup(beforeGroupNames)) {
+      return res.status(403).json({ error: "Only global admins can change an all-agency admin's access." });
+    }
 
     const rawSuffixes = req.body?.managedAgencySuffixes;
     let managedAgencySuffixes =
@@ -233,6 +247,13 @@ router.put("/managed-agencies/:userId", express.json({ limit: "1mb" }), async (r
     managedAgencySuffixes = accessSvc.mergeManagedAgencySuffixesWithHome(
       managedAgencySuffixes,
       target
+    );
+    const currentManaged =
+      accessSvc.getManagedAgencySuffixesFromGroupNames(beforeGroupNames);
+    managedAgencySuffixes = accessSvc.mergeAssignableManagedAgencySuffixes(
+      actor,
+      managedAgencySuffixes,
+      currentManaged
     );
     if (!managedAgencySuffixes.length && !allAgencies) {
       return res.status(400).json({ error: "Select at least one managed agency." });
