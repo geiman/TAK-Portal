@@ -205,16 +205,24 @@
                 <input name="email" type="email" placeholder="example@agency.gov" />
               </label>
 
+              <%
+                const pp = (typeof passwordPolicy !== "undefined" && passwordPolicy) ? passwordPolicy : {
+                  minLength: 12,
+                  placeholder: "Min 12 characters: upper, lower, number, and symbol",
+                  pattern: "(?=.*[A-Z])(?=.*[a-z])(?=.*\\d)(?=.*[^A-Za-z0-9]).{12,}",
+                  title: "Password must contain a minimum of 12 characters, upper, lower, number, and symbol"
+                };
+              %>
               <label>Password (optional)
                 <div class="passwordWrap">
                   <input
                     class="passwordInput"
                     name="password"
                     type="password"
-                    placeholder="Min 12 characters: upper, lower, number, and symbol"
-                    minlength="12"
-                    pattern="(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[^A-Za-z0-9]).{12,}"
-                    title="Password must contain a minimum of 12 characters, upper, lower, number, and symbol"
+                    placeholder="<%= pp.placeholder %>"
+                    minlength="<%= pp.minLength %>"
+                    pattern="<%= pp.pattern %>"
+                    title="<%= pp.title %>"
                   />
                   <button
                     type="button"
@@ -350,9 +358,33 @@
         return String(reqObj?.agencySuffix || "") === "__other__";
       }
 
+      const PASSWORD_POLICY = <%- JSON.stringify((typeof passwordPolicy !== "undefined" && passwordPolicy && passwordPolicy.client) ? passwordPolicy.client : {
+        minLength: 12,
+        requireUppercase: true,
+        uppercaseCount: 1,
+        requireLowercase: true,
+        lowercaseCount: 1,
+        requireNumber: true,
+        numberCount: 1,
+        requireSymbol: true,
+        symbolCount: 1,
+        errorOptional: "Password must be at least 12 characters with upper, lower, number, and symbol."
+      }) %>;
+
+      function passwordPolicyCount(pwd, re) {
+        return (String(pwd || "").match(re) || []).length;
+      }
+
       function isValidPassword(pwd) {
         if (!pwd) return true;
-        return /^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[^A-Za-z0-9]).{12,}$/.test(String(pwd || ""));
+        const p = String(pwd || "");
+        const pol = PASSWORD_POLICY || {};
+        if (p.length < (pol.minLength || 12)) return false;
+        if (pol.requireLowercase && passwordPolicyCount(p, /[a-z]/g) < (pol.lowercaseCount || 1)) return false;
+        if (pol.requireUppercase && passwordPolicyCount(p, /[A-Z]/g) < (pol.uppercaseCount || 1)) return false;
+        if (pol.requireNumber && passwordPolicyCount(p, /[0-9]/g) < (pol.numberCount || 1)) return false;
+        if (pol.requireSymbol && passwordPolicyCount(p, /[^A-Za-z0-9]/g) < (pol.symbolCount || 1)) return false;
+        return true;
       }
 
       function renderRoleOptions(selectedRole) {
@@ -381,8 +413,22 @@
           String(a.name || "").localeCompare(String(b.name || ""))
         );
         const filtered = needle
-          ? sorted.filter((g) => String(g.name || "").toLowerCase().includes(needle))
+          ? sorted.filter((g) => {
+              const raw = String(g.name || "").toLowerCase();
+              const display = raw.replace(/^tak_/, "");
+              return raw.includes(needle) || display.includes(needle);
+            })
           : sorted;
+        if (!groupsCache.length) {
+          groupsInner.innerHTML =
+            '<p class="muted" style="margin:0;padding:8px;">No groups found.</p>';
+          return;
+        }
+        if (!filtered.length) {
+          groupsInner.innerHTML =
+            '<p class="muted" style="margin:0;padding:8px;">No matching groups.</p>';
+          return;
+        }
         groupsInner.innerHTML = filtered.map((g) => {
           const id = String(g.pk);
           const name = String(g.name || "").replace(/^tak_/i, "");
@@ -542,11 +588,25 @@
         const payload = Object.fromEntries(fd.entries());
         const pwd = String(payload.password || "").trim();
         if (!isValidPassword(pwd)) {
-          setMsg("Password must be at least 12 characters with upper, lower, number, and symbol.", false);
+          setMsg(
+            (PASSWORD_POLICY && PASSWORD_POLICY.errorOptional) ||
+              "Password does not meet the configured password policy.",
+            false
+          );
           return;
         }
         if (String(payload.templateIndex || "").trim().toLowerCase() === "manual group selection") {
-          payload.manualGroupIds = Array.from(pickedManualGroupIds);
+          const ids = Array.from(pickedManualGroupIds);
+          if (!ids.length) {
+            setMsg(
+              groupsCache.length
+                ? "Select at least one manual group."
+                : "No groups available for this agency. Try again shortly, or approve from the Dashboard.",
+              false
+            );
+            return;
+          }
+          payload.manualGroupIds = ids;
         }
 
         approveBtn.disabled = true;

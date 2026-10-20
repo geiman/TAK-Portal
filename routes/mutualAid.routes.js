@@ -58,9 +58,9 @@ function statusForError(err, fallback = 400) {
   return fallback;
 }
 
-router.get("/", (req, res) => {
+router.get("/", async (req, res) => {
   try {
-    const out = mutualAid.listForUser(req.authentikUser || null);
+    const out = await mutualAid.listForUserWithCertStatus(req.authentikUser || null);
     res.json(out);
   } catch (err) {
     res.status(500).json({ error: toErrorPayload(err) });
@@ -78,6 +78,7 @@ router.post("/", async (req, res) => {
       expireAt: req.body?.expireAt,
       groupMode: req.body?.groupMode,
       existingGroupId: req.body?.existingGroupId,
+      password: req.body?.password,
       createdBy,
       authUser,
     });
@@ -98,6 +99,7 @@ router.post("/", async (req, res) => {
         existingGroupId: out?.existingGroupId,
         groupName: out?.groupName,
         username: out?.username,
+        passwordSource: out?.passwordSource || "generated",
         createdByRole: out?.createdBy?.role || null,
       },
     });
@@ -119,6 +121,7 @@ router.post("/:id/additional-user", async (req, res) => {
       title: req.body?.title,
       expireEnabled: req.body?.expireEnabled,
       expireAt: req.body?.expireAt,
+      password: req.body?.password,
       authUser,
     });
     const out = items[0] || null;
@@ -145,6 +148,7 @@ router.post("/:id/additional-user", async (req, res) => {
         groupMasterId: out?.groupMasterId,
         username: out?.username,
         usernames,
+        passwordSource: out?.passwordSource || "generated",
         createdByRole: out?.createdBy?.role || null,
       },
     });

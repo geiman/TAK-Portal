@@ -13,6 +13,12 @@
       !isGlobalAdmin &&
       isAgencyAdmin &&
       (!Array.isArray(allowedAgencySuffixes) || allowedAgencySuffixes.length <= 1);
+    const pp = (typeof passwordPolicy !== "undefined" && passwordPolicy) ? passwordPolicy : {
+      minLength: 12,
+      placeholder: "Min 12 characters: upper, lower, number, and symbol",
+      pattern: "(?=.*[A-Z])(?=.*[a-z])(?=.*\\d)(?=.*[^A-Za-z0-9]).{12,}",
+      title: "Password must contain a minimum of 12 characters, upper, lower, number, and symbol"
+    };
   %>
 
   <% if (typeof pendingUserRequestsCount !== "undefined" && pendingUserRequestsCount > 0) { %>
@@ -88,10 +94,10 @@
             id="createPasswordInput"
             name="password"
             type="password"
-            placeholder="Min 12 characters: upper, lower, number, and symbol"
-            minlength="12"
-            pattern="(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[^A-Za-z0-9]).{12,}"
-            title="Password must contain a minimum of 12 characters, upper, lower, number, and symbol"
+            placeholder="<%= pp.placeholder %>"
+            minlength="<%= pp.minLength %>"
+            pattern="<%= pp.pattern %>"
+            title="<%= pp.title %>"
             autocomplete="off"
           />
           <button
@@ -123,8 +129,10 @@
           <select name="permissions" id="createPermissionsSelect" aria-label="User permissions">
             <option value="user" selected>Standard User</option>
             <option value="agency_admin">Agency Admin</option>
-            <% if (isGlobalAdmin) { %>
+            <% if (isGlobalAdmin || (typeof isMultiAgencyAdmin !== "undefined" && isMultiAgencyAdmin)) { %>
               <option value="multi_agency_admin">Multi-Agency Admin</option>
+            <% } %>
+            <% if (isGlobalAdmin) { %>
               <option value="global_admin">Global Admin</option>
             <% } %>
           </select>
@@ -329,7 +337,10 @@
                   id="pw1"
                   name="newPassword"
                   type="password"
-                  placeholder="New Password"
+                  placeholder="<%= pp.placeholder %>"
+                  minlength="<%= pp.minLength %>"
+                  pattern="<%= pp.pattern %>"
+                  title="<%= pp.title %>"
                   autocomplete="off"
                 />
                 <button
@@ -349,6 +360,9 @@
                   name="confirmPassword"
                   type="password"
                   placeholder="Confirm Password"
+                  minlength="<%= pp.minLength %>"
+                  pattern="<%= pp.pattern %>"
+                  title="<%= pp.title %>"
                   autocomplete="off"
                 />
                 <button
@@ -422,8 +436,10 @@
             <select id="permissionsSelect">
               <option value="user">Standard User</option>
               <option value="agency_admin">Agency Admin</option>
-              <% if (isGlobalAdmin) { %>
+              <% if (isGlobalAdmin || (typeof isMultiAgencyAdmin !== "undefined" && isMultiAgencyAdmin)) { %>
                 <option value="multi_agency_admin">Multi-Agency Admin</option>
+              <% } %>
+              <% if (isGlobalAdmin) { %>
                 <option value="global_admin">Global Admin</option>
               <% } %>
             </select>
@@ -611,7 +627,7 @@ function agenciesForManagedPicker() {
 
 function updateCreateManagedAgenciesVisibility() {
   const perm = String(createPermissionsSelect?.value || "user").trim().toLowerCase();
-  const show = perm === "multi_agency_admin" && IS_GLOBAL_ADMIN;
+  const show = perm === "multi_agency_admin" && CAN_ASSIGN_MULTI_AGENCY_ADMIN;
   if (createManagedAgenciesWrap) {
     createManagedAgenciesWrap.hidden = !show;
     createManagedAgenciesWrap.style.display = show ? "block" : "none";
@@ -687,12 +703,35 @@ function esc(s) {
     .replaceAll("'", "&#39;");
 }
 
-// ----- Password validator -----
-// Allow blank. If filled, must have: 12+ chars, upper, lower, digit, symbol.
+// ----- Password validator (from Settings → Password Policy) -----
+const PASSWORD_POLICY = <%- JSON.stringify((typeof passwordPolicy !== "undefined" && passwordPolicy && passwordPolicy.client) ? passwordPolicy.client : {
+  minLength: 12,
+  requireUppercase: true,
+  uppercaseCount: 1,
+  requireLowercase: true,
+  lowercaseCount: 1,
+  requireNumber: true,
+  numberCount: 1,
+  requireSymbol: true,
+  symbolCount: 1,
+  errorOptional: "Password must be at least 12 characters and include uppercase, lowercase, number, and symbol, or be left blank.",
+  errorRequired: "Password must be at least 12 characters and include uppercase, lowercase, number, and symbol."
+}) %>;
+
+function passwordPolicyCount(pwd, re) {
+  return (String(pwd || "").match(re) || []).length;
+}
+
 function isValidPassword(pwd) {
   if (!pwd) return true;
-  const re = /^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[^A-Za-z0-9]).{12,}$/;
-  return re.test(pwd);
+  const p = String(pwd);
+  const pol = PASSWORD_POLICY || {};
+  if (p.length < (pol.minLength || 12)) return false;
+  if (pol.requireLowercase && passwordPolicyCount(p, /[a-z]/g) < (pol.lowercaseCount || 1)) return false;
+  if (pol.requireUppercase && passwordPolicyCount(p, /[A-Z]/g) < (pol.uppercaseCount || 1)) return false;
+  if (pol.requireNumber && passwordPolicyCount(p, /[0-9]/g) < (pol.numberCount || 1)) return false;
+  if (pol.requireSymbol && passwordPolicyCount(p, /[^A-Za-z0-9]/g) < (pol.symbolCount || 1)) return false;
+  return true;
 }
 
 function isValidBadgeOrUsername(value) {
@@ -970,7 +1009,8 @@ form.onsubmit = async (e) => {
   const pwd = String(payload.password || "");
   if (!isValidPassword(pwd)) {
     setMsg(
-      "Password must be at least 12 characters and include uppercase, lowercase, number, and symbol, or be left blank.",
+      (PASSWORD_POLICY && PASSWORD_POLICY.errorOptional) ||
+        "Password does not meet the configured password policy, or be left blank.",
       false
     );
     return;
@@ -985,7 +1025,7 @@ form.onsubmit = async (e) => {
     payload.manualGroupIds = ids;
   }
 
-  if (payload.permissions === "multi_agency_admin" && IS_GLOBAL_ADMIN) {
+  if (payload.permissions === "multi_agency_admin" && CAN_ASSIGN_MULTI_AGENCY_ADMIN) {
     const home = getCreateHomeSuffix();
     const additional = getCreateManagedSuffixes();
     const allAgencies = !!(createManagedPicker && createManagedPicker.getAllAgencies());
@@ -1001,7 +1041,7 @@ form.onsubmit = async (e) => {
       ? ManagedAgenciesPicker.mergeWithHome([], home)
       : getCreateManagedSuffixesForSave();
     if (allAgencies) payload.allAgencies = true;
-    payload.permissions = "agency_admin";
+    payload.permissions = "multi_agency_admin";
   } else if (payload.permissions === "agency_admin" && canAssignManagedAgencies()) {
     const suffixes = getCreateManagedSuffixesForSave();
     if (suffixes.length) payload.managedAgencySuffixes = suffixes;
@@ -1395,7 +1435,8 @@ function canAssignManagedAgenciesForEdit() {
 
 function permissionsUiFromManagedCount(hasAdmin, managedCount) {
   if (!hasAdmin) return "user";
-  if (IS_GLOBAL_ADMIN && (managedCount > 1 || editManagedAllAgencies)) return "multi_agency_admin";
+  if (editManagedAllAgencies) return "multi_agency_admin";
+  if (CAN_ASSIGN_MULTI_AGENCY_ADMIN && managedCount > 1) return "multi_agency_admin";
   return "agency_admin";
 }
 
@@ -1408,7 +1449,10 @@ function permissionsBackendRole(uiRole) {
 }
 
 function showsEditManagedAgenciesPicker(uiRole) {
-  return IS_GLOBAL_ADMIN && String(uiRole || "").trim().toLowerCase() === "multi_agency_admin";
+  return (
+    CAN_ASSIGN_MULTI_AGENCY_ADMIN &&
+    String(uiRole || "").trim().toLowerCase() === "multi_agency_admin"
+  );
 }
 
 function agenciesForManagedPickerEdit() {
@@ -1443,6 +1487,7 @@ function getEditManagedSuffixesFromContainer() {
 
 async function saveEditManagedAgenciesAuto() {
   if (!selectedUser || editManagedSaveInflight) return;
+  if (isEditingOwnAccount(selectedUser)) return;
   if (!showsEditManagedAgenciesPicker(permissionsSelect?.value)) return;
 
   const home = editManagedHomeSuffix || getHomeSuffixForUser(selectedUser);
@@ -1511,6 +1556,7 @@ function scheduleEditManagedSave() {
 function updateEditManagedAgenciesVisibility() {
   const perm = String(permissionsSelect?.value || "user").trim().toLowerCase();
   const show = showsEditManagedAgenciesPicker(perm);
+  const lockedSelf = isEditingOwnAccount(selectedUser);
   if (editManagedAgenciesWrap) {
     editManagedAgenciesWrap.hidden = !show;
     editManagedAgenciesWrap.style.removeProperty("display");
@@ -1521,6 +1567,31 @@ function updateEditManagedAgenciesVisibility() {
       editManagedPicker.setSelected(editManagedSuffixes, { silent: true });
       editManagedPicker.setAllAgencies(editManagedAllAgencies, { silent: true });
     }
+  }
+  const toggle = editManagedAgenciesWrap?.querySelector?.(".managedAgenciesBarToggle");
+  if (toggle) {
+    toggle.disabled = !!lockedSelf;
+    toggle.title = lockedSelf ? "You cannot change your own permissions." : "";
+  }
+}
+
+function updatePermissionsSelectLock() {
+  if (!permissionsSelect) return;
+  const lockedSelf = isEditingOwnAccount(selectedUser);
+  if (lockedSelf) {
+    permissionsSelect.disabled = true;
+    permissionsSelect.title = "You cannot change your own permissions.";
+    return;
+  }
+  permissionsSelect.title = "";
+  const hasAdmin = userHasAnyAgencyAdminGroup(selectedUser);
+  const abbrOk = !!String(getUserAgencyAbbreviation(selectedUser) || "").trim();
+  if (hasAdmin || abbrOk || IS_GLOBAL_ADMIN) {
+    permissionsSelect.disabled = false;
+  } else {
+    const canUse =
+      IS_GLOBAL_ADMIN && !!permissionsSelect.querySelector('option[value="global_admin"]');
+    permissionsSelect.disabled = !canUse;
   }
 }
 
@@ -1612,7 +1683,17 @@ const USERS_ACTIONS_HIDDEN_PREFIXES = String(USERS_ACTIONS_HIDDEN_PREFIXES_RAW |
 const IS_GLOBAL_ADMIN = <%- JSON.stringify(!!isGlobalAdmin) %>;
 const IS_AGENCY_ADMIN = <%- JSON.stringify(!!isAgencyAdmin) %>;
 const ALLOWED_AGENCY_SUFFIXES = <%- JSON.stringify(allowedAgencySuffixes || []) %>;
+const IS_MULTI_AGENCY_ADMIN = <%- JSON.stringify(!!(typeof isMultiAgencyAdmin !== "undefined" && isMultiAgencyAdmin)) %>;
+const CAN_ASSIGN_MULTI_AGENCY_ADMIN = IS_GLOBAL_ADMIN || IS_MULTI_AGENCY_ADMIN ||
+  (IS_AGENCY_ADMIN && Array.isArray(ALLOWED_AGENCY_SUFFIXES) && ALLOWED_AGENCY_SUFFIXES.length > 1);
+const CURRENT_USERNAME = <%- JSON.stringify(String((authUser && authUser.username) || "").trim().toLowerCase()) %>;
 const DATA_PACKAGE_AVAILABLE = <%- JSON.stringify(!!(typeof dataPackageAvailable !== "undefined" && dataPackageAvailable)) %>;
+
+function isEditingOwnAccount(user) {
+  const me = String(CURRENT_USERNAME || "").trim().toLowerCase();
+  const them = String(user?.username || "").trim().toLowerCase();
+  return !!(me && them && me === them);
+}
 
 // Global admin groups (loaded from settings.json via server render)
 const PORTAL_GLOBAL_ADMIN_GROUPS_RAW = <%- JSON.stringify(
@@ -2236,6 +2317,7 @@ function setEditUserModalLoading(on) {
 
 function closeModal(){
   cancelGroupAutosave({ bumpEpoch: true });
+  if (editManagedPicker) editManagedPicker.close();
   modalOverlay.style.display = "none";
   document.body.classList.remove("noScroll");
   setEditUserModalLoading(false);
@@ -2249,7 +2331,14 @@ function closeModal(){
 
 closeBtn.onclick = closeModal;
 modalOverlay.addEventListener("click", (e) => { if (e.target === modalOverlay) closeModal(); });
-window.addEventListener("keydown", (e) => { if (e.key === "Escape" && modalOverlay.style.display !== "none") closeModal(); });
+window.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || modalOverlay.style.display === "none") return;
+  if (editManagedPicker && document.querySelector(".ma-multiselect-menu.is-open")) {
+    editManagedPicker.close();
+    return;
+  }
+  closeModal();
+});
 
 // Load templates & default groups for a specific agency suffix
 let agencyTemplatesCache = [];
@@ -2999,14 +3088,7 @@ window.editUser = async (userPk) => {
           : 0;
         permissionsSelect.value = permissionsUiFromManagedCount(hasAdmin, managedCount);
       }
-      const abbrOk = !!String(getUserAgencyAbbreviation(selectedUser) || "").trim();
-      if (hasAdmin || abbrOk || IS_GLOBAL_ADMIN) {
-        permissionsSelect.disabled = false;
-      } else {
-        const canUse =
-          IS_GLOBAL_ADMIN && !!permissionsSelect.querySelector('option[value="global_admin"]');
-        permissionsSelect.disabled = !canUse;
-      }
+      updatePermissionsSelectLock();
     }
 
     updateEditManagedAgenciesVisibility();
@@ -3074,8 +3156,9 @@ window.editUser = async (userPk) => {
           const hasGlobal = userHasAnyGroupId(selectedUser, globalIds);
           if (hasGlobal) {
             permissionsSelect.value = "global_admin";
-            permissionsSelect.disabled = false;
           }
+          updatePermissionsSelectLock();
+          updateEditManagedAgenciesVisibility();
         })
         .catch(() => {});
     }
@@ -3145,6 +3228,9 @@ async function applyRoleSelection({ silentSuccess = false } = {}) {
 // ---------- Permissions apply ----------
 async function applyPermissionsSelection({ silentSuccess = false } = {}) {
   if (!selectedUser) return;
+  if (isEditingOwnAccount(selectedUser)) {
+    return { ok: true, skipped: true };
+  }
   if (!permissionsSelect || permissionsSelect.disabled) {
     return { ok: true, skipped: true };
   }
@@ -3711,6 +3797,14 @@ resetPwBtn.onclick = async () => {
   if(pw1.value !== pw2.value) return setMsgEl(actionMsg,"Passwords must match.", false);
   const pw = String(pw1.value || "");
   if (!pw) return setMsgEl(actionMsg,"Password cannot be empty.", false);
+  if (!isValidPassword(pw)) {
+    return setMsgEl(
+      actionMsg,
+      (PASSWORD_POLICY && PASSWORD_POLICY.errorRequired) ||
+        "Password does not meet the configured password policy.",
+      false
+    );
+  }
 
   const res = await fetch(`/api/users/${selectedUser.pk}/reset-password`,{
     method:"POST",

@@ -13,6 +13,8 @@ const settingsSvc = require("./settings.service");
 
 const NEW_DAYS = 14;
 const SCAN_INTERVAL_MS = 5 * 60 * 1000;
+const INSTALL_TIMEOUT_MS = 20 * 60 * 1000;
+const REBUILD_TIMEOUT_MS = 60 * 60 * 1000;
 
 let _jobRunning = false;
 let _cancelRequested = false;
@@ -73,11 +75,23 @@ function pluginMatchKey(s) {
     .replace(/[^a-z0-9]+/g, "");
 }
 
+/** Plugin folder names on disk / in catalog must be simple path segments. */
+function safeDestName(name) {
+  return /^[A-Za-z0-9._-]+$/.test(String(name || ""));
+}
+
 function isHostPluginNoise(dest) {
   const name = String(dest || "")
     .trim()
     .replace(/^.*\//, "");
   if (!name || name === "." || name === ".." || name.startsWith(".")) return true;
+  // Host scan occasionally captures docker/OCI stderr as a "plugin" name when
+  // docker exec fails (e.g. distroless images with no `sh`). Reject anything
+  // that is not a valid dest folder name.
+  if (!safeDestName(name)) return true;
+  if (/oci\s+runtime|exec\s+failed|executable file not found|permission denied/i.test(name)) {
+    return true;
+  }
   const lower = name.toLowerCase();
   if (/^example\.(ts|js|tsx|jsx)$/.test(lower)) return true;
   if (/\.(md|markdown|txt|rst)$/.test(lower)) return true;
@@ -440,6 +454,21 @@ function isNewPlugin(plugin, now = Date.now()) {
   return false;
 }
 
+function catalogAliasKeys(plugin) {
+  const aliases = [
+    plugin && plugin.web && plugin.web.dest,
+    plugin && plugin.id,
+    repoBasename(plugin && plugin.repo),
+    ...((plugin && plugin.detectAliases) || []),
+  ]
+    .map((x) => String(x || "").toLowerCase())
+    .filter(Boolean);
+  return {
+    aliases,
+    keys: aliases.map(pluginMatchKey).filter((k) => k.length >= 4),
+  };
+}
+
 function matchCatalogPlugin(hostPlugin, catalogPlugins) {
   const dest = String(hostPlugin.dest || "").toLowerCase();
   const destKey = pluginMatchKey(hostPlugin.dest);
@@ -450,27 +479,42 @@ function matchCatalogPlugin(hostPlugin, catalogPlugins) {
     .toLowerCase();
   const remoteKey = pluginMatchKey(repoBasename(hostPlugin.gitRemote));
   const routeFiles = Array.isArray(hostPlugin.routeFiles) ? hostPlugin.routeFiles : [];
+  const detectHits = Array.isArray(hostPlugin.detectHits) ? hostPlugin.detectHits : [];
+  const hitDestKeys = new Set();
+  for (const hit of detectHits) {
+    const fromHit = destFromPluginPath(hit);
+    if (fromHit) hitDestKeys.add(pluginMatchKey(fromHit));
+  }
 
   for (const p of catalogPlugins) {
-    if ((p.detect || []).some((d) => hostPlugin.detectHits && hostPlugin.detectHits.includes(d))) {
-      return p;
+    if ((p.detect || []).some((d) => detectHits.includes(d))) return p;
+    for (const hit of detectHits) {
+      for (const cand of pluginDetectPaths(p)) {
+        if (layoutDetectAlts(cand).includes(hit)) return p;
+      }
     }
   }
   for (const p of catalogPlugins) {
-    const aliases = [p.web.dest, p.id, repoBasename(p.repo), ...(p.detectAliases || [])]
-      .map((x) => String(x || "").toLowerCase())
-      .filter(Boolean);
+    const want = pluginMatchKey(p.web && p.web.dest);
+    if (want && hitDestKeys.has(want)) return p;
+    if (want && destKey && want === destKey) return p;
+  }
+  for (const p of catalogPlugins) {
+    const { aliases, keys } = catalogAliasKeys(p);
     if (aliases.includes(dest)) return p;
-    const aliasKeys = aliases.map(pluginMatchKey).filter((k) => k.length >= 4);
-    if (destKey && destKey.length >= 4 && aliasKeys.includes(destKey)) return p;
+    if (destKey && destKey.length >= 4 && keys.includes(destKey)) return p;
   }
   for (const p of catalogPlugins) {
-    if (pkgName && (pkgName === p.id.toLowerCase() || pkgName === repoBasename(p.repo).toLowerCase())) {
+    const { keys } = catalogAliasKeys(p);
+    if (
+      pkgName &&
+      (pkgName === p.id.toLowerCase() ||
+        pkgName === String(p.web.dest || "").toLowerCase() ||
+        pkgName === repoBasename(p.repo).toLowerCase())
+    ) {
       return p;
     }
-    const idKey = pluginMatchKey(p.id);
-    const repoKey = pluginMatchKey(repoBasename(p.repo));
-    if (pkgKey && pkgKey.length >= 4 && (pkgKey === idKey || pkgKey === repoKey)) return p;
+    if (pkgKey && pkgKey.length >= 4 && keys.includes(pkgKey)) return p;
   }
   for (const p of catalogPlugins) {
     const want = String(p.repo || "")
@@ -479,7 +523,8 @@ function matchCatalogPlugin(hostPlugin, catalogPlugins) {
     if (remote && want && (remote === want || remote.endsWith("/" + repoBasename(p.repo).toLowerCase()))) {
       return p;
     }
-    if (remoteKey && remoteKey.length >= 4 && remoteKey === pluginMatchKey(p.id)) return p;
+    const { keys } = catalogAliasKeys(p);
+    if (remoteKey && remoteKey.length >= 4 && keys.includes(remoteKey)) return p;
   }
   for (const p of catalogPlugins) {
     if (!p.routes) continue;
@@ -567,6 +612,370 @@ async function ensureCheckoutPath() {
   };
 }
 
+function pluginLayoutBash() {
+  return [
+    "cloudtak_web_rel() {",
+    '  local ct="$1"',
+    '  if [ -f "$ct/app/package.json" ] && [ -d "$ct/app/src" ]; then',
+    "    printf '%s' app",
+    "    return 0",
+    "  fi",
+    '  if [ -d "$ct/api/web/src" ] || [ -d "$ct/api/web/plugins" ]; then',
+    "    printf '%s' api/web",
+    "    return 0",
+    "  fi",
+    '  if [ -f "$ct/app/package.json" ] || [ -d "$ct/app/plugins" ]; then',
+    "    printf '%s' app",
+    "    return 0",
+    "  fi",
+    "  printf '%s' api/web",
+    "}",
+  ].join("\n");
+}
+
+function marketplaceSudoPassword() {
+  return String(getString("TAK_SSH_SUDO_PASSWORD", "") || "").trim();
+}
+
+/**
+ * Elevate helpers for CloudTAK marketplace.
+ * After root→non-root SSH, plugin trees are often root-owned. Elevate via:
+ *   1) bootstrap marketplace sudoers using TAK Portal repair-script NOPASSWD hook
+ *   2) sudo -n / sudo -S
+ *   3) docker / sudo docker as uid 0
+ */
+function pluginPrivilegeBash() {
+  const sudoPass = marketplaceSudoPassword();
+  return `
+CTAK_SUDO_PASS=${ssh.shellQuote(sudoPass)}
+CTAK_DOCKER_BIN=""
+
+cloudtak_owner() {
+  stat -c '%U' "$CT" 2>/dev/null || stat -f '%Su' "$CT" 2>/dev/null || true
+}
+
+resolve_docker_bin() {
+  if [ -n "$CTAK_DOCKER_BIN" ]; then return 0; fi
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "elevate: docker binary not found" >&2
+    return 1
+  fi
+  # Probe the real binary (command bypasses a shell function named docker).
+  # sudo runs /usr/bin/docker from secure_path — not the shell function.
+  if command docker info >/dev/null 2>&1; then
+    CTAK_DOCKER_BIN="docker"
+    return 0
+  fi
+  if sudo -n docker info >/dev/null 2>&1; then
+    echo "elevate: using sudo -n docker"
+    CTAK_DOCKER_BIN="sudo -n docker"
+    return 0
+  fi
+  if [ -n "\${CTAK_SUDO_PASS:-}" ]; then
+    if printf '%s\\n' "$CTAK_SUDO_PASS" | sudo -S -p '' docker info >/dev/null 2>&1; then
+      echo "elevate: using password sudo docker"
+      CTAK_DOCKER_BIN="sudo -S -p '' docker"
+      return 0
+    fi
+  fi
+  echo "elevate: docker not usable by $(id -un) — add user to docker group or enable sudo docker" >&2
+  return 1
+}
+
+docker_cli() {
+  resolve_docker_bin || return 1
+  if [ "$CTAK_DOCKER_BIN" = "sudo -S -p '' docker" ]; then
+    printf '%s\\n' "$CTAK_SUDO_PASS" | sudo -S -p '' docker "$@"
+  elif [ "$CTAK_DOCKER_BIN" = "sudo -n docker" ]; then
+    sudo -n docker "$@"
+  else
+    command docker "$@"
+  fi
+}
+
+# Shadow docker so marketplace compose/run/align paths use sudo when the SSH
+# user can sudo but is not in the docker group (common for takwerx).
+docker() {
+  docker_cli "$@"
+}
+
+elevate_via_sudo() {
+  local cmd="$1"
+  if sudo -n true >/dev/null 2>&1; then
+    echo "elevate: sudo -n"
+    sudo -n bash -lc "$cmd"
+    return $?
+  fi
+  if [ -n "\${CTAK_SUDO_PASS:-}" ]; then
+    if printf '%s\\n' "$CTAK_SUDO_PASS" | sudo -S -p '' true >/dev/null 2>&1; then
+      echo "elevate: sudo -S stored password"
+      printf '%s\\n' "$CTAK_SUDO_PASS" | sudo -S -p '' bash -lc "$cmd"
+      return $?
+    fi
+    echo "elevate: stored sudo password rejected" >&2
+  else
+    echo "elevate: sudo -n unavailable and no TAK_SSH_SUDO_PASSWORD stored" >&2
+  fi
+  return 1
+}
+
+elevate_via_docker() {
+  local cmd="$1"
+  resolve_docker_bin || return 1
+  local img wrapper ec
+  img=$(docker_cli images -q 2>/dev/null | head -n 1 || true)
+  if [ -z "$img" ]; then
+    echo "elevate: no local images; pulling alpine:3.20"
+    docker_cli pull alpine:3.20 || return 1
+    img="alpine:3.20"
+  else
+    img=$(docker_cli images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | awk 'NF && index($0,"none")==0 {print; exit}' || true)
+    if [ -z "$img" ]; then img=$(docker_cli images -q 2>/dev/null | head -n 1); fi
+  fi
+  wrapper=$(mktemp /tmp/ctak-elevate.XXXXXX)
+  {
+    echo '#!/bin/sh'
+    echo 'set -e'
+    printf '%s\\n' "$cmd"
+  } > "$wrapper"
+  chmod 755 "$wrapper"
+  echo "elevate: docker run -u 0 image=$img"
+  set +e
+  # Mount /tmp so elevate_run can see marketplace align/patch scripts written there.
+  docker_cli run --rm -u 0 \\
+    -v "$CT:$CT:rw" \\
+    -v "$HOME:$HOME:rw" \\
+    -v /tmp:/tmp:rw \\
+    -v /etc/sudoers.d:/etc/sudoers.d:rw \\
+    -v "$wrapper:$wrapper:ro" \\
+    -e HOME="$HOME" \\
+    --entrypoint /bin/sh \\
+    "$img" \\
+    "$wrapper"
+  ec=$?
+  set -e
+  rm -f "$wrapper" || true
+  if [ "$ec" -ne 0 ]; then
+    echo "elevate: docker run failed exit $ec" >&2
+  fi
+  return "$ec"
+}
+
+bootstrap_marketplace_sudoers_via_tak_portal() {
+  if sudo -n true >/dev/null 2>&1; then return 0; fi
+  local me repair bootstrap ok tee_try bash_try
+  me=$(id -un)
+  repair="/opt/tak/utils/tak-portal-repair-certs.sh"
+  echo "elevate: bootstrapping marketplace sudoers via TAK Portal repair-script NOPASSWD hook"
+  bootstrap=$(mktemp /tmp/ctak-sudoers-boot.XXXXXX)
+  if command -v python3 >/dev/null 2>&1; then
+    ME="$me" REPAIR="$repair" python3 - <<'PY' > "$bootstrap"
+import os
+me = os.environ["ME"]
+repair = os.environ["REPAIR"]
+print("#!/bin/bash")
+print("set -euo pipefail")
+print("umask 077")
+print("cat > /etc/sudoers.d/tak-portal-marketplace <<'SUDO'")
+print("Defaults:%s !requiretty" % me)
+print("%s ALL=NOPASSWD: ALL" % me)
+print("SUDO")
+print("chmod 440 /etc/sudoers.d/tak-portal-marketplace")
+print("command -v visudo >/dev/null 2>&1 && visudo -cf /etc/sudoers.d/tak-portal-marketplace || true")
+print("cat > %s <<'REPAIR'" % repair)
+print("#!/bin/bash")
+print("set -euo pipefail")
+print("CERTS=/opt/tak/certs")
+print('mkdir -p "$CERTS/files"')
+print('chmod 644 "$CERTS/cert-metadata.sh" 2>/dev/null || true')
+print('for f in "$CERTS"/*.sh; do')
+print('  [ -f "$f" ] || continue')
+print('  bn=$(basename "$f")')
+print('  if [ "$bn" = "cert-metadata.sh" ]; then chmod 644 "$f"; else chmod 755 "$f"; fi')
+print("done")
+print('chown -R tak:tak "$CERTS"')
+print("REPAIR")
+print("chmod 755 %s" % repair)
+PY
+  else
+    {
+      echo '#!/bin/bash'
+      echo 'set -euo pipefail'
+      echo 'umask 077'
+      printf 'cat > /etc/sudoers.d/tak-portal-marketplace <<SUDO\\n'
+      printf 'Defaults:%s !requiretty\\n' "$me"
+      printf '%s ALL=NOPASSWD: ALL\\n' "$me"
+      printf 'SUDO\\n'
+      echo 'chmod 440 /etc/sudoers.d/tak-portal-marketplace'
+      echo "printf '%s\\n' '#!/bin/bash' 'chown -R tak:tak /opt/tak/certs 2>/dev/null || true' > '$repair'"
+      echo "chmod 755 '$repair'"
+    } > "$bootstrap"
+  fi
+  chmod 700 "$bootstrap"
+  ok=0
+  for tee_try in /usr/bin/tee /bin/tee; do
+    [ -x "$tee_try" ] || continue
+    if sudo -n "$tee_try" "$repair" < "$bootstrap" >/dev/null 2>&1; then
+      ok=1
+      break
+    fi
+  done
+  if [ "$ok" -ne 1 ]; then
+    echo "elevate: sudo tee $repair failed — is TAK Portal SSH sudoers installed?" >&2
+    rm -f "$bootstrap"
+    return 1
+  fi
+  ok=0
+  for bash_try in /usr/bin/bash /bin/bash; do
+    [ -x "$bash_try" ] || continue
+    if sudo -n "$bash_try" "$repair"; then
+      ok=1
+      break
+    fi
+  done
+  rm -f "$bootstrap"
+  if [ "$ok" -ne 1 ]; then
+    echo "elevate: sudo bash $repair bootstrap failed" >&2
+    return 1
+  fi
+  if sudo -n true >/dev/null 2>&1; then
+    echo "elevate: marketplace sudoers active via TAK Portal hook"
+    return 0
+  fi
+  echo "elevate: marketplace sudoers installed but sudo -n still failed" >&2
+  return 1
+}
+
+ensure_marketplace_sudoers() {
+  if sudo -n true >/dev/null 2>&1; then return 0; fi
+  local me
+  me=$(id -un)
+  echo "elevate: ensuring passwordless sudo for $me"
+  if bootstrap_marketplace_sudoers_via_tak_portal; then return 0; fi
+  elevate_via_docker "printf '%s\\n' \"Defaults:\${me} !requiretty\" \"\${me} ALL=NOPASSWD: ALL\" > /etc/sudoers.d/tak-portal-marketplace && chmod 440 /etc/sudoers.d/tak-portal-marketplace" || true
+  if sudo -n true >/dev/null 2>&1; then
+    echo "elevate: marketplace sudoers active via docker"
+    return 0
+  fi
+  return 1
+}
+
+elevate_run() {
+  local cmd="$1"
+  local owner
+  owner=$(cloudtak_owner)
+  if ! sudo -n true >/dev/null 2>&1; then
+    ensure_marketplace_sudoers || true
+  fi
+  if [ -n "$owner" ] && [ "$(id -un)" != "$owner" ] && sudo -n -u "$owner" true >/dev/null 2>&1; then
+    echo "elevate: as checkout owner $owner"
+    sudo -n -u "$owner" bash -lc "$cmd" && return 0
+  fi
+  if elevate_via_sudo "$cmd"; then return 0; fi
+  if elevate_via_docker "$cmd"; then
+    ensure_marketplace_sudoers || true
+    return 0
+  fi
+  echo "elevate: all methods failed for: $cmd" >&2
+  return 1
+}
+
+reclaim_cloudtak_plugin_paths() {
+  local me grp
+  me=$(id -un)
+  grp=$(id -gn)
+  echo "Reclaiming CloudTAK plugin paths for $me — fixes root-owned leftovers from prior SSH users"
+  ensure_marketplace_sudoers || true
+  # Include cloudtak-marketplace-plugins (runtime persist) and plugin compose overlays —
+  # prior root SSH installs leave those root-owned and break takwerx rm/cp.
+  if ! elevate_run "mkdir -p '$CT/app/plugins' '$CT/api/web/plugins' '$CT/app/src/plugins' '$CT/api/web/src/plugins' '$CT/api/stateless/routes' '$CT/cloudtak-marketplace-plugins' '$HOME/.cache/cloudtak-marketplace' && chown -R '$me:$grp' '$CT/app/plugins' '$CT/api/web/plugins' '$CT/app/src/plugins' '$CT/api/web/src/plugins' '$CT/api/stateless/routes' '$CT/cloudtak-marketplace-plugins' '$HOME/.cache/cloudtak-marketplace' && chmod -R u+rwX '$CT/app/plugins' '$CT/api/web/plugins' '$CT/app/src/plugins' '$CT/api/web/src/plugins' '$CT/api/stateless/routes' '$CT/cloudtak-marketplace-plugins' '$HOME/.cache/cloudtak-marketplace' && { chown '$me:$grp' '$CT'/docker-compose.plugin-*.yml '$CT'/docker-compose.marketplace.yml 2>/dev/null || true; }"; then
+    echo "WARNING: could not reclaim plugin paths; continuing and elevating per-operation" >&2
+    return 0
+  fi
+  echo "Reclaim complete"
+  return 0
+}
+`.trim();
+}
+
+function pluginRemoveBash() {
+  return [
+    "remove_plugin_tree() {",
+    '  local target="$1"',
+    '  [ -n "$target" ] || return 0',
+    '  if [ ! -e "$target" ] && [ ! -L "$target" ]; then return 0; fi',
+    '  case "$target" in',
+    '    "$CT/app/plugins/$DEST"|"$CT/api/web/plugins/$DEST"|"$CT/app/src/plugins/$DEST"|"$CT/api/web/src/plugins/$DEST") ;;',
+    '    "$CT/api/stateless/routes/"*.ts) ;;',
+    '    *) echo "Refusing to remove $target" >&2; return 1 ;;',
+    "  esac",
+    '  if rm -rf "$target" 2>/dev/null && [ ! -e "$target" ] && [ ! -L "$target" ]; then return 0; fi',
+    '  if [ ! -e "$target" ] && [ ! -L "$target" ]; then return 0; fi',
+    '  echo "Removing $target with elevated privileges (not writable by $(id -un))"',
+    "  if declare -F elevate_run >/dev/null 2>&1; then",
+    '    elevate_run "rm -rf $(printf \'%q\' "$target")" || true',
+    "  fi",
+    '  if [ -e "$target" ] || [ -L "$target" ]; then',
+    '    echo "ERROR: cannot remove $target as $(id -un)." >&2',
+    "    return 1",
+    "  fi",
+    "}",
+  ].join("\n");
+}
+
+function destFromPluginPath(rel) {
+  const s = String(rel || "").replace(/\\/g, "/");
+  const m = s.match(/(?:^|\/)plugins\/([^/]+)\//);
+  return m ? m[1] : "";
+}
+
+function layoutDetectAlts(rel) {
+  const pathRel = String(rel || "").replace(/\\/g, "/").replace(/^\/+/, "");
+  if (!pathRel || !/^[A-Za-z0-9._/-]+$/.test(pathRel)) return [];
+  const alts = [pathRel];
+  if (pathRel.startsWith("api/web/plugins/")) alts.push("app/plugins/" + pathRel.slice("api/web/plugins/".length));
+  else if (pathRel.startsWith("app/plugins/")) alts.push("api/web/plugins/" + pathRel.slice("app/plugins/".length));
+  else if (pathRel.startsWith("api/web/src/plugins/")) alts.push("app/src/plugins/" + pathRel.slice("api/web/src/plugins/".length));
+  else if (pathRel.startsWith("app/src/plugins/")) alts.push("api/web/src/plugins/" + pathRel.slice("app/src/plugins/".length));
+  return [...new Set(alts)];
+}
+
+function pluginDetectPaths(plugin) {
+  const paths = new Set();
+  for (const raw of (plugin && plugin.detect) || []) {
+    const rel = String(raw || "").replace(/\\/g, "/").replace(/^\/+/, "");
+    if (/^[A-Za-z0-9._/-]+$/.test(rel)) paths.add(rel);
+  }
+  const dest = String((plugin && plugin.web && plugin.web.dest) || "").trim();
+  if (dest && /^[A-Za-z0-9._-]+$/.test(dest)) {
+    for (const root of ["app/plugins", "api/web/plugins", "app/src/plugins", "api/web/src/plugins"]) {
+      paths.add(root + "/" + dest + "/index.ts");
+      paths.add(root + "/" + dest + "/index.js");
+      paths.add(root + "/" + dest + "/plugin/index.ts");
+      paths.add(root + "/" + dest + "/src/index.ts");
+    }
+  }
+  return [...paths];
+}
+
+function detectProbeLines(catalogPlugins) {
+  const lines = [];
+  const seen = new Set();
+  for (const plugin of catalogPlugins || []) {
+    const dest = String((plugin && plugin.web && plugin.web.dest) || "").trim();
+    if (dest && !/^[A-Za-z0-9._-]+$/.test(dest)) continue;
+    for (const rel of pluginDetectPaths(plugin)) {
+      for (const alt of layoutDetectAlts(rel)) {
+        if (seen.has(alt)) continue;
+        seen.add(alt);
+        const destPrintf = dest ? `printf 'DETECT_DEST %s\\n' "${dest}"; ` : "";
+        lines.push(`if [ -e "$CT/${alt}" ]; then printf 'DETECT_HIT %s\\n' "${alt}"; ${destPrintf}fi`);
+      }
+    }
+  }
+  return lines.join("\n");
+}
+
 function scanRemoteScript(ctPath, catalogPlugins) {
   const ct = String(ctPath || "").replace(/'/g, "");
   return `
@@ -621,8 +1030,10 @@ scan_plugin_dir() {
     emit_plugin "$p"
   done
 }
+scan_plugin_dir "$CT/app/plugins"
 scan_plugin_dir "$CT/api/web/plugins"
 scan_plugin_dir "$CT/api/web/src/plugins"
+scan_plugin_dir "$CT/app/src/plugins"
 if [ -d "$CT/api/stateless/routes" ]; then
   for f in "$CT/api/stateless/routes"/*.ts; do
     [ -f "$f" ] || continue
@@ -637,21 +1048,23 @@ for f in "$CT/docker-compose.yml" "$CT/docker-compose.yaml" "$CT/docker-compose.
   fi
 done
 printf 'WEB_PLUGINS %s\\n' "$web_plugins"
-${(catalogPlugins || [])
-  .flatMap((p) => p.detect || [])
-  .filter((d) => /^[A-Za-z0-9._/-]+$/.test(String(d)))
-  .map((d) => `if [ -e "$CT/${String(d).replace(/"/g, "")}" ]; then printf 'DETECT_HIT %s\\n' "${String(d).replace(/"/g, "")}"; fi`)
-  .join("\n")}
+${detectProbeLines(catalogPlugins)}
 if command -v docker >/dev/null 2>&1; then
   while IFS= read -r c; do
     [ -n "$c" ] || continue
     echo "$c" | grep -qiE 'cloudtak|takwerx' || continue
-    for inner in web/plugins /home/node/web/plugins /usr/src/app/web/plugins /opt/app/web/plugins api/web/plugins; do
-      listing=$(docker exec "$c" sh -c "ls -1 $inner 2>/dev/null" || true)
+    for inner in app/plugins /home/etl/app/plugins web/plugins /home/node/web/plugins /usr/src/app/web/plugins /opt/app/web/plugins api/web/plugins; do
+      # Capture only stdout; docker exec failures (no sh in distroless images) go to stderr.
+      # Also drop known runtime error text if a runtime still writes it on stdout.
+      listing=$(docker exec "$c" sh -c "ls -1 $inner 2>/dev/null" 2>/dev/null || true)
       [ -n "$listing" ] || continue
+      echo "$listing" | grep -qiE 'OCI runtime|exec failed|executable file not found|no such file' && continue
       printf 'CONTAINER %s dir=%s\\n' "$c" "$inner"
       echo "$listing" | while IFS= read -r name; do
         [ -n "$name" ] || continue
+        case "$name" in
+          .|..|.[!.]*|*[!A-Za-z0-9._-]*) continue ;;
+        esac
         case "$name" in
           example.ts|example.js|README.md|readme.md|README|LICENSE|.gitkeep|.DS_Store) continue ;;
         esac
@@ -721,16 +1134,20 @@ function parseScanStdout(stdout, catalogPlugins) {
       });
     } else if (t.startsWith("DETECT_HIT ")) {
       const hit = t.slice(11).trim();
-      const destFromDetect = String(hit).includes("plugins/")
-        ? String(hit).split("plugins/")[1].split("/")[0]
-        : "";
+      const destFromDetect = destFromPluginPath(hit);
       if (destFromDetect) {
         pushPlugin({ dest: destFromDetect, kind: "detect", hasIndex: true });
-        const row = plugins.find((p) => p.dest === destFromDetect);
+        const row = plugins.find((p) => p.dest === destFromDetect || pluginMatchKey(p.dest) === pluginMatchKey(destFromDetect));
         if (row) {
           row.detectHits = row.detectHits || [];
           if (!row.detectHits.includes(hit)) row.detectHits.push(hit);
+          row.hasIndex = true;
         }
+      }
+    } else if (t.startsWith("DETECT_DEST ")) {
+      const destFromDetect = t.slice(12).trim();
+      if (destFromDetect && !isHostPluginNoise(destFromDetect)) {
+        pushPlugin({ dest: destFromDetect, kind: "detect", hasIndex: true });
       }
     } else if (t.startsWith("ROUTE ")) {
       routeFiles.push(t.slice(6).trim());
@@ -740,20 +1157,18 @@ function parseScanStdout(stdout, catalogPlugins) {
   }
   for (const p of plugins) p.routeFiles = routeFiles;
 
-  const detectHitsByDest = {};
-  for (const cat of catalogPlugins) {
-    for (const d of cat.detect || []) {
-      const destFromDetect = String(d).includes("plugins/")
-        ? String(d).split("plugins/")[1].split("/")[0]
-        : "";
-      if (destFromDetect) {
-        detectHitsByDest[destFromDetect] = detectHitsByDest[destFromDetect] || [];
-        detectHitsByDest[destFromDetect].push(d);
+  // Attach catalog detect paths only when the host already proved that dest exists.
+  for (const p of plugins) {
+    const hits = Array.isArray(p.detectHits) ? p.detectHits.slice() : [];
+    for (const cat of catalogPlugins || []) {
+      if (pluginMatchKey(cat.web && cat.web.dest) !== pluginMatchKey(p.dest) && pluginMatchKey(cat.id) !== pluginMatchKey(p.dest)) {
+        continue;
+      }
+      for (const d of cat.detect || []) {
+        if (!hits.includes(d)) hits.push(d);
       }
     }
-  }
-  for (const p of plugins) {
-    p.detectHits = [...new Set([...(p.detectHits || []), ...(detectHitsByDest[p.dest] || [])])];
+    p.detectHits = [...new Set(hits)];
   }
 
   const webUrls = [];
@@ -851,6 +1266,29 @@ function cloudtakPublicHost() {
   }
 }
 
+async function ensureCaddySharesCloudtakNetwork(probe, actions) {
+  const upstreamNames = caddyMod.containerUpstreamsFromSnippets(
+    (actions || []).map((action) => action && action.snippet)
+  );
+  if (!upstreamNames.length && String((probe && probe.via) || "") !== "docker") {
+    return { ok: true, skipped: true, message: "" };
+  }
+  const result = await ssh.runCommand(
+    `bash -lc ${ssh.shellQuote(
+      caddyMod.ensureSharedNetworkScript({
+        caddyContainer: (probe && probe.container) || "",
+        upstreamNames,
+      })
+    )}`,
+    45000
+  );
+  const parsed = caddyMod.parseNetworkResult(`${result.stdout || ""}\n${result.stderr || ""}`);
+  if (!result.ok && !parsed.ok) {
+    return { ok: false, skipped: false, message: parsed.message || result.message || "Network join failed." };
+  }
+  return parsed;
+}
+
 async function deployPluginCaddy(pluginId) {
   const catalog = loadCatalog();
   const plugin = catalog.plugins.find((p) => p.id === pluginId);
@@ -873,29 +1311,52 @@ async function deployPluginCaddy(pluginId) {
     refreshUiSnapshot();
     return { ok: false, message: edited.message };
   }
-  if (!edited.changed) {
-    saveCaddyCache({ ...probe, applied: appliedNow });
-    refreshUiSnapshot();
-    return { ok: true, changed: false, message: "Caddy already has this plugin's routes." };
+  let caddyChanged = false;
+  if (edited.changed) {
+    const write = await ssh.runCommand(
+      `bash -lc ${ssh.shellQuote(
+        caddyMod.applyScript({
+          b64: Buffer.from(edited.text, "utf8").toString("base64"),
+          hostPath: probe.hostPath,
+          via: probe.via,
+          validateCmd: probe.validateCmd,
+          reloadCmd: probe.reloadCmd,
+        })
+      )}`,
+      60000
+    );
+    if (!write.ok || !/APPLY_OK/.test(write.stdout || "")) {
+      return { ok: false, message: write.message || "Caddy update failed." };
+    }
+    caddyChanged = true;
   }
-  const write = await ssh.runCommand(
-    `bash -lc ${ssh.shellQuote(
-      caddyMod.applyScript({
-        b64: Buffer.from(edited.text, "utf8").toString("base64"),
-        hostPath: probe.hostPath,
-        via: probe.via,
-        validateCmd: probe.validateCmd,
-        reloadCmd: probe.reloadCmd,
-      })
-    )}`,
-    60000
-  );
-  if (!write.ok || !/APPLY_OK/.test(write.stdout || "")) {
-    return { ok: false, message: write.message || "Caddy update failed." };
-  }
+  const network = await ensureCaddySharesCloudtakNetwork(probe, actions);
   saveCaddyCache({ ...probe, applied: appliedNow });
   refreshUiSnapshot();
-  return { ok: true, changed: true, message: "Updated the CloudTAK Caddy site and reloaded Caddy." };
+  if (!network.ok) {
+    return {
+      ok: false,
+      changed: caddyChanged,
+      message: caddyChanged
+        ? `Updated Caddy routes, but ${network.message}`
+        : network.message,
+    };
+  }
+  const parts = [];
+  if (caddyChanged) parts.push("Updated the CloudTAK Caddy site and reloaded Caddy");
+  else parts.push("Caddy already has this plugin's routes");
+  if (network.network && !network.skipped) {
+    parts.push(
+      network.status === "already"
+        ? `Caddy already on network ${network.network}`
+        : `joined Caddy to CloudTAK network ${network.network}`
+    );
+  }
+  return {
+    ok: true,
+    changed: caddyChanged || network.status === "connected",
+    message: `${parts.join("; ")}.`,
+  };
 }
 
 async function scanHost() {
@@ -1125,9 +1586,23 @@ function buildUiPlugins(options = {}) {
   );
   const now = Date.now();
 
+  const scanHitForCatalog = (p) => {
+    const byIdHit = scanPlugins.find((s) => s.catalogId === p.id);
+    if (byIdHit) return byIdHit;
+    const destKey = pluginMatchKey(p.web && p.web.dest);
+    const idKey = pluginMatchKey(p.id);
+    return (
+      scanPlugins.find((s) => {
+        if (s.catalogId && s.catalogId !== p.id) return false;
+        const sk = pluginMatchKey(s.dest);
+        return !!sk && (sk === destKey || sk === idKey);
+      }) || null
+    );
+  };
+
   const byId = new Map();
   for (const p of catalog.plugins) {
-    const scanHit = scanPlugins.find((s) => s.catalogId === p.id);
+    const scanHit = scanHitForCatalog(p);
     const rec = installedRec.plugins[p.id];
     const errorMessage = pluginErrorMessage(installedRec, p.id, p.web.dest);
     const installed = !!(scanHit || rec);
@@ -1191,6 +1666,23 @@ function buildUiPlugins(options = {}) {
   for (const s of scanPlugins) {
     if (s.catalogId && byId.has(s.catalogId)) continue;
     if (!s.dest || destListed(s.dest)) continue;
+    const matched = matchCatalogPlugin(
+      { dest: s.dest, gitRemote: s.gitRemote || "", detectHits: [] },
+      catalog.plugins
+    );
+    if (matched && byId.has(matched.id)) {
+      const row = byId.get(matched.id);
+      if (!row.scan) {
+        byId.set(matched.id, {
+          ...row,
+          installed: true,
+          isNew: false,
+          origin: s.origin || row.origin || "host",
+          scan: { ...s, catalogId: matched.id },
+        });
+      }
+      continue;
+    }
     const id = s.catalogId || `unknown:${s.dest}`;
     byId.set(id, hostOnlyPlugin({ id, dest: s.dest, repo: s.gitRemote || "", scan: s }));
   }
@@ -1552,10 +2044,6 @@ function pluginById(id) {
   return loadCatalog().plugins.find((p) => p.id === id) || null;
 }
 
-function safeDestName(name) {
-  return /^[A-Za-z0-9._-]+$/.test(String(name || ""));
-}
-
 function normalizeInstallScript(script) {
   const raw = String(script || "").trim();
   if (!raw) return "";
@@ -1772,6 +2260,81 @@ function pluginCspBash() {
     "  fi",
     '  if [ "$remove_only" = "1" ] && [ "$had" = "0" ]; then return 0; fi',
     '  if [ "$remove_only" != "1" ] && [ ! -s "$spec_file" ] && [ "$had" = "0" ]; then return 0; fi',
+    "  sync_csp_override() {",
+    '    local auto="$STACK/docker-compose.override.yml"',
+    '    if [ -f "$OVERRIDE" ]; then',
+    '      if [ -f "$auto" ] && ! grep -q "Managed by TAK Portal" "$auto"; then',
+    '        echo "Leaving existing docker-compose.override.yml in place"',
+    "        return 0",
+    "      fi",
+    '      cp "$OVERRIDE" "$auto"',
+    '      echo "Wrote docker-compose.override.yml so ./cloudtak.sh update keeps plugin external sources"',
+    "      return 0",
+    "    fi",
+    '    if [ -f "$auto" ] && grep -q "Managed by TAK Portal" "$auto"; then',
+    '      rm -f "$auto"',
+    '      echo "Removed marketplace docker-compose.override.yml"',
+    "    fi",
+    "    return 0",
+    "  }",
+    "  pin_csp_compose_file() {",
+    '    local envf="$STACK/.env" extra="docker-compose.marketplace.yml"',
+    '    local current="" rest',
+    '    touch "$envf"',
+    '    current=$(grep -E "^[[:space:]]*COMPOSE_FILE=" "$envf" | tail -n 1 | cut -d= -f2- || true)',
+    '    current=${current%\\"}',
+    '    current=${current#\\"}',
+    "    current=\${current%\\'}",
+    "    current=\${current#\\'}",
+    '    if [ -f "$OVERRIDE" ]; then',
+    "      if [ -n \"$current\" ] && printf '%s\\n' \"$current\" | tr ':' '\\n' | grep -Fxq \"$extra\"; then",
+    '        echo "COMPOSE_FILE already loads the marketplace CSP overlay"',
+    "        return 0",
+    "      fi",
+    '      if [ -z "$current" ]; then',
+    '        current="$CF"',
+    '        if [ -f "$STACK/docker-compose.override.yml" ]; then current="$current:docker-compose.override.yml"; fi',
+    '        if [ -f "$STACK/compose.override.yml" ]; then current="$current:compose.override.yml"; fi',
+    "      fi",
+    '      current="$current:$extra"',
+    "      if grep -qE '^[[:space:]]*COMPOSE_FILE=' \"$envf\"; then",
+    "        awk -v val=\"$current\" '",
+    "          BEGIN { done=0 }",
+    "          /^[[:space:]]*COMPOSE_FILE=/ { if (!done) { print \"COMPOSE_FILE=\" val; done=1 } next }",
+    "          { print }",
+    "          END { if (!done) print \"COMPOSE_FILE=\" val }",
+    "' \"$envf\" > \"$envf.ctak-pin\" && mv \"$envf.ctak-pin\" \"$envf\"",
+    "      else",
+    "        printf '\\n%s\\n%s\\n' '# TAK Portal marketplace: keep NGINX_CSP_* when running docker compose without -f (./cloudtak.sh update).' \"COMPOSE_FILE=$current\" >> \"$envf\"",
+    "      fi",
+    '      echo "Pinned COMPOSE_FILE in .env so ./cloudtak.sh update keeps plugin external sources"',
+    "      return 0",
+    "    fi",
+    '    [ -n "$current" ] || return 0',
+    "    rest=$(printf '%s\\n' \"$current\" | tr ':' '\\n' | while IFS= read -r item; do",
+    '      [ -n "$item" ] || continue',
+    '      [ "$item" = "$extra" ] && continue',
+    '      [ -f "$STACK/$item" ] || continue',
+    "      printf '%s\\n' \"\$item\"",
+    "    done | paste -sd: - || true)",
+    '    default="$CF"',
+    '    if [ -f "$STACK/docker-compose.override.yml" ]; then default="$default:docker-compose.override.yml"; fi',
+    '    if [ -f "$STACK/compose.override.yml" ]; then default="$default:compose.override.yml"; fi',
+    '    if [ -z "$rest" ] || [ "$rest" = "$CF" ] || [ "$rest" = "$default" ]; then',
+    "      grep -vE '^[[:space:]]*COMPOSE_FILE=' \"$envf\" | grep -v 'TAK Portal marketplace: keep NGINX_CSP_' > \"$envf.ctak-pin\" || true",
+    '      mv "$envf.ctak-pin" "$envf"',
+    '      echo "Removed marketplace COMPOSE_FILE pin from .env"',
+    "      return 0",
+    "    fi",
+    "    awk -v val=\"$rest\" '",
+    "      BEGIN { done=0 }",
+    "      /^[[:space:]]*COMPOSE_FILE=/ { if (!done) { print \"COMPOSE_FILE=\" val; done=1 } next }",
+    "      { print }",
+    "      END { if (!done) print \"COMPOSE_FILE=\" val }",
+    "' \"$envf\" > \"$envf.ctak-pin\" && mv \"$envf.ctak-pin\" \"$envf\"",
+    '    echo "Dropped marketplace compose file from COMPOSE_FILE"',
+    "    return 0",
+    "  }",
     '  echo "Updating CloudTAK CSP overlay $OVERRIDE"',
     '  if [ -f "$target_ct/api/nginx.conf.js" ] && ! grep -q NGINX_CSP_ "$target_ct/api/nginx.conf.js" 2>/dev/null; then',
     '    echo "Note: this CloudTAK nginx.conf.js does not read NGINX_CSP_* (needs 13.53.2+). Overlay is still saved."',
@@ -1801,6 +2364,8 @@ function pluginCspBash() {
     '      rm -f "$OVERRIDE.tmp" "$OVERRIDE" || true',
     "    fi",
     "  fi",
+    "  sync_csp_override",
+    "  pin_csp_compose_file",
     '  if ! command -v docker >/dev/null 2>&1; then return 0; fi',
     '  echo "Recreating $api_svc so CSP environment applies"',
     '  if [ -f "$OVERRIDE" ]; then',
@@ -1874,9 +2439,17 @@ function pluginRuntimeCleanupBash() {
     '      echo "Pruning unused Docker images"',
     "      docker image prune -f || true",
     "    fi",
-    '    rm -f "$OVERRIDE" || true',
+    '    if rm -f "$OVERRIDE" 2>/dev/null; then :; elif declare -F elevate_run >/dev/null 2>&1; then',
+    '      elevate_run "rm -f $(printf \'%q\' "$OVERRIDE")" || true',
+    "    fi",
     "  fi",
-    '  rm -rf "$PERSIST_DIR" || true',
+    '  if [ -e "$PERSIST_DIR" ] || [ -L "$PERSIST_DIR" ]; then',
+    '    if rm -rf "$PERSIST_DIR" 2>/dev/null && [ ! -e "$PERSIST_DIR" ]; then :; elif declare -F elevate_run >/dev/null 2>&1; then',
+    '      elevate_run "rm -rf $(printf \'%q\' "$PERSIST_DIR")" || true',
+    "    else",
+    '      rm -rf "$PERSIST_DIR" || true',
+    "    fi",
+    "  fi",
     "  return 0",
     "}",
   ].join("\n");
@@ -1921,10 +2494,23 @@ function pluginRuntimeExtrasBash() {
     'PERSIST="$STACK/cloudtak-marketplace-plugins/$plugin_id"',
     'REL="cloudtak-marketplace-plugins/$plugin_id"',
     'echo "Persisting plugin runtime files to $PERSIST"',
-    'rm -rf "$PERSIST" || true',
-    'mkdir -p "$PERSIST"',
-    'cp -a "$repo_dir/." "$PERSIST/"',
-    'rm -rf "$PERSIST/.git" "$PERSIST/.ctak-normalize-plugin.sh" "$PERSIST/.ctak-runtime-plugin.sh" || true',
+    'persist_runtime_tree() {',
+    '  rm -rf "$PERSIST"',
+    '  mkdir -p "$PERSIST"',
+    '  cp -a "$repo_dir/." "$PERSIST/"',
+    '  rm -rf "$PERSIST/.git" "$PERSIST/.ctak-normalize-plugin.sh" "$PERSIST/.ctak-runtime-plugin.sh"',
+    "}",
+    'if ! persist_runtime_tree 2>/dev/null; then',
+    '  echo "Direct persist not writable by $(id -un); elevating"',
+    "  if declare -F elevate_run >/dev/null 2>&1; then",
+    '    elevate_run "rm -rf $(printf \'%q\' "$PERSIST") && mkdir -p $(printf \'%q\' "$PERSIST") && cp -a $(printf \'%q\' "$repo_dir")/. $(printf \'%q\' "$PERSIST")/ && rm -rf $(printf \'%q\' "$PERSIST/.git") $(printf \'%q\' "$PERSIST/.ctak-normalize-plugin.sh") $(printf \'%q\' "$PERSIST/.ctak-runtime-plugin.sh") && chown -R $(printf \'%q\' "$(id -un):$(id -gn)") $(printf \'%q\' "$PERSIST")" || {',
+    '      echo "ERROR: cannot persist plugin runtime to $PERSIST" >&2',
+    "      exit 1",
+    "    }",
+    "  else",
+    "    persist_runtime_tree",
+    "  fi",
+    "fi",
     'COMPOSE_SRC=""',
     'if [ -n "$compose_file_hint" ] && [ -f "$repo_dir/$compose_file_hint" ]; then',
     '  COMPOSE_SRC="$repo_dir/$compose_file_hint"',
@@ -1943,6 +2529,50 @@ function pluginRuntimeExtrasBash() {
     "start_overlay() {",
     '  echo "Starting plugin Docker service${SVC:+ $SVC} from $OVERRIDE"',
     '  ( cd "$STACK" && COMPOSE_ANSI=never COMPOSE_PROGRESS=plain docker compose --progress=plain -f "$CF" -f "$OVERRIDE" up -d --build ${SVC:+$SVC} )',
+    "}",
+    "ensure_caddy_on_cloudtak_network() {",
+    '  local runtime="" caddy="" net="" name id image',
+    '  if command -v docker >/dev/null 2>&1; then runtime=docker',
+    '  elif command -v podman >/dev/null 2>&1; then runtime=podman',
+    "  else return 0",
+    "  fi",
+    "  run_rt() {",
+    '    if "$runtime" "$@"; then return 0; fi',
+    '    if sudo -n "$runtime" "$@" 2>/dev/null; then return 0; fi',
+    "    return 1",
+    "  }",
+    '  for id in $(run_rt ps -q 2>/dev/null || true); do',
+    '    [ -n "$id" ] || continue',
+    '    name=$(run_rt inspect -f \'{{.Name}}\' "$id" 2>/dev/null | sed \'s#^/##\' || true)',
+    '    image=$(run_rt inspect -f \'{{.Config.Image}}\' "$id" 2>/dev/null || true)',
+    '    if printf \'%s %s\' "$name" "$image" | grep -qi caddy; then caddy="$name"; break; fi',
+    "  done",
+    '  [ -n "$caddy" ] || return 0',
+    '  for name in ${SVC:+$SVC} cloudtak-print cloudtak-api api; do',
+    '    [ -n "$name" ] || continue',
+    '    net=$(run_rt inspect -f \'{{range $k, $v := .NetworkSettings.Networks}}{{println $k}}{{end}}\' "$name" 2>/dev/null | awk \'NF && $0!="bridge" && $0!="host" && $0!="none" {print; exit}\' || true)',
+    '    [ -n "$net" ] && break',
+    "  done",
+    '  if [ -z "$net" ]; then',
+    '    for id in $(run_rt ps -q 2>/dev/null || true); do',
+    '      name=$(run_rt inspect -f \'{{.Name}}\' "$id" 2>/dev/null | sed \'s#^/##\' || true)',
+    '      printf \'%s\' "$name" | grep -Eqi \'cloudtak\' || continue',
+    '      printf \'%s\' "$name" | grep -Eqi \'caddy\' && continue',
+    '      net=$(run_rt inspect -f \'{{range $k, $v := .NetworkSettings.Networks}}{{println $k}}{{end}}\' "$name" 2>/dev/null | awk \'NF && $0!="bridge" && $0!="host" && $0!="none" {print; exit}\' || true)',
+    '      [ -n "$net" ] && break',
+    "    done",
+    "  fi",
+    '  [ -n "$net" ] || return 0',
+    '  if run_rt inspect -f \'{{range $k, $v := .NetworkSettings.Networks}}{{println $k}}{{end}}\' "$caddy" 2>/dev/null | grep -Fxq "$net"; then',
+    '    echo "Caddy container $caddy already on CloudTAK network $net"',
+    "    return 0",
+    "  fi",
+    '  if run_rt network connect "$net" "$caddy"; then',
+    '    echo "Connected Caddy container $caddy to CloudTAK network $net"',
+    "  else",
+    '    echo "WARNING: could not connect Caddy ($caddy) to CloudTAK network $net" >&2',
+    "  fi",
+    "  return 0",
     "}",
     "fix_overlay_depends() {",
     '  [ -f "$OVERRIDE" ] || return 0',
@@ -1990,6 +2620,7 @@ function pluginRuntimeExtrasBash() {
     "  fi",
     "  fix_overlay_depends",
     "  start_overlay",
+    "  ensure_caddy_on_cloudtak_network",
     "  exit 0",
     "fi",
     'NODE_DIR=""',
@@ -2028,6 +2659,7 @@ function pluginRuntimeExtrasBash() {
     "YAML",
     "fix_overlay_depends",
     "start_overlay",
+    "ensure_caddy_on_cloudtak_network",
   ].join("\n");
 }
 
@@ -2039,7 +2671,14 @@ function pluginHostAlignRunnerBash() {
   return `
 align_plugins_to_host() {
   local ct="$1"
-  [ -n "$ct" ] && [ -d "$ct/api/web/src" ] && [ -d "$ct/api/web/plugins" ] || return 0
+  [ -n "$ct" ] || return 0
+  if [ -f "$ct/app/package.json" ] && [ -d "$ct/app/src" ] && [ -d "$ct/app/plugins" ]; then
+    :
+  elif [ -d "$ct/api/web/src" ] && [ -d "$ct/api/web/plugins" ]; then
+    :
+  else
+    return 0
+  fi
   local script="/tmp/ctak-marketplace-align.cjs"
   cat <<'CTAK_PLUGIN_ALIGN_JS' > "$script"
 ${js}
@@ -2056,15 +2695,29 @@ CTAK_PLUGIN_ALIGN_JS
       if run_as_writer "command -v node >/dev/null 2>&1 && node $(printf '%q' "$script") $(printf '%q' "$ct")"; then
         return 0
       fi
-      echo "Plugin owner has no usable node; aligning via docker"
+      echo "Plugin owner has no usable node; aligning via elevated node/docker"
     else
       node "$script" "$ct"
       return 0
     fi
   fi
+  # Host may lack node in PATH while sudo/root still has it (common after SSH user switch).
+  if declare -F elevate_run >/dev/null 2>&1; then
+    if elevate_run "command -v node >/dev/null 2>&1 && node $(printf '%q' "$script") $(printf '%q' "$ct")"; then
+      return 0
+    fi
+  fi
+  # Prefer docker_cli (sudo -n docker when the user is not in the docker group).
+  if declare -F docker_cli >/dev/null 2>&1 && resolve_docker_bin; then
+    echo "Aligning plugin files via docker (root)"
+    docker_cli run --rm -u 0 \\
+      -v "$ct:$ct" \\
+      -v "$script:/align.cjs:ro" \\
+      node:22-alpine \\
+      node /align.cjs "$ct"
+    return 0
+  fi
   if command -v docker >/dev/null 2>&1; then
-    # Same writer as run_as_writer's docker fallback. Plugin files are often
-    # owned by the SSH user (root), not by the plugins directory owner.
     echo "Aligning plugin files via docker (root)"
     docker run --rm -u 0 \\
       -v "$ct:$ct" \\
@@ -2100,11 +2753,26 @@ CTAK_PLUGIN_PATCH_JS
       if run_as_writer "command -v node >/dev/null 2>&1 && node $(printf '%q' "$script") $(printf '%q' "$repo") $(printf '%q' "$ct")"; then
         return 0
       fi
-      echo "Plugin owner has no usable node; applying patches via docker"
+      echo "Plugin owner has no usable node; applying patches via elevated node/docker"
     else
       node "$script" "$repo" "$ct"
       return 0
     fi
+  fi
+  if declare -F elevate_run >/dev/null 2>&1; then
+    if elevate_run "command -v node >/dev/null 2>&1 && node $(printf '%q' "$script") $(printf '%q' "$repo") $(printf '%q' "$ct")"; then
+      return 0
+    fi
+  fi
+  if declare -F docker_cli >/dev/null 2>&1 && resolve_docker_bin; then
+    echo "Applying plugin patches via docker (root)"
+    docker_cli run --rm -u 0 \\
+      -v "$ct:$ct" \\
+      -v "$repo:$repo" \\
+      -v "$script:/patch.cjs:ro" \\
+      node:22-alpine \\
+      node /patch.cjs "$repo" "$ct"
+    return 0
   fi
   if command -v docker >/dev/null 2>&1; then
     echo "Applying plugin patches via docker (root)"
@@ -2156,7 +2824,11 @@ git_ok() {
 reset_cache() {
   rm -rf "$CACHE" 2>/dev/null || true
   if [ -e "$CACHE" ]; then
-    sudo -n rm -rf "$CACHE" 2>/dev/null || true
+    if declare -F elevate_run >/dev/null 2>&1; then
+      elevate_run "rm -rf $(printf '%q' "$CACHE")" || true
+    else
+      sudo -n rm -rf "$CACHE" 2>/dev/null || true
+    fi
   fi
   if [ -e "$CACHE" ]; then
     echo "ERROR: cannot replace plugin cache $CACHE (owned by another user)." >&2
@@ -2164,55 +2836,48 @@ reset_cache() {
   fi
 }
 
-cloudtak_owner() {
-  stat -c '%U' "$CT" 2>/dev/null || stat -f '%Su' "$CT" 2>/dev/null || true
-}
+${pluginLayoutBash()}
+${pluginPrivilegeBash()}
+${pluginRemoveBash()}
+WEB_REL=$(cloudtak_web_rel "$CT")
+PLUGIN_ROOT="$CT/$WEB_REL/plugins"
+echo "CloudTAK plugin directory: $PLUGIN_ROOT"
+reclaim_cloudtak_plugin_paths || true
 
 can_write_plugins() {
-  local plugins="$CT/api/web/plugins"
-  [ -d "$plugins" ] && [ -w "$plugins" ] || return 1
+  local plugins="$PLUGIN_ROOT"
+  local parent routes
+  parent=$(dirname "$plugins")
+  routes="$CT/api/stateless/routes"
+  [ -d "$parent" ] && [ -w "$parent" ] || return 1
+  if [ -d "$plugins" ] && [ ! -w "$plugins" ]; then return 1; fi
   if [ -e "$plugins/$DEST" ] && [ ! -w "$plugins/$DEST" ]; then return 1; fi
+  # install.sh also writes route files; root-owned routes break dispatcher etc.
+  if [ -d "$routes" ] && [ ! -w "$routes" ]; then return 1; fi
   return 0
 }
 
 run_as_writer() {
   local cmd="$1"
-  if can_write_plugins; then
-    bash -lc "$cmd"
-    return 0
-  fi
   local owner
   owner=$(cloudtak_owner)
-  echo "Plugin files are not writable by $(id -un) (CloudTAK owner: $owner)"
-  if [ -n "$owner" ] && [ "$(id -un)" != "$owner" ] && sudo -n -u "$owner" true >/dev/null 2>&1; then
-    echo "Running installer as $owner"
-    sudo -n -u "$owner" bash -lc "$cmd"
-    return 0
-  fi
-  if sudo -n true >/dev/null 2>&1; then
-    echo "Running installer with sudo"
-    sudo -n bash -lc "$cmd"
-    return 0
-  fi
-  local img=""
-  if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-    img=$(cd "$CT" && docker compose ps -q 2>/dev/null | head -n 1 | xargs -r docker inspect -f '{{.Config.Image}}' 2>/dev/null || true)
-    if [ -z "$img" ]; then
-      img=$(docker ps --format '{{.Image}}' 2>/dev/null | head -n 1 || true)
+  # Prefer elevation whenever sudo/docker works — root leftovers are common after SSH user changes.
+  if ! can_write_plugins; then
+    echo "Plugin paths not fully writable by $(id -un) (CloudTAK owner: $owner); elevating"
+    if elevate_run "$cmd"; then
+      return 0
     fi
+    echo "ERROR: cannot write $PLUGIN_ROOT as $(id -un), even with sudo/docker elevation. Point CloudTAK SSH at an account that can sudo or run docker (checkout owner: $owner)." >&2
+    exit 1
   fi
-  if [ -n "$img" ]; then
-    echo "Writing plugin files via docker image $img (root)"
-    docker run --rm -u 0 \
-      -v "$REPO_DIR:$REPO_DIR" \
-      -v "$CT:$CT" \
-      -w "$REPO_DIR" \
-      --entrypoint /bin/sh \
-      "$img" \
-      -c "if command -v bash >/dev/null 2>&1; then bash -lc $(printf '%q' "$cmd"); else sh -c $(printf '%q' "$cmd"); fi"
+  if bash -lc "$cmd"; then
     return 0
   fi
-  echo "ERROR: cannot write $CT/api/web/plugins as $(id -un). Point CloudTAK SSH at the account that owns that checkout (likely $owner)." >&2
+  echo "Direct write failed; retrying with elevation"
+  if elevate_run "$cmd"; then
+    return 0
+  fi
+  echo "ERROR: cannot write $PLUGIN_ROOT as $(id -un), even with sudo/docker elevation. Point CloudTAK SSH at an account that can sudo or run docker (checkout owner: $owner)." >&2
   exit 1
 }
 
@@ -2224,10 +2889,9 @@ REPO_DIR="$CACHE"
 SHA=$(git_ok -C "$REPO_DIR" rev-parse HEAD 2>/dev/null || true)
 echo "Plugin source $REPO_DIR @ $SHA"
 
-PLUGIN_ROOT="$CT/api/web/plugins"
 TARGET="$PLUGIN_ROOT/$DEST"
 case "$TARGET" in
-  */api/web/plugins/$DEST) ;;
+  */app/plugins/$DEST|*/api/web/plugins/$DEST) ;;
   *) echo "Refusing dest $TARGET" >&2; exit 1 ;;
 esac
 echo "Clearing previous plugin files at $TARGET"
@@ -2262,7 +2926,7 @@ EOS
     install_ec=$(tr -cd '0-9' < "$REPO_DIR/.marketplace-install-status" || echo 1)
   fi
   rm -f "$REPO_DIR/.ctak-run-install.sh" "$REPO_DIR/.marketplace-install-status" || true
-  if [ "$install_ec" != 0 ] && [ ! -d "$TARGET" ]; then
+  if [ "$install_ec" != 0 ] && [ ! -d "$TARGET" ] && [ ! -e "$CT/api/web/plugins/$DEST" ]; then
     echo "ERROR: install.sh failed before plugin files were copied" >&2
     exit 1
   fi
@@ -2293,10 +2957,9 @@ else
     echo "Missing web source in $REPO_DIR" >&2
     exit 1
   fi
-  PLUGIN_ROOT="$CT/api/web/plugins"
   TARGET="$PLUGIN_ROOT/$DEST"
   case "$TARGET" in
-    */api/web/plugins/$DEST) ;;
+    */app/plugins/$DEST|*/api/web/plugins/$DEST) ;;
     *) echo "Refusing dest $TARGET" >&2; exit 1 ;;
   esac
   echo "Copying plugin files to $TARGET"
@@ -2320,6 +2983,18 @@ EXCL
   if [ -n "$ROUTES_DIR" ]; then
     echo "Copying route files from $ROUTES_DIR"
     run_as_writer "mkdir -p $(printf '%q' "$CT/api/stateless/routes") && cp -a $(printf '%q' "$ROUTES_DIR")/*.ts $(printf '%q' "$CT/api/stateless/routes")/" || true
+  fi
+fi
+
+# Plugin install.sh scripts written for CloudTAK before 13.102 copy into api/web/plugins.
+if [ "$WEB_REL" = "app" ] && [ -e "$CT/api/web/plugins/$DEST" ] && [ ! -e "$PLUGIN_ROOT/$DEST" ]; then
+  echo "Moving $DEST from api/web/plugins to app/plugins (CloudTAK 13.102+)"
+  run_as_writer "mkdir -p $(printf '%q' "$PLUGIN_ROOT") && mv $(printf '%q' "$CT/api/web/plugins/$DEST") $(printf '%q' "$PLUGIN_ROOT/$DEST")"
+fi
+if [ "$WEB_REL" = "app" ] && [ -e "$PLUGIN_ROOT/$DEST" ] && [ -e "$CT/api/web/plugins/$DEST" ]; then
+  echo "Removing leftover api/web/plugins/$DEST"
+  if ! remove_plugin_tree "$CT/api/web/plugins/$DEST"; then
+    echo "WARNING: leftover $CT/api/web/plugins/$DEST could not be removed; continuing because $PLUGIN_ROOT/$DEST is installed" >&2
   fi
 fi
 
@@ -2361,7 +3036,7 @@ function uninstallRemoteScript(ct, dest, routeFiles, pluginId, options = {}) {
   const guessed = destName && /^[A-Za-z0-9._-]+$/.test(destName) ? `plugin-${destName}.ts` : "";
   if (guessed && !files.includes(guessed)) files.push(guessed);
   const routeRm = files
-    .map((f) => `rm -f "$CT/api/stateless/routes/${f}"`)
+    .map((f) => `remove_plugin_tree "$CT/api/stateless/routes/${f}"`)
     .join("\n");
   const id = String(pluginId || "").trim();
   const apiSvc = String((options && options.composeService) || "api").trim() || "api";
@@ -2372,33 +3047,51 @@ DEST=${ssh.shellQuote(dest)}
 ID=${ssh.shellQuote(id)}
 CT_COMPOSE_SVC=${ssh.shellQuote(apiSvc)}
 if [ -z "$ID" ]; then ID="$DEST"; fi
+${pluginLayoutBash()}
+${pluginPrivilegeBash()}
+WEB_REL=$(cloudtak_web_rel "$CT")
+PLUGIN_ROOT="$CT/$WEB_REL/plugins"
+echo "CloudTAK plugin directory: $PLUGIN_ROOT"
+reclaim_cloudtak_plugin_paths || true
+${pluginRemoveBash()}
 ${pluginRuntimeCleanupBash()}
 ${pluginCspBash()}
 if [ -n "$ID" ]; then
   cleanup_plugin_runtime "$ID" "$CT"
   apply_plugin_csp "$ID" "$CT" "$CT_COMPOSE_SVC" "" 1
   CACHE="$HOME/.cache/cloudtak-marketplace/$ID"
+  if [ "$WEB_REL" = "app" ]; then
+    remove_plugin_tree "$CT/api/web/plugins/$DEST"
+    remove_plugin_tree "$CT/api/web/src/plugins/$DEST"
+  fi
   if [ -f "$CACHE/install.sh" ] && grep -q -- '--remove' "$CACHE/install.sh"; then
     flags="--remove"
     if grep -q -- '--no-build' "$CACHE/install.sh"; then flags="$flags --no-build"; fi
     echo "Found install.sh; running: bash ./install.sh $flags $CT"
-    ( cd "$CACHE" && bash ./install.sh $flags "$CT" ) || echo "install.sh --remove did not finish cleanly"
+    if declare -F elevate_run >/dev/null 2>&1; then
+      elevate_run "cd $(printf '%q' "$CACHE") && bash ./install.sh $flags $(printf '%q' "$CT")" || echo "install.sh --remove did not finish cleanly"
+    else
+      ( cd "$CACHE" && bash ./install.sh $flags "$CT" ) || echo "install.sh --remove did not finish cleanly"
+    fi
   fi
-  rm -rf "$HOME/.cache/cloudtak-marketplace/$ID" || true
+  rm -rf "$HOME/.cache/cloudtak-marketplace/$ID" 2>/dev/null || true
+  if [ -e "$HOME/.cache/cloudtak-marketplace/$ID" ] && declare -F elevate_run >/dev/null 2>&1; then
+    elevate_run "rm -rf $(printf '%q' "$HOME/.cache/cloudtak-marketplace/$ID")" || true
+  fi
   rm -f /tmp/ctak-marketplace-excludes-$ID || true
 fi
-TARGET="$CT/api/web/plugins/$DEST"
+TARGET="$PLUGIN_ROOT/$DEST"
 case "$TARGET" in
-  */api/web/plugins/$DEST) ;;
+  */app/plugins/$DEST|*/api/web/plugins/$DEST) ;;
   *) echo "Refusing dest $TARGET" >&2; exit 1 ;;
 esac
-rm -rf "$TARGET"
-SRC_TARGET="$CT/api/web/src/plugins/$DEST"
-case "$SRC_TARGET" in
-  */api/web/src/plugins/$DEST)
-    if [ -e "$SRC_TARGET" ]; then rm -rf "$SRC_TARGET"; fi
-    ;;
-esac
+remove_plugin_tree "$TARGET"
+for extra in "$CT/app/plugins/$DEST" "$CT/api/web/plugins/$DEST" "$CT/app/src/plugins/$DEST" "$CT/api/web/src/plugins/$DEST"; do
+  [ "$extra" = "$TARGET" ] && continue
+  case "$extra" in
+    */plugins/$DEST) remove_plugin_tree "$extra" ;;
+  esac
+done
 ${routeRm}
 echo UNINSTALL_OK
 `.trim();
@@ -2409,6 +3102,7 @@ function rebuildRemoteScript(ct, service) {
 set -euo pipefail
 CT=${ssh.shellQuote(ct)}
 SVC=${ssh.shellQuote(service || "api")}
+${pluginPrivilegeBash()}
 cd "$CT"
 CF=""
 if [ -f docker-compose.yml ]; then CF=docker-compose.yml
@@ -2417,6 +3111,8 @@ elif [ -f compose.yml ]; then CF=compose.yml
 elif [ -f compose.yaml ]; then CF=compose.yaml
 else echo "No compose file in $CT" >&2; exit 1
 fi
+# Ensure passwordless sudo / sudo docker before align + compose (takwerx has no docker group).
+ensure_marketplace_sudoers || true
 # A plugin copied earlier can still fail vue-tsc and block this rebuild.
 ${pluginHostAlignRunnerBash()}
 align_plugins_to_host "$CT"
@@ -2428,6 +3124,7 @@ fi
 export BUILDKIT_PROGRESS=plain
 export COMPOSE_ANSI=never
 export COMPOSE_PROGRESS=plain
+# docker() is shadowed by pluginPrivilegeBash to use sudo -n docker when needed.
 docker compose --progress=plain -f "$CF" $MPF build --no-cache "$SVC"
 echo "CloudTAK image build finished."
 docker compose --progress=plain -f "$CF" $MPF up -d --force-recreate "$SVC"
@@ -2503,7 +3200,7 @@ async function performInstall(job, plugin) {
   const result = await runLogged(
     job.id,
     `bash -lc ${ssh.shellQuote(installRemoteScript(loc.path, plugin, { composeService: loc.composeService }))}`,
-    20 * 60 * 1000
+    INSTALL_TIMEOUT_MS
   );
   const shaLine = String(result.stdout || "")
     .split("\n")
@@ -2543,7 +3240,7 @@ async function performUninstall(job, dest, plugin) {
     if (/^[A-Za-z0-9._-]+\.ts$/.test(f) && !routeGuess.includes(f)) routeGuess.push(f);
   }
   const runtimeId = (plugin && plugin.id) || dest;
-  appendJobLog(job.id, `$ rm -rf api/web/plugins/${dest}`);
+  appendJobLog(job.id, `Removing ${dest} from the CloudTAK plugins directory`);
   await runLogged(job.id, `bash -lc ${ssh.shellQuote(uninstallRemoteScript(loc.path, dest, routeGuess, runtimeId, { composeService: loc.composeService }))}`, 5 * 60 * 1000);
   const rec = store.readInstalled();
   if (plugin) {
@@ -2557,12 +3254,34 @@ async function performUninstall(job, dest, plugin) {
   return { path: loc.path, composeService: loc.composeService || ssh.resolvedComposeService() };
 }
 
+function rebuildTimeoutMs() {
+  const n = getInt("CLOUDTAK_MARKETPLACE_REBUILD_TIMEOUT_MS", REBUILD_TIMEOUT_MS);
+  return Math.max(INSTALL_TIMEOUT_MS, n || REBUILD_TIMEOUT_MS);
+}
+
 async function performRebuild(jobs, ctPath, service) {
   const ids = (Array.isArray(jobs) ? jobs : [jobs]).map((j) => j.id);
   const primary = ids[0];
+  const timeoutMs = rebuildTimeoutMs();
+  const timeoutMin = Math.round(timeoutMs / 60000);
   ids.forEach((id) => appendJobLog(id, `$ docker compose --progress=plain build --no-cache ${service}`));
+  ids.forEach((id) =>
+    appendJobLog(
+      id,
+      `No-cache CloudTAK rebuild includes npm install, lint, vue-tsc, and vite. Timeout ${timeoutMin} minutes.`
+    )
+  );
   ids.slice(1).forEach((id) => appendJobLog(id, "CloudTAK rebuild output is on the first job in this batch."));
-  await runLogged(primary ? [primary] : [], `bash -lc ${ssh.shellQuote(rebuildRemoteScript(ctPath, service))}`, 20 * 60 * 1000);
+  try {
+    await runLogged(primary ? [primary] : [], `bash -lc ${ssh.shellQuote(rebuildRemoteScript(ctPath, service))}`, timeoutMs);
+  } catch (err) {
+    if (/timed out/i.test(String(err && err.message))) {
+      throw new Error(
+        `CloudTAK rebuild timed out after ${timeoutMin} minutes. vue-tsc can stay quiet for a long time; the docker build may still be running on the host.`
+      );
+    }
+    throw err;
+  }
 }
 
 async function runChangeBatch(jobs) {
@@ -2922,6 +3641,10 @@ module.exports = {
   normalizeCatalog,
   normalizeAdditionalActions,
   matchCatalogPlugin,
+  destFromPluginPath,
+  pluginDetectPaths,
+  detectProbeLines,
+  parseScanStdout,
   loadCatalog,
   fetchCatalog,
   scanHost,
@@ -2959,6 +3682,7 @@ module.exports = {
   installRemoteScript,
   uninstallRemoteScript,
   rebuildRemoteScript,
+  rebuildTimeoutMs,
   normalizeCsp,
   normalizeFlatSamplePluginTree,
   pluginEntryImportsLib,

@@ -546,16 +546,24 @@ th.sortable:hover{
                 <input name="email" type="email" placeholder="example@agency.gov" />
               </label>
 
+              <%
+                const pp = (typeof passwordPolicy !== "undefined" && passwordPolicy) ? passwordPolicy : {
+                  minLength: 12,
+                  placeholder: "Min 12 characters: upper, lower, number, and symbol",
+                  pattern: "(?=.*[A-Z])(?=.*[a-z])(?=.*\\d)(?=.*[^A-Za-z0-9]).{12,}",
+                  title: "Password must contain a minimum of 12 characters, upper, lower, number, and symbol"
+                };
+              %>
               <label>Password (optional)
               <div class="passwordWrap">
                 <input
                   class="passwordInput"
                   name="password"
                   type="password"
-                  placeholder="Min 12 characters: upper, lower, number, and symbol"
-                  minlength="12"
-                  pattern="(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[^A-Za-z0-9]).{12,}"
-                  title="Password must contain a minimum of 12 characters, upper, lower, number, and symbol"
+                  placeholder="<%= pp.placeholder %>"
+                  minlength="<%= pp.minLength %>"
+                  pattern="<%= pp.pattern %>"
+                  title="<%= pp.title %>"
                 />
                 <button
                   type="button"
@@ -720,11 +728,34 @@ th.sortable:hover{
     return d.toLocaleString();
   }
 
-  // ----- Password validator -----
+  // ----- Password validator (from Settings → Password Policy) -----
+  const PASSWORD_POLICY = <%- JSON.stringify((typeof passwordPolicy !== "undefined" && passwordPolicy && passwordPolicy.client) ? passwordPolicy.client : {
+    minLength: 12,
+    requireUppercase: true,
+    uppercaseCount: 1,
+    requireLowercase: true,
+    lowercaseCount: 1,
+    requireNumber: true,
+    numberCount: 1,
+    requireSymbol: true,
+    symbolCount: 1,
+    errorOptional: "Password must be at least 12 characters with upper, lower, number, and symbol."
+  }) %>;
+
+  function passwordPolicyCount(pwd, re) {
+    return (String(pwd || "").match(re) || []).length;
+  }
+
   function isValidPassword(pwd) {
     if (!pwd) return true;
-    const re = /^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[^A-Za-z0-9]).{12,}$/;
-    return re.test(pwd);
+    const p = String(pwd);
+    const pol = PASSWORD_POLICY || {};
+    if (p.length < (pol.minLength || 12)) return false;
+    if (pol.requireLowercase && passwordPolicyCount(p, /[a-z]/g) < (pol.lowercaseCount || 1)) return false;
+    if (pol.requireUppercase && passwordPolicyCount(p, /[A-Z]/g) < (pol.uppercaseCount || 1)) return false;
+    if (pol.requireNumber && passwordPolicyCount(p, /[0-9]/g) < (pol.numberCount || 1)) return false;
+    if (pol.requireSymbol && passwordPolicyCount(p, /[^A-Za-z0-9]/g) < (pol.symbolCount || 1)) return false;
+    return true;
   }
 
   function renderRoleOptions(selectEl, selectedRole) {
@@ -1214,7 +1245,12 @@ th.sortable:hover{
 
       const pwd = String(payload.password || '').trim();
       if (!isValidPassword(pwd)) {
-        setInlineMsg(msg, 'Password must be at least 12 characters with upper, lower, number, and symbol.', false);
+        setInlineMsg(
+          msg,
+          (PASSWORD_POLICY && PASSWORD_POLICY.errorOptional) ||
+            'Password does not meet the configured password policy.',
+          false
+        );
         return;
       }
 
@@ -1234,8 +1270,15 @@ th.sortable:hover{
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
-        const out = await res.json();
-        if (!res.ok) throw new Error(out.error?.message || out.error || 'Failed to create user');
+        const out = await res.json().catch(() => ({}));
+        const errMsg = out.error?.message || out.error || 'Failed to create user';
+        // Local create can succeed while Authentik sync is still queued; also clear
+        // orphaned requests left from earlier timeout failures (username already exists).
+        const softClear =
+          !!requestId &&
+          !res.ok &&
+          /still pending|already exists/i.test(String(errMsg));
+        if (!res.ok && !softClear) throw new Error(errMsg);
 
         if (requestId) {
           await fetch(
@@ -1244,9 +1287,21 @@ th.sortable:hover{
           );
         }
 
-        // Confirmation message
-        const createdUsername = out?.username || out?.badge || payload.badge || '';
-        setInlineMsg(msg, createdUsername ? `User created: ${createdUsername}` : 'User created.', true);
+        const createdUsername =
+          out?.user?.username || out?.username || out?.badge || payload.badge || '';
+        if (softClear && /already exists/i.test(String(errMsg))) {
+          setInlineMsg(msg, 'User already exists; pending request cleared.', true);
+        } else if (out?.syncPending) {
+          setInlineMsg(
+            msg,
+            createdUsername
+              ? `User created: ${createdUsername} (Authentik sync in progress)`
+              : 'User created (Authentik sync in progress).',
+            true
+          );
+        } else {
+          setInlineMsg(msg, createdUsername ? `User created: ${createdUsername}` : 'User created.', true);
+        }
         setListMsg('Request approved.', true);
 
         approveRow.remove();

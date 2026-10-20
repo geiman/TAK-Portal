@@ -320,6 +320,21 @@
     padding: 5px;
     display: inline-block;
   }
+  /* Two QRs (TAK Aware/ATAK + iTAK) stacked: shrink both so the column still fits. */
+  .col-ref.two-qr .qr-wrap img {
+    width: 160px;
+    height: 160px;
+  }
+  .qr-apps {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 11px;
+    color: #555;
+    text-align: center !important;
+    margin-top: 2px;
+  }
+  .itak-note {
+    margin-top: 8px;
+  }
   .qr-sub {
     font-family: Arial, Helvetica, sans-serif;
     font-size: 12px;
@@ -458,6 +473,7 @@
             <div class="step-t"><strong>Accept the connection</strong> when prompted. Enrollment is automatic &mdash; no username or password required.</div>
           </div>
         </div>
+        {{ITAK_STEP_HTML}}
 
         <div class="section-label spaced">Step 3 of 3</div>
         <h2 class="step-heading"><span class="step-num">Configure</span> Your Profile</h2>
@@ -492,13 +508,15 @@
         </div>
 
       </td>
-      <td class="col-ref">
+      <td class="col-ref {{QR_COL_CLASS}}">
 
         <div class="qr-wrap">
           <div class="qr-title">Scan to Enroll</div>
           <img id="maFlyerQrImg" src="{{QR_DATA_URL}}" alt="{{QR_LABEL}} Enrollment QR Code">
           <div class="qr-sub">{{QR_LABEL}}</div>
+          {{QR_APPS_LABEL_HTML}}
         </div>
+        {{ITAK_QR_HTML}}
 
         <div class="section-label">User Profile Reference</div>
         <h2 class="ref-heading"><span class="step-num">Profile</span> Settings</h2>

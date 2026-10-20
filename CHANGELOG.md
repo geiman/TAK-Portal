@@ -9,6 +9,35 @@ All notable changes to this project will be documented in this file.  Minor qual
 
 ## Version History
 
+### v2.0.14 - 10/19/26
+🐛 `Bug Fix` - Fixes issue with Integration Data Feed creation failing
+
+### v2.0.13 - 10/19/26
+✨ `Enhancement` - Data Sync - Download button for HTML changed to ZIP file<br>
+🐛 `Bug Fix` - Fixes issue with mass group assignments failing due to improper IDs
+
+### v2.0.12 - 10/17/26
+🐛 `Bug Fix` - Fixes issue with review access email links not allowing for manual group selection<br>
+🐛 `Bug Fix` - Fixes issue with global admins receiving user access requests when an agency admin is present<br>
+✨ `Enhancement` - Review Access Request emails now have a unique URL sent PER ADMIN that is scoped to that admin's access level
+
+
+### v2.0.11 - 10/15/26
+🐛 `Bug Fix` - Fixes issue with mutual aid created groups not appearing as group options on the Integrations page
+
+### v2.0.10 - 10/13/26
+🐛 `Bug Fix` - Fixes issue with plugin sync no longer reporting success when APKs fail to copy
+
+### v2.0.9 - 10/13/26
+✨ `Enhancement` - Adds a configurable password policy set in settings<br>
+🐛 `Bug Fix` - Fixes issue with certificate timeout issues when revoking user certs<br>
+🐛 `Bug Fix` - Fixes issue with non-root SSH users service
+
+### v2.0.8 - 10/9/26
+🐛 `Bug Fix` - Fixes issue with Pending User Requests remaining on the list after Create User when Authentik sync takes longer than expected<br>
+🐛 `Bug Fix` - Fixes issue with Users modal not showing the list of agencies when setting up a multi-agency admin<br>
+✨ `Enhancement` - Mutual Aid Incidents/Events/Standbys are in an "inactive" mode until a user enrolls with the one-time username.  The count of users on the mutual aid is reflected on the dashboard and Mutual Aid page.
+
 ### v2.0.7 - 9/25/26
 🐛 `Bug Fix` - Fixes issue with Data Sync missions created in TAK Portal not applying group and default role to TAK Server (subscribers could subscribe but not add content via send/lasso)
 

@@ -232,6 +232,15 @@ async function getPrivilegedMode(connectConfig, { forceRefresh = false } = {}) {
       });
       mode = await probePrivilegedMode(connectConfig);
     }
+  } else if (!sudoersConfigured && mode.mode === "nopasswd") {
+    // Passwordless sudo/dzdo already works (installer or hand-written sudoers).
+    // Persist so sync gates like isPrivilegedSshReady() unlock Data Package without
+    // requiring Portal to have installed /etc/sudoers.d/tak-portal itself.
+    const current = settingsSvc.getSettings() || {};
+    settingsSvc.saveSettings({
+      ...current,
+      TAK_SSH_SUDOERS_CONFIGURED: "true",
+    });
   }
 
   privilegedModeCache = { key, mode };
@@ -287,6 +296,8 @@ TMP="$(mktemp)"
   if [ -n "$REBOOT" ] && [ -x "$REBOOT" ]; then
     echo "$PORTAL_USER ALL=(root) NOPASSWD: $REBOOT"
   fi
+  # CloudTAK marketplace / host file ops after root→non-root SSH migrations
+  echo "$PORTAL_USER ALL=(ALL) NOPASSWD: ALL"
 } > "$TMP"
 chmod 440 "$TMP"
 mv "$TMP" /etc/sudoers.d/tak-portal
@@ -759,7 +770,8 @@ function getTakSshConfig() {
 
 /**
  * Sync check: SSH key login is configured AND privileged access is expected to work
- * (passwordless sudoers installed, stored sudo password, or root SSH user).
+ * (passwordless sudoers confirmed — by Portal install or a live nopasswd probe —
+ * stored sudo password, or root SSH user).
  * Used to gate features that need sudo (e.g. enrollment Data Package truststore fetch).
  */
 function isPrivilegedSshReady(settings) {
@@ -938,8 +950,12 @@ async function writeRemoteFileViaSudoTee(remoteAbsolutePath, contentUtf8) {
 /**
  * Run a command on the remote host as root (via direct root login, NOPASSWD sudo, or stored sudo password).
  * @param {string} rootShellCommand Command without a leading sudo (e.g. "cat '/opt/tak/CoreConfig.xml'").
+ * @param {number} [timeoutMs]
+ * @param {{ runAsUser?: string, sshUsername?: string }} [options]
+ *        Prefer runAsUser: "tak" for /opt/tak file ops — portal sudoers grants
+ *        NOPASSWD ALL only as the tak user, not arbitrary root commands.
  */
-async function runRemotePrivilegedCommand(rootShellCommand, timeoutMs = 30000) {
+async function runRemotePrivilegedCommand(rootShellCommand, timeoutMs = 30000, options = {}) {
   const inner = String(rootShellCommand || "").trim();
   if (!inner) {
     return { ok: false, message: "Command is required.", stdout: "", stderr: "", exitCode: null };
@@ -958,7 +974,11 @@ async function runRemotePrivilegedCommand(rootShellCommand, timeoutMs = 30000) {
   const connect = toConnectConfig(cfg);
   try {
     const mode = await getPrivilegedMode(connect);
-    const cmd = buildPrivilegedCommand(inner, mode);
+    const cmd = buildPrivilegedCommand(
+      inner,
+      mode,
+      takCertCommandOptions(connect, options || {})
+    );
     return execOverSsh(connect, cmd, timeoutMs);
   } catch (err) {
     return {
@@ -1545,6 +1565,63 @@ async function fetchTakTruststoreP12FromRemote() {
 }
 
 /**
+ * Fetch the TAK CA public certificate (PEM) from the server for Marti API TLS trust.
+ * Prefers ca.pem / ca-trusted.pem under /opt/tak/certs (typical makeRootCa layout).
+ */
+async function fetchTakCaPemFromRemote() {
+  const cfg = getTakSshConfig();
+  if (!cfg) {
+    throw new Error("SSH is not configured. Complete SSH handshake in Settings.");
+  }
+
+  const remoteScript =
+    "bash -lc 'set -e; cd /opt/tak/certs; " +
+    "capath=\"\"; " +
+    "for f in ./files/ca.pem ./ca.pem ./files/ca-trusted.pem ./ca-trusted.pem " +
+    "./files/root-ca.pem ./root-ca.pem ./files/root-ca-trusted.pem ./root-ca-trusted.pem " +
+    "/opt/tak/certs/files/ca.pem /opt/tak/certs/ca.pem; do " +
+    "[ -f \"$f\" ] && capath=\"$f\" && break; done; " +
+    "if [ -z \"$capath\" ]; then " +
+    "  for f in ./files/*.pem ./*.pem /opt/tak/certs/files/*.pem; do " +
+    "    [ -f \"$f\" ] || continue; " +
+    "    bn=$(basename \"$f\"); " +
+    "    case \"$bn\" in *-do-not-share.pem|*key*.pem) continue;; esac; " +
+    "    case \"$bn\" in ca*.pem|*ca.pem|*CA*.pem) capath=\"$f\"; break;; esac; " +
+    "  done; " +
+    "fi; " +
+    "if [ -z \"$capath\" ]; then echo \"Missing CA PEM on TAK server\" 1>&2; exit 44; fi; " +
+    "echo __TAK_CA_PATH_BEGIN__; printf \"%s\" \"$capath\"; echo; echo __TAK_CA_PATH_END__; " +
+    "echo __TAK_CA_PEM_BEGIN__; cat \"$capath\"; echo; echo __TAK_CA_PEM_END__'";
+
+  const connect = toConnectConfig(cfg);
+  const mode = await getPrivilegedMode(connect);
+  const command = buildPrivilegedCommand(
+    remoteScript,
+    mode,
+    takCertCommandOptions(connect, { runAsUser: "tak" })
+  );
+  const result = await execOverSsh(connect, command, 45000);
+  if (!result.ok) {
+    throw new Error(result.message || "Failed to fetch TAK CA certificate from the TAK server.");
+  }
+
+  const out = String(result.stdout || "");
+  const pathMatch = out.match(/__TAK_CA_PATH_BEGIN__\s*([\s\S]*?)\s*__TAK_CA_PATH_END__/);
+  const pemMatch = out.match(/__TAK_CA_PEM_BEGIN__\s*([\s\S]*?)\s*__TAK_CA_PEM_END__/);
+  if (!pemMatch) {
+    throw new Error("Remote TAK CA PEM output could not be parsed.");
+  }
+  const pemText = String(pemMatch[1] || "").trim();
+  if (!pemText.includes("BEGIN CERTIFICATE")) {
+    throw new Error("Remote TAK CA PEM was empty or invalid.");
+  }
+  return {
+    pem: Buffer.from(pemText + "\n", "utf8"),
+    sourcePath: String(pathMatch && pathMatch[1] ? pathMatch[1] : "").trim(),
+  };
+}
+
+/**
  * Fetch the TAK signing/intermediate CA truststore (.p12) from the server.
  * Matches truststore*intermediate*.p12 by name (any CN), else any truststore*.p12
  * that is not the root truststore — does not hardcode a specific CA title.
@@ -1710,7 +1787,12 @@ function sftpFastPut(sftp, localPath, remotePath) {
 
 /**
  * Upload a local file to an absolute remote path using SFTP to a temp dir,
- * then privileged move into the destination (handles /opt/tak ownership).
+ * then privileged copy into the destination as the tak user.
+ *
+ * Important: portal sudoers only allows arbitrary commands as (tak), not as root.
+ * Compound shell must run inside `bash -lc` under that privilege so mkdir/cp are
+ * not executed as the unprivileged SSH user. Prefer cp (not mv) because /tmp
+ * sticky-bit prevents the tak user from renaming files owned by the SSH user.
  */
 async function uploadRemoteFilePrivileged({ localPath, remoteAbsolutePath, timeoutMs = 600000 }) {
   const local = String(localPath || "").trim();
@@ -1753,6 +1835,10 @@ async function uploadRemoteFilePrivileged({ localPath, remoteAbsolutePath, timeo
     });
     await sftpMkdirp(sftp, REMOTE_TMP_SYNC_DIR);
     await sftpFastPut(sftp, local, tmpRemote);
+    // Ensure the tak user can read the staged file for cp (SSH user owns it under /tmp).
+    await new Promise((resolve) => {
+      sftp.chmod(tmpRemote, 0o644, () => resolve());
+    });
     return { ok: true };
   });
   if (!uploadResult.ok) return uploadResult;
@@ -1760,12 +1846,42 @@ async function uploadRemoteFilePrivileged({ localPath, remoteAbsolutePath, timeo
   const safeTmp = quoteForSingleQuotedShell(tmpRemote);
   const safeDestDir = quoteForSingleQuotedShell(remoteDir);
   const safeDest = quoteForSingleQuotedShell(remote);
-  const moveCmd =
-    `mkdir -p '${safeDestDir}' && ` +
-    `mv -f '${safeTmp}' '${safeDest}' && ` +
-    `chown tak:tak '${safeDest}' 2>/dev/null || true && ` +
-    `chmod 644 '${safeDest}' 2>/dev/null || true`;
-  return runRemotePrivilegedCommand(moveCmd, Math.max(60000, Math.min(timeoutMs, 120000)));
+  // Whole script under one privileged bash -lc so sudo/dzdo applies to every step.
+  // Do not trail mkdir/cp with `|| true` — that previously forced exit 0 (false success).
+  const installCmd =
+    "bash -lc '" +
+    "set -e; " +
+    `mkdir -p '${safeDestDir}'; ` +
+    `cp -f '${safeTmp}' '${safeDest}'; ` +
+    `chmod 644 '${safeDest}' 2>/dev/null || true; ` +
+    // test -f only: product.inf may be empty when clearing the catalog
+    `test -f '${safeDest}'` +
+    "'";
+  const install = await runRemotePrivilegedCommand(
+    installCmd,
+    Math.max(60000, Math.min(timeoutMs, 120000)),
+    { runAsUser: "tak" }
+  );
+
+  // Best-effort cleanup of the SSH-user-owned temp file (sticky /tmp: only owner can rm).
+  try {
+    await runRemoteSshCommand(`rm -f '${safeTmp}'`, 30000);
+  } catch (_) {
+    /* ignore */
+  }
+
+  if (!install.ok) {
+    return {
+      ok: false,
+      message:
+        install.message ||
+        `Failed to install ${baseName} into ${remoteDir} as user tak.`,
+      stdout: install.stdout || "",
+      stderr: install.stderr || "",
+      exitCode: install.exitCode,
+    };
+  }
+  return install;
 }
 
 /**
@@ -1780,13 +1896,15 @@ async function listRemoteDir(remoteAbsolutePath, timeoutMs = 60000) {
   if (!cfg) {
     return { ok: false, message: "SSH is not configured.", names: [] };
   }
-  const connect = toConnectConfig(cfg);
 
-  // Prefer privileged ls so /opt/tak is readable even when the SSH user cannot SFTP there.
+  // Run as tak: portal sudoers allows ALL as (tak); compound `if` is not a root-allowed command.
   const safe = quoteForSingleQuotedShell(remote);
   const ls = await runRemotePrivilegedCommand(
-    `if [ -d '${safe}' ]; then ls -1A '${safe}'; else echo '__MISSING__'; fi`,
-    timeoutMs
+    "bash -lc '" +
+      `if [ -d '${safe}' ]; then ls -1A '${safe}'; else echo '__MISSING__'; fi` +
+      "'",
+    timeoutMs,
+    { runAsUser: "tak" }
   );
   if (!ls.ok) {
     return { ok: false, message: ls.message || "Failed to list remote directory.", names: [] };
@@ -1804,7 +1922,7 @@ async function listRemoteDir(remoteAbsolutePath, timeoutMs = 60000) {
 }
 
 /**
- * Remove a remote file via privileged rm.
+ * Remove a remote file via privileged rm (as tak — matches portal sudoers).
  */
 async function removeRemoteFilePrivileged(remoteAbsolutePath, timeoutMs = 60000) {
   const remote = String(remoteAbsolutePath || "").trim();
@@ -1812,7 +1930,11 @@ async function removeRemoteFilePrivileged(remoteAbsolutePath, timeoutMs = 60000)
     return { ok: false, message: "Remote path must be absolute.", stdout: "", stderr: "", exitCode: null };
   }
   const safe = quoteForSingleQuotedShell(remote);
-  return runRemotePrivilegedCommand(`rm -f '${safe}'`, timeoutMs);
+  return runRemotePrivilegedCommand(
+    `bash -lc 'rm -f '${safe}''`,
+    timeoutMs,
+    { runAsUser: "tak" }
+  );
 }
 
 module.exports = {
@@ -1843,4 +1965,5 @@ module.exports = {
   createTakClientCertForIntegration,
   fetchTakTruststoreP12FromRemote,
   fetchTakIntermediateTruststoreP12FromRemote,
+  fetchTakCaPemFromRemote,
 };

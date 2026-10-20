@@ -12,6 +12,8 @@ const qrSvc = require("./qr.service");
 const { logoCacheIdentity } = require("./qrLogoOverlay.service");
 const accessSvc = require("./access.service");
 const agenciesSvc = require("./agencies.service");
+const takSvc = require("./tak.service");
+const mutualAidStatus = require("./mutualAid.status");
 
 const MA_LOGO_DIR = path.join(__dirname, "..", "data", "mutual-aid-logos");
 const MA_LOGO_ALLOWED_EXT = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif"]);
@@ -179,6 +181,22 @@ function buildGroupName(type, title) {
   const name = sanitizeTitle(title);
   if (!name) throw new Error("Name is required");
   return `MA - ${name}`;
+}
+
+/**
+ * Trim an admin-supplied mutual aid password and check it against the same
+ * rule as regular users. Returns "" when blank (caller generates one).
+ */
+function normalizeRequestedPassword(password) {
+  const p = String(password ?? "").trim();
+  if (!p) return "";
+  const err = usersSvc.validatePassword(p);
+  if (err) {
+    const e = new Error(err);
+    e.status = 400;
+    throw e;
+  }
+  return p;
 }
 
 function randomPassword(length = 18) {
@@ -392,6 +410,27 @@ async function qrDataUrl(username, token, item) {
     ...(logoPath ? { logoPath } : {}),
   });
   return { enrollUrl, qrCode };
+}
+
+/**
+ * iTAK can't scan the tak:// enroll URL; it takes a JSON registration
+ * payload instead. registrationId is the item id so the QR stays stable.
+ */
+async function itakQrDataUrl(username, token, item) {
+  const payload = qrSvc.buildItakEnrollPayload({
+    host: getTakHost(),
+    username,
+    token,
+    registrationId: item?.id ? String(item.id) : undefined,
+  });
+  if (!payload) return "";
+  const logoPath = resolveLogoFsPathForItem(item);
+  return qrSvc.generateDisplayQrDataUrl(payload, {
+    width: 1024,
+    margin: 2,
+    logoRatio: 0.28,
+    ...(logoPath ? { logoPath } : {}),
+  });
 }
 
 async function qrPngBuffer(username, token, item) {
@@ -1049,6 +1088,7 @@ async function create({
   expireAt,
   groupMode,
   existingGroupId,
+  password,
   allowMutualAidGroup = false,
   groupMasterId = null,
   usernameOverride = null,
@@ -1064,6 +1104,9 @@ async function create({
     ? String(usernameOverride).trim()
     : buildMutualAidUsername(t, name);
   if (!username) throw new Error("Name must contain at least one letter/number for username");
+
+  // Optional admin-chosen password; blank falls back to a generated one.
+  const requestedPassword = normalizeRequestedPassword(password);
 
   const taken = await usersSvc.userExists(username);
   if (taken) throw new Error(`Username already exists: ${username}`);
@@ -1122,7 +1165,7 @@ async function create({
       : null;
 
   // 2) Create user locally, then enqueue Authentik create_user (password + groups).
-  const password = randomPassword(18);
+  const userPassword = requestedPassword || randomPassword(18);
   const attributes = {
     mutual_aid: true,
     mutual_aid_type: t,
@@ -1134,7 +1177,7 @@ async function create({
       name,
       attributes,
       groupPks: [String(group.pk)],
-      password,
+      password: userPassword,
       sendOnboardingEmail: false,
     },
     { waitForOutbox: true }
@@ -1179,7 +1222,8 @@ async function create({
     groupMasterId: groupMaster ? String(groupMaster.id) : null,
     userId: String(userPk),
     username,
-    password,
+    password: userPassword,
+    passwordSource: requestedPassword ? "custom" : "generated",
     expireEnabled: wantExpire,
     expireAt: parsedExpireAt,
     createdAt: nowIso(),
@@ -1195,7 +1239,7 @@ async function create({
 
   const items = store.load();
   try {
-    const built = await qrDataUrl(username, password, item);
+    const built = await qrDataUrl(username, userPassword, item);
     item.enrollmentQr = {
       enrollUrl: built.enrollUrl,
       qrCode: built.qrCode,
@@ -1217,7 +1261,7 @@ async function create({
       type: t,
       title: name,
       username,
-      password,
+      password: userPassword,
       groupName,
       enrollUrl: item.enrollmentQr?.enrollUrl,
       qrCode: item.enrollmentQr?.qrCode,
@@ -1238,6 +1282,7 @@ async function createLinkedUser({
   title,
   expireEnabled,
   expireAt,
+  password,
   authUser = null,
   usernameOverride = null,
 } = {}) {
@@ -1279,6 +1324,7 @@ async function createLinkedUser({
     expireAt,
     groupMode: "existing",
     existingGroupId: parent.groupId,
+    password,
     allowMutualAidGroup: true,
     groupMasterId: parent.id,
     usernameOverride: username,
@@ -1297,10 +1343,13 @@ async function createLinkedUsers({
   title,
   expireEnabled,
   expireAt,
+  password,
   authUser = null,
 } = {}) {
   const n = parseAdditionalUserCount(count);
   const auto = coerceAutoName(autoName);
+  // Validate once up front so a bad password fails before any user is created.
+  normalizeRequestedPassword(password);
   const parent = getById(parentId);
   if (!parent) throw new Error("Parent mutual aid item not found");
 
@@ -1342,6 +1391,7 @@ async function createLinkedUsers({
           usernameOverride: spec.usernameOverride,
           expireEnabled,
           expireAt,
+          password,
           authUser,
         })
       );
@@ -1514,6 +1564,12 @@ async function getQr({ id }) {
   const item = getById(id);
   if (!item) throw new Error("Mutual aid item not found");
   const { enrollUrl, qrCode } = await getOrBuildEnrollmentQr(item);
+  let itakQrCode = "";
+  try {
+    itakQrCode = await itakQrDataUrl(item.username, item.password, item);
+  } catch (e) {
+    console.warn("[MUTUAL AID] failed to build iTAK enrollment QR:", e?.message || e);
+  }
   const items = store.load();
   const anchor = findGroupAnchorItem(items, item.groupId);
   return {
@@ -1523,6 +1579,7 @@ async function getQr({ id }) {
     username: item.username,
     enrollUrl,
     qrCode,
+    itakQrCode,
     hasCustomLogo: !!anchor?.logoUrl,
     logoUrl: anchor?.logoUrl || null,
   };
@@ -1558,10 +1615,130 @@ function initExpirationScheduler() {
   }
 }
 
+const CERT_STATUS_MIN_MS = 20_000;
+const CERT_STATUS_INTERVAL_MS = 60_000;
+let _certStatusSnapshot = { at: 0, ok: false, counts: new Map() };
+let _certStatusRefresh = null;
+let _certStatusTimer = null;
+
+async function promoteActiveStandbys(counts) {
+  const targets = mutualAidStatus.standbysToPromote(store.load(), counts);
+  if (!targets.length) return [];
+
+  for (const item of targets) {
+    await patchMutualAidDirectoryUser(item.userId, {
+      name: sanitizeTitle(item.title),
+      attributes: {
+        mutual_aid: true,
+        mutual_aid_type: "INCIDENT",
+        mutual_aid_group: String(item.groupName || ""),
+      },
+    });
+  }
+
+  const targetIds = new Set(targets.map((item) => String(item.id)));
+  const items = store.load().map((item) => ({ ...item }));
+  const promoted = [];
+
+  for (let i = 0; i < items.length; i++) {
+    if (!targetIds.has(String(items[i].id))) continue;
+    if (String(items[i].type || "").trim().toUpperCase() !== "STANDBY") continue;
+    const next = { ...items[i], type: "INCIDENT", updatedAt: nowIso() };
+    items[i] = next;
+    await syncLinkedSubDeployments(items, next, { nextBaseType: "INCIDENT" });
+    scheduleExpiration(next);
+    promoted.push(next);
+  }
+
+  if (promoted.length) {
+    saveAll(items);
+    console.log(
+      `[MUTUAL AID] promoted ${promoted.length} standby deployment(s) to incident`
+    );
+  }
+  return promoted;
+}
+
+async function refreshCertActivity() {
+  const now = Date.now();
+  if (_certStatusRefresh) return _certStatusRefresh;
+  if (_certStatusSnapshot.at && now - _certStatusSnapshot.at < CERT_STATUS_MIN_MS) {
+    return _certStatusSnapshot;
+  }
+
+  _certStatusRefresh = (async () => {
+    const result = await takSvc.getActiveCertCountsByUsername();
+    if (!result?.ok) {
+      if (_certStatusSnapshot.ok) {
+        _certStatusSnapshot = {
+          at: Date.now(),
+          ok: true,
+          counts: _certStatusSnapshot.counts,
+          stale: true,
+        };
+        return _certStatusSnapshot;
+      }
+      _certStatusSnapshot = { at: Date.now(), ok: false, counts: new Map() };
+      return _certStatusSnapshot;
+    }
+
+    try {
+      await promoteActiveStandbys(result.counts);
+    } catch (e) {
+      console.error("[MUTUAL AID] standby promotion failed:", e?.message || e);
+    }
+
+    _certStatusSnapshot = {
+      at: Date.now(),
+      ok: true,
+      counts: result.counts instanceof Map ? result.counts : new Map(),
+      stale: false,
+    };
+    return _certStatusSnapshot;
+  })().finally(() => {
+    _certStatusRefresh = null;
+  });
+
+  return _certStatusRefresh;
+}
+
+function attachCertStatus(item, snapshot) {
+  return {
+    ...item,
+    ...mutualAidStatus.certStatusForUsername(item?.username, snapshot),
+  };
+}
+
+async function listForUserWithCertStatus(authUser) {
+  const snapshot = await refreshCertActivity();
+  return listForUser(authUser).map((item) => attachCertStatus(item, snapshot));
+}
+
+async function getBannerStatsForUser(authUser) {
+  const items = await listForUserWithCertStatus(authUser);
+  return mutualAidStatus.summarizeMutualAidBanners(items);
+}
+
+function startCertStatusScheduler() {
+  if (_certStatusTimer) return;
+  const tick = () => {
+    refreshCertActivity().catch((e) => {
+      console.warn("[MUTUAL AID] certificate status check failed:", e?.message || e);
+    });
+  };
+  _certStatusTimer = setInterval(tick, CERT_STATUS_INTERVAL_MS);
+  if (typeof _certStatusTimer.unref === "function") _certStatusTimer.unref();
+  tick();
+  console.log("[MUTUAL AID] checking client certificates every 60s");
+}
+
 module.exports = {
   initExpirationScheduler,
+  startCertStatusScheduler,
   list,
   listForUser,
+  listForUserWithCertStatus,
+  getBannerStatsForUser,
   create,
   createLinkedUser,
   createLinkedUsers,
