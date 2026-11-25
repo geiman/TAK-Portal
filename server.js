@@ -263,6 +263,7 @@ function pageTitleForPath(pathname, portalTitle, serverAbbrev) {
     ["/plugin-manager", "Plugin Manager"],
     ["/cloudtak-marketplace", "CloudTAK Plugin Marketplace"],
     ["/access-control", "Access Control"],
+    ["/settings/api-tokens", "API Tokens"],
     ["/settings", "Server Settings"],
     ["/plugins", "ATAK Plugins"],
     ["/map", liveMapTitle],
@@ -345,6 +346,15 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// Token-authenticated API for scripts / local AI agents (tools/mcp-server).
+// Mounted before Authentik header auth: identity headers are ignored here and
+// every request must carry a portal API token. See docs/API-AND-MCP.md.
+app.use(
+  "/api/v1",
+  require("./services/apiTokenAuth.middleware"),
+  require("./routes/apiV1.routes")
+);
 
 // >>> Enforce optional Authentik/group access control <<<
 // Public paths that must remain reachable without Authentik forward_auth
@@ -966,6 +976,18 @@ app.use("/dashboard", require("./routes/dashboard.routes"));
 // Access control (per-user permission deny overrides)
 app.get("/access-control", requirePermission("page.access_control"), (req, res) =>
   res.render("access-control")
+);
+app.get("/settings/api-tokens", requireGlobalAdminRole, (req, res) => {
+  const agencies = require("./services/agencies.service")
+    .load()
+    .map((a) => ({ name: a.name, suffix: a.suffix, abbreviation: a.groupPrefix || "" }))
+    .sort((x, y) => String(x.name).localeCompare(String(y.name)));
+  res.render("api-tokens", { agencies });
+});
+app.use(
+  "/api/settings/api-tokens",
+  requireGlobalAdminRole,
+  require("./routes/apiTokensAdmin.routes")
 );
 app.use(
   "/api/access-control",

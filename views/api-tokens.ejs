@@ -1,0 +1,213 @@
+<%- include("partials/header") %>
+<%- include("partials/sidebar") %>
+
+<main class="main">
+  <h1>API Tokens</h1>
+
+  <style>
+    .apit-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; align-items: end; }
+    .apit-grid label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+    .apit-grid input, .apit-grid select { width: 100%; box-sizing: border-box; }
+    .apit-checks { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 12px; }
+    .apit-checks label { display: flex; gap: 6px; align-items: center; }
+    .apit-agencies { max-height: 220px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 8px; margin-top: 8px; }
+    .apit-agencies label { display: flex; gap: 6px; align-items: center; padding: 2px 0; }
+    .apit-table { width: 100%; border-collapse: collapse; }
+    .apit-table th, .apit-table td { padding: 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    .apit-token { font-family: ui-monospace, Menlo, monospace; word-break: break-all; padding: 10px; border: 1px solid var(--line); border-radius: 8px; margin: 8px 0; }
+    .apit-status-active { color: #3fb950; }
+    .apit-status-revoked, .apit-status-expired { opacity: .7; }
+    .apit-hint { opacity: .8; font-size: .92em; }
+  </style>
+
+  <div class="card">
+    <p class="apit-hint">
+      API tokens let scripts and local AI agents (through the TAK Portal MCP server) create users,
+      and optionally agencies and mutual aid, without signing in to Authentik. A token is never a
+      global admin: it acts as an agency admin for the agencies you choose, can only create regular
+      users, and every action it takes appears in the Audit Log under the token's name.
+      The token API is reachable only if your reverse proxy routes <code>/api/v1/*</code> to the portal
+      (see docs/API-AND-MCP.md).
+    </p>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0;">Create a token</h2>
+    <form id="apitForm" autocomplete="off">
+      <div class="apit-grid">
+        <label>Name
+          <input id="apitName" maxlength="80" placeholder="e.g. Matt's Mac - local LLM" required />
+        </label>
+        <label>Expires
+          <select id="apitExpires">
+            <option value="30">In 30 days</option>
+            <option value="90" selected>In 90 days</option>
+            <option value="365">In 1 year</option>
+            <option value="">Never</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="apit-checks">
+        <label><input type="checkbox" id="apitAll" /> All agencies (including agencies added later)</label>
+        <label><input type="checkbox" id="apitAgencies" disabled /> Can create agencies (All agencies only)</label>
+        <label><input type="checkbox" id="apitMutualAid" /> Can create mutual aid</label>
+      </div>
+
+      <div id="apitAgencyPick">
+        <div class="apit-hint" style="margin-top:12px;">Agencies this token may create users in:</div>
+        <div class="apit-agencies">
+          <% (agencies || []).forEach(function (a) { %>
+            <label><input type="checkbox" class="apitAgencyChk" value="<%= a.suffix %>" />
+              <%= a.name %><% if (a.abbreviation) { %> (<%= a.abbreviation %>)<% } %></label>
+          <% }) %>
+          <% if (!agencies || !agencies.length) { %><div class="apit-hint">No agencies yet.</div><% } %>
+        </div>
+      </div>
+
+      <div style="margin-top:12px; display:flex; gap:8px; align-items:center;">
+        <button type="submit" class="btn success" id="apitCreateBtn">Create token</button>
+        <span id="apitFormMsg" class="apit-hint"></span>
+      </div>
+    </form>
+
+    <div id="apitNew" style="display:none; margin-top:16px;">
+      <strong>Copy this token now. It will not be shown again.</strong>
+      <div class="apit-token" id="apitNewToken"></div>
+      <button type="button" class="btn" id="apitCopyBtn">Copy</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
+      <h2 style="margin:0;">Tokens</h2>
+      <button type="button" class="btn danger" id="apitRevokeAll">Revoke all</button>
+    </div>
+    <div style="overflow:auto; margin-top:12px;">
+      <table class="apit-table listCardTable">
+        <thead>
+          <tr><th>Name</th><th>Scope</th><th>Can create</th><th>Created</th><th>Expires</th><th>Last used</th><th>Status</th><th></th></tr>
+        </thead>
+        <tbody id="apitRows"><tr><td colspan="8">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script>
+(function () {
+  const agencyNames = <%- JSON.stringify(Object.fromEntries((agencies || []).map(function (a) { return [a.suffix, a.name]; }))).replace(/</g, "\\u003c") %>;
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const fmt = (d) => (d ? new Date(d).toLocaleString() : "—");
+
+  function syncScopeUi() {
+    const all = $("apitAll").checked;
+    $("apitAgencyPick").style.display = all ? "none" : "";
+    $("apitAgencies").disabled = !all;
+    if (!all) $("apitAgencies").checked = false;
+  }
+  $("apitAll").addEventListener("change", syncScopeUi);
+  syncScopeUi();
+
+  async function api(path, opts) {
+    const r = await fetch(path, Object.assign({ headers: { "Content-Type": "application/json" } }, opts || {}));
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(body.error || ("Request failed (" + r.status + ")"));
+    return body;
+  }
+
+  async function load() {
+    try {
+      const { items } = await api("/api/settings/api-tokens");
+      const rows = (items || []).map((t) => {
+        const scope = t.allAgencies ? "All agencies" : (t.agencySuffixes || []).map((s) => esc(agencyNames[s] || s)).join(", ");
+        const can = ["users"].concat(t.canCreateAgencies ? ["agencies"] : [], t.canCreateMutualAid ? ["mutual aid"] : []).join(", ");
+        const action = t.status === "active"
+          ? '<button type="button" class="btn danger apitRevoke" data-id="' + esc(t.id) + '" data-name="' + esc(t.name) + '">Revoke</button>'
+          : "";
+        return "<tr>" +
+          "<td>" + esc(t.name) + '<div class="apit-hint">' + esc(t.tokenPrefix) + "…</div></td>" +
+          "<td>" + scope + "</td>" +
+          "<td>" + esc(can) + "</td>" +
+          "<td>" + esc(fmt(t.createdAt)) + '<div class="apit-hint">' + esc(t.createdBy || "") + "</div></td>" +
+          "<td>" + esc(t.expiresAt ? fmt(t.expiresAt) : "Never") + "</td>" +
+          "<td>" + esc(fmt(t.lastUsedAt)) + "</td>" +
+          '<td class="apit-status-' + esc(t.status) + '">' + esc(t.status) + "</td>" +
+          "<td>" + action + "</td>" +
+          "</tr>";
+      });
+      $("apitRows").innerHTML = rows.length ? rows.join("") : '<tr><td colspan="8">No tokens yet.</td></tr>';
+    } catch (e) {
+      $("apitRows").innerHTML = '<tr><td colspan="8">' + esc(e.message) + "</td></tr>";
+    }
+  }
+
+  $("apitForm").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    $("apitFormMsg").textContent = "";
+    $("apitCreateBtn").disabled = true;
+    try {
+      const all = $("apitAll").checked;
+      const body = {
+        name: $("apitName").value,
+        expiresInDays: $("apitExpires").value,
+        allAgencies: all,
+        agencySuffixes: all ? [] : Array.from(document.querySelectorAll(".apitAgencyChk:checked")).map((x) => x.value),
+        canCreateAgencies: all && $("apitAgencies").checked,
+        canCreateMutualAid: $("apitMutualAid").checked,
+      };
+      const out = await api("/api/settings/api-tokens", { method: "POST", body: JSON.stringify(body) });
+      $("apitNewToken").textContent = out.token;
+      $("apitNew").style.display = "";
+      $("apitForm").reset();
+      syncScopeUi();
+      load();
+    } catch (e) {
+      $("apitFormMsg").textContent = e.message;
+    } finally {
+      $("apitCreateBtn").disabled = false;
+    }
+  });
+
+  $("apitCopyBtn").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText($("apitNewToken").textContent);
+      $("apitCopyBtn").textContent = "Copied";
+    } catch (_) {
+      const range = document.createRange();
+      range.selectNodeContents($("apitNewToken"));
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+  });
+
+  $("apitRows").addEventListener("click", async (ev) => {
+    const btn = ev.target.closest(".apitRevoke");
+    if (!btn) return;
+    if (!confirm('Revoke token "' + btn.dataset.name + '"? Anything using it stops working right away.')) return;
+    try {
+      await api("/api/settings/api-tokens/" + encodeURIComponent(btn.dataset.id) + "/revoke", { method: "POST" });
+      load();
+    } catch (e) {
+      alert(e.message);
+    }
+  });
+
+  $("apitRevokeAll").addEventListener("click", async () => {
+    if (!confirm("Revoke every API token? Anything using them stops working right away.")) return;
+    try {
+      await api("/api/settings/api-tokens/revoke-all", { method: "POST" });
+      load();
+    } catch (e) {
+      alert(e.message);
+    }
+  });
+
+  load();
+})();
+</script>
+</div>
+</body>
+</html>

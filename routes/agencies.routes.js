@@ -484,6 +484,11 @@ async function createAgencyFromPayload(body, opts = {}) {
     throw e;
   }
 
+  // Validate-only mode (API /api/v1): all checks passed, nothing written.
+  if (opts.dryRun === true) {
+    return { dryRun: true, preview: a };
+  }
+
   try {
     await ensureAgencyAdminGroupExists(a);
     autoCreateResult = await autoCreateGroupsSvc.ensureAutoCreateGroupsForAgency(

@@ -1,0 +1,19 @@
+{
+  "name": "tak-portal-mcp",
+  "version": "0.1.0",
+  "description": "MCP server that lets a local AI agent create TAK Portal users, agencies and mutual aid through the portal's token API.",
+  "type": "module",
+  "bin": { "tak-portal-mcp": "server.js" },
+  "main": "server.js",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test.js"
+  },
+  "license": "AGPL-3.0",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "exceljs": "4.4.0",
+    "zod": "4.6.7"
+  }
+}

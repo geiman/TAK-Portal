@@ -1512,6 +1512,42 @@ async function createUser(
   const folderRaw = String(getString("AUTHENTIK_USER_PATH", "")).trim();
   if (folderRaw) payload.path = normalizePath(folderRaw);
 
+  // Validate-only mode (API /api/v1 and the MCP server): every check above has
+  // run, nothing has been written. Report what would be created.
+  if (opts.dryRun === true) {
+    const warnings = [];
+    if (templateNameRaw !== "Manual Group Selection") {
+      const tpl = dynTemplates.find(t =>
+        String(t.name || "").trim().toLowerCase() === templateNameRaw.toLowerCase()
+      );
+      const missing = (tpl?.groups || []).filter(
+        (n) => !byNameLower.has(String(n).trim().toLowerCase())
+      );
+      if (missing.length) {
+        warnings.push(`Template groups not found and will be skipped: ${missing.join(", ")}`);
+      }
+    }
+    if (!mail && !pwd) {
+      warnings.push("No email and no password: the user gets no onboarding email and cannot sign in until a password is set.");
+    }
+    return {
+      dryRun: true,
+      preview: {
+        username,
+        name,
+        email: mail || null,
+        agencySuffix: agency.suffix,
+        agencyName: agency.name,
+        template: templateNameUsed,
+        role: resolvedRole,
+        radioCallsign: radioCall || null,
+        groups: groupsToApply.map((g) => g.name),
+        password: pwd ? "provided" : mail ? "set by user from onboarding email" : "none",
+      },
+      warnings,
+    };
+  }
+
   const groupPks = groupsToApply.map((g) => String(g.pk));
   const wait = opts.waitForOutbox !== false && opts.bulk !== true;
 
