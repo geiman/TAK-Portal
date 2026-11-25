@@ -130,7 +130,8 @@
       const canSeeSettingsAdminLinks =
         _settingsPerm("page.audit_log") ||
         _settingsPerm("page.plugin_manager") ||
-        _settingsPerm("page.access_control");
+        _settingsPerm("page.access_control") ||
+        (typeof isGlobalAdmin !== "undefined" && isGlobalAdmin);
     %>
     <% if (canSeeSettingsAdminLinks) { %>
     <section class="settings-hub-category" aria-labelledby="settingsCatAdmin">
@@ -152,6 +153,11 @@
         <% if (_settingsPerm("page.access_control")) { %>
         <a href="/access-control" class="settings-hub-card">
           <span class="settings-hub-card-main"><span class="settings-hub-card-title">Access Control</span></span>
+        </a>
+        <% } %>
+        <% if (typeof isGlobalAdmin !== "undefined" && isGlobalAdmin) { %>
+        <a href="/settings/api-tokens" class="settings-hub-card">
+          <span class="settings-hub-card-main"><span class="settings-hub-card-title">API Tokens</span></span>
         </a>
         <% } %>
       </div>

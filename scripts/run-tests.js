@@ -65,6 +65,7 @@ const TEST_FILES = [
   "setupDeviceAccess.test.js",
   "activeUserGate.test.js",
   "appVersion.test.js",
+  "apiTokens.test.js",
 ];
 
 const testsDir = path.join(__dirname, "..", "tests");
